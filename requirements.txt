@@ -15,3 +15,4 @@ growattServer
 # Inne przydatne (opcjonalne, ale polecam na przyszłość)
 # requests        # Do API, które nie mają własnej biblioteki
 # pandas          # Do analizy danych (jeśli będziesz robił raporty)
+requests

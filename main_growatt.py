@@ -69,20 +69,24 @@ for plant in plants:
 rows.append([])
 rows.append(['RAZEM', '', round(total_energy, 3)])
 
-# Zapis do Google Sheets (ten sam kod co wcześniej)
-print("Zapisywanie do Google Sheets...")
+# Zapis do Google Sheets – przez ID (pewniejsze)
+print("Łączenie z Google Sheets przez ID...")
+
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
-sheet = client.open(GOOGLE_SHEET_NAME)
+SHEET_ID = '16rzpz5gvzSh4WdBQ2qv7pD_EY0V7r0IrvfKVj1Fl0wk'  # <--- wklej tutaj ID z URL
+
+sheet = client.open_by_key(SHEET_ID)
+
 try:
     worksheet = sheet.worksheet('Growatt')
+    print("Zakładka 'Growatt' znaleziona")
 except gspread.WorksheetNotFound:
     worksheet = sheet.add_worksheet(title='Growatt', rows=1000, cols=10)
+    print("Utworzono nową zakładkę 'Growatt'")
 
-worksheet.append_rows(rows)
 
-print(f"SUKCES! Zapisano dane – łącznie {round(total_energy, 3)} kWh")
-print("=== Koniec ===")
+

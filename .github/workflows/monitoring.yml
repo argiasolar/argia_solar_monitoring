@@ -23,8 +23,7 @@ jobs:
 
       - name: Run monitoring
         env:
-          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
-          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SHEET_NAME: ARGA Solar
         run: python main.py

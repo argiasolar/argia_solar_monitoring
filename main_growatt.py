@@ -9,7 +9,7 @@ print("=== Start: Growatt Monitoring (API Token) ===")
 
 # API Token z GitHub Secrets (dodamy nowy secret)
 API_TOKEN = os.environ['GROWATT_API_TOKEN']
-GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'ARGA Solar')
+GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'ARGIA Solar')
 
 # Data wczorajsza
 yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')

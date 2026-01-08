@@ -7,14 +7,17 @@ import gspread
 
 print("=== Start: SolarEdge Monitoring ===")
 
+# API Key z GitHub Secrets
 SOLAREDGE_API_KEY = os.environ['SOLAREDGE_API_KEY']
 SHEET_ID = os.environ['GOOGLE_SHEET_ID']
 
+# Twoje instalacje SolarEdge
 SOLAREDGE_SITES = {
     'Hirschmann': '4362085',
     'Tetrapak': '4146396'
 }
 
+# Data wczorajsza
 yesterday = (datetime.date.today() - datetime.timedelta(days=1))
 start_date = yesterday.strftime('%Y-%m-%d')
 end_date = yesterday.strftime('%Y-%m-%d')
@@ -49,7 +52,7 @@ for name, site_id in SOLAREDGE_SITES.items():
         data = response.json()
         try:
             daily_energy_wh = data['energyDetails']['meters'][0]['values'][0]['value']
-            daily_energy = round(daily_energy_wh / 1000, 3)
+            daily_energy = round(daily_energy_wh / 1000, 3)  # Wh → kWh
         except (KeyError, IndexError, TypeError):
             print(f"  Brak danych produkcji dla {name}")
             daily_energy = 0.0
@@ -60,12 +63,13 @@ for name, site_id in SOLAREDGE_SITES.items():
 rows.append([])
 rows.append(['SUMA', '', round(total_energy, 3)])
 
+# Wiersze testowe – żebyś widział, że działa
 rows.append([])
 rows.append(["=== TEST ZAPISU – SKRYPT SOLAREDGE DZIAŁA! ===", "", ""])
 rows.append(["Data testu", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "UTC"])
 rows.append(["Liczba instalacji SolarEdge", len(SOLAREDGE_SITES), ""])
 
-# Zapis do Google Sheets – niezawodna wersja
+# Zapis do Google Sheets – zakładka 'SolarEdge' zawsze istnieje
 print("Zapisywanie danych SolarEdge do arkusza...")
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -74,21 +78,9 @@ client = gspread.authorize(creds)
 
 sheet = client.open_by_key(SHEET_ID)
 
-# Odśwież listę zakładek
-sheet.fetch_sheet_metadata()
-worksheets = sheet.worksheets()
-
-worksheet = None
-for ws in worksheets:
-    if ws.title == 'SolarEdge':
-        worksheet = ws
-        print("Zakładka 'SolarEdge' znaleziona")
-        break
-
-if worksheet is None:
-    print("Zakładka 'SolarEdge' nie istnieje – tworzę nową...")
-    worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
-    print("Utworzono nową zakładkę 'SolarEdge'")
+# Zakładka SolarEdge zawsze istnieje – używamy jej bezpośrednio
+worksheet = sheet.worksheet('SolarEdge')
+print("Zakładka 'SolarEdge' znaleziona – dopisuję dane")
 
 worksheet.append_rows(rows)
 print("Dane SolarEdge zapisane pomyślnie!")

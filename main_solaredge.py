@@ -9,7 +9,7 @@ print("=== Start: SolarEdge Monitoring ===")
 
 # API Key z GitHub Secrets
 SOLAREDGE_API_KEY = os.environ['SOLAREDGE_API_KEY']
-SHEET_ID = os.environ['GOOGLE_SHEET_ID']  # to samo ID co Growatt i Huawei
+SHEET_ID = os.environ['GOOGLE_SHEET_ID']
 
 # Twoje instalacje SolarEdge
 SOLAREDGE_SITES = {
@@ -78,12 +78,21 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 sheet = client.open_by_key(SHEET_ID)
+
+# Poprawka na istniejącą zakładkę
 try:
     worksheet = sheet.worksheet('SolarEdge')
     print("Zakładka 'SolarEdge' znaleziona")
 except gspread.WorksheetNotFound:
-    worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
-    print("Utworzono nową zakładkę 'SolarEdge'")
+    try:
+        worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
+        print("Utworzono nową zakładkę 'SolarEdge'")
+    except gspread.exceptions.APIError as e:
+        if "already exists" in str(e).lower():
+            worksheet = sheet.worksheet('SolarEdge')
+            print("Zakładka 'SolarEdge' już istniała – użyto istniejącej")
+        else:
+            raise e
 
 worksheet.append_rows(rows)
 print("Dane SolarEdge zapisane pomyślnie!")

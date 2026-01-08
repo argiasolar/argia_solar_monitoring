@@ -7,17 +7,14 @@ import gspread
 
 print("=== Start: SolarEdge Monitoring ===")
 
-# API Key z GitHub Secrets
 SOLAREDGE_API_KEY = os.environ['SOLAREDGE_API_KEY']
 SHEET_ID = os.environ['GOOGLE_SHEET_ID']
 
-# Twoje instalacje SolarEdge
 SOLAREDGE_SITES = {
     'Hirschmann': '4362085',
     'Tetrapak': '4146396'
 }
 
-# Data wczorajsza
 yesterday = (datetime.date.today() - datetime.timedelta(days=1))
 start_date = yesterday.strftime('%Y-%m-%d')
 end_date = yesterday.strftime('%Y-%m-%d')
@@ -51,9 +48,8 @@ for name, site_id in SOLAREDGE_SITES.items():
     else:
         data = response.json()
         try:
-            # SolarEdge zwraca wartość w Wh
             daily_energy_wh = data['energyDetails']['meters'][0]['values'][0]['value']
-            daily_energy = round(daily_energy_wh / 1000, 3)  # Wh → kWh
+            daily_energy = round(daily_energy_wh / 1000, 3)
         except (KeyError, IndexError, TypeError):
             print(f"  Brak danych produkcji dla {name}")
             daily_energy = 0.0
@@ -64,13 +60,12 @@ for name, site_id in SOLAREDGE_SITES.items():
 rows.append([])
 rows.append(['SUMA', '', round(total_energy, 3)])
 
-# Wiersze testowe
 rows.append([])
 rows.append(["=== TEST ZAPISU – SKRYPT SOLAREDGE DZIAŁA! ===", "", ""])
 rows.append(["Data testu", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "UTC"])
 rows.append(["Liczba instalacji SolarEdge", len(SOLAREDGE_SITES), ""])
 
-# Zapis do Google Sheets – niezawodna obsługa zakładki z odświeżeniem
+# Zapis do Google Sheets – niezawodna wersja
 print("Zapisywanie danych SolarEdge do arkusza...")
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']

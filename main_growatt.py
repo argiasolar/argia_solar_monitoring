@@ -23,16 +23,25 @@ headers = {
 # 1. Lista plantów
 plant_list_url = f"{base_url}/plant/list"
 response = requests.get(plant_list_url, headers=headers)
-response.raise_for_status()
-plants_data = response.json()
+
+if response.status_code != 200:
+    print(f"Błąd pobierania listy instalacji: {response.status_code} – {response.text}")
+    raise Exception("Nie udało się pobrać listy instalacji")
+
+try:
+    plants_data = response.json()
+except json.JSONDecodeError:
+    print("Błąd parsowania JSON z listy instalacji")
+    print("Odpowiedź:", response.text)
+    raise
 
 plants = plants_data.get('data', {}).get('plants', [])
 if not plants:
-    raise Exception("Nie znaleziono instalacji – sprawdź token")
+    raise Exception("Nie znaleziono instalacji – sprawdź token lub odpowiedź API")
 
 print(f"Znaleziono {len(plants)} instalacji")
 
-# Przygotowanie wierszy z danymi (produkcja będzie 0 kWh przy tokenie end-user)
+# Przygotowanie wierszy
 rows = []
 rows.append([yesterday, f"Data pobrania: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} (UTC)"])
 rows.append([])
@@ -68,24 +77,24 @@ for plant in plants:
 rows.append([])
 rows.append(['RAZEM', '', round(total_energy, 3)])
 
-# Dodatkowe wyraźne wiersze testowe – żebyś od razu widział zapis
+# Dodatkowe wyraźne wiersze testowe – żebyś widział zapis
 rows.append([])
-rows.append(["=== TEST ZAPISU – SKRYPT DZIAŁA! ===", "", ""])
+rows.append(["*****************************************", "", ""])
+rows.append(["*** SKRYPT GROWATT DZIAŁA – ZAPIS UDANY! ***", "", ""])
+rows.append(["*****************************************", "", ""])
 rows.append(["Data testu", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "UTC"])
 rows.append(["Liczba instalacji", len(plants), ""])
-rows.append(["Uwaga", "Produkcja = 0 kWh – token z ShinePhone nie daje dostępu do danych dziennych", ""])
+rows.append(["Uwaga", "Produkcja = 0 kWh – token end-user nie daje dostępu do historii", ""])
 rows.append(["Rozwiązanie", "Poproś Growatt o token instalatora (przez oss.growatt.com)", ""])
 
-# Zapis do Google Sheets – przez ID arkusza
+# Zapis do Google Sheets przez ID
 print("Łączenie z Google Sheets przez ID...")
-
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
-# Zmień na swoje ID arkusza ARGIA Solar (z URL: https://docs.google.com/spreadsheets/d/TWOJE_ID/edit)
-SHEET_ID = '16rzpz5gvzSh4WdBQ2qv7pD_EY0V7r0IrvfKVj1Fl0wk'
+SHEET_ID = '16rzpz5gvzSh4WdBQ2qv7pD_EY0V7r0IrvfKVj1Fl0wk'  # Twoje ID arkusza ARGIA Solar
 
 sheet = client.open_by_key(SHEET_ID)
 

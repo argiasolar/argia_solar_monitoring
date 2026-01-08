@@ -26,6 +26,7 @@ jobs:
           GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          SOLAREDGE_API_KEY: ${{ secrets.SOLAREDGE_API_KEY }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SHEET_NAME: ARGA Solar
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}

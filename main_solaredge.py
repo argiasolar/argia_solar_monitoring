@@ -78,28 +78,25 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 sheet = client.open_by_key(SHEET_ID)
+# Odśwież listę zakładek, żeby uniknąć cache
+    sheet.fetch_sheet_metadata()
+    worksheets = sheet.worksheets()
 
-# Zawsze spróbuj znaleźć zakładkę – jeśli nie ma, utwórz
-worksheet = None
-try:
-    worksheet = sheet.worksheet('SolarEdge')
-    print("Zakładka 'SolarEdge' znaleziona")
-except gspread.WorksheetNotFound:
-    print("Zakładka 'SolarEdge' nie istnieje – tworzę nową...")
-    try:
+    worksheet = None
+    for ws in worksheets:
+        if ws.title == 'SolarEdge':
+            worksheet = ws
+            print("Zakładka 'SolarEdge' znaleziona")
+            break
+
+    if worksheet is None:
+        print("Zakładka 'SolarEdge' nie istnieje – tworzę nową...")
         worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
         print("Utworzono nową zakładkę 'SolarEdge'")
-    except gspread.exceptions.APIError as e:
-        if "already exists" in str(e).lower():
-            # Zakładka powstała w międzyczasie – spróbuj znaleźć ponownie
-            worksheet = sheet.worksheet('SolarEdge')
-            print("Zakładka 'SolarEdge' już istniała – użyto istniejącej")
-        else:
-            raise e
 
-# Zapis danych
-worksheet.append_rows(rows)
-print("Dane SolarEdge zapisane pomyślnie!")
+    worksheet.append_rows(rows)
+    print("Dane SolarEdge zapisane pomyślnie!")
+
 
 print(f"SUKCES! Raport SolarEdge za {start_date} gotowy (łącznie {round(total_energy, 3)} kWh)")
 print("=== Koniec SolarEdge Monitoring ===")

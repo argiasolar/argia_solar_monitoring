@@ -70,7 +70,7 @@ rows.append(["=== TEST ZAPISU – SKRYPT SOLAREDGE DZIAŁA! ===", "", ""])
 rows.append(["Data testu", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "UTC"])
 rows.append(["Liczba instalacji SolarEdge", len(SOLAREDGE_SITES), ""])
 
-# Zapis do Google Sheets
+# Zapis do Google Sheets – niezawodna obsługa istniejącej zakładki
 print("Zapisywanie danych SolarEdge do arkusza...")
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -79,21 +79,25 @@ client = gspread.authorize(creds)
 
 sheet = client.open_by_key(SHEET_ID)
 
-# Poprawka na istniejącą zakładkę
+# Zawsze spróbuj znaleźć zakładkę – jeśli nie ma, utwórz
+worksheet = None
 try:
     worksheet = sheet.worksheet('SolarEdge')
     print("Zakładka 'SolarEdge' znaleziona")
 except gspread.WorksheetNotFound:
+    print("Zakładka 'SolarEdge' nie istnieje – tworzę nową...")
     try:
         worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
         print("Utworzono nową zakładkę 'SolarEdge'")
     except gspread.exceptions.APIError as e:
         if "already exists" in str(e).lower():
+            # Zakładka powstała w międzyczasie – spróbuj znaleźć ponownie
             worksheet = sheet.worksheet('SolarEdge')
             print("Zakładka 'SolarEdge' już istniała – użyto istniejącej")
         else:
             raise e
 
+# Zapis danych
 worksheet.append_rows(rows)
 print("Dane SolarEdge zapisane pomyślnie!")
 

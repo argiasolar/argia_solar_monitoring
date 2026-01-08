@@ -70,7 +70,7 @@ rows.append(["=== TEST ZAPISU – SKRYPT SOLAREDGE DZIAŁA! ===", "", ""])
 rows.append(["Data testu", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "UTC"])
 rows.append(["Liczba instalacji SolarEdge", len(SOLAREDGE_SITES), ""])
 
-# Zapis do Google Sheets – niezawodna obsługa istniejącej zakładki
+# Zapis do Google Sheets – niezawodna obsługa zakładki z odświeżeniem
 print("Zapisywanie danych SolarEdge do arkusza...")
 creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -78,25 +78,25 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 sheet = client.open_by_key(SHEET_ID)
-# Odśwież listę zakładek, żeby uniknąć cache
-    sheet.fetch_sheet_metadata()
-    worksheets = sheet.worksheets()
 
-    worksheet = None
-    for ws in worksheets:
-        if ws.title == 'SolarEdge':
-            worksheet = ws
-            print("Zakładka 'SolarEdge' znaleziona")
-            break
+# Odśwież listę zakładek
+sheet.fetch_sheet_metadata()
+worksheets = sheet.worksheets()
 
-    if worksheet is None:
-        print("Zakładka 'SolarEdge' nie istnieje – tworzę nową...")
-        worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
-        print("Utworzono nową zakładkę 'SolarEdge'")
+worksheet = None
+for ws in worksheets:
+    if ws.title == 'SolarEdge':
+        worksheet = ws
+        print("Zakładka 'SolarEdge' znaleziona")
+        break
 
-    worksheet.append_rows(rows)
-    print("Dane SolarEdge zapisane pomyślnie!")
+if worksheet is None:
+    print("Zakładka 'SolarEdge' nie istnieje – tworzę nową...")
+    worksheet = sheet.add_worksheet(title='SolarEdge', rows=1000, cols=10)
+    print("Utworzono nową zakładkę 'SolarEdge'")
 
+worksheet.append_rows(rows)
+print("Dane SolarEdge zapisane pomyślnie!")
 
 print(f"SUKCES! Raport SolarEdge za {start_date} gotowy (łącznie {round(total_energy, 3)} kWh)")
 print("=== Koniec SolarEdge Monitoring ===")

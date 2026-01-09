@@ -2,8 +2,8 @@ name: Argia Solar Daily Monitoring
 
 on:
   schedule:
-    - cron: '0 14 * * *'  # Codziennie o 14:00 UTC → 8:00 rano czasu Mexico (UTC-6 w zimie)
-  workflow_dispatch:      # Pozwala uruchomić ręcznie przyciskiem
+    - cron: '0 14 * * *'  # Codziennie o 14:00 UTC = 8:00 rano czasu Mexico (UTC-6 w zimie)
+  workflow_dispatch:      # Pozwala uruchomić ręcznie
 
 jobs:
   run-monitoring:
@@ -21,15 +21,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run monitoring
+      - name: Run all monitoring scripts
         env:
+          # Growatt
           GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
+
+          # Huawei
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
-          SOLAREDGE_API_KEY: ${{ secrets.SOLAREDGE_API_KEY }}
+
+          # SolarEdge (dwa różne klucze dla dwóch firm)
           SOLAREDGE_API_KEY_HIRSCHMANN: ${{ secrets.SOLAREDGE_API_KEY_HIRSCHMANN }}
           SOLAREDGE_API_KEY_TETRAPAK: ${{ secrets.SOLAREDGE_API_KEY_TETRAPAK }}
+
+          # Google Sheets – wspólne dla wszystkich
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          GOOGLE_SHEET_NAME: ARGA Solar
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
+
         run: python main.py

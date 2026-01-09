@@ -31,7 +31,7 @@ rows.append([
     'Max temp (°C)', 
     'Min temp (°C)', 
     'Suma opadów (mm)', 
-    'Suma irradiancji (kWh/m²)', 
+    'Irradiancja (kWh/m²)', 
     'Średnia prędkość wiatru (km/h)'
 ])
 
@@ -56,13 +56,16 @@ for name, coords in AIRPORTS.items():
         data = response.json()
         daily = data.get('daily', {})
 
+        irradiance_mj = daily.get('shortwave_radiation_sum', [0])[0] or 0
+        irradiance_kwh = round(irradiance_mj / 3.6, 2)  # MJ/m² → kWh/m²
+
         row = [
             name,
             round(daily.get('temperature_2m_mean', [0])[0], 1),
             round(daily.get('temperature_2m_max', [0])[0], 1),
             round(daily.get('temperature_2m_min', [0])[0], 1),
             round(daily.get('precipitation_sum', [0])[0], 1),
-            round(daily.get('shortwave_radiation_sum', [0])[0] / 3.6, 2),  # MJ/m² → kWh/m²
+            irradiance_kwh,
             round(daily.get('wind_speed_10m_mean', [0])[0], 1)
         ]
 

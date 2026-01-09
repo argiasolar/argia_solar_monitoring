@@ -13,7 +13,7 @@ HUAWEI_PASSWORD = os.environ['HUAWEI_PASSWORD']
 SHEET_ID = os.environ['GOOGLE_SHEET_ID']
 
 # Żądane nazwy plantów Huawei
-DESIRED_PLANT_NAMES = ['SAG', 'VITALMEX']  # <-- jeśli masz inne nazwy, zmień tutaj
+DESIRED_PLANT_NAMES = ['SAG', 'VITALMEX']  # <-- jeśli masz inne, zmień tutaj
 
 # Data wczorajsza
 yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
@@ -77,4 +77,70 @@ else:
 
     # Budowanie wierszy – WSZYSTKO z dokładnie 7 kolumnami
     rows = []
-    rows.append([yesterday, f"Data pob
+    rows.append([yesterday, f"Data pobrania: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} (UTC)", '', '', '', '', ''])
+    rows.append(['', '', '', '', '', '', ''])
+    rows.append(['Instalacja', 'Moc (kW)', 'Produkcja wczoraj (kWh)', 'Irradiancja (kWh/m²)', 'Śr. temp (°C)', 'Planowana (kWh)', 'KPI (%)'])
+
+    total_actual = 0
+    total_planned = 0
+
+    for item in kpi_data:
+        code = item['stationCode']
+        plant_name = next((n for n, i in plant_info.items() if i['stationCode'] == code), None)
+        if not plant_name:
+            continue
+
+        info = plant_info[plant_name]
+        daily_energy = item['dataItemMap'].get('day_power', 0)  # kWh
+
+        # Open-Meteo – irradiancja i temperatura
+        meteo_url = f"https://archive-api.open-meteo.com/v1/archive?latitude={info['lat']}&longitude={info['long']}&start_date={yesterday}&end_date={yesterday}&daily=shortwave_radiation_sum,temperature_2m_mean&timezone=America%2FMexico_City"
+        meteo_resp = requests.get(meteo_url)
+        meteo_json = meteo_resp.json()
+
+        irradiance_mj = meteo_json['daily']['shortwave_radiation_sum'][0] or 0
+        irradiance_kwh = round(irradiance_mj / 3.6, 2)
+        avg_temp = round(meteo_json['daily']['temperature_2m_mean'][0] or 25, 1)
+
+        # Planowana produkcja z korektą temperatury
+        base_efficiency = 0.85
+        temp_loss = max(avg_temp - 25, 0) * 0.004
+        efficiency = base_efficiency * (1 - temp_loss)
+        planned = round(irradiance_kwh * info['capacity'] * efficiency, 2)
+
+        kpi = round((daily_energy / planned * 100), 2) if planned > 0 else 0
+
+        rows.append([plant_name, info['capacity'], daily_energy, irradiance_kwh, avg_temp, planned, f"{kpi}%"])
+
+        total_actual += daily_energy
+        total_planned += planned
+
+    # Suma – dokładnie 7 kolumn
+    rows.append(['', '', '', '', '', '', ''])
+    rows.append(['SUMA', '', total_actual, '', '', total_planned, ''])
+
+    # Testowe wiersze – też 7 kolumn
+    rows.append(['', '', '', '', '', '', ''])
+    rows.append(['=== TEST ZAPISU – SKRYPT HUAWEI DZIAŁA! ===', '', '', '', '', '', ''])
+    rows.append(['Data testu', datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), '', '', '', '', 'UTC'])
+    rows.append(['Liczba instalacji', len(plant_info), '', '', '', '', ''])
+
+    # Zapis do Google Sheets
+    print("Zapisywanie danych Huawei do arkusza...")
+    creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+
+    sheet = client.open_by_key(SHEET_ID)
+    try:
+        worksheet = sheet.worksheet('Huawei')
+        print("Zakładka 'Huawei' znaleziona")
+    except gspread.WorksheetNotFound:
+        worksheet = sheet.add_worksheet(title='Huawei', rows=1000, cols=10)
+        print("Utworzono nową zakładkę 'Huawei'")
+
+    worksheet.append_rows(rows)
+    print("Dane Huawei zapisane pomyślnie!")
+
+print("=== Koniec Huawei Monitoring ===")

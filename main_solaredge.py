@@ -7,16 +7,19 @@ import gspread
 
 print("=== Start: SolarEdge Monitoring ===")
 
-SOLAREDGE_API_KEY = os.environ['SOLAREDGE_API_KEY']
+# Dwa osobne API Keys – jeden na firmę
+API_KEY_HIRSCHMANN = os.environ['SOLAREDGE_API_KEY_HIRSCHMANN']
+API_KEY_TETRAPAK = os.environ['SOLAREDGE_API_KEY_TETRAPAK']
 SHEET_ID = os.environ['GOOGLE_SHEET_ID']
 
+# Instalacje z przypisanym API Key
 SOLAREDGE_SITES = {
-    'Hirschmann': '4362085',
-    'Tetrapak': '4146396'
+    'Hirschmann': {'site_id': '4362085', 'api_key': API_KEY_HIRSCHMANN},
+    'Tetrapak':   {'site_id': '4146396', 'api_key': API_KEY_TETRAPAK}
 }
 
-# Data wczorajsza – format wymagany przez SolarEdge
-yesterday = datetime.date.today() - datetime.timedelta(days=1)
+# Data wczorajsza
+yesterday = (datetime.date.today() - datetime.timedelta(days=1))
 start_time = f"{yesterday} 00:00:00"
 end_time = f"{yesterday} 23:59:59"
 
@@ -31,12 +34,15 @@ rows.append(['Instalacja', 'Site ID', 'Produkcja wczoraj (kWh)'])
 
 total_energy = 0
 
-for name, site_id in SOLAREDGE_SITES.items():
+for name, info in SOLAREDGE_SITES.items():
+    site_id = info['site_id']
+    api_key = info['api_key']
+
     print(f"Pobieranie danych dla: {name} (Site ID: {site_id})")
 
     url = f"{base_url}/site/{site_id}/energyDetails"
     params = {
-        'api_key': SOLAREDGE_API_KEY,
+        'api_key': api_key,
         'startTime': start_time,
         'endTime': end_time,
         'timeUnit': 'DAY'
@@ -61,6 +67,7 @@ for name, site_id in SOLAREDGE_SITES.items():
 rows.append([])
 rows.append(['SUMA', '', round(total_energy, 3)])
 
+# Testowe wiersze
 rows.append([])
 rows.append(["=== TEST ZAPISU – SKRYPT SOLAREDGE DZIAŁA! ===", "", ""])
 rows.append(["Data testu", datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "UTC"])

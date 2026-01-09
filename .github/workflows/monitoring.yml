@@ -27,6 +27,8 @@ jobs:
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           SOLAREDGE_API_KEY: ${{ secrets.SOLAREDGE_API_KEY }}
+          SOLAREDGE_API_KEY_HIRSCHMANN: ${{ secrets.SOLAREDGE_API_KEY_HIRSCHMANN }}
+          SOLAREDGE_API_KEY_TETRAPAK: ${{ secrets.SOLAREDGE_API_KEY_TETRAPAK }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SHEET_NAME: ARGA Solar
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}

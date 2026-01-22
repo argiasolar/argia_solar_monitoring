@@ -59,4 +59,33 @@ def main():
         raw_data_sheet.append_row(row)
 
 if __name__ == "__main__":
+  def fetch_growatt_data(plant_id, api_token, date_str):
+    """
+    Pobiera dzienną produkcję z Growatt ShineServer.
+    date_str format: 'YYYY-MM-DD'
+    """
+    url = "http://server.growatt.com/v1/plant/energy"
+    # Growatt wymaga daty w formacie YYYY-MM-DD w parametrach
+    params = {
+        "plant_id": plant_id,
+        "token": api_token,
+        "date": date_str
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=20)
+        data = response.json()
+        
+        # Logowanie dla Ciebie jako testera (zobaczysz to w logach GitHub Actions)
+        if data.get("error_code") == 0:
+            # Sukces - Growatt zwraca energię w polu "data" lub "total_energy"
+            # Uwaga: struktura JSON może się różnić zależnie od wersji API
+            energy = data.get("data", {}).get("energy", 0)
+            return float(energy)
+        else:
+            print(f"⚠️ Growatt Error for Plant {plant_id}: {data.get('error_msg')}")
+            return 0
+    except Exception as e:
+        print(f"❌ Growatt Connection Error: {e}")
+        return 0
     main()

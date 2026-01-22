@@ -22,8 +22,8 @@ def get_weather_data(lat, lon, date_str):
         print(f"⚠️ Błąd pogodowy dla {lat},{lon}: {e}")
         return 0
 
-# --- MODUŁ GROWATT (Z maskowaniem User-Agent) ---
-def fetch_growatt_data_v2(plant_id, date_str):
+# --- MODUŁ GROWATT (Metoda kompatybilna) ---
+def fetch_growatt_data_v2(target_plant_id, date_str):
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
     
@@ -31,33 +31,40 @@ def fetch_growatt_data_v2(plant_id, date_str):
         print("❌ BŁĄD: Brak danych logowania Growatt!")
         return 0
 
-    # Inicjalizacja API
     api = growattServer.GrowattApi()
     api.server_url = 'http://server.growatt.com/'
     
-    # MASKOWANIE: Zmieniamy nagłówki w sesji biblioteki, aby udawać przeglądarkę
+    # Udajemy przeglądarkę, aby uniknąć 403
     api.session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Referer': 'http://server.growatt.com/login'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
 
     try:
-        # Próba logowania
-        login_response = api.login(user, password)
+        api.login(user, password)
         
-        # Pobranie danych dnia wczorajszego
-        data = api.plant_detail_info(plant_id, timespan=3, date=date_str)
+        # Pobieramy listę WSZYSTKICH plantów na koncie
+        # To najbezpieczniejsza metoda dostępna w każdej wersji biblioteki
+        plants_response = api.plant_list()
         
-        # Ekstrakcja energii z priorytetem dla 'daily_energy'
-        energy = data.get('daily_energy') or data.get('energy') or 0
-        return float(energy)
+        # Szukamy naszego plantu po ID w liście
+        # Uwaga: Growatt zwraca listę w polu 'data' lub bezpośrednio
+        plants_list = plants_response if isinstance(plants_response, list) else plants_response.get('data', [])
+        
+        for p in plants_list:
+            # Sprawdzamy ID (może być int lub string)
+            if str(p.get('plantId')) == str(target_plant_id):
+                # 'todayEnergy' to zazwyczaj produkcja z ostatniego raportu
+                # UWAGA: Jeśli uruchamiasz to wieczorem, dostaniesz sumę z dnia.
+                energy = p.get('todayEnergy') or p.get('energy_today') or 0
+                return float(energy)
+        
+        print(f"⚠️ Nie znaleziono PlantID {target_plant_id} na tym koncie Growatt.")
+        return 0
     except Exception as e:
-        print(f"❌ Growatt Error (ID: {plant_id}): {e}")
-        # Jeśli nadal mamy 403, spróbujmy wypisać nagłówki sesji dla debugowania
+        print(f"❌ Growatt Error: {e}")
         return 0
 
-# --- MODUŁ HUAWEI (Placeholder) ---
+# --- MODUŁ HUAWEI ---
 def fetch_huawei_data(p_key):
     print(f"ℹ️ Huawei API (ID: {p_key}) - w trakcie budowy.")
     return 0
@@ -67,7 +74,6 @@ def main():
     print(f"🚀 Start Argia Solar Metering - {datetime.datetime.now()}")
     
     try:
-        # Autoryzacja Google
         scopes = ["https://www.googleapis.com/auth/spreadsheets"]
         creds_json = os.environ.get('GOOGLE_CREDENTIALS')
         creds_dict = json.loads(creds_json)
@@ -82,8 +88,7 @@ def main():
         return
 
     plants = config_sheet.get_all_records()
-    yesterday_dt = datetime.date.today() - datetime.timedelta(days=1)
-    yesterday_str = yesterday_dt.isoformat()
+    yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     
     print(f"📅 Pobieranie danych za dzień: {yesterday_str}")
 

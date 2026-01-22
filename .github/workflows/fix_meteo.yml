@@ -28,4 +28,4 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}    
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}    
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
-        run: python fix_meteo.py
+        run: python fix_meteo_smart.py

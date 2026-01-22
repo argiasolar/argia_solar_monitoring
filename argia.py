@@ -32,47 +32,47 @@ def get_weather_data(lat, lon, date_str):
             time.sleep(15)
     return 0
 
-# --- MODUŁ GROWATT ---
+# --- MODUŁ GROWATT (Przywrócona działająca wersja) ---
 def fetch_growatt_data(target_plant_id, date_str):
-    user, password = os.environ.get('GROWATT_USERNAME'), os.environ.get('GROWATT_PASSWORD')
+    user = os.environ.get('GROWATT_USERNAME')
+    password = os.environ.get('GROWATT_PASSWORD')
     api = growattServer.GrowattApi()
     api.server_url = 'http://server.growatt.com/'
+    api.session.headers.update({'User-Agent': 'Mozilla/5.0'})
     try:
-        api.login(user, password)
-        user_id = api.login(user, password).get('user_id')
-        plants = api.plant_list(user_id)
-        plants_list = plants if isinstance(plants, list) else plants.get('data', [])
+        login_res = api.login(user, password)
+        user_id = login_res.get('user_id') or login_res.get('userId') or login_res.get('data', {}).get('userId')
+        plants_response = api.plant_list(user_id)
+        plants_list = plants_response if isinstance(plants_response, list) else plants_response.get('data', [])
+        
         for p in plants_list:
             if str(p.get('plantId')) == str(target_plant_id):
-                return parse_energy_value(p.get('todayEnergy') or p.get('energy_today'))
+                raw_energy = p.get('todayEnergy') or p.get('energy_today') or "0"
+                return parse_energy_value(raw_energy)
         return 0
-    except: return 0
+    except Exception as e:
+        print(f"❌ Growatt Error ({target_plant_id}): {e}")
+        return 0
 
-# --- MODUŁ HUAWEI (Pełna synchronizacja z Twoją listą stacji) ---
+# --- MODUŁ HUAWEI (Twoja działająca metoda) ---
 def get_huawei_data_map():
-    url_login = f"{HUAWEI_BASE_URL}/login"
-    url_list = f"{HUAWEI_BASE_URL}/getStationList"
-    url_kpi = f"{HUAWEI_BASE_URL}/getStationRealKpi"
-    
     try:
         # 1. Login
-        r_log = requests.post(url_login, json={"userName": os.environ['HUAWEI_USERNAME'], "systemCode": os.environ['HUAWEI_PASSWORD']})
+        r_log = requests.post(f"{HUAWEI_BASE_URL}/login", json={"userName": os.environ['HUAWEI_USERNAME'], "systemCode": os.environ['HUAWEI_PASSWORD']})
         token = r_log.headers.get('Xsrf-Token') or r_log.headers.get('XSRF-TOKEN')
         headers = {'XSRF-TOKEN': token, 'Content-Type': 'application/json'}
         
-        # 2. Get All Stations (Mapowanie Name -> Energy)
-        r_list = requests.post(url_list, headers=headers, json={})
+        # 2. Lista stacji
+        r_list = requests.post(f"{HUAWEI_BASE_URL}/getStationList", headers=headers, json={})
         stations = r_list.json().get('data', [])
-        
         codes = [s['stationCode'] for s in stations]
-        # 3. Get KPI for all codes at once
-        r_kpi = requests.post(url_kpi, headers=headers, json={"stationCodes": ",".join(codes)})
+        
+        # 3. KPI
+        r_kpi = requests.post(f"{HUAWEI_BASE_URL}/getStationRealKpi", headers=headers, json={"stationCodes": ",".join(codes)})
         kpi_results = r_kpi.json().get('data', [])
         
-        # Tworzymy słownik { 'NazwaStacji': Energia }
         energy_map = {}
         for k in kpi_results:
-            # Szukamy nazwy stacji dla danego kodu
             name = next((s['stationName'] for s in stations if s['stationCode'] == k['stationCode']), None)
             if name:
                 energy_map[name] = k['dataItemMap'].get('day_power', 0)
@@ -85,6 +85,7 @@ def get_huawei_data_map():
 def main():
     print(f"🚀 Start Argia Solar Metering - {datetime.datetime.now()}")
     
+    # GSheets Setup
     try:
         creds_json = os.environ.get('GOOGLE_CREDENTIALS')
         creds_dict = json.loads(creds_json)
@@ -99,30 +100,34 @@ def main():
     plants = config_sheet.get_all_records()
     yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     
-    # Pobieramy mapę energii Huawei raz na całe uruchomienie
+    # Pobieramy dane Huawei raz
     huawei_production = get_huawei_data_map()
 
     for p in plants:
-        brand = str(p['Brand']).upper(); s_id = str(p['SiteID']).strip(); p_key = p['Plantkey']
+        brand = str(p['Brand']).upper()
+        s_id = str(p['SiteID']).strip()
+        p_key = p['Plantkey']
         print(f"\n--- Przetwarzam: {p_key} ({brand}) ---")
         
         real_energy = 0
         if brand == "GROWATT":
             real_energy = fetch_growatt_data(s_id, yesterday_str)
         elif brand == "HUAWEI":
-            # Szukamy w mapie po SiteID (który w GSheet musi być nazwą stacji w FusionSolar)
             real_energy = huawei_production.get(s_id, 0)
-            if real_energy == 0:
-                 print(f"ℹ️ Nie znaleziono produkcji dla '{s_id}' w FusionSolar. Sprawdź czy SiteID w GSheet == Station Name w Huawei.")
         
+        # Pogoda i KPI
         irrad = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
         kwp = float(p['kWp_DC'] or 0)
         possible = round(kwp * irrad * 0.85, 2)
         pr = round(real_energy / (kwp * irrad), 3) if (irrad > 0 and kwp > 0) else 0
             
         row = [yesterday_str, p_key, p['CustomerName'], real_energy, irrad, possible, pr, p['PR_Target']]
-        raw_data_sheet.append_row(row)
-        print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irrad} kWh/m2.")
+        
+        try:
+            raw_data_sheet.append_row(row)
+            print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irrad} kWh/m2.")
+        except Exception as e:
+            print(f"❌ Błąd zapisu: {e}")
 
     print(f"\n✅ Synchronizacja zakończona.")
 

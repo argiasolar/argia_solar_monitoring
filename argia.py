@@ -8,7 +8,7 @@ from google.oauth2.service_account import Credentials
 import growattServer
 
 # --- KONFIGURACJA ---
-HUAWEI_BASE_URL = "https://la5.fusionsolar.huawei.com"
+HUAWEI_BASE_URL = "https://la5.fusionsolar.huawei.com/thirdData"
 
 # --- FUNKCJE POMOCNICZE ---
 def parse_energy_value(value_str):
@@ -40,7 +40,7 @@ def get_weather_data(lat, lon, date_str):
                 return round(mj_m2 / 3.6, 3)
             return 0
         except Exception as e:
-            print(f"⚠️ Próba {attempt+1} pogoda ({lat},{lon}): {e}")
+            print(f"⚠️ Próba {attempt+1} pogoda: {e}")
             time.sleep(15)
     return 0
 
@@ -53,7 +53,7 @@ def fetch_growatt_data(target_plant_id, date_str):
     api.session.headers.update({'User-Agent': 'Mozilla/5.0'})
     try:
         login_res = api.login(user, password)
-        user_id = login_res.get('user_id') or login_res.get('userId') or login_res.get('data', {}).get('userId')
+        user_id = login_res.get('user_id') or login_res.get('userId')
         plants_response = api.plant_list(user_id)
         plants_list = plants_response if isinstance(plants_response, list) else plants_response.get('data', [])
         for p in plants_list:
@@ -65,57 +65,44 @@ def fetch_growatt_data(target_plant_id, date_str):
         print(f"❌ Growatt Error: {e}")
         return 0
 
-# --- MODUŁ HUAWEI (Twoja logika + Sesja) ---
-def get_huawei_connection():
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Content-Type': 'application/json'
-    })
-    
-    login_url = f"{HUAWEI_BASE_URL}/thirdData/login"
+# --- MODUŁ HUAWEI (Twoja sprawdzona metoda) ---
+def get_huawei_token():
+    url = f"{HUAWEI_BASE_URL}/login"
     payload = {
-        "userName": os.environ["HUAWEI_USERNAME"],
-        "systemCode": os.environ["HUAWEI_PASSWORD"]
+        "userName": os.environ.get('HUAWEI_USERNAME'),
+        "systemCode": os.environ.get('HUAWEI_PASSWORD')
     }
-    
     try:
-        print(f"📡 Logowanie Huawei LA5...")
-        r = session.post(login_url, json=payload, timeout=30)
-        # Jeśli nie ma 200, wypisujemy co serwer widzi
-        if r.status_code != 200:
-            print(f"❌ Błąd HTTP {r.status_code}: {r.text[:200]}")
-            return None, None
-            
-        data = r.json()
-        token = data.get("data", {}).get("xsrfToken")
-        
+        print(f"📡 Logowanie Huawei (Metoda Header-Token) dla: {payload['userName']}")
+        r = requests.post(url, json=payload, timeout=30)
+        r.raise_for_status()
+        # KLUCZ: Pobranie tokena z nagłówka XSRF
+        token = r.headers.get('Xsrf-Token') or r.headers.get('XSRF-TOKEN')
         if token:
-            print("✅ Huawei: Zalogowano.")
-            return session, token
-        else:
-            print(f"⚠️ Huawei: Brak tokena. Odp: {data}")
-            return None, None
+            print("✅ Huawei: Token pobrany pomyślnie.")
+            return token
+        return None
     except Exception as e:
-        print(f"❌ Huawei Connection Error: {e}")
-        return None, None
+        print(f"❌ Huawei Login Error: {e}")
+        return None
 
-def fetch_huawei_energy(session, token, station_code, date_str):
-    url = f"{HUAWEI_BASE_URL}/thirdData/getStationKpi"
-    headers = {"xsrf-token": token}
-    payload = {"stationCodes": station_code, "collectTime": date_str}
-    
+def fetch_huawei_energy(station_code, token, date_str):
+    url = f"{HUAWEI_BASE_URL}/getStationRealKpi" 
+    headers = {'XSRF-TOKEN': token, 'Content-Type': 'application/json'}
+    payload = {"stationCodes": station_code}
     try:
-        r = session.post(url, json=payload, headers=headers, timeout=30)
-        data = r.json().get("data")
-        if data and len(data) > 0:
-            return round(data[0].get("dayPower", 0), 2)
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        r.raise_for_status()
+        data = r.json().get('data', [])
+        if data:
+            # day_power to produkcja w kWh w strukturze RealKpi
+            return round(data[0].get('dataItemMap', {}).get('day_power', 0), 2)
         return 0
     except Exception as e:
-        print(f"❌ Huawei Data Error: {e}")
+        print(f"❌ Huawei Data Error ({station_code}): {e}")
         return 0
 
-# --- GŁÓWNA LOGIKA ---
+# --- MAIN ---
 def main():
     print(f"🚀 Start Argia Solar Metering - {datetime.datetime.now()}")
     
@@ -128,40 +115,40 @@ def main():
         config_sheet = sh.worksheet("Config_Plants")
         raw_data_sheet = sh.worksheet("RawData")
     except Exception as e:
-        print(f"🚨 Błąd Google Sheets: {e}"); return
+        print(f"🚨 GSheets Error: {e}"); return
 
     plants = config_sheet.get_all_records()
     yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     
-    # Inicjalizacja Huawei
-    h_session, h_token = get_huawei_connection()
+    h_token = get_huawei_token()
 
     for p in plants:
         brand = str(p['Brand']).upper()
         s_id = str(p['SiteID']).strip()
         p_key = p['Plantkey']
-        
         print(f"\n--- Przetwarzam: {p_key} ({brand}) ---")
         
         real_energy = 0
         if brand == "GROWATT":
             real_energy = fetch_growatt_data(s_id, yesterday_str)
         elif brand == "HUAWEI":
-            if h_session and h_token:
-                real_energy = fetch_huawei_energy(h_session, h_token, s_id, yesterday_str)
+            if h_token:
+                real_energy = fetch_huawei_energy(s_id, h_token, yesterday_str)
             else:
-                print(f"⚠️ Pomijam {p_key} - brak sesji.")
+                print(f"⚠️ Pomijam {p_key} - brak tokena.")
         
-        irrad = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
-        kwp = float(p['kWp_DC'] or 0)
-        possible = round(kwp * irrad * 0.85, 2)
-        pr = round(real_energy / (kwp * irrad), 3) if (irrad > 0 and kwp > 0) else 0
+        irradiance = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
+        kwp_dc = float(p['kWp_DC'] or 0)
+        
+        # Obliczenia KPI
+        possible_gen = round(kwp_dc * irradiance * 0.85, 2)
+        real_pr = round(real_energy / (kwp_dc * irradiance), 3) if (irradiance > 0 and kwp_dc > 0) else 0
             
-        row = [yesterday_str, p_key, p['CustomerName'], real_energy, irrad, possible, pr, p['PR_Target']]
+        row = [yesterday_str, p_key, p['CustomerName'], real_energy, irradiance, possible_gen, real_pr, p['PR_Target']]
         
         try:
             raw_data_sheet.append_row(row)
-            print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irrad}")
+            print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irradiance} kWh/m2.")
         except Exception as e:
             print(f"❌ Błąd zapisu: {e}")
 

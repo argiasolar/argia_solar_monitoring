@@ -6,6 +6,29 @@ import datetime
 from google.oauth2.service_account import Credentials
 import growattServer
 
+# --- FUNKCJA POMOCNICZA: PARSER ENERGII ---
+def parse_energy_value(value_str):
+    """Zamienia '600.6 kWh' lub '1.16 MWh' na czysty float w kWh"""
+    if not value_str:
+        return 0.0
+    
+    # Usuwamy zbędne spacje i zamieniamy na małe litery
+    v = str(value_str).lower().strip()
+    
+    try:
+        if 'mwh' in v:
+            number = float(v.replace('mwh', '').strip())
+            return round(number * 1000, 2)
+        elif 'kwh' in v:
+            number = float(v.replace('kwh', '').strip())
+            return round(number, 2)
+        else:
+            # Jeśli to już jest liczba w stringu
+            return float(v)
+    except Exception as e:
+        print(f"⚠️ Błąd parsowania wartości '{value_str}': {e}")
+        return 0.0
+
 # --- MODUŁ POGODOWY ---
 def get_weather_data(lat, lon, date_str):
     try:
@@ -15,14 +38,15 @@ def get_weather_data(lat, lon, date_str):
             "start_date": date_str, "end_date": date_str,
             "daily": "shortwave_radiation_sum", "timezone": "auto"
         }
-        res = requests.get(url, params=params, timeout=15).json()
+        # Zwiększony timeout do 30s dla stabilności
+        res = requests.get(url, params=params, timeout=30).json()
         mj_m2 = res['daily']['shortwave_radiation_sum'][0]
         return round(mj_m2 / 3.6, 3)
     except Exception as e:
         print(f"⚠️ Błąd pogodowy dla {lat},{lon}: {e}")
         return 0
 
-# --- MODUŁ GROWATT (Finalna poprawka logowania) ---
+# --- MODUŁ GROWATT ---
 def fetch_growatt_data_v2(target_plant_id, date_str):
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
@@ -38,25 +62,17 @@ def fetch_growatt_data_v2(target_plant_id, date_str):
     })
 
     try:
-        # 1. Logowanie i przechwycenie User ID
         login_res = api.login(user, password)
-        user_id = login_res.get('user_id') or login_res.get('userId')
-        
-        if not user_id:
-            # Niektóre wersje zwracają ID w zagnieżdżonym obiekcie
-            user_id = login_res.get('data', {}).get('userId')
+        user_id = login_res.get('user_id') or login_res.get('userId') or login_res.get('data', {}).get('userId')
 
-        # 2. Pobranie listy plantów przy użyciu User ID
         plants_response = api.plant_list(user_id)
-        
-        # 3. Szukanie danych konkretnego plantu
         plants_list = plants_response if isinstance(plants_response, list) else plants_response.get('data', [])
         
         for p in plants_list:
             if str(p.get('plantId')) == str(target_plant_id):
-                # 'todayEnergy' to produkcja dzienna
-                energy = p.get('todayEnergy') or p.get('energy_today') or 0
-                return float(energy)
+                # Pobieramy wartość tekstową (np. '600.6 kWh')
+                raw_energy = p.get('todayEnergy') or p.get('energy_today') or "0"
+                return parse_energy_value(raw_energy)
         
         print(f"⚠️ Nie znaleziono PlantID {target_plant_id} na koncie.")
         return 0

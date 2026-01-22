@@ -24,6 +24,8 @@ jobs:
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}    # TEGO BRAKOWAŁO
-          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}    # TEGO BRAKOWAŁO
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}    
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}    
+          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}    
+          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
         run: python argia.py

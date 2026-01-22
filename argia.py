@@ -10,120 +10,116 @@ import growattServer
 # --- KONFIGURACJA ---
 HUAWEI_BASE_URL = "https://la5.fusionsolar.huawei.com/thirdData"
 
-# --- FUNKCJE POMOCNICZE ---
-def parse_energy_value(value_str):
-    if not value_str: return 0.0
-    v = str(value_str).lower().strip()
-    try:
-        if 'mwh' in v: return round(float(v.replace('mwh', '').strip()) * 1000, 2)
-        if 'kwh' in v: return round(float(v.replace('kwh', '').strip()), 2)
-        return float(v)
-    except: return 0.0
-
-def get_weather_data(lat, lon, date_str):
-    url = "https://archive-api.open-meteo.com/v1/archive"
-    params = {"latitude": lat, "longitude": lon, "start_date": date_str, "end_date": date_str, "daily": "shortwave_radiation_sum", "timezone": "auto"}
-    for attempt in range(4):
+# --- MODUŁ POGODY Z INTERPOLACJĄ ---
+def get_smart_weather(lat, lon, date_str, plants_config, current_p_key):
+    def fetch(la, lo):
+        url = "https://archive-api.open-meteo.com/v1/archive"
+        params = {"latitude": la, "longitude": lo, "start_date": date_str, "end_date": date_str, "daily": "shortwave_radiation_sum", "timezone": "auto"}
         try:
-            res = requests.get(url, params=params, timeout=20)
+            res = requests.get(url, params=params, timeout=15)
             return round(res.json()['daily']['shortwave_radiation_sum'][0] / 3.6, 3)
-        except: time.sleep(10)
-    return 0
+        except: return 0
 
-# --- MODUŁ GROWATT ---
-def fetch_growatt_data(target_plant_id, date_str):
-    user, password = os.environ.get('GROWATT_USERNAME'), os.environ.get('GROWATT_PASSWORD')
-    api = growattServer.GrowattApi()
-    api.server_url = 'http://server.growatt.com/'
-    api.session.headers.update({'User-Agent': 'Mozilla/5.0'})
-    try:
-        api.login(user, password)
-        login_res = api.login(user, password)
-        user_id = login_res.get('user_id') or login_res.get('userId')
-        plants = api.plant_list(user_id)
-        plants_list = plants if isinstance(plants, list) else plants.get('data', [])
-        for p in plants_list:
-            if str(p.get('plantId')) == str(target_plant_id):
-                # Dla Growatt dzienne dane są stabilne w liście
-                return parse_energy_value(p.get('todayEnergy') or p.get('energy_today'))
-        return 0
-    except: return 0
+    val = fetch(lat, lon)
+    if val > 0: return val
+    
+    # Jeśli 0, szukamy u sąsiadów (SLP1, GTO1 lub MEX1)
+    print(f"⚠️ Brak pogody dla {current_p_key}, próbuję interpolacji...")
+    neighbors = ["SLP1", "GTO1", "MEX1"]
+    vals = []
+    for n_key in neighbors:
+        if n_key == current_p_key or n_key not in plants_config: continue
+        n_val = fetch(plants_config[n_key]['Latitude'], plants_config[n_key]['Longtitude'])
+        if n_val > 0: vals.append(n_val)
+    
+    return round(sum(vals) / len(vals), 3) if vals else 0
 
-# --- MODUŁ HUAWEI (Wersja Historyczna - DZIAŁAJĄCA) ---
-def get_huawei_yesterday_data(yesterday_str):
+# --- MODUŁ HUAWEI Z FALLBACKIEM ---
+def fetch_huawei_data(yesterday_str):
     try:
         # 1. Login
-        r_log = requests.post(f"{HUAWEI_BASE_URL}/login", 
-                             json={"userName": os.environ['HUAWEI_USERNAME'], 
-                                   "systemCode": os.environ['HUAWEI_PASSWORD']})
+        r_log = requests.post(f"{HUAWEI_BASE_URL}/login", json={"userName": os.environ['HUAWEI_USERNAME'], "systemCode": os.environ['HUAWEI_PASSWORD']})
         token = r_log.headers.get('Xsrf-Token') or r_log.headers.get('XSRF-TOKEN')
         headers = {'XSRF-TOKEN': token, 'Content-Type': 'application/json'}
         
         # 2. Lista stacji
         r_list = requests.post(f"{HUAWEI_BASE_URL}/getStationList", headers=headers, json={})
         stations = r_list.json().get('data', [])
-        codes = [s['stationCode'] for s in stations]
-        
-        # 3. KPI Historyczne za WCZORAJ
-        payload = {
-            "stationCodes": ",".join(codes),
-            "collectTime": yesterday_str,
-            "dataItemKeys": "day_cap"
-        }
-        r_hist = requests.post(f"{HUAWEI_BASE_URL}/getHistoryStationData", headers=headers, json=payload)
-        h_data = r_hist.json().get('data', [])
         
         energy_map = {}
-        for item in h_data:
-            name = next((s['stationName'] for s in stations if s['stationCode'] == item['stationCode']), None)
-            if name:
-                val = item.get('dataItemMap', {}).get('day_cap', 0)
-                energy_map[name] = round(float(val if val is not None else 0), 2)
+        for s in stations:
+            code = s['stationCode']
+            name = s['stationName']
+            
+            # Próba 1: Historia
+            payload = {"stationCodes": code, "collectTime": yesterday_str, "dataItemKeys": "day_cap"}
+            r_hist = requests.post(f"{HUAWEI_BASE_URL}/getHistoryStationData", headers=headers, json=payload)
+            val = r_hist.json().get('data', [{}])[0].get('dataItemMap', {}).get('day_cap')
+            
+            # Próba 2: Fallback na Real-Time (jeśli historia milczy lub jest 0)
+            if val is None or float(val) == 0:
+                r_real = requests.post(f"{HUAWEI_BASE_URL}/getStationRealKpi", headers=headers, json={"stationCodes": code})
+                val = r_real.json().get('data', [{}])[0].get('dataItemMap', {}).get('day_power')
+            
+            energy_map[code] = round(float(val or 0), 2)
         return energy_map
-    except Exception as e:
-        print(f"❌ Huawei Daily Error: {e}")
-        return {}
+    except: return {}
+
+# --- MODUŁ GROWATT ---
+def fetch_growatt_data(api, plant_id, date_str):
+    try:
+        # Używamy plant_detail dla konkretnej daty historycznej
+        data = api.plant_detail(plant_id, date_str)
+        return float(data.get('today_energy', 0))
+    except:
+        # Fallback do listy ogólnej jeśli detail zawiedzie
+        try:
+            for p in api.plant_list(api.session.auth[0]):
+                if str(p['plantId']) == str(plant_id): return float(p['todayEnergy'])
+        except: return 0
 
 # --- GŁÓWNA LOGIKA ---
 def main():
-    yesterday = (datetime.date.today() - datetime.timedelta(days=1))
-    yesterday_str = yesterday.strftime("%Y-%m-%d")
-    print(f"🚀 Start Argia Daily Sync for: {yesterday_str}")
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    print(f"🚀 Synchronizacja za dzień: {yesterday}")
     
-    # GSheets
     creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
     creds = Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
-    gc = gspread.authorize(creds)
-    sh = gc.open_by_key(os.environ['GOOGLE_SHEET_ID'])
+    sh = gspread.authorize(creds).open_by_key(os.environ['GOOGLE_SHEET_ID'])
     config_sheet = sh.worksheet("Config_Plants")
     raw_sheet = sh.worksheet("RawData")
     
-    plants = config_sheet.get_all_records()
-    huawei_map = get_huawei_yesterday_data(yesterday_str)
+    plants_config = {p['Plantkey']: p for p in config_sheet.get_all_records()}
+    huawei_energies = fetch_huawei_data(yesterday)
     
-    final_rows = []
-    for p in plants:
-        brand = str(p['Brand']).upper()
-        p_key = p['Plantkey']
-        s_id = str(p['SiteID']).strip()
-        print(f"Przetwarzam {p_key}...")
+    # Growatt API login
+    g_api = growattServer.GrowattApi()
+    g_api.server_url = 'http://server.growatt.com/'
+    try: g_api.login(os.environ['GROWATT_USERNAME'], os.environ['GROWATT_PASSWORD'])
+    except: print("❌ Growatt Login Failed")
 
-        energy = 0
-        if brand == "GROWATT":
-            energy = fetch_growatt_data(s_id, yesterday_str)
-        elif brand == "HUAWEI":
-            energy = huawei_map.get(s_id, 0)
-            
-        irrad = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
-        kwp = float(p['kWp_DC'] or 0)
-        possible = round(kwp * irrad * 0.85, 2)
-        pr = round(energy / (kwp * irrad), 3) if (irrad > 0 and kwp > 0) else 0
+    final_rows = []
+    for p_key, conf in plants_config.items():
+        brand = str(conf['Brand']).upper()
+        s_id = str(conf['SiteID']).strip()
         
-        final_rows.append([yesterday_str, p_key, p['CustomerName'], energy, irrad, possible, pr, p['PR_Target']])
+        energy = 0
+        if brand == "HUAWEI":
+            energy = huawei_energies.get(s_id, 0)
+        elif brand == "GROWATT":
+            energy = fetch_growatt_data(g_api, s_id, yesterday)
+            
+        weather = get_smart_weather(conf['Latitude'], conf['Longtitude'], yesterday, plants_config, p_key)
+        kwp = float(conf['kWp_DC'] or 0)
+        possible = round(kwp * weather * 0.85, 2)
+        pr = round(energy / (kwp * weather), 3) if (weather > 0 and kwp > 0) else 0
+        
+        final_rows.append([yesterday, p_key, conf['CustomerName'], energy, weather, possible, pr, conf['PR_Target']])
+        print(f"✅ {p_key}: {energy} kWh")
 
     if final_rows:
         raw_sheet.append_rows(final_rows)
-        print(f"✅ Dane za {yesterday_str} zapisane.")
+        print(f"💾 Zapisano dane za {yesterday}")
 
 if __name__ == "__main__":
     main()

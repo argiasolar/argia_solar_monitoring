@@ -7,7 +7,11 @@ import time
 from google.oauth2.service_account import Credentials
 import growattServer
 
-# --- FUNKCJA POMOCNICZA: PARSER ENERGII ---
+# --- KONFIGURACJA HUAWEI ---
+# Spróbuj eu5, jeśli nie zadziała, zmień na: https://intl.fusionsolar.huawei.com
+HUAWEI_BASE_URL = "https://eu5.fusionsolar.huawei.com"
+
+# --- FUNKCJE POMOCNICZE ---
 def parse_energy_value(value_str):
     if not value_str: return 0.0
     v = str(value_str).lower().strip()
@@ -20,7 +24,6 @@ def parse_energy_value(value_str):
     except:
         return 0.0
 
-# --- MODUŁ POGODOWY (Z mechanizmem RETRY) ---
 def get_weather_data(lat, lon, date_str):
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
@@ -28,33 +31,31 @@ def get_weather_data(lat, lon, date_str):
         "start_date": date_str, "end_date": date_str,
         "daily": "shortwave_radiation_sum", "timezone": "auto"
     }
-    
-    for attempt in range(3): # 3 próby
+    for attempt in range(3):
         try:
             res = requests.get(url, params=params, timeout=30)
             res.raise_for_status()
             data = res.json()
             mj_m2 = data['daily']['shortwave_radiation_sum'][0]
+            if mj_m2 is None: return 0
             return round(mj_m2 / 3.6, 3)
         except Exception as e:
-            print(f"⚠️ Próba {attempt+1} nieudana dla {lat},{lon}: {e}")
-            time.sleep(5) # Czekaj 5 sekund przed ponowieniem
+            print(f"⚠️ Próba {attempt+1} pogoda dla {lat},{lon}: {e}")
+            time.sleep(10) # Dłuższy sen między próbami
     return 0
 
 # --- MODUŁ GROWATT ---
-def fetch_growatt_data_v2(target_plant_id, date_str):
+def fetch_growatt_data(target_plant_id, date_str):
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
     api = growattServer.GrowattApi()
     api.server_url = 'http://server.growatt.com/'
     api.session.headers.update({'User-Agent': 'Mozilla/5.0'})
-
     try:
         login_res = api.login(user, password)
         user_id = login_res.get('user_id') or login_res.get('userId') or login_res.get('data', {}).get('userId')
         plants_response = api.plant_list(user_id)
         plants_list = plants_response if isinstance(plants_response, list) else plants_response.get('data', [])
-        
         for p in plants_list:
             if str(p.get('plantId')) == str(target_plant_id):
                 raw_energy = p.get('todayEnergy') or p.get('energy_today') or "0"
@@ -64,10 +65,45 @@ def fetch_growatt_data_v2(target_plant_id, date_str):
         print(f"❌ Growatt Error: {e}")
         return 0
 
-# --- MODUŁ HUAWEI (Placeholder) ---
-def fetch_huawei_data(p_key):
-    print(f"ℹ️ Huawei API (ID: {p_key}) - w trakcie budowy.")
-    return 0
+# --- MODUŁ HUAWEI ---
+def get_huawei_token():
+    url = f"{HUAWEI_BASE_URL}/thirdData/login"
+    payload = {
+        "userName": os.environ.get("HUAWEI_USERNAME"),
+        "systemCode": os.environ.get("HUAWEI_PASSWORD")
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=30)
+        data = r.json()
+        token = data.get("data", {}).get("xsrfToken")
+        if token:
+            print("✅ Huawei Login: Success")
+            return token
+        else:
+            print(f"⚠️ Huawei Login Failed: {data}")
+            return None
+    except Exception as e:
+        print(f"❌ Huawei Login Exception: {e}")
+        return None
+
+def fetch_huawei_energy(station_code, token, date_str):
+    url = f"{HUAWEI_BASE_URL}/thirdData/getStationKpi"
+    headers = {"xsrf-token": token}
+    # Format YYYYMMDD
+    formatted_date = date_str.replace("-", "")
+    payload = {
+        "stationCodes": station_code,
+        "collectTime": formatted_date
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        data = r.json().get("data", [])
+        if data and len(data) > 0:
+            return float(data[0].get("dayPower", 0))
+        return 0
+    except Exception as e:
+        print(f"❌ Huawei Data Error ({station_code}): {e}")
+        return 0
 
 # --- GŁÓWNA LOGIKA ---
 def main():
@@ -89,6 +125,9 @@ def main():
     plants = config_sheet.get_all_records()
     yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     
+    # Huawei Token
+    huawei_token = get_huawei_token()
+
     for p in plants:
         plant_key = p['Plantkey']
         brand = str(p['Brand']).upper()
@@ -96,22 +135,36 @@ def main():
         
         print(f"\n--- Przetwarzam: {plant_key} ({brand}) ---")
         
-        real_energy = fetch_growatt_data_v2(s_id, yesterday_str) if brand == "GROWATT" else fetch_huawei_data(plant_key)
+        # Pobieranie energii
+        real_energy = 0
+        if brand == "GROWATT":
+            real_energy = fetch_growatt_data(s_id, yesterday_str)
+        elif brand == "HUAWEI":
+            if huawei_token:
+                real_energy = fetch_huawei_energy(s_id, huawei_token, yesterday_str)
+            else:
+                print(f"⚠️ Pomijam {plant_key} - brak tokena Huawei.")
+        
+        # Pobieranie pogody
         irradiance = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
         
+        # KPI
         kwp_dc = float(p['kWp_DC'] or 0)
         possible_gen = round(kwp_dc * irradiance * 0.85, 2)
         real_pr = round(real_energy / (kwp_dc * irradiance), 3) if (irradiance > 0 and kwp_dc > 0) else 0
             
-        row_to_save = [yesterday_str, plant_key, p['CustomerName'], real_energy, irradiance, possible_gen, real_pr, p['PR_Target']]
+        row_to_save = [
+            yesterday_str, plant_key, p['CustomerName'], 
+            real_energy, irradiance, possible_gen, real_pr, p['PR_Target']
+        ]
         
         try:
             raw_data_sheet.append_row(row_to_save)
-            print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irradiance} kWh/m2. Zapisano dla {plant_key}")
+            print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irradiance} kWh/m2. Zapisano.")
         except Exception as e:
             print(f"❌ Błąd zapisu: {e}")
 
-    print(f"\n✅ Zakończono synchronizację.")
+    print(f"\n✅ Synchronizacja zakończona.")
 
 if __name__ == "__main__":
     main()

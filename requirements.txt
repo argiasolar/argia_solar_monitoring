@@ -1,18 +1,10 @@
 # Wspólne biblioteki (używane przez wszystkie inwertery i launcher)
 gspread
 oauth2client
-pyyaml          # Do przyszłego config.yaml (opcjonalnie, ale warto mieć)
+google-auth 
 
-# Growatt
-growattServer
+#biblioteki iverterow
+growattServer  # Growatt
+huawei-solar  # Huawei
 
-# SolarEdge – odkomentuj, gdy dodasz podprojekt SolarEdge
-# solaredge
-
-# Huawei – odkomentuj, gdy dodasz podprojekt Huawei
-# huawei-solar
-
-# Inne przydatne (opcjonalne, ale polecam na przyszłość)
-# requests        # Do API, które nie mają własnej biblioteki
-# pandas          # Do analizy danych (jeśli będziesz robił raporty)
 requests

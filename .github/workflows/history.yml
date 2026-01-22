@@ -1,4 +1,4 @@
-name: Argia Daily Solar Sync
+name: Argia History Solar Sync
 
 on:
   schedule:
@@ -28,4 +28,4 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}    
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}    
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
-        run: python argia.py
+        run: python backfill.py

@@ -8,8 +8,8 @@ from google.oauth2.service_account import Credentials
 import growattServer
 
 # --- KONFIGURACJA HUAWEI ---
-# Spróbuj eu5, jeśli nie zadziała, zmień na: https://intl.fusionsolar.huawei.com
-HUAWEI_BASE_URL = "https://eu5.fusionsolar.huawei.com"
+# Dla Meksyku najczęściej właściwym serwerem jest intl lub la1
+HUAWEI_BASE_URL = "https://intl.fusionsolar.huawei.com"
 
 # --- FUNKCJE POMOCNICZE ---
 def parse_energy_value(value_str):
@@ -36,12 +36,14 @@ def get_weather_data(lat, lon, date_str):
             res = requests.get(url, params=params, timeout=30)
             res.raise_for_status()
             data = res.json()
-            mj_m2 = data['daily']['shortwave_radiation_sum'][0]
-            if mj_m2 is None: return 0
-            return round(mj_m2 / 3.6, 3)
+            # Zabezpieczenie przed brakiem danych w API
+            if 'daily' in data and data['daily']['shortwave_radiation_sum'][0] is not None:
+                mj_m2 = data['daily']['shortwave_radiation_sum'][0]
+                return round(mj_m2 / 3.6, 3)
+            return 0
         except Exception as e:
-            print(f"⚠️ Próba {attempt+1} pogoda dla {lat},{lon}: {e}")
-            time.sleep(10) # Dłuższy sen między próbami
+            print(f"⚠️ Próba {attempt+1} pogoda ({lat},{lon}): {e}")
+            time.sleep(10)
     return 0
 
 # --- MODUŁ GROWATT ---
@@ -65,7 +67,7 @@ def fetch_growatt_data(target_plant_id, date_str):
         print(f"❌ Growatt Error: {e}")
         return 0
 
-# --- MODUŁ HUAWEI ---
+# --- MODUŁ HUAWEI (Poprawiony URL i Debugging) ---
 def get_huawei_token():
     url = f"{HUAWEI_BASE_URL}/thirdData/login"
     payload = {
@@ -73,14 +75,22 @@ def get_huawei_token():
         "systemCode": os.environ.get("HUAWEI_PASSWORD")
     }
     try:
+        print(f"📡 Próba logowania do Huawei: {HUAWEI_BASE_URL}")
         r = requests.post(url, json=payload, timeout=30)
+        
+        # Sprawdzamy status HTTP
+        if r.status_code != 200:
+            print(f"❌ Huawei Server returned status {r.status_code}")
+            return None
+            
         data = r.json()
-        token = data.get("data", {}).get("xsrfToken")
+        token = data.get("data", {}).get("xsrfToken") if data.get("data") else None
+        
         if token:
             print("✅ Huawei Login: Success")
             return token
         else:
-            print(f"⚠️ Huawei Login Failed: {data}")
+            print(f"⚠️ Huawei Login Response Error: {data}")
             return None
     except Exception as e:
         print(f"❌ Huawei Login Exception: {e}")
@@ -89,7 +99,6 @@ def get_huawei_token():
 def fetch_huawei_energy(station_code, token, date_str):
     url = f"{HUAWEI_BASE_URL}/thirdData/getStationKpi"
     headers = {"xsrf-token": token}
-    # Format YYYYMMDD
     formatted_date = date_str.replace("-", "")
     payload = {
         "stationCodes": station_code,
@@ -97,9 +106,9 @@ def fetch_huawei_energy(station_code, token, date_str):
     }
     try:
         r = requests.post(url, json=payload, headers=headers, timeout=30)
-        data = r.json().get("data", [])
-        if data and len(data) > 0:
-            return float(data[0].get("dayPower", 0))
+        resp_data = r.json().get("data", [])
+        if resp_data and len(resp_data) > 0:
+            return float(resp_data[0].get("dayPower", 0))
         return 0
     except Exception as e:
         print(f"❌ Huawei Data Error ({station_code}): {e}")
@@ -125,7 +134,6 @@ def main():
     plants = config_sheet.get_all_records()
     yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     
-    # Huawei Token
     huawei_token = get_huawei_token()
 
     for p in plants:
@@ -135,7 +143,6 @@ def main():
         
         print(f"\n--- Przetwarzam: {plant_key} ({brand}) ---")
         
-        # Pobieranie energii
         real_energy = 0
         if brand == "GROWATT":
             real_energy = fetch_growatt_data(s_id, yesterday_str)
@@ -143,12 +150,10 @@ def main():
             if huawei_token:
                 real_energy = fetch_huawei_energy(s_id, huawei_token, yesterday_str)
             else:
-                print(f"⚠️ Pomijam {plant_key} - brak tokena Huawei.")
+                print(f"⚠️ Pomijam {plant_key} - brak tokena.")
         
-        # Pobieranie pogody
         irradiance = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
         
-        # KPI
         kwp_dc = float(p['kWp_DC'] or 0)
         possible_gen = round(kwp_dc * irradiance * 0.85, 2)
         real_pr = round(real_energy / (kwp_dc * irradiance), 3) if (irradiance > 0 and kwp_dc > 0) else 0

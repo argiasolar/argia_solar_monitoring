@@ -8,6 +8,7 @@ from google.oauth2.service_account import Credentials
 import growattServer
 
 # --- KONFIGURACJA ---
+# Skoro la5 działało Ci wcześniej, zostajemy przy nim
 HUAWEI_BASE_URL = "https://la5.fusionsolar.huawei.com"
 
 # --- FUNKCJE POMOCNICZE ---
@@ -65,39 +66,109 @@ def fetch_growatt_data(target_plant_id, date_str):
         print(f"❌ Growatt Error: {e}")
         return 0
 
-# --- MODUŁ HUAWEI (Wzmocniona Sesja) ---
+# --- MODUŁ HUAWEI (Zgodny z Twoim działającym skryptem) ---
 def get_huawei_session():
     user = os.environ.get("HUAWEI_USERNAME")
     pw = os.environ.get("HUAWEI_PASSWORD")
     url = f"{HUAWEI_BASE_URL}/thirdData/login"
     
-    session = requests.Session()
-    session.headers.update({
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    })
+    # Używamy dokładnie takich kluczy jak w Twoim starym skrypcie
+    payload = {
+        "userName": user,
+        "systemCode": pw
+    }
     
     try:
-        print(f"📡 Próba logowania Huawei (LA5) dla: {user}")
-        r = session.post(url, json={"userName": user, "systemCode": pw}, timeout=30)
+        print(f"📡 Logowanie Huawei (LA5) jako: {user}")
+        r = requests.post(url, json=payload, timeout=30)
         
-        # Jeśli status nie jest 200, r.json() może wywalić błąd, więc sprawdzamy:
-        if r.status_code != 200:
-            print(f"❌ Huawei Login HTTP {r.status_code}: {r.text[:200]}")
-            return None, None
-
-        resp_json = r.json()
-        token = resp_json.get("data", {}).get("xsrfToken")
-        if token:
-            print("✅ Huawei: Zalogowano pomyślnie.")
-            return session, token
+        if r.status_code == 200:
+            data = r.json()
+            token = data.get("data", {}).get("xsrfToken")
+            if token:
+                print("✅ Huawei: Zalogowano pomyślnie.")
+                return token
+            else:
+                print(f"⚠️ Huawei: Brak tokena w odpowiedzi: {data}")
         else:
-            print(f"⚠️ Huawei: Brak tokena. Odp: {resp_json}")
+            print(f"❌ Huawei Login HTTP {r.status_code}: {r.text}")
     except Exception as e:
         print(f"❌ Huawei Login Exception: {e}")
-    return None, None
+    return None
 
-def fetch_huawei_energy(station_code, session, token, date_str):
+def fetch_huawei_energy(station_code, token, date_str):
     url = f"{HUAWEI_BASE_URL}/thirdData/getStationKpi"
-    formatted_date = date_str.replace("-", "")
-    session
+    headers = {"xsrf-token": token}
+    # Używamy formatu YYYY-MM-DD jak w Twoim starym skrypcie
+    payload = {
+        "stationCodes": station_code,
+        "collectTime": date_str
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        data = r.json().get("data", [])
+        if data and len(data) > 0:
+            # dayPower w Huawei to energia w kWh
+            return float(data[0].get("dayPower", 0))
+        return 0
+    except Exception as e:
+        print(f"❌ Huawei Data Error ({station_code}): {e}")
+        return 0
+
+# --- GŁÓWNA LOGIKA ---
+def main():
+    print(f"🚀 Start Argia Solar Metering - {datetime.datetime.now()}")
+    
+    # Inicjalizacja GSheets
+    try:
+        creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(os.environ.get('GOOGLE_SHEET_ID'))
+        config_sheet = sh.worksheet("Config_Plants")
+        raw_data_sheet = sh.worksheet("RawData")
+    except Exception as e:
+        print(f"🚨 Błąd Google Sheets: {e}"); return
+
+    plants = config_sheet.get_all_records()
+    yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Huawei Token
+    h_token = get_huawei_session()
+
+    for p in plants:
+        plant_key = p['Plantkey']
+        brand = str(p['Brand']).upper()
+        s_id = str(p['SiteID']).strip()
+        
+        print(f"\n--- Przetwarzam: {plant_key} ({brand}) ---")
+        
+        # Pobieranie energii
+        real_energy = 0
+        if brand == "GROWATT":
+            real_energy = fetch_growatt_data(s_id, yesterday_str)
+        elif brand == "HUAWEI":
+            if h_token:
+                real_energy = fetch_huawei_energy(s_id, h_token, yesterday_str)
+            else:
+                print(f"⚠️ Pomijam {plant_key} - brak tokena Huawei.")
+        
+        # Pogoda i KPI
+        irradiance = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
+        kwp_dc = float(p['kWp_DC'] or 0)
+        possible_gen = round(kwp_dc * irradiance * 0.85, 2)
+        real_pr = round(real_energy / (kwp_dc * irradiance), 3) if (irradiance > 0 and kwp_dc > 0) else 0
+            
+        row = [yesterday_str, plant_key, p['CustomerName'], real_energy, irradiance, possible_gen, real_pr, p['PR_Target']]
+        
+        try:
+            raw_data_sheet.append_row(row)
+            print(f"✅ Wynik: {real_energy} kWh | Pogoda: {irradiance} kWh/m2.")
+        except Exception as e:
+            print(f"❌ Błąd zapisu: {e}")
+
+    print(f"\n✅ Synchronizacja zakończona.")
+
+if __name__ == "__main__":
+    main()

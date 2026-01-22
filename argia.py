@@ -22,32 +22,37 @@ def get_weather_data(lat, lon, date_str):
         print(f"⚠️ Błąd pogodowy dla {lat},{lon}: {e}")
         return 0
 
-# --- MODUŁ GROWATT (Nowa metoda logowania) ---
+# --- MODUŁ GROWATT (Naprawa 403 Forbidden) ---
 def fetch_growatt_data_v2(plant_id, date_str):
-    """
-    Używa biblioteki growattServer do pobrania danych produkcyjnych.
-    """
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
     
-    api = growattServer.GrowattApi()
+    if not user or not password:
+        print("❌ BŁĄD: Brak danych logowania Growatt w Secrets!")
+        return 0
+
+    # Wymuszamy serwer US/Global zamiast OpenAPI
+    api = growattServer.GrowattApi(add_not_standard_interceptors=True)
+    api.server_url = 'http://server.growatt.com/' 
+    
     try:
-        # Logowanie
+        # Logowanie na standardowy serwer
         login_response = api.login(user, password)
-        # Pobranie danych dla konkretnego dnia
-        # Format daty dla biblioteki: YYYY-MM-DD
+        
+        # Pobieramy info o plancie - metoda plant_detail_info
+        #timespan=3 oznacza widok dzienny
         data = api.plant_detail_info(plant_id, timespan=3, date=date_str)
         
-        # Klucz 'total_energy' lub 'daily_energy' w zależności od odpowiedzi
-        energy = data.get('daily_energy', 0)
+        # Ekstrakcja energii
+        energy = data.get('daily_energy') or data.get('energy') or 0
         return float(energy)
     except Exception as e:
-        print(f"❌ Growatt Error (ID: {plant_id}): {e}")
+        print(f"❌ Growatt API Error (ID: {plant_id}): {e}")
         return 0
 
 # --- MODUŁ HUAWEI (Placeholder) ---
-def fetch_huawei_data(plant_config, date_str):
-    print(f"ℹ️ Huawei API (ID: {plant_config['Plantkey']}) - moduł w trakcie budowy.")
+def fetch_huawei_data(p_key):
+    print(f"ℹ️ Huawei API (ID: {p_key}) - moduł w trakcie budowy.")
     return 0
 
 # --- GŁÓWNA LOGIKA ---
@@ -69,9 +74,7 @@ def main():
         return
 
     plants = config_sheet.get_all_records()
-    # Obliczanie wczorajszej daty
-    yesterday_dt = datetime.date.today() - datetime.timedelta(days=1)
-    yesterday_str = yesterday_dt.isoformat()
+    yesterday_str = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     
     print(f"📅 Pobieranie danych za dzień: {yesterday_str}")
 
@@ -82,10 +85,10 @@ def main():
         
         real_energy = 0
         if brand == "GROWATT":
-            # Używamy nowej metody
-            real_energy = fetch_growatt_data_v2(p['SiteID'], yesterday_str)
+            # Przekazujemy SiteID jako string
+            real_energy = fetch_growatt_data_v2(str(p['SiteID']), yesterday_str)
         elif brand == "HUAWEI":
-            real_energy = fetch_huawei_data(p, yesterday_str)
+            real_energy = fetch_huawei_data(plant_key)
         
         irradiance = get_weather_data(p['Latitude'], p['Longtitude'], yesterday_str)
         kwp_dc = float(p['kWp_DC'])

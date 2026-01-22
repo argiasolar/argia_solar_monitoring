@@ -22,7 +22,7 @@ def get_weather_data(lat, lon, date_str):
         print(f"⚠️ Błąd pogodowy dla {lat},{lon}: {e}")
         return 0
 
-# --- MODUŁ GROWATT (Metoda kompatybilna) ---
+# --- MODUŁ GROWATT (Finalna poprawka logowania) ---
 def fetch_growatt_data_v2(target_plant_id, date_str):
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
@@ -33,32 +33,32 @@ def fetch_growatt_data_v2(target_plant_id, date_str):
 
     api = growattServer.GrowattApi()
     api.server_url = 'http://server.growatt.com/'
-    
-    # Udajemy przeglądarkę, aby uniknąć 403
     api.session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     })
 
     try:
-        api.login(user, password)
+        # 1. Logowanie i przechwycenie User ID
+        login_res = api.login(user, password)
+        user_id = login_res.get('user_id') or login_res.get('userId')
         
-        # Pobieramy listę WSZYSTKICH plantów na koncie
-        # To najbezpieczniejsza metoda dostępna w każdej wersji biblioteki
-        plants_response = api.plant_list()
+        if not user_id:
+            # Niektóre wersje zwracają ID w zagnieżdżonym obiekcie
+            user_id = login_res.get('data', {}).get('userId')
+
+        # 2. Pobranie listy plantów przy użyciu User ID
+        plants_response = api.plant_list(user_id)
         
-        # Szukamy naszego plantu po ID w liście
-        # Uwaga: Growatt zwraca listę w polu 'data' lub bezpośrednio
+        # 3. Szukanie danych konkretnego plantu
         plants_list = plants_response if isinstance(plants_response, list) else plants_response.get('data', [])
         
         for p in plants_list:
-            # Sprawdzamy ID (może być int lub string)
             if str(p.get('plantId')) == str(target_plant_id):
-                # 'todayEnergy' to zazwyczaj produkcja z ostatniego raportu
-                # UWAGA: Jeśli uruchamiasz to wieczorem, dostaniesz sumę z dnia.
+                # 'todayEnergy' to produkcja dzienna
                 energy = p.get('todayEnergy') or p.get('energy_today') or 0
                 return float(energy)
         
-        print(f"⚠️ Nie znaleziono PlantID {target_plant_id} na tym koncie Growatt.")
+        print(f"⚠️ Nie znaleziono PlantID {target_plant_id} na koncie.")
         return 0
     except Exception as e:
         print(f"❌ Growatt Error: {e}")

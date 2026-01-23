@@ -1,13 +1,12 @@
-name: Argia Fix Meteo History
+name: Manual Weather Fix
 
 on:
-  schedule:
-    - cron: '1 0 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Pozwala na ręczne kliknięcie "Run workflow"
 
 jobs:
-  build:
+  repair:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -15,17 +14,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # Podnieśliśmy wersję zgodnie z ostrzeżeniem
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          # Tu dodajemy brakujące biblioteki Google
+          pip install requests google-auth google-api-python-client google-auth-httplib2
 
-      - name: Run Solar Metering
+      - name: Run repair script
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}    
-          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}    
-          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}    
-          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python fix_meteo_final.py

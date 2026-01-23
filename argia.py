@@ -1,8 +1,5 @@
 # argia.py
-from __future__ import annotations
-import os
-import json
-import datetime as dt
+import os, json, time, datetime as dt
 from typing import Dict, List, Tuple
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -28,7 +25,7 @@ def safe_float(value, default=0.0) -> float:
         return default
 
 def date_strings_for_today() -> Tuple[dt.date, str, str]:
-    # Mexico City UTC-6 - Pobieramy dzisiejszą datę
+    # Mexico City UTC-6
     now_local = dt.datetime.utcnow() + dt.timedelta(hours=-6)
     today = now_local.date()
     date_iso = today.strftime("%Y-%m-%d")
@@ -37,8 +34,7 @@ def date_strings_for_today() -> Tuple[dt.date, str, str]:
 
 def read_config(service) -> Tuple[Dict[str, dict], Dict[str, str], Dict[str, str]]:
     res = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID,
-        range="Config_Plants!A2:O200",
+        spreadsheetId=SHEET_ID, range="Config_Plants!A2:O200",
     ).execute()
     rows = res.get("values", [])
     plants_config, huawei_map, growatt_map = {}, {}, {}
@@ -59,6 +55,18 @@ def read_config(service) -> Tuple[Dict[str, dict], Dict[str, str], Dict[str, str
         elif brand == "GROWATT": growatt_map[site_id] = p_key
     return plants_config, huawei_map, growatt_map
 
+def apply_dummy(rows: List[List], missing_keys: List[str]):
+    dummy_map = {
+        "SLP1": 625, "SLP2": 892, "GTO1": 2359,
+        "MEX1": 1872, "NL1": 1512, "MEX2": 2400,
+    }
+    for r in rows:
+        p_key = r[1]
+        if p_key in missing_keys or safe_float(r[3]) <= 0:
+            r[3] = float(dummy_map.get(p_key, 500))
+            r[9] = "NO" # Flaga Transfer
+            print(f"   🟠 [Dummy] Applied for {p_key}: {r[3]} kWh")
+
 def build_rows(date_slash: str, date_iso: str, plants_config: dict, prod_map: dict) -> List[List]:
     rows = []
     for p_key, conf in plants_config.items():
@@ -78,17 +86,29 @@ def upsert_rawdata(service, rows_to_write: List[List]):
     ).execute()
 
 def main():
-    print("--- 🌟 ARGIA SOLAR MONITORING (Evening Sync) ---")
+    print("--- 🌟 ARGIA SOLAR MONITORING (Evening Sync with Delays) ---")
     service = get_service()
     _, date_iso, date_slash = date_strings_for_today()
-    print(f"📅 Reporting for TODAY: {date_iso}")
+    print(f"📅 Target: {date_iso}")
     
     plants_config, huawei_map, growatt_map = read_config(service)
     prod_map = {}
-    if huawei_map: prod_map.update(huawei.fetch_huawei_day_kwh(date_iso, huawei_map, plants_config))
-    if growatt_map: prod_map.update(growatt.fetch_growatt_day_kwh(date_iso, growatt_map, plants_config))
+
+    if huawei_map:
+        prod_map.update(huawei.fetch_huawei_day_kwh(date_iso, huawei_map, plants_config))
+    
+    if huawei_map and growatt_map:
+        print("   ⏳ Cooling down 5s between providers...")
+        time.sleep(5)
+
+    if growatt_map:
+        prod_map.update(growatt.fetch_growatt_day_kwh(date_iso, growatt_map, plants_config))
     
     rows = build_rows(date_slash, date_iso, plants_config, prod_map)
+    missing = [r[1] for r in rows if safe_float(r[3]) <= 0]
+    if missing:
+        apply_dummy(rows, missing)
+    
     upsert_rawdata(service, rows)
     print(f"✅ Sync complete for {date_slash}")
 

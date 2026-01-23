@@ -2,8 +2,6 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    # 00:15 UTC to 18:15 w Meksyku (UTC-6). 
-    # Idealny czas, by zebrać pełną produkcję z całego dnia.
     - cron: '15 0 * * *' 
   workflow_dispatch:
 
@@ -19,7 +17,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip' # Przyspiesza kolejne uruchomienia
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -28,21 +26,12 @@ jobs:
 
       - name: Run daily sync
         env:
-          # Google Sheets
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-          # Huawei (SmartPVMS / FusionSolar)
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
-          HUAWEI_BASE_URL: ${{ secrets.HUAWEI_BASE_URL }}
-
-          # Growatt OpenAPI
           GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
-          
-          # Strefa czasowa dla weryfikacji (opcjonalnie)
           TZ_NAME: "America/Mexico_City"
-
         run: python argia.py
 
       - name: Verify Sync
@@ -50,4 +39,5 @@ jobs:
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: python argia.verification.py
+          TZ_NAME: "America/Mexico_City"
+        run: python argia_verification.py

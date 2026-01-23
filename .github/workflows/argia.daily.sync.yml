@@ -2,7 +2,7 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 06:00 rano w Meksyku (America/Mexico_City)
+    - cron: '0 12 * * *' # 06:00 rano w Meksyku (UTC-6)
   workflow_dispatch:
 
 jobs:
@@ -11,34 +11,33 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt
 
       - name: Run daily sync
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-          # Huawei (Northbound / thirdData)
+          # Huawei (SmartPVMS / FusionSolar thirdData)
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
-          HUAWEI_BASE_URL: ${{ secrets.HUAWEI_BASE_URL }} # opcjonalnie, np. https://la5.fusionsolar.huawei.com/thirdData
+          # opcjonalnie, jeśli chcesz inną domenę niż la5:
+          # HUAWEI_BASE_URL: ${{ secrets.HUAWEI_BASE_URL }}
 
-          # Growatt OpenAPI token
+          # Growatt
           GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
-
-          # (opcjonalnie) legacy user/pass – tylko jeśli chcesz próbować fallback B
+          # Legacy fallback (może być blokowane 403)
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
 
-        run: |
-          python argia.py
+        run: python argia.py

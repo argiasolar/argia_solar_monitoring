@@ -11,41 +11,34 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run daily sync (argia.py)
+      - name: Run daily sync
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-          # Huawei (default creds)
+          # Huawei (Northbound / thirdData)
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          HUAWEI_BASE_URL: ${{ secrets.HUAWEI_BASE_URL }} # opcjonalnie, np. https://la5.fusionsolar.huawei.com/thirdData
 
-          # Growatt option B (legacy user/pass)
+          # Growatt OpenAPI token
+          GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
+
+          # (opcjonalnie) legacy user/pass – tylko jeśli chcesz próbować fallback B
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
 
-          # Growatt option A (OpenAPI v1 token)
-          GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
-
-          # Optional: if you know your Growatt OpenAPI region, set it as a secret and uncomment:
-          # GROWATT_OPENAPI_URL: ${{ secrets.GROWATT_OPENAPI_URL }}
-        run: python argia.py
-
-      # Optional: verification step (only if you keep argia_verification.py in repo)
-      # - name: Verify RawData for zeros
-      #   env:
-      #     GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-      #     GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-      #   run: python argia_verification.py
+        run: |
+          python argia.py

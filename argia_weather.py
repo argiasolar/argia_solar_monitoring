@@ -1,5 +1,4 @@
 import random
-import datetime
 import os
 import json
 from google.oauth2 import service_account
@@ -13,38 +12,39 @@ def get_service():
     return build('sheets', 'v4', credentials=creds)
 
 def get_estimated_weather(location_key):
-    """Podstawowa estymacja nasłonecznienia dla lokalizacji."""
+    """Generuje dane pogodowe na podstawie kodu regionu."""
     region_map = {'SLP': 5.4, 'GTO': 5.6, 'MEX': 5.2, 'NL': 5.8}
-    region_code = ''.join([i for i in location_key if not i.isdigit()])
-    base_irr = region_map.get(region_code, 5.5)
+    code = ''.join([i for i in location_key if not i.isdigit()])
+    base = region_map.get(code, 5.5)
     
-    irr = round(base_irr + random.uniform(-0.4, 0.3), 3)
+    irr = round(base + random.uniform(-0.4, 0.3), 3)
     clouds = random.randint(5, 30)
-    print(f"   [Weather] {location_key}: Irr={irr}, Clouds={clouds}%")
     return irr, clouds
 
 def repair_missing_weather(date_slash):
-    """Naprawia zera w arkuszu dla podanej daty."""
-    print(f"🛠️ [Weather Fix] Patching data for {date_slash}...")
+    """Funkcja naprawcza wywoływana przez weryfikator w kroku RETRY."""
+    print(f"🛠️ [Weather Fix] Patching missing irradiance for {date_slash}...")
     service = get_service()
-    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:I200").execute()
+    
+    # Pobieramy RawData, żeby zlokalizować zera w kolumnie E (indeks 4)
+    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:I400").execute()
     rows = res.get('values', [])
     
     updates = []
     for i, row in enumerate(rows):
         if len(row) > 4 and row[0] == date_slash:
             try:
-                irr_val = float(str(row[4]).replace(',', '.'))
-            except:
-                irr_val = 0
+                # Sprawdzamy czy nasłonecznienie jest zerem lub błędem
+                val = float(str(row[4]).replace(',', '.'))
+            except: val = 0
             
-            if irr_val <= 0:
+            if val <= 0:
                 key = row[1]
                 irr, clouds = get_estimated_weather(key)
                 row_idx = i + 2
                 updates.append({'range': f'RawData!E{row_idx}', 'values': [[irr]]})
                 updates.append({'range': f'RawData!I{row_idx}', 'values': [[clouds]]})
-                print(f"   ✅ Patched {key}")
+                print(f"   ✅ Patched weather for {key}")
 
     if updates:
         service.spreadsheets().values().batchUpdate(

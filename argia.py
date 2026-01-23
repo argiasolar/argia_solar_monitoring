@@ -211,7 +211,7 @@ def main():
     prod_map: Dict[str, float] = {}
 
     if huawei_map:
-        prod_map.update(huawei.fetch_huawei_day_kWh(date_iso, huawei_map, plants_config))
+        prod_map.update(huawei.fetch_huawei_day_kwh(date_iso, huawei_map, plants_config))
 
     if growatt_map:
         prod_map.update(growatt.fetch_growatt_data(date_iso, growatt_map, plants_config))
@@ -227,7 +227,7 @@ def main():
             g_map2 = {conf["site_id"]: p for p, conf in plants_config.items() if p in missing and conf["brand"] == "GROWATT"}
 
             if h_map2:
-                prod_map.update(huawei.fetch_huawei_day_kWh(date_iso, h_map2, plants_config))
+                prod_map.update(huawei.fetch_huawei_day_kwh(date_iso, h_map2, plants_config))
             if g_map2:
                 prod_map.update(growatt.fetch_growatt_data(date_iso, g_map2, plants_config))
 

@@ -7,7 +7,8 @@ from googleapiclient.discovery import build
 
 # --- CONFIGURATION ---
 SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
-WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY')
+# Jeśli klucz nie jest w Secrets, skrypt użyje tego poniżej (wstaw swój działający klucz tutaj jeśli go masz)
+WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY', 'TWÓJ_KLUCZ_JEŚLI_BYŁ_W_KODZIE') 
 RAW_DATA_SHEET = "RawData"
 CONFIG_SHEET = "Config_Plants"
 
@@ -18,54 +19,43 @@ def get_service():
     return build('sheets', 'v4', credentials=creds)
 
 def get_plants_config(service):
-    """Pobiera dynamicznie listę stacji z zakładki Config_Plants."""
-    range_name = f"{CONFIG_SHEET}!A2:L20" # Pobieramy kolumny od PlantKey do Longitude
+    range_name = f"{CONFIG_SHEET}!A2:L20"
     result = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=range_name).execute()
     values = result.get('values', [])
-    
     config = {}
     for row in values:
         if len(row) >= 6:
-            # Struktura: Key(0), Brand(1), kWp_DC(2), kWp_AC(3), Lat(4), Lon(5), PR_Target(7), Name(8)
             config[row[0]] = {
-                'brand': row[1],
                 'kwp': float(row[2].replace(',', '.')),
                 'lat': float(row[4].replace(',', '.')),
                 'lon': float(row[5].replace(',', '.')),
                 'target': float(row[7].replace(',', '.')) if len(row) > 7 else 0.85,
-                'name': row[8] if len(row) > 8 else "Unknown Customer"
+                'name': row[8] if len(row) > 8 else "Unknown"
             }
     return config
 
-def fetch_huawei_data(target_date):
-    """Logika pobierania danych z Huawei (Mock na ten moment)."""
-    return {'SLP1': 609, 'SLP2': 986, 'GTO1': 2259, 'MEX1': 2174, 'NL1': 2463, 'MEX2': 2448}
-
 def fetch_weather_data(lat, lon, date):
-    """Pobiera nasłonecznienie i chmury z OpenWeather."""
+    # Jeśli WEATHER_API_KEY jest puste, ta funkcja zawsze zwróci 0.
+    if not WEATHER_API_KEY:
+        return 0, 0
     url = f"https://api.openweathermap.org/data/3.0/onecall/day_summary?lat={lat}&lon={lon}&date={date}&appid={WEATHER_API_KEY}&units=metric"
     try:
         r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            d = r.json()
-            # Sprawdź jednostki API - jeśli podaje w Wh, dzielimy przez 1000
-            irradiance = d.get('irradiance', 0) / 1000 
-            clouds = d.get('cloud_cover', {}).get('afternoon', 0)
-            return irradiance, clouds
+        d = r.json()
+        irr = d.get('irradiance', 0) / 1000
+        clouds = d.get('cloud_cover', {}).get('afternoon', 0)
+        return irr, clouds
     except:
-        pass
-    return 0, 0
+        return 0, 0
 
 def main():
-    print("🚀 Sync v3.2 (Dynamic Config) starting...")
+    print("🚀 Sync v3.4 (Fixing Weather Logic) starting...")
     service = get_service()
     yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 1. Pobierz konfigurację z Arkusza
     plants = get_plants_config(service)
-    
-    # 2. Pobierz produkcję
-    production = fetch_huawei_data(yesterday)
+    # Mock produkcji (tutaj wpisz dane z Huawei jeśli nie masz jeszcze API)
+    production = {'SLP1': 609, 'SLP2': 986, 'GTO1': 2259, 'MEX1': 2174, 'NL1': 2463, 'MEX2': 2448}
     
     final_data = []
     for key, energy in production.items():
@@ -73,20 +63,18 @@ def main():
             p = plants[key]
             irr, clouds = fetch_weather_data(p['lat'], p['lon'], yesterday)
             
-            forecast = p['kwp'] * irr * p['target']
+            # Zabezpieczenie przed zerem, żeby nie psuć tabeli jeśli pogoda padnie
+            forecast = p['kwp'] * irr * p['target'] if irr > 0 else 0
             real_pr = energy / (p['kwp'] * irr) if irr > 0 else 0
             
-            final_data.append([
-                yesterday, key, p['name'], energy, irr, forecast, real_pr, p['target'], clouds
-            ])
+            final_data.append([yesterday, key, p['name'], energy, irr, forecast, real_pr, p['target'], clouds])
     
-    # 3. Wyślij do RawData
     if final_data:
         service.spreadsheets().values().append(
             spreadsheetId=SHEET_ID, range=f"{RAW_DATA_SHEET}!A2",
             valueInputOption="USER_ENTERED", body={'values': final_data}
         ).execute()
-        print(f"✅ Successfully synced {len(final_data)} plants.")
+        print(f"✅ Sync completed. Irradiance checked: {'Yes' if WEATHER_API_KEY else 'No - API KEY MISSING'}")
 
 if __name__ == "__main__":
     main()

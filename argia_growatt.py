@@ -2,36 +2,37 @@ import os
 import growattServer
 
 def fetch_growatt_data(target_date, plant_keys):
-    """Pobiera REALNE dane z Growatt Server."""
-    print(f"🚀 [Growatt] Connecting to Growatt Server for {target_date}...")
-    
+    """Implementacja v3.2: Stabilne połączenie growattServer z logiką eToday."""
+    print(f"🚀 [Growatt] Connecting to Growatt for {target_date}...")
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
-    
     results = {key: 0 for key in plant_keys}
     
     try:
-        api = growattServer.GrowattApi()
-        login_res = api.login(user, password)
-        user_id = login_res['user_id']
+        # v3.2: Inicjalizacja z wymuszeniem server_url
+        api = growattServer.GrowattApi(True)
+        api.server_url = "https://server.growatt.com/"
         
-        plant_list = api.plant_list(user_id)
+        login = api.login(user, password)
+        if not login or 'user_id' not in login:
+            print("⚠️ [Growatt] Login failed.")
+            return results
+            
+        plants = api.plant_list(login['user_id'])
         
-        count = 0
-        for plant in plant_list.get('data', []):
-            p_name = plant.get('plantName')
-            # Szukamy dopasowania nazwy stacji do Twojego klucza (np. SLP1)
-            if p_name in plant_keys:
-                p_id = plant.get('plantId')
-                # Pobieramy dane historyczne (format daty dla Growatt to zazwyczaj YYYY-MM-DD)
-                history = api.plant_history(p_id, target_date)
-                energy = float(history.get('eToday', 0))
-                results[p_name] = energy
-                count += 1
-        
-        print(f"✅ [Growatt] Fetched real data for {count} plants.")
-        
+        for plant in plants.get('data', []):
+            name = plant.get('plantName')
+            # v3.2: Elastyczne dopasowanie nazw (strip i case-insensitive)
+            matched_key = next((k for k in plant_keys if k.lower() == name.lower().strip()), None)
+            
+            if matched_key:
+                # Pobieranie eToday z historii stacji
+                hist = api.plant_history(plant.get('plantId'), target_date)
+                energy = float(hist.get('eToday', 0))
+                results[matched_key] = energy
+                
+        print(f"✅ [Growatt] Real data imported successfully.")
     except Exception as e:
-        print(f"❌ [Growatt] API Error: {str(e)}")
+        print(f"❌ [Growatt] Error: {str(e)}")
         
     return results

@@ -1,80 +1,73 @@
 import os
-import requests
-import datetime
 import json
+import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# --- CONFIGURATION ---
-SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
-# Jeśli klucz nie jest w Secrets, skrypt użyje tego poniżej (wstaw swój działający klucz tutaj jeśli go masz)
-WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY', 'TWÓJ_KLUCZ_JEŚLI_BYŁ_W_KODZIE') 
-RAW_DATA_SHEET = "RawData"
-CONFIG_SHEET = "Config_Plants"
+# Importy naszych modułów
+import argia_weather as weather
+import argia_huawei as huawei
+import argia_growatt as growatt
 
-def get_service():
+SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
+
+def get_google_service():
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
     creds_info = json.loads(creds_json)
     creds = service_account.Credentials.from_service_account_info(creds_info)
     return build('sheets', 'v4', credentials=creds)
 
-def get_plants_config(service):
-    range_name = f"{CONFIG_SHEET}!A2:L20"
-    result = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=range_name).execute()
-    values = result.get('values', [])
-    config = {}
-    for row in values:
-        if len(row) >= 6:
-            config[row[0]] = {
-                'kwp': float(row[2].replace(',', '.')),
-                'lat': float(row[4].replace(',', '.')),
-                'lon': float(row[5].replace(',', '.')),
-                'target': float(row[7].replace(',', '.')) if len(row) > 7 else 0.85,
-                'name': row[8] if len(row) > 8 else "Unknown"
-            }
-    return config
-
-def fetch_weather_data(lat, lon, date):
-    # Jeśli WEATHER_API_KEY jest puste, ta funkcja zawsze zwróci 0.
-    if not WEATHER_API_KEY:
-        return 0, 0
-    url = f"https://api.openweathermap.org/data/3.0/onecall/day_summary?lat={lat}&lon={lon}&date={date}&appid={WEATHER_API_KEY}&units=metric"
-    try:
-        r = requests.get(url, timeout=10)
-        d = r.json()
-        irr = d.get('irradiance', 0) / 1000
-        clouds = d.get('cloud_cover', {}).get('afternoon', 0)
-        return irr, clouds
-    except:
-        return 0, 0
-
 def main():
-    print("🚀 Sync v3.4 (Fixing Weather Logic) starting...")
-    service = get_service()
+    print("--- 🌟 ARGIA SOLAR MONITORING v4.0 ---")
+    service = get_google_service()
     yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     
-    plants = get_plants_config(service)
-    # Mock produkcji (tutaj wpisz dane z Huawei jeśli nie masz jeszcze API)
-    production = {'SLP1': 609, 'SLP2': 986, 'GTO1': 2259, 'MEX1': 2174, 'NL1': 2463, 'MEX2': 2448}
+    # 1. Pobierz Config
+    print("📡 [Config] Fetching plant configurations...")
+    config_res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="Config_Plants!A2:L25").execute()
+    config_rows = config_res.get('values', [])
     
-    final_data = []
-    for key, energy in production.items():
-        if key in plants:
-            p = plants[key]
-            irr, clouds = fetch_weather_data(p['lat'], p['lon'], yesterday)
-            
-            # Zabezpieczenie przed zerem, żeby nie psuć tabeli jeśli pogoda padnie
-            forecast = p['kwp'] * irr * p['target'] if irr > 0 else 0
-            real_pr = energy / (p['kwp'] * irr) if irr > 0 else 0
-            
-            final_data.append([yesterday, key, p['name'], energy, irr, forecast, real_pr, p['target'], clouds])
+    plants_config = {}
+    for row in config_rows:
+        if len(row) >= 8:
+            plants_config[row[0]] = {
+                'brand': row[1].upper(),
+                'kwp': float(row[2].replace(',', '.')),
+                'target': float(row[7].replace(',', '.')),
+                'name': row[8] if len(row) > 8 else row[0]
+            }
+
+    # 2. Pobierz Produkcję
+    huawei_keys = [k for k, v in plants_config.items() if v['brand'] == 'HUAWEI']
+    growatt_keys = [k for k, v in plants_config.items() if v['brand'] == 'GROWATT']
     
-    if final_data:
+    prod_data = {}
+    prod_data.update(huawei.fetch_huawei_data(yesterday, huawei_keys))
+    prod_data.update(growatt.fetch_growatt_data(yesterday, growatt_keys))
+
+    # 3. Przetwarzanie i Pogoda
+    final_rows = []
+    for key, energy in prod_data.items():
+        if key in plants_config:
+            p = plants_config[key]
+            irr, clouds = weather.get_estimated_weather(key)
+            
+            forecast = round(p['kwp'] * irr * p['target'], 2)
+            real_pr = round(energy / (p['kwp'] * irr), 3) if irr > 0 else 0
+            
+            final_rows.append([
+                yesterday, key, p['name'], energy, irr, forecast, real_pr, p['target'], clouds
+            ])
+
+    # 4. Wysyłka do Google
+    if final_rows:
         service.spreadsheets().values().append(
-            spreadsheetId=SHEET_ID, range=f"{RAW_DATA_SHEET}!A2",
-            valueInputOption="USER_ENTERED", body={'values': final_data}
+            spreadsheetId=SHEET_ID, range="RawData!A2",
+            valueInputOption="USER_ENTERED", body={'values': final_rows}
         ).execute()
-        print(f"✅ Sync completed. Irradiance checked: {'Yes' if WEATHER_API_KEY else 'No - API KEY MISSING'}")
+        print(f"✅ [Success] Synced {len(final_rows)} rows to Google Sheets.")
+    else:
+        print("❌ [Error] No data to sync.")
 
 if __name__ == "__main__":
     main()

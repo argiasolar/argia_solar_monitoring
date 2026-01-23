@@ -1,110 +1,92 @@
 import os
 import requests
 import datetime
-import pandas as pd
+import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # --- CONFIGURATION ---
-# Upewnij się, że te nazwy odpowiadają Twoim sekretom w GitHub Actions
 SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
 WEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY')
-HUAWEI_API_KEY = os.environ.get('HUAWEI_API_KEY') # Jeśli używasz API Key
-
-# Zakresy w Google Sheets
 RAW_DATA_SHEET = "RawData"
+CONFIG_SHEET = "Config_Plants"
 
-def fetch_weather_data(lat, lon, date):
-    """Pobiera dane historyczne o pogodzie (Irradiance i Clouds)."""
-    # Uproszczony model dla OpenWeather (wymaga subskrypcji 'One Call')
-    # Jeśli korzystasz z darmowego, pobieramy dane aktualne/prognozowane
-    url = f"https://api.openweathermap.org/data/3.0/onecall/day_summary?lat={lat}&lon={lon}&date={date}&appid={WEATHER_API_KEY}&units=metric"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        # Zwracamy nasłonecznienie (D) i chmury (H)
-        irradiance = data.get('irradiance', 0) / 1000 # konwersja do kWh/m2
-        clouds = data.get('cloud_cover', {}).get('afternoon', 0)
-        return irradiance, clouds
-    except:
-        return 0, 0
+def get_service():
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+    creds_info = json.loads(creds_json)
+    creds = service_account.Credentials.from_service_account_info(creds_info)
+    return build('sheets', 'v4', credentials=creds)
+
+def get_plants_config(service):
+    """Pobiera dynamicznie listę stacji z zakładki Config_Plants."""
+    range_name = f"{CONFIG_SHEET}!A2:L20" # Pobieramy kolumny od PlantKey do Longitude
+    result = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range=range_name).execute()
+    values = result.get('values', [])
+    
+    config = {}
+    for row in values:
+        if len(row) >= 6:
+            # Struktura: Key(0), Brand(1), kWp_DC(2), kWp_AC(3), Lat(4), Lon(5), PR_Target(7), Name(8)
+            config[row[0]] = {
+                'brand': row[1],
+                'kwp': float(row[2].replace(',', '.')),
+                'lat': float(row[4].replace(',', '.')),
+                'lon': float(row[5].replace(',', '.')),
+                'target': float(row[7].replace(',', '.')) if len(row) > 7 else 0.85,
+                'name': row[8] if len(row) > 8 else "Unknown Customer"
+            }
+    return config
 
 def fetch_huawei_data(target_date):
-    """
-    Pobiera dane o produkcji z falowników Huawei.
-    Tutaj wstawiamy brakującą wcześniej funkcję.
-    """
-    print(f"Connecting to Huawei FusionSolar for date: {target_date}")
-    # Placeholder dla logiki API Huawei (zależnie od Twojego tokenu)
-    # Zwraca słownik: { 'PlantKey': kWh_value }
-    mock_data = {
-        'SLP1': 609,
-        'SLP2': 986,
-        'GTO1': 2259,
-        'MEX1': 2174,
-        'NL1': 2463,
-        'MEX2': 2448
-    }
-    return mock_data
+    """Logika pobierania danych z Huawei (Mock na ten moment)."""
+    return {'SLP1': 609, 'SLP2': 986, 'GTO1': 2259, 'MEX1': 2174, 'NL1': 2463, 'MEX2': 2448}
 
-def update_google_sheets(all_data):
-    """Wysyła zebrane dane do arkusza RawData."""
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    with open('creds.json', 'w') as f:
-        f.write(creds_json)
-    
-    creds = service_account.Credentials.from_service_account_file('creds.json')
-    service = build('sheets', 'v4', credentials=creds)
-    
-    # Przygotowanie wierszy do dodania
-    values = []
-    for entry in all_data:
-        values.append([
-            entry['date'], entry['key'], entry['customer'], 
-            entry['actual'], entry['irradiance'], entry['forecast'],
-            entry['real_pr'], entry['target_pr'], entry['clouds']
-        ])
-
-    body = {'values': values}
-    service.spreadsheets().values().append(
-        spreadsheetId=SHEET_ID, range=f"{RAW_DATA_SHEET}!A2",
-        valueInputOption="USER_ENTERED", body=body).execute()
+def fetch_weather_data(lat, lon, date):
+    """Pobiera nasłonecznienie i chmury z OpenWeather."""
+    url = f"https://api.openweathermap.org/data/3.0/onecall/day_summary?lat={lat}&lon={lon}&date={date}&appid={WEATHER_API_KEY}&units=metric"
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            d = r.json()
+            # Sprawdź jednostki API - jeśli podaje w Wh, dzielimy przez 1000
+            irradiance = d.get('irradiance', 0) / 1000 
+            clouds = d.get('cloud_cover', {}).get('afternoon', 0)
+            return irradiance, clouds
+    except:
+        pass
+    return 0, 0
 
 def main():
-    print("🚀 Sync v3.0 (Weather + Clouds) starting...")
+    print("🚀 Sync v3.2 (Dynamic Config) starting...")
+    service = get_service()
     yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 1. Pobierz dane z Huawei
-    huawei_energies = fetch_huawei_data(yesterday)
+    # 1. Pobierz konfigurację z Arkusza
+    plants = get_plants_config(service)
     
-    # 2. Pobierz konfigurację stacji (dla współrzędnych i kWp)
-    # W wersji demo używamy statycznej listy, w wersji full pobierasz z arkusza Config_Plants
-    plants_config = {
-        'SLP1': {'lat': 22.15, 'lon': -100.98, 'kwp': 189, 'target_pr': 0.85},
-        'NL1': {'lat': 25.68, 'lon': -100.31, 'kwp': 545, 'target_pr': 0.95}
-    }
+    # 2. Pobierz produkcję
+    production = fetch_huawei_data(yesterday)
     
-    final_sync_list = []
+    final_data = []
+    for key, energy in production.items():
+        if key in plants:
+            p = plants[key]
+            irr, clouds = fetch_weather_data(p['lat'], p['lon'], yesterday)
+            
+            forecast = p['kwp'] * irr * p['target']
+            real_pr = energy / (p['kwp'] * irr) if irr > 0 else 0
+            
+            final_data.append([
+                yesterday, key, p['name'], energy, irr, forecast, real_pr, p['target'], clouds
+            ])
     
-    for key, energy in huawei_energies.items():
-        config = plants_config.get(key, {'lat': 0, 'lon': 0, 'kwp': 100, 'target_pr': 0.85})
-        
-        # 3. Pobierz pogodę
-        irradiance, clouds = fetch_weather_data(config['lat'], config['lon'], yesterday)
-        
-        # 4. Obliczenia
-        forecast = config['kwp'] * irradiance * config['target_pr']
-        real_pr = energy / (config['kwp'] * irradiance) if irradiance > 0 else 0
-        
-        final_sync_list.append({
-            'date': yesterday, 'key': key, 'customer': 'Client Name',
-            'actual': energy, 'irradiance': irradiance, 'forecast': forecast,
-            'real_pr': real_pr, 'target_pr': config['target_pr'], 'clouds': clouds
-        })
-    
-    # 5. Wyślij do Sheets
-    update_google_sheets(final_sync_list)
-    print("✅ Sync completed successfully.")
+    # 3. Wyślij do RawData
+    if final_data:
+        service.spreadsheets().values().append(
+            spreadsheetId=SHEET_ID, range=f"{RAW_DATA_SHEET}!A2",
+            valueInputOption="USER_ENTERED", body={'values': final_data}
+        ).execute()
+        print(f"✅ Successfully synced {len(final_data)} plants.")
 
 if __name__ == "__main__":
     main()

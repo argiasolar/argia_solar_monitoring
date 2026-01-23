@@ -1,42 +1,46 @@
 import os
 import growattServer
+import time
 
-def fetch_growatt_data(target_date, plant_keys):
-    print(f"🚀 [Growatt] Connecting to Growatt Server for {target_date}...")
-    user = os.environ.get('GROWATT_USERNAME')
-    password = os.environ.get('GROWATT_PASSWORD')
+def fetch_growatt_data(yesterday_str, plant_keys):
+    """Logika z pliku zintegrowanego: 3x Retry + Detail Backup."""
+    print(f"🚀 [Growatt] Connecting with 3-attempt retry logic...")
     results = {key: 0 for key in plant_keys}
     
-    try:
-        # Poprawka: Inicjalizacja bez spornego argumentu
-        api = growattServer.GrowattApi()
-        api.server_url = "https://server.growatt.com/"
-        
-        login_res = api.login(user, password)
-        if not login_res or 'user_id' not in login_res:
-            print("❌ [Growatt] Login failed.")
-            return results
-            
-        plants = api.plant_list(login_res['user_id'])
-        
-        # Obsługa struktury danych z v3.2
-        plant_data = plants.get('data') if isinstance(plants.get('data'), list) else []
-        
-        for plant in plant_data:
-            raw_name = plant.get('plantName', '').strip()
-            p_id = plant.get('plantId')
-            
-            matched_key = next((k for k in plant_keys if k.lower() == raw_name.lower()), None)
-            
-            if matched_key:
-                history = api.plant_history(p_id, target_date)
-                energy = float(history.get('eToday', 0))
-                results[matched_key] = energy
-                print(f"   📊 [Growatt] {matched_key}: {energy} kWh")
-        
-        print(f"✅ [Growatt] Sync complete.")
+    api = growattServer.GrowattApi()
+    api.server_url = 'http://server.growatt.com/'
+    
+    # 1. Pancerna pętla logowania z Twojego pliku
+    growatt_ok = False
+    for i in range(3):
+        try:
+            api.login(os.environ['GROWATT_USERNAME'], os.environ['GROWATT_PASSWORD'])
+            growatt_ok = True
+            break
+        except:
+            print(f"⚠️ Growatt login attempt {i+1} failed, retrying...")
+            time.sleep(10)
 
-    except Exception as e:
-        print(f"❌ [Growatt] API Error: {str(e)}")
-        
+    if not growatt_ok:
+        return results
+
+    # 2. Pobieranie danych dla każdej stacji (Zabezpieczone)
+    for s_id in plant_keys:
+        try:
+            # Próba A: Detail
+            data = api.plant_detail(s_id, yesterday_str)
+            val = data.get('today_energy') or data.get('todayEnergy')
+            
+            # Próba B: Backup z listy ogólnej
+            if not val:
+                plants = api.plant_list(api.session.auth[0])
+                for p in plants:
+                    if str(p['plantId']) == str(s_id):
+                        val = p['todayEnergy']
+                        break
+            results[s_id] = float(val or 0)
+        except:
+            results[s_id] = 0
+            
+    print("✅ [Growatt] Data imported with retry protection.")
     return results

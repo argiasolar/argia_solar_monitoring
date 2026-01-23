@@ -15,13 +15,13 @@ def _safe_float(x) -> float:
 
 def _collect_time_ms(date_iso: str) -> int:
     """
-    Konwertuje datę ISO na milisekundy dla początku danego dnia.
-    Huawei w LA5 (Ameryka Łacińska) najlepiej reaguje na czas lokalny północy.
+    Wczorajsze rozwiązanie: Huawei LA5 indeksuje dane 'dzienne' 
+    pod znacznikiem godziny 23:00 dnia poprzedniego.
     """
-    d = dt.date.fromisoformat(date_iso)
-    # Tworzymy obiekt datetime dla północy wybranego dnia
-    dt_obj = dt.datetime(d.year, d.month, d.day, 0, 0, 0)
-    # Zwracamy timestamp w milisekundach
+    target_date = dt.date.fromisoformat(date_iso)
+    yesterday = target_date - dt.timedelta(days=1)
+    # Celujemy w 23:00 dnia poprzedniego
+    dt_obj = dt.datetime(yesterday.year, yesterday.month, yesterday.day, 23, 0, 0)
     return int(dt_obj.timestamp() * 1000)
 
 def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_config: Dict[str, dict]) -> Dict[str, float]:
@@ -49,7 +49,6 @@ def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_
         sess.headers.update({"XSRF-TOKEN": token})
         collect_ms = _collect_time_ms(date_iso)
         
-        # Pobieramy dane dla wszystkich stacji w jednym zapytaniu (Huawei na to pozwala)
         station_codes_str = ",".join(plants_to_fetch.keys())
         payload = {"stationCodes": station_codes_str, "collectTime": collect_ms}
         
@@ -58,27 +57,16 @@ def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_
         js = rr.json()
 
         data_list = js.get("data") or []
-        if not data_list:
-            print(f"⚠️ [Huawei] Empty data list for date {date_iso}. Full Response: {js}")
-
-        # Mapujemy odpowiedzi z powrotem do naszych kluczy
-        # Huawei zwraca listę obiektów, gdzie każdy ma stationCode
+        
         for item in data_list:
             s_code = item.get("stationCode")
             p_key = plants_to_fetch.get(s_code)
             if not p_key: continue
 
             m = item.get("dataItemMap") or {}
-            
-            # DEBUG: To nam pokaże co faktycznie wysyła Huawei
-            if not m:
-                print(f"   ❓ [Huawei] {p_key}: dataItemMap is empty!")
-            else:
-                print(f"   🔍 [Huawei] {p_key} available keys: {list(m.keys())}")
-
-            # Próbujemy wyciągnąć produkcję
             val = 0.0
-            candidates = ["inverterYield", "PVYield", "day_cap", "today_energy", "dailyEnergy"]
+            # inverterYield to najpewniejszy klucz dla produkcji dziennej
+            candidates = ["inverterYield", "PVYield", "day_cap"]
             for c in candidates:
                 if c in m and m[c] is not None:
                     val = _safe_float(m[c])

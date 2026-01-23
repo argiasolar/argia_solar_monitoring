@@ -1,6 +1,5 @@
 # argia_weather.py
-import requests
-import time
+import requests, time
 from typing import Tuple
 
 def get_weather_for_date(p_key: str, date_iso: str, plants_config: dict) -> Tuple[float, float]:
@@ -15,14 +14,14 @@ def get_weather_for_date(p_key: str, date_iso: str, plants_config: dict) -> Tupl
         "timezone": "auto", "start_date": date_iso, "end_date": date_iso,
     }
 
-    for _ in range(3):
+    for attempt in range(3):
         try:
-            r = requests.get(url, params=params, timeout=15)
+            r = requests.get(url, params=params, timeout=20)
             if r.status_code == 200:
                 js = r.json()
                 sw = (js.get("daily", {}).get("shortwave_radiation_sum") or [0])[0]
-                clouds = (js.get("daily", {}).get("cloudcover_mean") or [0])[0]
-                return round(float(sw)/3.6, 3), round(float(clouds), 1)
+                cc = (js.get("daily", {}).get("cloudcover_mean") or [0])[0]
+                return round(float(sw)/3.6, 3), round(float(cc), 1)
         except:
-            time.sleep(2)
+            time.sleep(3)
     return 0.0, 0.0

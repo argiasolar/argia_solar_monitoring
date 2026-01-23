@@ -1,53 +1,32 @@
-import random
-import os
-import json
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
+# argia_weather.py
+import datetime
+import requests
 
-SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
+def mj_to_kwh(mj_m2: float) -> float:
+    return float(mj_m2) / 3.6
 
-def get_service():
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    creds = service_account.Credentials.from_service_account_info(json.loads(creds_json))
-    return build('sheets', 'v4', credentials=creds)
+def fetch_yesterday_weather(lat: float, lon: float, date_iso: str, timeout: int = 20):
+    """
+    Returns: (irr_kwh_m2, cloud_cover_percent)
+    Uses Open-Meteo archive API for yesterday historical values.
+    """
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "start_date": date_iso,
+        "end_date": date_iso,
+        "daily": "shortwave_radiation_sum,cloudcover_mean",
+        "timezone": "America/Mexico_City",
+    }
+    r = requests.get(url, params=params, timeout=timeout)
+    r.raise_for_status()
+    j = r.json()
 
-def get_estimated_weather(location_key):
-    """Generuje dane pogodowe na podstawie kodu regionu."""
-    region_map = {'SLP': 5.4, 'GTO': 5.6, 'MEX': 5.2, 'NL': 5.8}
-    code = ''.join([i for i in location_key if not i.isdigit()])
-    base = region_map.get(code, 5.5)
-    
-    irr = round(base + random.uniform(-0.4, 0.3), 3)
-    clouds = random.randint(5, 30)
+    daily = j.get("daily", {}) or {}
+    sw = (daily.get("shortwave_radiation_sum") or [None])[0]  # MJ/m2
+    cc = (daily.get("cloudcover_mean") or [None])[0]          # %
+
+    irr = round(mj_to_kwh(sw) if sw is not None else 0.0, 3)
+    clouds = float(cc) if cc is not None else 0.0
     return irr, clouds
-
-def repair_missing_weather(date_slash):
-    """Funkcja naprawcza wywoływana przez weryfikator w kroku RETRY."""
-    print(f"🛠️ [Weather Fix] Patching missing irradiance for {date_slash}...")
-    service = get_service()
-    
-    # Pobieramy RawData, żeby zlokalizować zera w kolumnie E (indeks 4)
-    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:I400").execute()
-    rows = res.get('values', [])
-    
-    updates = []
-    for i, row in enumerate(rows):
-        if len(row) > 4 and row[0] == date_slash:
-            try:
-                # Sprawdzamy czy nasłonecznienie jest zerem lub błędem
-                val = float(str(row[4]).replace(',', '.'))
-            except: val = 0
-            
-            if val <= 0:
-                key = row[1]
-                irr, clouds = get_estimated_weather(key)
-                row_idx = i + 2
-                updates.append({'range': f'RawData!E{row_idx}', 'values': [[irr]]})
-                updates.append({'range': f'RawData!I{row_idx}', 'values': [[clouds]]})
-                print(f"   ✅ Patched weather for {key}")
-
-    if updates:
-        service.spreadsheets().values().batchUpdate(
-            spreadsheetId=SHEET_ID, 
-            body={'valueInputOption': 'USER_ENTERED', 'data': updates}
-        ).execute()

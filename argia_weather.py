@@ -1,32 +1,54 @@
-# argia_weather.py
-import datetime
 import requests
+from typing import Tuple
 
-def mj_to_kwh(mj_m2: float) -> float:
-    return float(mj_m2) / 3.6
+def get_weather_for_date(lat: float, lon: float, date_iso: str, tz_name: str) -> Tuple[float, float]:
+    """
+    Zwraca:
+      (Irradiance_kWh_m2, CloudCover_%)
 
-def fetch_yesterday_weather(lat: float, lon: float, date_iso: str, timeout: int = 20):
+    Używa Open-Meteo Forecast API z past_days=1 (żeby działało dla "wczoraj").
+    Jeśli API nie zwróci danych -> fallback (0 + 0).
     """
-    Returns: (irr_kwh_m2, cloud_cover_percent)
-    Uses Open-Meteo archive API for yesterday historical values.
-    """
-    url = "https://archive-api.open-meteo.com/v1/archive"
+    if not lat or not lon:
+        return 0.0, 0.0
+
+    url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
         "longitude": lon,
-        "start_date": date_iso,
-        "end_date": date_iso,
-        "daily": "shortwave_radiation_sum,cloudcover_mean",
-        "timezone": "America/Mexico_City",
+        "daily": "shortwave_radiation_sum,cloud_cover_mean",
+        "timezone": tz_name,
+        "past_days": 1,
+        "forecast_days": 1,
     }
-    r = requests.get(url, params=params, timeout=timeout)
-    r.raise_for_status()
-    j = r.json()
 
-    daily = j.get("daily", {}) or {}
-    sw = (daily.get("shortwave_radiation_sum") or [None])[0]  # MJ/m2
-    cc = (daily.get("cloudcover_mean") or [None])[0]          # %
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        j = r.json()
 
-    irr = round(mj_to_kwh(sw) if sw is not None else 0.0, 3)
-    clouds = float(cc) if cc is not None else 0.0
-    return irr, clouds
+        daily = j.get("daily", {})
+        times = daily.get("time", [])
+        if date_iso not in times:
+            # czasem API zwróci inny zakres – po prostu spróbuj znaleźć pierwszy element
+            if times:
+                idx = 0
+            else:
+                return 0.0, 0.0
+        else:
+            idx = times.index(date_iso)
+
+        rad = daily.get("shortwave_radiation_sum", [0])[idx]
+        cloud = daily.get("cloud_cover_mean", [0])[idx]
+
+        # Unit-safe: Open-Meteo zwraca daily_units – jeżeli MJ/m² to przeliczamy na kWh/m²
+        units = j.get("daily_units", {})
+        rad_unit = units.get("shortwave_radiation_sum", "")
+
+        rad_val = float(rad or 0)
+        if "mj" in rad_unit.lower():
+            rad_val = rad_val / 3.6  # MJ/m² -> kWh/m²
+
+        return round(rad_val, 3), round(float(cloud or 0), 1)
+
+    except Exception:
+        return 0.0, 0.0

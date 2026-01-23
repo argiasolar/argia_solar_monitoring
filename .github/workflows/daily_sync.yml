@@ -1,13 +1,15 @@
-name: Argia Daily Solar Sync
+name: Daily Solar Data Sync
 
 on:
   schedule:
-    - cron: '0 9 * * *'
-  workflow_dispatch:
+    # Uruchomienie o 06:00 rano czasu CST (Meksyk) = 12:00 UTC
+    - cron: '0 12 * * *'
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -15,17 +17,26 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # Podnieśliśmy wersję zgodnie z ostrzeżeniem
+          python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests google-auth google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-      - name: Run Solar Metering
+      - name: Run argia.py
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          # Podstawowe konfiguracje
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}    
-          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}    
-          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}    
-          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          
+          # Huawei Secrets
+          HUAWEI_USER: ${{ secrets.HUAWEI_USER }}
+          HUAWEI_PASS: ${{ secrets.HUAWEI_PASS }}
+          
+          # Growatt Secrets (Dodane)
+          GROWATT_USER: ${{ secrets.GROWATT_USER }}
+          GROWATT_PASS: ${{ secrets.GROWATT_PASS }}
+          
         run: python argia.py

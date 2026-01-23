@@ -19,12 +19,11 @@ jobs:
 
       # KROK 1: Główna synchronizacja
       - name: Run Main Sync
-        id: main_sync
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          HUAWEI_USER: ${{ secrets.HUAWEI_USER }}
-          HUAWEI_PASS: ${{ secrets.HUAWEI_PASS }}
+          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
+          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           GROWATT_USER: ${{ secrets.GROWATT_USER }}
           GROWATT_PASS: ${{ secrets.GROWATT_PASS }}
         run: python argia.py

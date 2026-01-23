@@ -1,197 +1,175 @@
-# argia_growatt.py
-from __future__ import annotations
-
 import os
-import time
-from typing import Dict, Any, Optional
+import datetime
+from zoneinfo import ZoneInfo
 
 import growattServer
 
 
-def _to_float(x) -> float:
-    try:
-        return float(str(x).replace(",", "."))
-    except Exception:
-        return 0.0
+TZ = ZoneInfo("America/Mexico_City")
 
 
-def _extract_kwh_from_v1_history(resp: Any, date_iso: str) -> float:
+def dummy_kwh_for(plantkey: str) -> float:
+    # Twoje sprawdzone stałe (możesz je później przenieść do arkusza jako "fallback map")
+    dummy_map = {
+        "SLP1": 609,
+        "SLP2": 986,
+        "GTO1": 2259,
+        "MEX1": 2174,
+        "NL1": 2463,
+        "MEX2": 2448,
+    }
+    return float(dummy_map.get(plantkey, 500))
+
+
+def _parse_energy_history(resp, date_iso: str) -> float:
     """
-    Próbujemy wyciągnąć kWh z różnych możliwych struktur odpowiedzi.
-    growattServer bywa niespójny zależnie od endpointu/regionu.
+    Growatt v1 history często wygląda jak:
+      {"data":{"energys":[{"date":"2026-01-22","energy":123.4}, ...]}}
+    ale czasem bywa inna struktura – robimy parser odporny.
     """
     if not isinstance(resp, dict):
         return 0.0
 
-    data = resp.get("data") or resp.get("obj") or resp.get("result") or resp
-    # różne nazwy listy rekordów
-    records = None
-    for k in ("datas", "data", "list", "rows", "records"):
-        if isinstance(data, dict) and isinstance(data.get(k), list):
-            records = data.get(k)
-            break
-    if records is None and isinstance(data, list):
-        records = data
+    data = resp.get("data", resp)
 
-    if isinstance(records, list):
-        for r in records:
-            if not isinstance(r, dict):
-                continue
-            d = str(r.get("date") or r.get("calendar") or r.get("time") or "").strip()
-            if date_iso in d:
-                for key in ("energy", "e", "value", "kwh", "generation", "pvEnergy", "todayEnergy"):
-                    if key in r:
-                        return _to_float(r.get(key))
-        # fallback: pierwszy rekord
-        r0 = records[0] if records else {}
-        if isinstance(r0, dict):
-            for key in ("energy", "e", "value", "kwh", "generation", "pvEnergy", "todayEnergy"):
-                if key in r0:
-                    return _to_float(r0.get(key))
-
-    # fallback: bez listy, bezpośrednie klucze
-    for key in ("todayEnergy", "today_energy", "energy", "kwh"):
-        if key in data:
-            return _to_float(data.get(key))
-
-    return 0.0
-
-
-def _extract_kwh_from_legacy_detail(resp: Any) -> float:
-    if not isinstance(resp, dict):
-        return 0.0
-    # typowo:
-    # - todayEnergy (z listy)
-    # - today_energy / todayEnergy (z detail)
-    for key in ("today_energy", "todayEnergy", "energy", "eDay", "eday"):
-        if key in resp:
-            return _to_float(resp.get(key))
-    # czasem jest zagnieżdżone
-    data = resp.get("data")
+    # 1) klasyczny format
+    energys = None
     if isinstance(data, dict):
-        for key in ("today_energy", "todayEnergy", "energy", "eDay", "eday"):
-            if key in data:
-                return _to_float(data.get(key))
+        energys = data.get("energys") or data.get("energy") or data.get("items")
+
+    if isinstance(energys, list):
+        for it in energys:
+            try:
+                if str(it.get("date")) == date_iso:
+                    return float(it.get("energy", 0) or 0)
+            except Exception:
+                continue
+
+    # 2) fallback: czasem jest prosto "today_energy"
+    for k in ("today_energy", "todayEnergy", "energy", "yield"):
+        if isinstance(data, dict) and k in data:
+            try:
+                return float(data[k] or 0)
+            except Exception:
+                pass
+
     return 0.0
 
 
-def fetch_growatt_day_kwh(
-    date_iso: str,
-    plants_to_fetch: Dict[str, str],   # {SiteID: PlantKey}
-    token: Optional[str] = None,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
-    attempt: int = 0,
-) -> Dict[str, float]:
+def fetch_growatt_data(date_iso: str, plants_to_fetch: dict, plants_config: dict) -> dict:
     """
-    Opcja A (preferowana): token (OpenAPI v1)
-    Opcja B: legacy login (username/password) do server.growatt.com
+    plants_to_fetch: {PlantID(str): PlantKey} e.g. {'9275498': 'SLP1'}
+    Uses secrets from Config_Plants:
+      - SecretName_API (token env var name) preferred
+      - legacy username/password only if enabled
     """
-    results = {pk: 0.0 for pk in plants_to_fetch.values()}
+    # Resolve token env var name from any Growatt plant (usually shared)
+    any_p = next(iter(plants_to_fetch.values()))
+    secret_api_name = plants_config[any_p].get("secret_api") or "GROWATT_API_TOKEN"
+    token = os.environ.get(secret_api_name)
 
-    # --- OPCJA A: OpenAPI v1 token
+    out = {p_key: 0.0 for p_key in plants_to_fetch.values()}
+
+    # -------------------
+    # OPTION A (PRIMARY): OpenAPI v1 token
+    # -------------------
     if token:
+        print(f"🚀 [Growatt:A] OpenAPI v1 (token) for {date_iso}...")
+
         try:
-            print(f"🚀 [Growatt:A] OpenAPI v1 (token) for {date_iso}...")
+            api = growattServer.OpenApiV1(token=token)
 
-            # zależnie od wersji biblioteki klasa może mieć różną nazwę
-            api = None
-            for cls_name in ("OpenApiV1", "GrowattApiV1"):
-                if hasattr(growattServer, cls_name):
-                    api = getattr(growattServer, cls_name)(token=token)
-                    break
-            if api is None:
-                raise RuntimeError("growattServer missing OpenAPI v1 class (OpenApiV1/GrowattApiV1)")
-
-            # opcjonalnie region URL z env
-            openapi_url = os.environ.get("GROWATT_OPENAPI_URL")
-            if openapi_url:
-                api.server_url = openapi_url.rstrip("/") + "/"
-
-            # Dla każdego plant_id bierzemy historię (najpewniejsze dla konkretnej daty)
-            for site_id, plant_key in plants_to_fetch.items():
-                kwh = 0.0
+            # For each plant, query 1-day history (start=end=yesterday)
+            for plant_id, p_key in plants_to_fetch.items():
                 try:
-                    # time_unit zwykle "day"
-                    resp = api.plant_energy_history_v1(
-                        plant_id=site_id,
-                        start_date=date_iso,
-                        end_date=date_iso,
-                        time_unit="day",
-                        page=1,
-                        perpage=20,
-                    )
-                    kwh = _extract_kwh_from_v1_history(resp, date_iso)
+                    # Prefer *_v1 if present; fallback to non-suffixed (library version differences)
+                    if hasattr(api, "plant_energy_history_v1"):
+                        resp = api.plant_energy_history_v1(
+                            plant_id, date_iso, date_iso, "day", 1, 50
+                        )
+                    else:
+                        resp = api.plant_energy_history(
+                            plant_id, date_iso, date_iso, "day", 1, 50
+                        )
 
-                    # fallback: overview
-                    if kwh <= 0:
-                        ov = api.plant_energy_overview_v1(site_id)
-                        kwh = _extract_kwh_from_v1_history(ov, date_iso)
+                    val = _parse_energy_history(resp, date_iso)
+                    out[p_key] = round(float(val or 0.0), 2)
+                    print(f"   📊 [Growatt:A] {p_key} ({plant_id}): {out[p_key]} kWh")
 
-                    results[plant_key] = float(kwh)
-                    print(f"   📊 [Growatt:A] {plant_key} ({site_id}): {results[plant_key]} kWh")
                 except Exception as e:
-                    print(f"   ⚠️ [Growatt:A] Failed {plant_key} ({site_id}): {e}")
-                    results[plant_key] = 0.0
+                    print(f"   ⚠️ [Growatt:A] Failed {p_key} ({plant_id}): {e}")
+                    out[p_key] = 0.0
 
-            # jeżeli token działa i dał cokolwiek >0, wracamy od razu
-            if any(v > 0 for v in results.values()):
-                return results
-
-            print("⚠️ [Growatt:A] Token path returned all zeros – trying legacy as fallback...")
+            # If token path returns all zeros, we *can* try legacy, but only if enabled
+            if all(v <= 0 for v in out.values()):
+                print("⚠️ [Growatt:A] Token path returned all zeros – trying legacy as fallback...")
+            else:
+                return out
 
         except Exception as e:
-            print(f"❌ [Growatt:A] Token/OpenAPI v1 error: {e}")
-            print("➡️ Falling back to legacy (username/password) if provided...")
+            print(f"❌ [Growatt:A] Token API init/error: {e}")
 
-    # --- OPCJA B: legacy login
-    if not username or not password:
+    else:
+        print(f"❌ [Growatt:A] Missing token env var: {secret_api_name}")
+
+    # -------------------
+    # OPTION B (FALLBACK): Legacy login user/pass (often blocked on GitHub Actions IP)
+    # -------------------
+    legacy_enabled = os.environ.get("GROWATT_LEGACY_ENABLE", "false").lower() == "true"
+    if not legacy_enabled:
+        return out
+
+    print(f"🚀 [Growatt:B] Legacy login for {date_iso}...")
+
+    user = os.environ.get("GROWATT_USERNAME")
+    password = os.environ.get("GROWATT_PASSWORD")
+    if not user or not password:
         print("❌ [Growatt:B] Missing credentials (user/password).")
-        return results
+        return out
 
     try:
-        print(f"🚀 [Growatt:B] Legacy login for {date_iso}...")
-        api = growattServer.GrowattApi(True)  # random UA (biblioteka sama sugeruje)
-        api.server_url = "https://server.growatt.com/"
+        api2 = growattServer.GrowattApi(True)  # random UA (helps sometimes)
+        login_response = api2.login(user, password)
+        user_id = login_response["user"]["id"]
 
-        # delikatny backoff na kolejne retry
-        if attempt:
-            time.sleep(min(5 * attempt, 15))
+        # Legacy detail endpoint expects (plant_id, timespan, date) in some versions,
+        # but in your earlier code you used plant_detail(plant_id, date) – that mismatch can cause zeros.
+        # So we use plant_energy_data if available, else plant_detail with safe guessing.
+        for plant_id, p_key in plants_to_fetch.items():
+            val = 0.0
+            try:
+                if hasattr(api2, "plant_energy_data"):
+                    resp = api2.plant_energy_data(plant_id)
+                    # Usually includes todayEnergy only; not reliable for "yesterday"
+                    # We'll fallback to detail if date needed.
+                    val = float(resp.get("data", {}).get("todayEnergy", 0) or 0)
 
-        login_resp = api.login(username, password)
-        user_id = None
-        if isinstance(login_resp, dict):
-            user = login_resp.get("user") or {}
-            user_id = user.get("id")
-        if not user_id:
-            user_id = username  # fallback
+                # Try plant_detail with explicit timespan/day if supported
+                if hasattr(api2, "plant_detail"):
+                    try:
+                        # many implementations: plant_detail(plant_id, timespan, date)
+                        resp2 = api2.plant_detail(plant_id, 1, date_iso)  # 1=day
+                        if isinstance(resp2, dict):
+                            val2 = resp2.get("todayEnergy") or resp2.get("today_energy") or 0
+                            if val2:
+                                val = float(val2)
+                    except TypeError:
+                        # older signature plant_detail(plant_id, date)
+                        resp2 = api2.plant_detail(plant_id, date_iso)
+                        if isinstance(resp2, dict):
+                            val2 = resp2.get("todayEnergy") or resp2.get("today_energy") or 0
+                            if val2:
+                                val = float(val2)
 
-        # 1) plant_list jako „primary”
-        plist = api.plant_list(user_id)
-        today_map: Dict[str, float] = {}
-        if isinstance(plist, dict) and isinstance(plist.get("data"), list):
-            for p in plist["data"]:
-                pid = p.get("plantId")
-                te = p.get("todayEnergy", 0)
-                if pid is not None:
-                    today_map[str(pid)] = _to_float(te)
+                out[p_key] = round(float(val or 0.0), 2)
+                print(f"   📊 [Growatt:B] {p_key} ({plant_id}): {out[p_key]} kWh")
 
-        for site_id, plant_key in plants_to_fetch.items():
-            kwh = today_map.get(str(site_id), 0.0)
+            except Exception as e:
+                print(f"   ⚠️ [Growatt:B] Failed {p_key} ({plant_id}): {e}")
+                out[p_key] = 0.0
 
-            # 2) fallback detail dla konkretnej daty
-            if kwh <= 0:
-                try:
-                    d = api.plant_detail(site_id, date_iso)
-                    kwh = _extract_kwh_from_legacy_detail(d)
-                except Exception as e:
-                    print(f"   ⚠️ [Growatt:B] plant_detail failed {plant_key} ({site_id}): {e}")
-
-            results[plant_key] = float(kwh)
-            print(f"   📊 [Growatt:B] {plant_key} ({site_id}): {results[plant_key]} kWh")
-
-        return results
+        return out
 
     except Exception as e:
         print(f"❌ [Growatt:B] Legacy API Error: {e}")
-        return results
+        return out

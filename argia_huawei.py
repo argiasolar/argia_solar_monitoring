@@ -1,27 +1,51 @@
 import os
+import requests
+import json
 
 def fetch_huawei_data(target_date, plant_keys):
-    """
-    Pobiera dane produkcyjne z Huawei FusionSolar.
-    Przywrócona stabilna logika mapowania danych.
-    """
-    print(f"🚀 [Huawei] Importing data for {target_date}...")
+    """Pobiera REALNE dane z Huawei FusionSolar API."""
+    print(f"🚀 [Huawei] Connecting to FusionSolar API for {target_date}...")
     
-    # Twoje sprawdzone dane produkcyjne (kWh)
-    data_map = {
-        'SLP1': 609.0, 
-        'SLP2': 986.0, 
-        'GTO1': 2259.0, 
-        'MEX1': 2174.0, 
-        'NL1': 2463.0, 
-        'MEX2': 2448.0
-    }
+    user = os.environ.get('HUAWEI_USERNAME')
+    password = os.environ.get('HUAWEI_PASSWORD')
     
-    # Filtrujemy tylko te klucze, które w arkuszu są oznaczone jako HUAWEI
-    results = {}
-    for key in plant_keys:
-        if key in data_map:
-            results[key] = data_map[key]
+    # URL dla regionu International/NA
+    url_base = "https://intl.fusionsolar.huawei.com/openapi/v1/login"
     
-    print(f"✅ [Huawei] Successfully processed {len(results)} plants.")
+    results = {key: 0 for key in plant_keys}
+    
+    try:
+        login_body = {"userName": user, "systemCode": password}
+        session = requests.Session()
+        login_res = session.post(url_base, json=login_body, timeout=20)
+        
+        token = login_res.headers.get("xsrf-token")
+        if not token:
+            print("❌ [Huawei] Error: Failed to obtain API token. Check credentials.")
+            return results
+
+        # Pobieranie danych dla każdej stacji
+        data_url = "https://intl.fusionsolar.huawei.com/openapi/v1/getStationRealKpi"
+        headers = {"XSRF-TOKEN": token}
+        
+        # Huawei pozwala na zapytanie o wiele stacji na raz (stationCodes to string rozdzielony przecinkami)
+        station_codes = ",".join(plant_keys)
+        payload = {"stationCodes": station_codes}
+        
+        res = session.post(data_url, json=payload, headers=headers)
+        data = res.json()
+        
+        if data.get("success") and "data" in data:
+            for entry in data["data"]:
+                s_code = entry.get("stationCode")
+                energy = entry.get("dailyEnergy", 0)
+                if s_code in results:
+                    results[s_code] = float(energy)
+            print(f"✅ [Huawei] Fetched real data for {len(data['data'])} plants.")
+        else:
+            print(f"⚠️ [Huawei] API returned success=False or empty data.")
+
+    except Exception as e:
+        print(f"❌ [Huawei] API Error: {str(e)}")
+        
     return results

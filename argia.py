@@ -33,26 +33,38 @@ def date_strings_for_today() -> Tuple[dt.date, str, str]:
     return today, date_iso, date_slash
 
 def read_config(service) -> Tuple[Dict[str, dict], Dict[str, str], Dict[str, str]]:
+    # Czytamy zakres A:J (10 kolumn)
     res = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range="Config_Plants!A2:O200",
+        spreadsheetId=SHEET_ID, range="Config_Plants!A2:J200",
     ).execute()
     rows = res.get("values", [])
     plants_config, huawei_map, growatt_map = {}, {}, {}
+    
     for row in rows:
-        if len(row) < 10: continue
+        if len(row) < 10: continue # Upewniamy się, że wiersz ma SiteID
+        
         p_key = str(row[0]).strip()
         brand = str(row[1]).strip().upper()
-        site_id = str(row[9]).strip()
+        # SiteID to kolumna J, czyli indeks 9
+        site_id = str(row[9]).strip() 
+        
         plants_config[p_key] = {
-            "brand": brand, "site_id": site_id, "kwp_dc": safe_float(row[2]),
-            "lat": row[4] if len(row) > 4 else 0,
-            "lon": row[5] if len(row) > 5 else 0,
+            "brand": brand,
+            "site_id": site_id,
+            "kwp_dc": safe_float(row[2]),
+            "lat": safe_float(row[4]),
+            "lon": safe_float(row[5]),
             "expected_factor": safe_float(row[6], 0.8),
             "pr_target": safe_float(row[7], 0.85),
             "customer_name": str(row[8]).strip(),
         }
-        if brand == "HUAWEI": huawei_map[site_id] = p_key
-        elif brand == "GROWATT": growatt_map[site_id] = p_key
+        
+        if brand == "HUAWEI":
+            huawei_map[site_id] = p_key
+            print(f"   🔗 [Config] Huawei Link: {site_id} -> {p_key}")
+        elif brand == "GROWATT":
+            growatt_map[site_id] = p_key
+            
     return plants_config, huawei_map, growatt_map
 
 def apply_dummy(rows: List[List], missing_keys: List[str]):

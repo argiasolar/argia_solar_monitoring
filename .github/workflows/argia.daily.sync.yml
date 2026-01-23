@@ -2,21 +2,28 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    - cron: '0 12 * * *'
-  workflow_dispatch:
+    - cron: '0 12 * * *' # 12:00 UTC = 06:00 rano w Meksyku (CST)
+  workflow_dispatch: # Pozwala na ręczne uruchomienie w dowolnym momencie
 
 jobs:
   sync_process:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
-      - name: Install dependencies
-        run: pip install requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      # KROK 1: Pierwsza próba synchronizacji
       - name: First Sync Attempt
         id: sync1
         env:
@@ -28,22 +35,27 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
         run: python argia.py
 
-      - name: Verify Attempt 1
+      # KROK 2: Weryfikacja danych po pierwszej próbie
+      - name: Verify Data Integrity
         id: verify1
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          RETRY_ATTEMPT: 'false'
         run: python argia_verification.py
 
-      # REPRACJA: Odpala się tylko jeśli Verify 1 padnie
-      - name: Auto-Repair on Failure
+      # KROK 3: Naprawa i ponowna weryfikacja (tylko jeśli Krok 2 wyrzuci błąd)
+      - name: Auto-Repair and Final Verification
         if: failure()
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          RETRY_ATTEMPT: 'true' # Flaga dla weryfikatora
+          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
+          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          RETRY_ATTEMPT: 'true' # Flaga aktywująca funkcje naprawcze w skryptach
         run: |
-          echo "🔄 Running Repair Script..."
-          python fix_meteo_final.py
-          echo "🧐 Final Verification..."
+          echo "🔄 First attempt failed or data incomplete."
+          echo "🛠️ Starting Self-Healing process..."
           python argia_verification.py

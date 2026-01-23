@@ -1,109 +1,101 @@
 # argia_huawei.py
+from __future__ import annotations
+
 import os
+import datetime as dt
+from typing import Dict
+
 import requests
-import datetime
-from zoneinfo import ZoneInfo
-
-TZ = ZoneInfo("America/Mexico_City")
-DEFAULT_BASE = "https://la5.fusionsolar.huawei.com/thirdData"
 
 
-def _base_url():
-    return (os.environ.get("HUAWEI_BASE_URL") or DEFAULT_BASE).rstrip("/")
+DEFAULT_BASE = (os.environ.get("HUAWEI_BASE_URL") or "https://la5.fusionsolar.huawei.com/thirdData").rstrip("/")
 
 
-def _to_collect_time_ms(date_iso: str) -> int:
-    y, m, d = [int(x) for x in date_iso.split("-")]
-    dt = datetime.datetime(y, m, d, 0, 0, 0, tzinfo=TZ)
-    return int(dt.timestamp() * 1000)
+def _safe_float(x) -> float:
+    try:
+        return float(str(x).strip().replace(",", "."))
+    except Exception:
+        return 0.0
 
 
-def _pick_energy_value(data_item_map: dict) -> float:
-    # typowe klucze spotykane w Huawei thirdData
-    for k in ("inverterYield", "PVYield", "day_cap", "dayCap", "energy", "yield"):
-        if k in data_item_map and data_item_map[k] is not None:
-            try:
-                return float(str(data_item_map[k]).replace(",", "."))
-            except Exception:
-                pass
-    return 0.0
+def _collect_time_ms(date_iso: str) -> int:
+    # SmartPVMS w praktyce akceptuje “day” po local-midnight w ms.
+    d = dt.date.fromisoformat(date_iso)
+    midnight = dt.datetime(d.year, d.month, d.day, 0, 0, 0)
+    # Mexico City ~ UTC-6 (dla prostoty); jeśli chcesz perfekcyjnie: zoneinfo.
+    midnight_utc = midnight + dt.timedelta(hours=6)
+    return int(midnight_utc.timestamp() * 1000)
 
 
-def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: dict, plants_config: dict) -> dict:
+def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_config: Dict[str, dict]) -> Dict[str, float]:
     """
-    plants_to_fetch: {StationCode: PlantKey} e.g. {'SAG': 'MEX1'}
-    plants_config: dict from Config_Plants to resolve SecretUser/SecretPass env var names
-
-    Returns: {PlantKey: kWh_float}
+    plants_to_fetch: {stationCode: PlantKey} np. {"SAG": "MEX1"}
     """
-    print("🚀 [Huawei] Connecting via /thirdData...")
     results = {p_key: 0.0 for p_key in plants_to_fetch.values()}
 
-    if not plants_to_fetch:
+    # w config masz SecretUser_Name i SecretPass_Name, ale zwykle to te same globalne sekrety
+    # więc bierzemy z env.
+    user = os.environ.get("HUAWEI_USERNAME")
+    password = os.environ.get("HUAWEI_PASSWORD")
+
+    if not user or not password:
+        print("❌ [Huawei] Missing HUAWEI_USERNAME / HUAWEI_PASSWORD")
         return results
 
-    # Resolve creds from ANY Huawei plant in this batch (assuming shared creds)
-    any_p = next(iter(plants_to_fetch.values()))
-    secret_user_name = plants_config.get(any_p, {}).get("secret_user") or "HUAWEI_USERNAME"
-    secret_pass_name = plants_config.get(any_p, {}).get("secret_pass") or "HUAWEI_PASSWORD"
+    print("🚀 [Huawei] Connecting via /thirdData (getKpiStationDay)...")
 
-    username = os.environ.get(secret_user_name)
-    password = os.environ.get(secret_pass_name)
+    sess = requests.Session()
+    sess.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
-    if not username or not password:
-        print(f"❌ [Huawei] Missing creds from env: {secret_user_name} / {secret_pass_name}")
+    # Login → XSRF-TOKEN w headerze odpowiedzi (wymagane w kolejnych requestach). :contentReference[oaicite:5]{index=5}
+    r = sess.post(f"{DEFAULT_BASE}/login", json={"userName": user, "systemCode": password}, timeout=25)
+    r.raise_for_status()
+
+    token = r.headers.get("XSRF-TOKEN") or r.cookies.get("XSRF-TOKEN")
+    if not token:
+        print("❌ [Huawei] No XSRF-TOKEN received; login may have failed.")
         return results
 
-    base = _base_url()
-    collect_ms = _to_collect_time_ms(date_iso)
+    sess.headers.update({"XSRF-TOKEN": token})
 
-    try:
-        # login
-        r_log = requests.post(
-            f"{base}/login",
-            json={"userName": username, "systemCode": password},
-            timeout=25,
-        )
-        r_log.raise_for_status()
+    collect_ms = _collect_time_ms(date_iso)
 
-        token = r_log.headers.get("XSRF-TOKEN")
-        if not token:
-            print("❌ [Huawei] Missing XSRF-TOKEN after login")
-            return results
+    for station_code, p_key in plants_to_fetch.items():
+        try:
+            payload = {"stationCodes": station_code, "collectTime": collect_ms}
+            rr = sess.post(f"{DEFAULT_BASE}/getKpiStationDay", json=payload, timeout=25)
+            rr.raise_for_status()
+            js = rr.json()
 
-        headers = {"XSRF-TOKEN": token, "Content-Type": "application/json"}
+            val = 0.0
+            # typowy shape: {"data":[{"dataItemMap":{...}}], "success":true, ...}
+            data = js.get("data") if isinstance(js, dict) else None
+            if isinstance(data, list) and data:
+                m = (data[0] or {}).get("dataItemMap") or {}
 
-        # Batch KPI day request
-        station_codes = ",".join(plants_to_fetch.keys())
-        payload = {"stationCodes": station_codes, "collectTime": collect_ms}
+                # różne instalacje zwracają różne klucze – bierzemy pierwszy sensowny
+                candidates = [
+                    "inverterYield",  # często
+                    "PVYield",        # często
+                    "day_cap",        # starsze/legacy
+                    "today_energy",
+                    "todayEnergy",
+                ]
+                for k in candidates:
+                    if k in m:
+                        val = _safe_float(m.get(k))
+                        break
 
-        r = requests.post(f"{base}/getKpiStationDay", headers=headers, json=payload, timeout=25)
-        r.raise_for_status()
-        j = r.json()
+                # jeśli dalej 0, a map ma inne pola → diagnostyka w logu (krótko)
+                if val <= 0 and isinstance(m, dict) and m:
+                    keys_preview = ", ".join(list(m.keys())[:12])
+                    print(f"   🧩 [Huawei] {p_key} keys preview: {keys_preview}")
 
-        data = j.get("data") or []
-        if isinstance(data, dict):
-            # czasem API zwraca dict zamiast listy
-            data = [data]
-
-        for item in data:
-            sc = str(item.get("stationCode") or "").strip()
-            if not sc:
-                continue
-            p_key = plants_to_fetch.get(sc)
-            if not p_key:
-                continue
-
-            dim = item.get("dataItemMap") or {}
-            val = _pick_energy_value(dim)
             results[p_key] = round(float(val or 0.0), 2)
+            print(f"   📊 [Huawei] {p_key} ({station_code}): {results[p_key]} kWh")
 
-        for s_id, p_key in plants_to_fetch.items():
-            print(f"   📊 [Huawei] {p_key} ({s_id}): {results.get(p_key, 0.0)} kWh")
+        except Exception as e:
+            print(f"   ⚠️ [Huawei] Failed {p_key} ({station_code}): {e}")
+            results[p_key] = 0.0
 
-        return results
-
-    except Exception as e:
-        for s_id, p_key in plants_to_fetch.items():
-            print(f"   ⚠️ [Huawei] Failed {p_key} ({s_id}): {e}")
-        return results
+    return results

@@ -13,34 +13,34 @@ def get_service():
     return build('sheets', 'v4', credentials=creds)
 
 def get_estimated_weather(location_key):
-    """Podstawowa estymacja nasłonecznienia."""
     region_map = {'SLP': 5.4, 'GTO': 5.6, 'MEX': 5.2, 'NL': 5.8}
     region_code = ''.join([i for i in location_key if not i.isdigit()])
     base_irr = region_map.get(region_code, 5.5)
-    
     irr = round(base_irr + random.uniform(-0.4, 0.3), 3)
     clouds = random.randint(5, 30)
-    print(f"   [Weather] {location_key} initial: Irr={irr}")
     return irr, clouds
 
 def repair_missing_weather(date_slash):
-    """Funkcja naprawcza: znajduje zera w kolumnie E i I."""
-    print(f"🛠️ [Weather Fix] Searching for zeros on {date_slash}...")
+    print(f"🛠️ [Weather Fix] Patching data for {date_slash}...")
     service = get_service()
     res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:I200").execute()
     rows = res.get('values', [])
     
     updates = []
     for i, row in enumerate(rows):
-        # Sprawdzamy datę i czy Irradiance (E) jest zerem
         if len(row) > 4 and row[0] == date_slash:
-            if str(row[4]) == '0' or not row[4]:
+            try:
+                irr_val = float(str(row[4]).replace(',', '.'))
+            except:
+                irr_val = 0
+            
+            if irr_val <= 0:
                 key = row[1]
                 irr, clouds = get_estimated_weather(key)
                 row_idx = i + 2
                 updates.append({'range': f'RawData!E{row_idx}', 'values': [[irr]]})
                 updates.append({'range': f'RawData!I{row_idx}', 'values': [[clouds]]})
-                print(f"   ✅ [Weather Fix] Patched {key}")
+                print(f"   ✅ Patched {key}")
 
     if updates:
         service.spreadsheets().values().batchUpdate(

@@ -2,13 +2,13 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 06:00 rano w Meksyku
+    - cron: '0 12 * * *' # 06:00 rano w Meksyku (CDMX UTC-6)
   workflow_dispatch:
 
 jobs:
   sync_process:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -21,11 +21,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt
 
-      # KROK 1: Próba pobrania danych przez API (Huawei/Growatt)
-      - name: First Sync Attempt
-        id: sync1
+      # Single entrypoint: orchestrates sync + verify + retry + dummy
+      - name: Run daily sync
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
@@ -33,29 +32,7 @@ jobs:
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          # Optional tuning:
+          ARGIA_MAX_RETRY_ROUNDS: "2"
+          ARGIA_MIN_KWH: "0.1"
         run: python argia.py
-
-      # KROK 2: Weryfikacja (jeśli API rzuciły błąd 403 lub DNS, tu padnie exit 1)
-      - name: Verify Data Integrity
-        id: verify1
-        env:
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          RETRY_ATTEMPT: 'false'
-        run: python argia_verification.py
-
-      # KROK 3: Ratunek (uruchomi się tylko przy failure() kroku 2)
-      - name: Auto-Repair and Final Verification
-        if: failure()
-        env:
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
-          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
-          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
-          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-          RETRY_ATTEMPT: 'true'
-        run: |
-          echo "🔄 Triggering Self-Healing Logic..."
-          # Weryfikator przy RETRY_ATTEMPT=true wpisze Dummy Data i naprawi pogodę
-          python argia_verification.py

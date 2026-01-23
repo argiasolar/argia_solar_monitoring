@@ -2,7 +2,7 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 06:00 rano w Meksyku (CDMX UTC-6)
+    - cron: '0 12 * * *' # 06:00 rano w Meksyku (America/Mexico_City ~ UTC-6 zimą)
   workflow_dispatch:
 
 jobs:
@@ -21,18 +21,26 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # Single entrypoint: orchestrates sync + verify + retry + dummy
-      - name: Run daily sync
+      - name: Run ARGIA sync (with retries + dummy fallback)
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+          # Global creds fallback (jeśli w Config_Plants nie ma SecretUser_Name/SecretPass_Name)
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-          # Optional tuning:
-          ARGIA_MAX_RETRY_ROUNDS: "2"
-          ARGIA_MIN_KWH: "0.1"
+
+          # Weather (Open-Meteo nie wymaga klucza)
+          TZ_NAME: "America/Mexico_City"
         run: python argia.py
+
+      - name: Verify (non-failing warning if dummy used)
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          TZ_NAME: "America/Mexico_City"
+        run: python argia_verification.py

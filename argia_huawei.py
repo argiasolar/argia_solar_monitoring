@@ -18,38 +18,50 @@ def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_
     password = os.environ.get("HUAWEI_PASSWORD")
 
     if not user or not password:
-        print("❌ [Huawei] Missing HUAWEI_USERNAME / HUAWEI_PASSWORD")
+        print("❌ [Huawei] Missing credentials")
         return results
 
     sess = requests.Session()
     sess.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
     try:
-        print(f"🚀 [Huawei] Logging in (Real-Time Mode)...")
+        print(f"🚀 [Huawei] Logging in...")
         r = sess.post(f"{DEFAULT_BASE}/login", json={"userName": user, "systemCode": password}, timeout=25)
         r.raise_for_status()
-
+        
+        # Bezpieczne wyciąganie tokena
         token = r.headers.get("XSRF-TOKEN") or r.cookies.get("XSRF-TOKEN")
-        if not token: return results
+        if not token:
+            print("❌ [Huawei] No token received")
+            return results
         
         sess.headers.update({"XSRF-TOKEN": token})
         
-        # Kluczowa zmiana: getStationRealKpi zamiast raportu dziennego
-        station_codes_str = ",".join(plants_to_fetch.keys())
-        payload = {"stationCodes": station_codes_str}
-        
+        payload = {"stationCodes": ",".join(plants_to_fetch.keys())}
         rr = sess.post(f"{DEFAULT_BASE}/getStationRealKpi", json=payload, timeout=25)
         rr.raise_for_status()
+        
         js = rr.json()
+        
+        # Kluczowa poprawka: sprawdzamy czy js to słownik przed użyciem .get()
+        if not isinstance(js, dict):
+            print(f"❌ [Huawei] Unexpected response format: {js}")
+            return results
 
-        data_list = js.get("data") or []
+        data_list = js.get("data")
+        if not isinstance(data_list, list):
+            print(f"⚠️ [Huawei] 'data' is not a list. Response: {js}")
+            return results
+
         for item in data_list:
+            if not isinstance(item, dict): continue
+            
             s_code = item.get("stationCode")
             p_key = plants_to_fetch.get(s_code)
             if not p_key: continue
 
             m = item.get("dataItemMap") or {}
-            # 'day_cap' to licznik energii wyprodukowanej dzisiaj do tej pory
+            # W RealTime endpointu bierzemy 'day_cap' (produkcja dzisiejsza)
             val = _safe_float(m.get("day_cap"))
 
             results[p_key] = round(val, 2)

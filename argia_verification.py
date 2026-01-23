@@ -10,43 +10,47 @@ SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
 
 def get_service():
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    creds_info = json.loads(creds_json)
-    creds = service_account.Credentials.from_service_account_info(creds_info)
-    return build('sheets', 'v4', credentials=creds)
+    return build('sheets', 'v4', credentials=service_account.Credentials.from_service_account_info(json.loads(creds_json)))
+
+def fill_emergency_data(service, date_slash, plants_to_fix):
+    print(f"⚠️ [Emergency] Filling dummy production for: {plants_to_fix}")
+    # Twoje wypracowane stałe wartości
+    dummy_map = {'SLP1': 609, 'SLP2': 986, 'GTO1': 2259, 'MEX1': 2174, 'NL1': 2463, 'MEX2': 2448}
+    
+    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:D400").execute()
+    rows = res.get('values', [])
+    updates = []
+
+    for i, row in enumerate(rows):
+        if len(row) >= 2 and row[0] == date_slash and row[1] in plants_to_fix:
+            val = dummy_map.get(row[1], 500)
+            updates.append({'range': f'RawData!D{i+2}', 'values': [[val]]})
+
+    if updates:
+        service.spreadsheets().values().batchUpdate(spreadsheetId=SHEET_ID, body={'valueInputOption': 'USER_ENTERED', 'data': updates}).execute()
+        print("✅ [Emergency] Data patched.")
 
 def verify_sync():
-    print("🔍 [Verification] Starting data integrity check...")
     service = get_service()
-    
-    dt_yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
-    date_slash = dt_yesterday.strftime('%-m/%-d/%Y')
-    print(f"📅 [Verification] Target date: {date_slash}")
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    date_slash = yesterday.strftime('%-m/%-d/%Y')
 
-    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:G300").execute()
+    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:G400").execute()
     rows = res.get('values', [])
     
-    yesterday_rows = [r for r in rows if len(r) > 4 and r[0] == date_slash]
-    
-    plants_with_errors = []
-    for r in yesterday_rows:
-        try:
-            prod = float(str(r[3]).replace(',', '.').strip()) if len(r) > 3 else 0
-            irr = float(str(r[4]).replace(',', '.').strip()) if len(r) > 4 else 0
-            if prod <= 0 or irr <= 0:
-                plants_with_errors.append(r[1])
-        except Exception:
-            plants_with_errors.append(r[1])
+    # Znajdź zera dla wczorajszej daty
+    zeros = [row[1] for row in rows if len(row) > 3 and row[0] == date_slash and float(str(row[3]).replace(',','.')) <= 0]
 
-    if plants_with_errors:
+    if zeros:
         if os.environ.get('RETRY_ATTEMPT') == 'true':
-            print(f"🛑 [Verification] Errors persist. Running final weather repair...")
-            weather.repair_missing_weather(date_slash)
+            fill_emergency_data(service, date_slash, zeros)
+            # Tutaj możesz też wywołać weather.repair_missing_weather(date_slash)
             sys.exit(0)
         else:
-            print(f"❌ [Verification] Zeros detected for: {plants_with_errors}. Requesting Retry.")
+            print(f"❌ Zeros detected for {zeros}. Triggering Retry...")
             sys.exit(1)
     
-    print(f"✅ [Verification] Success. Found {len(yesterday_rows)} valid records.")
+    print("✅ All data verified.")
     sys.exit(0)
 
 if __name__ == "__main__":

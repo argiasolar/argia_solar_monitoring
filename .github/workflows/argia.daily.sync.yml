@@ -1,0 +1,51 @@
+name: Argia Daily Sync (Self-Healing)
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync_and_verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      # KROK 1: Główna synchronizacja
+      - name: Run Main Sync
+        id: main_sync
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          HUAWEI_USER: ${{ secrets.HUAWEI_USER }}
+          HUAWEI_PASS: ${{ secrets.HUAWEI_PASS }}
+          GROWATT_USER: ${{ secrets.GROWATT_USER }}
+          GROWATT_PASS: ${{ secrets.GROWATT_PASS }}
+        run: python argia.py
+
+      # KROK 2: Weryfikacja (jeśli ten krok padnie, GitHub spróbuje go powtórzyć)
+      - name: Verify Data Integrity
+        id: verify
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        # Jeśli weryfikacja wyrzuci sys.exit(1), cały Job zostanie oznaczony jako błąd
+        run: python argia_verification.py
+
+      # KROK 3: Opcjonalny Retry (Jeśli weryfikacja padła, uruchamia fix_meteo_final.py)
+      - name: Auto-Repair on Failure
+        if: failure()
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          print("⚠️ Verification failed. Running auto-repair script...")
+          python fix_meteo_final.py
+          # Po naprawie sprawdzamy raz jeszcze
+          python argia_verification.py

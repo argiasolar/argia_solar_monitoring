@@ -10,7 +10,8 @@ SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
 
 def get_service():
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    creds = service_account.Credentials.from_service_account_info(json.loads(creds_json))
+    creds_info = json.loads(creds_json)
+    creds = service_account.Credentials.from_service_account_info(creds_info)
     return build('sheets', 'v4', credentials=creds)
 
 def verify_sync():
@@ -21,8 +22,7 @@ def verify_sync():
     date_slash = dt_yesterday.strftime('%-m/%-d/%Y')
     print(f"📅 [Verification] Target date: {date_slash}")
 
-    # Pobieramy RawData (kolumny A do G)
-    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:G200").execute()
+    res = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="RawData!A2:G300").execute()
     rows = res.get('values', [])
     
     yesterday_rows = [r for r in rows if len(r) > 4 and r[0] == date_slash]
@@ -30,10 +30,8 @@ def verify_sync():
     plants_with_errors = []
     for r in yesterday_rows:
         try:
-            # Czyścimy dane z przecinków i spacji przed zamianą na liczbę
             prod = float(str(r[3]).replace(',', '.').strip()) if len(r) > 3 else 0
             irr = float(str(r[4]).replace(',', '.').strip()) if len(r) > 4 else 0
-            
             if prod <= 0 or irr <= 0:
                 plants_with_errors.append(r[1])
         except Exception:
@@ -41,11 +39,11 @@ def verify_sync():
 
     if plants_with_errors:
         if os.environ.get('RETRY_ATTEMPT') == 'true':
-            print(f"🛑 [Verification] Still errors. Triggering Repair for: {plants_with_errors}")
+            print(f"🛑 [Verification] Errors persist. Running final weather repair...")
             weather.repair_missing_weather(date_slash)
             sys.exit(0)
         else:
-            print(f"❌ [Verification] Zeros detected for: {plants_with_errors}. Triggering Retry...")
+            print(f"❌ [Verification] Zeros detected for: {plants_with_errors}. Requesting Retry.")
             sys.exit(1)
     
     print(f"✅ [Verification] Success. Found {len(yesterday_rows)} valid records.")

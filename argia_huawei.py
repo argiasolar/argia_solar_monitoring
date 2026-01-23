@@ -19,37 +19,44 @@ def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_
         if not token: return results
         sess.headers.update({"XSRF-TOKEN": token})
         
-        # 2. Przygotowanie czasu (Huawei wymaga timestampu w ms dla 00:00:00 danego dnia)
+        # 2. Czas
         d = dt.date.fromisoformat(date_iso)
         collect_time = int(dt.datetime(d.year, d.month, d.day).timestamp() * 1000)
 
-        # 3. Pobieranie raportu dziennego (bardziej niezawodny dla LA5)
-        print(f"   🚀 Fetching Huawei Daily Report for {date_iso}...")
+        # 3. Pobieranie raportu
         station_codes = ",".join(plants_to_fetch.keys())
+        payload = {"stationCodes": station_codes, "collectTime": collect_time}
         
-        payload = {
-            "stationCodes": station_codes,
-            "collectTime": collect_time
-        }
-        
+        print(f"🔍 [Huawei Debug] Requesting daily report for codes: {station_codes}")
         rr = sess.post(f"{DEFAULT_BASE}/getKpiStationDay", json=payload, timeout=25)
         js = rr.json()
         
         if js.get("success"):
             data_list = js.get("data") or []
-            for item in data_list:
+            print(f"🔍 [Huawei Debug] Received {len(data_list)} data points.")
+            
+            for i, item in enumerate(data_list):
                 s_code = item.get("stationCode")
                 p_key = plants_to_fetch.get(s_code)
+                m = item.get("dataItemMap") or {}
+                
+                # WYŚWIETLAMY WSZYSTKO DLA PIERWSZEGO REKORDU KAŻDEJ STACJI
+                if i < 2 or s_code: 
+                    print(f"   --- Data Map for {p_key} ({s_code}) ---")
+                    print(f"   {m}")
+                
+                # Próbujemy zsumować najbardziej prawdopodobne klucze
+                # product_power często oznacza całkowitą energię wyprodukowaną w danym dniu
+                val = m.get("product_power") or m.get("inverter_yield") or m.get("daily_energy") or 0.0
                 if p_key:
-                    m = item.get("dataItemMap") or {}
-                    # W raporcie dziennym pole to 'inverter_yield' lub 'daily_energy'
-                    val = m.get("inverter_yield") or m.get("daily_energy") or 0.0
-                    results[p_key] = round(float(val), 2)
-                    print(f"   📊 [Huawei:Daily] {p_key}: {results[p_key]} kWh")
+                    results[p_key] += round(float(val), 2)
+            
+            for p_key, total in results.items():
+                print(f"   📊 [Huawei:Result] {p_key} Total Sum: {total} kWh")
         else:
-            print(f"   ⚠️ [Huawei] Report failed: {js.get('message')}")
+            print(f"   ⚠️ [Huawei] API Fail: {js.get('message')}")
 
     except Exception as e:
-        print(f"❌ [Huawei] Global Error: {e}")
+        print(f"❌ [Huawei] Error: {e}")
     
     return results

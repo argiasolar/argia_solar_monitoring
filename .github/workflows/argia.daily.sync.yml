@@ -2,8 +2,8 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    - cron: '0 12 * * *' # Odpala się codziennie o 12:00 UTC (06:00 rano CST w Meksyku)
-  workflow_dispatch:      # Pozwala odpalić skrypt ręcznie w dowolnym momencie
+    - cron: '0 12 * * *' # 12:00 UTC = 06:00 rano CST
+  workflow_dispatch:
 
 jobs:
   sync_process:
@@ -23,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # KROK 1: Pierwsza próba synchronizacji (Pobieranie realnych danych przez API)
+      # KROK 1: Pierwsza próba synchronizacji
       - name: First Sync Attempt
         id: sync1
         env:
@@ -35,7 +35,7 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
         run: python argia.py
 
-      # KROK 2: Weryfikacja danych (Jeśli znajdzie zera, skrypt zakończy się błędem i wymusi Krok 3)
+      # KROK 2: Weryfikacja
       - name: Verify Data Integrity
         id: verify1
         env:
@@ -44,7 +44,7 @@ jobs:
           RETRY_ATTEMPT: 'false'
         run: python argia_verification.py
 
-      # KROK 3: Automatyczna naprawa (Uruchamia się TYLKO jeśli Krok 2 wyrzucił błąd)
+      # KROK 3: Naprawa (Auto-Repair)
       - name: Auto-Repair and Final Verification
         if: failure()
         env:
@@ -56,6 +56,5 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
           RETRY_ATTEMPT: 'true'
         run: |
-          echo "🔄 First attempt failed or data incomplete. Starting Self-Healing..."
-          # Weryfikator przy RETRY_ATTEMPT=true uruchomi funkcję repair_missing_weather z argia_weather.py
+          echo "🔄 Starting Self-Healing process..."
           python argia_verification.py

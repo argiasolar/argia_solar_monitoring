@@ -1,5 +1,5 @@
 # argia_huawei.py
-import os, requests, time, datetime as dt
+import os, requests, time
 from typing import Dict
 
 DEFAULT_BASE = (os.environ.get("HUAWEI_BASE_URL") or "https://la5.fusionsolar.huawei.com/thirdData").rstrip("/")
@@ -19,42 +19,27 @@ def fetch_huawei_day_kwh(date_iso: str, plants_to_fetch: Dict[str, str], plants_
         if not token: return results
         sess.headers.update({"XSRF-TOKEN": token})
         
-        # 2. Czas
-        d = dt.date.fromisoformat(date_iso)
-        collect_time = int(dt.datetime(d.year, d.month, d.day).timestamp() * 1000)
-
-        # 3. Pobieranie raportu
+        # 2. Zapytanie o dane Real-Time (one zawierają dzisiejszą sumę)
         station_codes = ",".join(plants_to_fetch.keys())
-        payload = {"stationCodes": station_codes, "collectTime": collect_time}
+        print(f"   🚀 Fetching RealKpi for: {station_codes}")
         
-        print(f"🔍 [Huawei Debug] Requesting daily report for codes: {station_codes}")
-        rr = sess.post(f"{DEFAULT_BASE}/getKpiStationDay", json=payload, timeout=25)
+        rr = sess.post(f"{DEFAULT_BASE}/getStationRealKpi", json={"stationCodes": station_codes}, timeout=25)
         js = rr.json()
         
         if js.get("success"):
             data_list = js.get("data") or []
-            print(f"🔍 [Huawei Debug] Received {len(data_list)} data points.")
-            
-            for i, item in enumerate(data_list):
+            for item in data_list:
                 s_code = item.get("stationCode")
                 p_key = plants_to_fetch.get(s_code)
-                m = item.get("dataItemMap") or {}
-                
-                # WYŚWIETLAMY WSZYSTKO DLA PIERWSZEGO REKORDU KAŻDEJ STACJI
-                if i < 2 or s_code: 
-                    print(f"   --- Data Map for {p_key} ({s_code}) ---")
-                    print(f"   {m}")
-                
-                # Próbujemy zsumować najbardziej prawdopodobne klucze
-                # product_power często oznacza całkowitą energię wyprodukowaną w danym dniu
-                val = m.get("product_power") or m.get("inverter_yield") or m.get("daily_energy") or 0.0
                 if p_key:
-                    results[p_key] += round(float(val), 2)
-            
-            for p_key, total in results.items():
-                print(f"   📊 [Huawei:Result] {p_key} Total Sum: {total} kWh")
+                    # W RealKpi 'dataItemMap' zawiera licznik dzienny
+                    m = item.get("dataItemMap") or {}
+                    # 'day_cap' to standard, ale LA5 czasem używa 'daily_cap' lub 'day_power'
+                    val = m.get("day_cap") or m.get("daily_cap") or m.get("day_power") or 0.0
+                    results[p_key] = round(float(val), 2)
+                    print(f"   📊 [Huawei:Real] {p_key}: {results[p_key]} kWh")
         else:
-            print(f"   ⚠️ [Huawei] API Fail: {js.get('message')}")
+            print(f"   ⚠️ [Huawei] RealKpi failed: {js.get('message')}")
 
     except Exception as e:
         print(f"❌ [Huawei] Error: {e}")

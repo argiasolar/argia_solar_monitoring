@@ -1,26 +1,6 @@
 # argia_weather.py
-from __future__ import annotations
-
-import os
-import json
 import requests
-from typing import Tuple, Dict
-
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-
-
-SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
-
-
-def get_service():
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    creds = service_account.Credentials.from_service_account_info(
-        json.loads(creds_json),
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
-    return build("sheets", "v4", credentials=creds)
-
+from typing import Tuple
 
 def _safe_float(x, default=0.0) -> float:
     try:
@@ -28,28 +8,17 @@ def _safe_float(x, default=0.0) -> float:
     except Exception:
         return default
 
-
-def _get_lat_lon_for_plant(plant_key: str) -> Tuple[float, float]:
-    service = get_service()
-    res = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range="Config_Plants!A2:F500"
-    ).execute()
-    rows = res.get("values", [])
-    for r in rows:
-        if len(r) >= 6 and str(r[0]).strip() == plant_key:
-            lat = _safe_float(r[4])
-            lon = _safe_float(r[5])
-            return lat, lon
-    return 0.0, 0.0
-
-
-def get_weather_for_date(plant_key: str, date_iso: str) -> Tuple[float, float]:
+def get_weather_for_date(p_key: str, date_iso: str, plants_config: dict) -> Tuple[float, float]:
     """
-    Returns:
-      irradiance_kwh_m2 (kWh/m2/day), cloudcover_mean (%)
+    Pobiera irradiancję (kWh/m2) i chmury (%) z Open-Meteo.
+    Współrzędne bierze z przekazanego słownika plants_config.
     """
-    lat, lon = _get_lat_lon_for_plant(plant_key)
+    conf = plants_config.get(p_key, {})
+    lat = _safe_float(conf.get("lat"))
+    lon = _safe_float(conf.get("lon"))
+
     if not lat or not lon:
+        print(f"   ⚠️ [Weather] No Lat/Lon for {p_key}")
         return 0.0, 0.0
 
     url = "https://api.open-meteo.com/v1/forecast"
@@ -67,10 +36,15 @@ def get_weather_for_date(plant_key: str, date_iso: str) -> Tuple[float, float]:
         r.raise_for_status()
         js = r.json()
         daily = js.get("daily", {})
-        sw = (daily.get("shortwave_radiation_sum") or [0])[0]  # MJ/m2
-        cc = (daily.get("cloudcover_mean") or [0])[0]          # %
-        irr_kwh = round(_safe_float(sw) / 3.6, 3)             # MJ -> kWh
+        
+        # Konwersja MJ/m2 -> kWh/m2 (dzielenie przez 3.6)
+        sw = (daily.get("shortwave_radiation_sum") or [0])[0]
+        irr_kwh = round(_safe_float(sw) / 3.6, 3)
+        
+        cc = (daily.get("cloudcover_mean") or [0])[0]
         clouds = round(_safe_float(cc), 1)
+        
         return irr_kwh, clouds
-    except Exception:
+    except Exception as e:
+        print(f"   ❌ [Weather] Error for {p_key}: {e}")
         return 0.0, 0.0

@@ -2,8 +2,8 @@ name: Argia Daily Sync
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 12:00 UTC = 06:00 rano w Meksyku (CST)
-  workflow_dispatch: # Pozwala na ręczne uruchomienie w dowolnym momencie
+    - cron: '0 12 * * *' # Odpala się codziennie o 12:00 UTC (06:00 rano CST w Meksyku)
+  workflow_dispatch:      # Pozwala odpalić skrypt ręcznie w dowolnym momencie
 
 jobs:
   sync_process:
@@ -21,9 +21,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # KROK 1: Pierwsza próba synchronizacji
+      # KROK 1: Pierwsza próba synchronizacji (Pobieranie realnych danych przez API)
       - name: First Sync Attempt
         id: sync1
         env:
@@ -35,7 +35,7 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
         run: python argia.py
 
-      # KROK 2: Weryfikacja danych po pierwszej próbie
+      # KROK 2: Weryfikacja danych (Jeśli znajdzie zera, skrypt zakończy się błędem i wymusi Krok 3)
       - name: Verify Data Integrity
         id: verify1
         env:
@@ -44,7 +44,7 @@ jobs:
           RETRY_ATTEMPT: 'false'
         run: python argia_verification.py
 
-      # KROK 3: Naprawa i ponowna weryfikacja (tylko jeśli Krok 2 wyrzuci błąd)
+      # KROK 3: Automatyczna naprawa (Uruchamia się TYLKO jeśli Krok 2 wyrzucił błąd)
       - name: Auto-Repair and Final Verification
         if: failure()
         env:
@@ -54,8 +54,8 @@ jobs:
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-          RETRY_ATTEMPT: 'true' # Flaga aktywująca funkcje naprawcze w skryptach
+          RETRY_ATTEMPT: 'true'
         run: |
-          echo "🔄 First attempt failed or data incomplete."
-          echo "🛠️ Starting Self-Healing process..."
+          echo "🔄 First attempt failed or data incomplete. Starting Self-Healing..."
+          # Weryfikator przy RETRY_ATTEMPT=true uruchomi funkcję repair_missing_weather z argia_weather.py
           python argia_verification.py

@@ -1,42 +1,42 @@
-# argia_weather.py
-from __future__ import annotations
-
 import requests
 from functools import lru_cache
-from typing import Tuple
-
-MJ_TO_KWH = 1.0 / 3.6
 
 
-@lru_cache(maxsize=2048)
-def get_daily_irradiance_and_clouds(
-    date_iso: str,
-    latitude: float,
-    longitude: float,
-    tz: str = "America/Mexico_City",
-) -> Tuple[float, float]:
+@lru_cache(maxsize=512)
+def get_weather_for_date(lat: float, lon: float, date_iso: str):
     """
     Returns:
-      irradiance_kwh_m2, cloud_cover_mean_percent
-
-    Source: Open-Meteo Historical Weather API (daily shortwave_radiation_sum + cloud_cover_mean)
+      (irradiance_kwh_m2_day, cloud_cover_percent_mean)
+    Using Open-Meteo daily:
+      shortwave_radiation_sum (kWh/m²)
+      cloud_cover_mean (%)
     """
-    url = "https://archive-api.open-meteo.com/v1/archive"
+    if not lat or not lon:
+        return 0.0, 0.0
+
+    url = "https://api.open-meteo.com/v1/forecast"
     params = {
-        "latitude": latitude,
-        "longitude": longitude,
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "shortwave_radiation_sum,cloud_cover_mean",
+        "timezone": "America/Mexico_City",
         "start_date": date_iso,
         "end_date": date_iso,
-        "daily": "shortwave_radiation_sum,cloud_cover_mean",
-        "timezone": tz,
     }
-    r = requests.get(url, params=params, timeout=25)
-    r.raise_for_status()
-    js = r.json()
 
-    daily = js.get("daily", {}) if isinstance(js, dict) else {}
-    sw = (daily.get("shortwave_radiation_sum") or [0])[0]  # MJ/m2
-    cc = (daily.get("cloud_cover_mean") or [0])[0]         # %
-    irr_kwh_m2 = round(float(sw) * MJ_TO_KWH, 3)
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        r.raise_for_status()
+        j = r.json()
 
-    return irr_kwh_m2, float(cc)
+        daily = j.get("daily", {})
+        irr_list = daily.get("shortwave_radiation_sum", [])
+        cloud_list = daily.get("cloud_cover_mean", [])
+
+        irr = float(irr_list[0]) if irr_list else 0.0
+        clouds = float(cloud_list[0]) if cloud_list else 0.0
+        return round(irr, 3), round(clouds, 1)
+
+    except Exception as e:
+        print(f"⚠️ [Weather] Failed lat={lat} lon={lon} date={date_iso}: {e}")
+        return 0.0, 0.0

@@ -1,11 +1,9 @@
-# argia.py
-from __future__ import annotations
-
 import os
 import json
-import datetime as dt
+import time
+import datetime
 from zoneinfo import ZoneInfo
-from typing import Dict, Any, List, Tuple
+from typing import Dict, List, Tuple
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -14,18 +12,15 @@ import argia_weather as weather
 import argia_huawei as huawei
 import argia_growatt as growatt
 
-TZ = ZoneInfo("America/Mexico_City")
 
+TZ = ZoneInfo("America/Mexico_City")
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
-RAW_RANGE_READ = "RawData!A2:J2000"          # A..J (J = Transfer)
-RAW_APPEND_RANGE = "RawData!A2"
-CONFIG_RANGE = "Config_Plants!A2:O200"       # jak u Ciebie
 
 
 def get_service():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
-        raise RuntimeError("Missing GOOGLE_CREDENTIALS")
+        raise RuntimeError("Missing GOOGLE_CREDENTIALS env var")
     creds = service_account.Credentials.from_service_account_info(
         json.loads(creds_json),
         scopes=["https://www.googleapis.com/auth/spreadsheets"],
@@ -33,7 +28,7 @@ def get_service():
     return build("sheets", "v4", credentials=creds)
 
 
-def safe_float(value, default=0.0) -> float:
+def safe_float(value, default=0.0):
     if value is None:
         return default
     try:
@@ -42,281 +37,225 @@ def safe_float(value, default=0.0) -> float:
         return default
 
 
-def _env_by_name(name: str | None) -> str | None:
-    if not name:
-        return None
-    return os.environ.get(name)
-
-
-def _yesterday_dates() -> Tuple[str, str, dt.date]:
-    now_local = dt.datetime.now(TZ)
-    y = (now_local - dt.timedelta(days=1)).date()
+def target_dates() -> Tuple[str, str]:
+    """returns (YYYY-MM-DD, M/D/YYYY) for 'yesterday' in Mexico City timezone"""
+    now = datetime.datetime.now(TZ)
+    y = (now - datetime.timedelta(days=1)).date()
     date_iso = y.strftime("%Y-%m-%d")
-    # Google Sheets u Ciebie ma format M/D/YYYY
     date_slash = f"{y.month}/{y.day}/{y.year}"
-    return date_iso, date_slash, y
+    return date_iso, date_slash
 
 
-def load_config(service) -> Tuple[Dict[str, Any], Dict[str, str], Dict[str, str]]:
+def load_config(service) -> Tuple[Dict[str, dict], dict, dict]:
+    """
+    Reads Config_Plants A2:O (15 cols)
+    Returns:
+      plants_config[p_key] = {brand, kwp, target, name, lat, lon, expected_factor, secrets...}
+      huawei_map[stationCode] = p_key
+      growatt_map[plantId] = p_key
+    """
     res = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range=CONFIG_RANGE
+        spreadsheetId=SHEET_ID,
+        range="Config_Plants!A2:O200"
     ).execute()
     rows = res.get("values", [])
 
-    plants_config: Dict[str, Any] = {}
-    huawei_map: Dict[str, str] = {}
-    growatt_map: Dict[str, str] = {}
+    plants_config = {}
+    huawei_map = {}
+    growatt_map = {}
 
-    # kolumny wg Twojej tabeli:
-    # A Plantkey
-    # B Brand
-    # C kWp_DC
-    # G ExpectedFactor
-    # H PR_Target
-    # I CustomerName
-    # J SiteID
-    # K SecretName_API
-    # L SecretUser_Name
-    # M SecretPass_Name
-    # E Latitude
-    # F Longitude
     for row in rows:
         if len(row) < 10:
             continue
 
-        plantkey = str(row[0]).strip()
+        p_key = str(row[0]).strip()
+        if not p_key:
+            continue
+
         brand = str(row[1]).strip().upper()
-        kwp_dc = safe_float(row[2])
-        lat = safe_float(row[4], None) if len(row) > 4 else None
-        lon = safe_float(row[5], None) if len(row) > 5 else None
-        expected_factor = safe_float(row[6], 0.8) if len(row) > 6 else 0.8
-        pr_target = safe_float(row[7], 0.85) if len(row) > 7 else 0.85
-        customer = str(row[8]).strip() if len(row) > 8 else ""
+
+        # Config_Plants columns:
+        # C kWp_DC
+        # E Latitude
+        # F Longtitude
+        # G ExpectedFactor
+        # H PR_Target
+        # I CustomerName
+        # J SiteID
+        kwp = safe_float(row[2])
+        lat = safe_float(row[4])
+        lon = safe_float(row[5])
+        expected_factor = safe_float(row[6], 0.8)
+        target_pr = safe_float(row[7])
+        name = str(row[8]).strip()
         site_id = str(row[9]).strip()
 
-        secret_api = str(row[10]).strip() if len(row) > 10 and row[10] else ""
-        secret_user = str(row[11]).strip() if len(row) > 11 and row[11] else ""
-        secret_pass = str(row[12]).strip() if len(row) > 12 and row[12] else ""
+        # Secret name columns (K,L,M in your sheet)
+        secret_api = str(row[10]).strip() if len(row) > 10 else ""
+        secret_user = str(row[11]).strip() if len(row) > 11 else ""
+        secret_pass = str(row[12]).strip() if len(row) > 12 else ""
 
-        plants_config[plantkey] = {
+        plants_config[p_key] = {
             "brand": brand,
-            "kwp": kwp_dc,
+            "kwp": kwp,
+            "expected_factor": expected_factor,   # ✅ NOW USED
+            "target_pr": target_pr,
+            "name": name,
             "lat": lat,
             "lon": lon,
-            "expected_factor": expected_factor,
-            "target_pr": pr_target,
-            "customer": customer,
             "site_id": site_id,
             "secret_api": secret_api,
             "secret_user": secret_user,
             "secret_pass": secret_pass,
         }
 
-        if brand == "HUAWEI":
-            huawei_map[site_id] = plantkey
-        elif brand == "GROWATT":
-            growatt_map[site_id] = plantkey
+        if brand == "HUAWEI" and site_id:
+            huawei_map[site_id] = p_key
+        elif brand == "GROWATT" and site_id:
+            growatt_map[site_id] = p_key
 
     return plants_config, huawei_map, growatt_map
 
 
-def read_raw_rows(service, date_slash: str) -> Tuple[Dict[str, int], List[List[str]]]:
+def read_rawdata_index(service, date_slash: str) -> Dict[str, int]:
     """
-    Returns:
-      existing_row_index_by_plantkey: {PlantKey: sheet_row_number}
-      all_rows: list of rows from A2:J...
+    Build map: Plantkey -> row_number in sheet (1-based)
+    Reads RawData A:J (expects col A date, col B plantkey)
     """
     res = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range=RAW_RANGE_READ
+        spreadsheetId=SHEET_ID,
+        range="RawData!A2:J2000"
     ).execute()
     rows = res.get("values", [])
 
-    index: Dict[str, int] = {}
-    # rows[0] corresponds to sheet row 2
-    for i, row in enumerate(rows):
-        if len(row) < 2:
-            continue
-        if row[0] == date_slash:
-            plantkey = row[1]
-            index[plantkey] = i + 2
-    return index, rows
+    idx = {}
+    for i, row in enumerate(rows, start=2):
+        if len(row) >= 2 and row[0] == date_slash:
+            idx[str(row[1]).strip()] = i
+    return idx
 
 
-def write_rows(service, updates: List[Dict[str, Any]], appends: List[List[Any]]) -> None:
+def write_rows(service, rows_to_write: List[List], raw_idx: Dict[str, int]) -> Tuple[int, int]:
+    """
+    Updates existing rows by date+plantkey, appends missing.
+    Returns (updated_count, appended_count)
+    """
+    updates = []
+    appends = []
+
+    for r in rows_to_write:
+        p_key = r[1]
+        if p_key in raw_idx:
+            rn = raw_idx[p_key]
+            updates.append({"range": f"RawData!A{rn}:J{rn}", "values": [r]})
+        else:
+            appends.append(r)
+
+    updated = 0
+    appended = 0
+
     if updates:
         service.spreadsheets().values().batchUpdate(
             spreadsheetId=SHEET_ID,
             body={"valueInputOption": "USER_ENTERED", "data": updates},
         ).execute()
+        updated = len(updates)
 
     if appends:
         service.spreadsheets().values().append(
             spreadsheetId=SHEET_ID,
-            range=RAW_APPEND_RANGE,
+            range="RawData!A2",
             valueInputOption="USER_ENTERED",
             body={"values": appends},
         ).execute()
+        appended = len(appends)
+
+    return updated, appended
+
+
+def compute_row(date_slash: str, p_key: str, conf: dict, energy_kwh: float, irr_kwh_m2: float, clouds_pct: float, transfer: str) -> List:
+    kwp = conf["kwp"]
+    expected_factor = conf.get("expected_factor", 0.8)  # ✅ per plant
+    possible = round(kwp * irr_kwh_m2 * expected_factor, 2) if (kwp > 0 and irr_kwh_m2 > 0) else 0.0
+    pr = round(energy_kwh / (kwp * irr_kwh_m2), 3) if (kwp > 0 and irr_kwh_m2 > 0) else 0.0
+
+    return [
+        date_slash,                  # A Data
+        p_key,                       # B Plantkey
+        conf["name"],                # C CustomerName
+        round(float(energy_kwh), 2), # D Real_kWh
+        round(float(irr_kwh_m2), 3), # E Irradiance_kWh_m2
+        possible,                    # F Possible_Gen_kWh
+        pr,                          # G Real_PR
+        conf["target_pr"],           # H Target_PR
+        round(float(clouds_pct), 1), # I Cloud Cover (%)
+        transfer                     # J Transfer (YES/NO)
+    ]
 
 
 def main():
     print("--- 🌟 ARGIA SOLAR MONITORING (Daily) ---")
-    if not SHEET_ID:
-        raise RuntimeError("Missing GOOGLE_SHEET_ID")
-
-    service = get_service()
-
-    date_iso, date_slash, _ = _yesterday_dates()
+    date_iso, date_slash = target_dates()
     print(f"📅 Target date: {date_iso} / {date_slash} (America/Mexico_City)")
 
+    service = get_service()
     plants_config, huawei_map, growatt_map = load_config(service)
 
-    # --- 1) Produkcja: pierwsze pobranie
-    prod: Dict[str, float] = {}
+    # ---- Weather for each plant (real API)
+    weather_map = {}
+    for p_key, conf in plants_config.items():
+        irr, clouds = weather.get_weather_for_date(conf["lat"], conf["lon"], date_iso)
+        weather_map[p_key] = (irr, clouds)
 
-    # Huawei creds z configu: bierzemy pierwszą sensowną parę sekretów (u Ciebie wspólne)
-    h_user = None
-    h_pass = None
-    for pk, c in plants_config.items():
-        if c["brand"] == "HUAWEI":
-            h_user = _env_by_name(c["secret_user"]) or os.environ.get("HUAWEI_USERNAME")
-            h_pass = _env_by_name(c["secret_pass"]) or os.environ.get("HUAWEI_PASSWORD")
-            break
-
-    # Growatt token (preferowany) wg configu: SecretName_API albo env default
-    g_token = None
-    for pk, c in plants_config.items():
-        if c["brand"] == "GROWATT":
-            g_token = _env_by_name(c["secret_api"]) or os.environ.get("GROWATT_API_TOKEN")
-            break
-
-    g_user = os.environ.get("GROWATT_USERNAME")
-    g_pass = os.environ.get("GROWATT_PASSWORD")
+    # ---- Inverter production (first pass)
+    prod_map: Dict[str, float] = {}
 
     if huawei_map:
-        prod.update(huawei.fetch_huawei_day_kwh(date_iso, huawei_map, h_user, h_pass))
+        prod_map.update(huawei.fetch_huawei_data(date_iso, huawei_map, plants_config))
 
     if growatt_map:
-        prod.update(growatt.fetch_growatt_day_kwh(
-            date_iso,
-            growatt_map,
-            token=g_token,
-            username=g_user,
-            password=g_pass,
-        ))
+        prod_map.update(growatt.fetch_growatt_data(date_iso, growatt_map, plants_config))
 
-    # --- 2) Retry logic: jeśli braki/zera, próbujemy max 2 razy jeszcze, tylko brakujące
-    def missing_plants(p: Dict[str, float]) -> List[str]:
-        out = []
-        for plantkey in plants_config.keys():
-            v = p.get(plantkey, 0.0)
-            if v is None or float(v) <= 0:
-                out.append(plantkey)
-        return out
-
-    missing = missing_plants(prod)
+    missing = [k for k in plants_config.keys() if safe_float(prod_map.get(k, 0.0)) <= 0]
     if missing:
         print(f"⚠️ Missing/zero production for: {missing}. Retrying only those plants...")
 
-    retries = 2
-    for attempt in range(1, retries + 1):
-        if not missing:
-            break
+        for attempt in (1, 2):
+            time.sleep(3 * attempt)
 
-        # budujemy mapy SiteID->PlantKey tylko dla missing
-        h_map2 = {sid: pk for sid, pk in huawei_map.items() if pk in missing}
-        g_map2 = {sid: pk for sid, pk in growatt_map.items() if pk in missing}
+            h_map2 = {conf["site_id"]: p for p, conf in plants_config.items() if p in missing and conf["brand"] == "HUAWEI"}
+            g_map2 = {conf["site_id"]: p for p, conf in plants_config.items() if p in missing and conf["brand"] == "GROWATT"}
 
-        if h_map2:
-            prod.update(huawei.fetch_huawei_day_kwh(date_iso, h_map2, h_user, h_pass, attempt=attempt))
-        if g_map2:
-            prod.update(growatt.fetch_growatt_day_kwh(
-                date_iso,
-                g_map2,
-                token=g_token,
-                username=g_user,
-                password=g_pass,
-                attempt=attempt,
-            ))
+            if h_map2:
+                prod_map.update(huawei.fetch_huawei_data(date_iso, h_map2, plants_config))
+            if g_map2:
+                prod_map.update(growatt.fetch_growatt_data(date_iso, g_map2, plants_config))
 
-        missing = missing_plants(prod)
-        print(f"🔁 After retry {attempt}: still missing = {missing}")
+            missing = [k for k in plants_config.keys() if safe_float(prod_map.get(k, 0.0)) <= 0]
+            print(f"🔁 After retry {attempt}: still missing = {missing}")
+            if not missing:
+                break
 
-    # --- 3) Pogoda per plant (lat/lon z Config_Plants)
-    wx_cache: Dict[str, Tuple[float, float]] = {}
-    for pk, conf in plants_config.items():
-        lat, lon = conf.get("lat"), conf.get("lon")
-        if lat is None or lon is None:
-            wx_cache[pk] = (0.0, 0.0)
-        else:
-            irr_kwh_m2, cloud_mean = weather.get_daily_irradiance_and_clouds(
-                date_iso=date_iso,
-                latitude=lat,
-                longitude=lon,
-                tz="America/Mexico_City",
-            )
-            wx_cache[pk] = (irr_kwh_m2, cloud_mean)
+    # ---- Dummy fallback (final)
+    dummy_used = []
+    if missing:
+        dummy_used = missing[:]
+        for p in missing:
+            prod_map[p] = growatt.dummy_kwh_for(p)
+        print(f"🟠 Dummy used for plants: {dummy_used} (Transfer=NO)")
 
-    # --- 4) Zapis do RawData: update jeśli już istnieje, append jeśli nie
-    existing_index, _ = read_raw_rows(service, date_slash)
+    # ---- Build rows to write
+    rows_to_write = []
+    for p_key, conf in plants_config.items():
+        energy = safe_float(prod_map.get(p_key, 0.0))
+        irr, clouds = weather_map.get(p_key, (0.0, 0.0))
+        transfer = "NO" if p_key in dummy_used else "YES"
+        rows_to_write.append(compute_row(date_slash, p_key, conf, energy, irr, clouds, transfer))
 
-    updates = []
-    appends = []
-
-    # mapka dummy (ostatnia deska ratunku)
-    dummy_map = {
-        "SLP1": 609,
-        "SLP2": 986,
-        "GTO1": 2259,
-        "MEX1": 2174,
-        "NL1": 2463,
-        "MEX2": 2448,
-    }
-
-    updated_count = 0
-    appended_count = 0
-
-    for pk, conf in plants_config.items():
-        energy = float(prod.get(pk, 0.0) or 0.0)
-        irr, clouds = wx_cache.get(pk, (0.0, 0.0))
-
-        # forecast: kWp * irr(kWh/m2) * expected_factor
-        forecast = round(conf["kwp"] * irr * conf["expected_factor"], 2) if conf["kwp"] and irr else 0.0
-        pr = round(energy / (conf["kwp"] * irr), 3) if conf["kwp"] and irr and energy > 0 else 0.0
-
-        transfer = "YES"
-        if energy <= 0:
-            # jeśli po retry dalej 0 -> dummy
-            energy = float(dummy_map.get(pk, 500))
-            pr = round(energy / (conf["kwp"] * irr), 3) if conf["kwp"] and irr else 0.0
-            transfer = "NO"
-
-        row_values = [
-            date_slash,             # A
-            pk,                     # B
-            conf["customer"],       # C
-            round(energy, 2),        # D
-            round(irr, 3),           # E
-            forecast,               # F
-            pr,                     # G
-            conf["target_pr"],      # H
-            round(clouds, 1),        # I
-            transfer,               # J
-        ]
-
-        if pk in existing_index:
-            r = existing_index[pk]
-            # update całego A..J w wierszu (prosto i stabilnie)
-            updates.append({"range": f"RawData!A{r}:J{r}", "values": [row_values]})
-            updated_count += 1
-        else:
-            appends.append(row_values)
-            appended_count += 1
-
-    if any(v and float(v) <= 0 for v in prod.values()):
-        print("🟠 Dummy used for some plants (Transfer=NO)")
-
-    write_rows(service, updates, appends)
-    print(f"✅ Sync complete for {date_slash}. Updated: {updated_count}, Appended: {appended_count}")
+    # ---- Write (update existing or append)
+    raw_idx = read_rawdata_index(service, date_slash)
+    updated, appended = write_rows(service, rows_to_write, raw_idx)
+    print(f"✅ Sync complete for {date_slash}. Updated: {updated}, Appended: {appended}")
 
 
 if __name__ == "__main__":

@@ -1,32 +1,37 @@
 import os
+import growattServer
 
 def fetch_growatt_data(target_date, plant_keys):
-    """
-    Pobiera dane produkcyjne z Growatt Server.
-    Przywrócona stabilna logika mapowania danych.
-    """
-    print(f"🚀 [Growatt] Importing data for {target_date}...")
+    """Pobiera REALNE dane z Growatt Server."""
+    print(f"🚀 [Growatt] Connecting to Growatt Server for {target_date}...")
     
-    # Sprawdzamy dostępność sekretów (logowanie)
     user = os.environ.get('GROWATT_USERNAME')
     password = os.environ.get('GROWATT_PASSWORD')
     
-    if not user or not password:
-        print("⚠️ [Growatt] Warning: Credentials not detected, but proceeding with data map.")
-
-    # Twoje sprawdzone dane produkcyjne (kWh)
-    data_map = {
-        'SLP1': 609.0, 
-        'SLP2': 986.0, 
-        'GTO1': 2259.0, 
-        'NL1': 2463.0
-    }
+    results = {key: 0 for key in plant_keys}
     
-    # Filtrujemy tylko te klucze, które w arkuszu są oznaczone jako GROWATT
-    results = {}
-    for key in plant_keys:
-        if key in data_map:
-            results[key] = data_map[key]
-            
-    print(f"✅ [Growatt] Successfully processed {len(results)} plants.")
+    try:
+        api = growattServer.GrowattApi()
+        login_res = api.login(user, password)
+        user_id = login_res['user_id']
+        
+        plant_list = api.plant_list(user_id)
+        
+        count = 0
+        for plant in plant_list.get('data', []):
+            p_name = plant.get('plantName')
+            # Szukamy dopasowania nazwy stacji do Twojego klucza (np. SLP1)
+            if p_name in plant_keys:
+                p_id = plant.get('plantId')
+                # Pobieramy dane historyczne (format daty dla Growatt to zazwyczaj YYYY-MM-DD)
+                history = api.plant_history(p_id, target_date)
+                energy = float(history.get('eToday', 0))
+                results[p_name] = energy
+                count += 1
+        
+        print(f"✅ [Growatt] Fetched real data for {count} plants.")
+        
+    except Exception as e:
+        print(f"❌ [Growatt] API Error: {str(e)}")
+        
     return results

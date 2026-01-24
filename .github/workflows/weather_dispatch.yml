@@ -22,5 +22,5 @@ jobs:
           # Optional: set base explicitly if you know it
           # GROWATT_OPENAPI_BASE: "https://openapi.growatt.com"
           # Optional: print full JSON (careful with logs)
-          # GROWATT_DEBUG_JSON: "1"
+          GROWATT_DEBUG_JSON: "1"
         run: python growatt_weather_probe.py

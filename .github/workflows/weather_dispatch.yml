@@ -1,71 +1,44 @@
-name: Growatt Weather Probe
+name: growatt.weather.probe
 
 on:
   workflow_dispatch:
   schedule:
-    # daily at 12:30 UTC (adjust as you wish)
-    - cron: "30 12 * * *"
-
-concurrency:
-  group: growatt-weather-probe
-  cancel-in-progress: true
+    # daily at 21:15 Mexico City (UTC-6) => 03:15 UTC
+    - cron: "15 3 * * *"
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    env:
+      GROWATT_SERVER_BASE: https://server.growatt.com
+      DEBUG_JSON: "1"
+      CACHE_TTL_SEC: "0"   # probe wants fresh each run (set 0 to disable cache)
+      TIMEOUT_SEC: "25"
+
+      # required secrets
+      GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+      GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+
+      # target for probe
+      GROWATT_PLANT_ID: "10069072"
+      GROWATT_WEATHER_SN: "DYD1EZR007"
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          # Keep it simple. If your repo already has requirements.txt, use it:
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install requests; fi
+          pip install requests
 
-      # Avoid everyone hitting Growatt at the same second
-      - name: Jitter before probe
-        run: |
-          python - << 'PY'
-          import random, time
-          s = random.randint(10, 140)
-          print(f"Sleeping {s}s to avoid synchronized API hits...")
-          time.sleep(s)
-          PY
-
-      # Cache probe device list in repo workspace (per-run cache)
-      - name: Cache Growatt probe cache file
-        uses: actions/cache@v4
-        with:
-          path: .growatt_probe_cache.json
-          key: growatt-probe-cache-${{ runner.os }}-${{ github.ref_name }}
-          restore-keys: |
-            growatt-probe-cache-${{ runner.os }}-
-
-      - name: Run Growatt Weather Probe
-        env:
-          GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
-          GROWATT_PLANT_ID: "10069072"
-          GROWATT_WEATHER_SN: "DYD1EZR007"
-
-          # Debug prints full JSON responses (token is masked in logs by GH)
-          GROWATT_DEBUG_JSON: "1"
-
-          # Optional: override base if you already know it
-          # GROWATT_OPENAPI_BASE: "https://openapi.growatt.com"
-
-          # Probe cache (best-effort to reduce calls and avoid rate limits)
-          GROWATT_PROBE_CACHE: ".growatt_probe_cache.json"
-          GROWATT_PROBE_CACHE_TTL: "3600"
-
-          # keep 0 to reduce calls; set to 1 only if you want to probe meter/other SNs too
-          GROWATT_PROBE_ALL_SNS: "0"
+      - name: Run probe
         run: |
           python growatt_weather_probe.py

@@ -23,6 +23,8 @@ jobs:
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
         run: python argia.py
       - name: Verify Sync
         if: success()

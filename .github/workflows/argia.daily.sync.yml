@@ -25,6 +25,8 @@ jobs:
           GROWATT_API_TOKEN: ${{ secrets.GROWATT_API_TOKEN }}
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          GROWATT_DEBUG: "1"
+          GROWATT_FALLBACK_DAYS: "2"
         run: python argia.py
       - name: Verify Sync
         if: success()

@@ -46,6 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: growatt-weather-${{ github.event.inputs.plant_id }}
+          include-hidden-files: true
           path: |
             .growatt_env_*.raw.json
             .growatt_env_*.raw_pages.json

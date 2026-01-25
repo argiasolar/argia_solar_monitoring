@@ -1,4 +1,44 @@
 #!/usr/bin/env python3
+"""
+growatt_weather_fetch.py (multi-plant aware + env page dump)
+
+Fetch Growatt (ShineServer Web UI) env/weather history via:
+  POST https://server.growatt.com/device/getEnvHistory
+
+Problem we are debugging:
+- For SMS plant (10069072) getEnvHistory returns result=1 but rows=0.
+- We need to discover the REAL env device identifier(s) used by Growatt UI.
+This version dumps /device/getEnvPage HTML to artifact for inspection.
+
+REQUIRED ENVS:
+  GROWATT_USERNAME
+  GROWATT_PASSWORD
+  GROWATT_PLANT_ID
+
+CONFIG (recommended):
+  GROWATT_PLANT_MAP_JSON='{
+    "10069072":{"name":"SMS","env_datalog_sn":"DYD1EZR007","env_addr":1},
+    "9309575":{"name":"Taigene","env_datalog_sn":"DYD0E8501G","env_addr":1}
+  }'
+
+OPTIONAL:
+  GROWATT_BASE=https://server.growatt.com
+  GROWATT_TZ=America/Mexico_City
+  GROWATT_DATE=YYYY-MM-DD
+  GROWATT_FALLBACK_DAYS=2
+  GROWATT_FETCH_ALL_PAGES=1
+  GROWATT_SLEEP_BETWEEN_PAGES=0.15
+  GROWATT_OUT_PREFIX=.growatt_env_<PLANT_ID>
+  GROWATT_DEBUG=1
+
+Outputs (per run):
+  <prefix>.raw.json
+  <prefix>.raw_pages.json
+  <prefix>.rows.csv
+  <prefix>.normalized.csv
+  .growatt_envpage_<PLANT_ID>.html   <-- NEW: dump of /device/getEnvPage
+"""
+
 from __future__ import annotations
 
 import csv
@@ -15,8 +55,9 @@ import requests
 
 try:
     from zoneinfo import ZoneInfo  # py3.9+
-except Exception:
+except Exception:  # pragma: no cover
     ZoneInfo = None  # type: ignore
+
 
 BASE_DEFAULT = "https://server.growatt.com"
 TZ_DEFAULT = "America/Mexico_City"
@@ -276,17 +317,6 @@ def normalize_rows(rows: List[Dict[str, Any]], datalog_sn: str, addr: int) -> Li
     return out
 
 
-def write_csv_dicts(rows: List[Dict[str, Any]], path: str) -> None:
-    if not rows:
-        return
-    fieldnames = list(rows[0].keys())
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-
-
 def rows_to_csv_original(rows: List[Dict[str, Any]], path: str) -> None:
     if not rows:
         return
@@ -302,6 +332,17 @@ def rows_to_csv_original(rows: List[Dict[str, Any]], path: str) -> None:
             if "calendar" in out and isinstance(out["calendar"], dict):
                 out["calendar"] = json.dumps(out["calendar"], ensure_ascii=False)
             w.writerow(out)
+
+
+def write_csv_dicts(rows: List[Dict[str, Any]], path: str) -> None:
+    if not rows:
+        return
+    fieldnames = list(rows[0].keys())
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
 
 
 def load_plant_map() -> Dict[str, Any]:
@@ -335,15 +376,17 @@ def resolve_env_source(plant_id: str) -> Tuple[str, int, str]:
             "- GROWATT_PLANT_MAP_JSON with mapping for this PLANT_ID, OR\n"
             "- GROWATT_ENV_DATALOG_SN and GROWATT_ENV_ADDR"
         )
-    return sn, int(addr_s), f"plant_{plant_id}"
+    try:
+        return sn, int(addr_s), f"plant_{plant_id}"
+    except Exception:
+        die("GROWATT_ENV_ADDR must be an integer.")
+    raise SystemExit(1)
 
 
-def discover_env_sources(cli: GrowattWebClient) -> List[Tuple[str, int]]:
+def discover_env_sources(cli: GrowattWebClient, plant_id: str) -> List[Tuple[str, int]]:
     """
-    Try to discover actual env devices (datalogSn, addr) for the selected plant by probing likely UI endpoints
-    and scraping datalogSn/addr patterns from JSON/HTML.
-
-    Returns list of candidates (datalogSn, addr). May be empty.
+    Discover env device candidates by probing /device/getEnvPage and other likely endpoints.
+    Also dumps the raw HTML of /device/getEnvPage to .growatt_envpage_<PLANT_ID>.html.
     """
     candidates: List[Tuple[str, int]] = []
     seen = set()
@@ -354,48 +397,19 @@ def discover_env_sources(cli: GrowattWebClient) -> List[Tuple[str, int]]:
             seen.add(key)
             candidates.append(key)
 
-    # 1) Try common endpoints that might return env devices
-    probe_paths = [
-        "/device/getEnvPage",
-        "/device/getEnvDevice",
-        "/device/getEnvList",
-        "/device/getEnv",
-        "/device/env",
-    ]
-    for p in probe_paths:
-        st, parsed, raw = cli.get(p)
-        if debug_enabled():
-            log(f"🧭 discover: GET {p} -> HTTP {st}")
-        blob = ""
-        if parsed is not None:
-            try:
-                blob = json.dumps(parsed, ensure_ascii=False)
-            except Exception:
-                blob = str(parsed)
-        else:
-            blob = raw or ""
+    # --- 1) GET /device/getEnvPage (likely HTML) and dump it ---
+    st, parsed, raw = cli.get("/device/getEnvPage")
+    if debug_enabled():
+        log(f"🧭 discover: GET /device/getEnvPage -> HTTP {st}")
 
-        # Look for datalogSn patterns and addr patterns.
-        # SNs often like DYD0E8501G / DYD1EZR007 etc.
-        sns = re.findall(r"\bDYD[A-Z0-9]{6,12}\b", blob)
-        addrs = re.findall(r'"addr"\s*:\s*("?)(\d+)\1', blob)
+    dump_path = f".growatt_envpage_{plant_id}.html"
+    try:
+        with open(dump_path, "w", encoding="utf-8") as f:
+            f.write(raw or "")
+        log(f"💾 Dumped /device/getEnvPage to {dump_path}")
+    except Exception as e:
+        log(f"⚠️ Could not write dump {dump_path}: {e}")
 
-        # If we find explicit pairs like {"datalogSn":"...","addr":1}
-        pairs = re.findall(r'"datalogSn"\s*:\s*"([^"]+)"[^{}]{0,200}"addr"\s*:\s*("?)(\d+)\2', blob)
-        for sn, _, a in pairs:
-            if sn.startswith("DYD"):
-                try:
-                    add(sn, int(a))
-                except Exception:
-                    pass
-
-        # If no explicit pairs, but we saw SNs, try common addr=1
-        if sns:
-            for sn in sns[:10]:
-                add(sn, 1)
-
-    # 2) Also try scraping from /index page HTML (sometimes embeds device lists)
-    st, parsed, raw = cli.get("/index")
     blob = ""
     if parsed is not None:
         try:
@@ -404,8 +418,69 @@ def discover_env_sources(cli: GrowattWebClient) -> List[Tuple[str, int]]:
             blob = str(parsed)
     else:
         blob = raw or ""
-    for sn in re.findall(r"\bDYD[A-Z0-9]{6,12}\b", blob):
-        add(sn, 1)
+
+    # Try various keys and direct DYD patterns
+    sn_patterns = [
+        r"\bDYD[A-Z0-9]{6,12}\b",
+        r'"datalogSn"\s*:\s*"([^"]+)"',
+        r'"dataLogSn"\s*:\s*"([^"]+)"',
+        r'"serialNum"\s*:\s*"([^"]+)"',
+        r'"deviceSn"\s*:\s*"([^"]+)"',
+        r'"sn"\s*:\s*"([^"]+)"',
+    ]
+    for pat in sn_patterns:
+        for m in re.findall(pat, blob):
+            sn = m if isinstance(m, str) else str(m)
+            if sn.startswith("DYD"):
+                add(sn, 1)
+
+    pair_pats = [
+        r'"datalogSn"\s*:\s*"([^"]+)"[^{}]{0,300}"addr"\s*:\s*("?)(\d+)\2',
+        r'"dataLogSn"\s*:\s*"([^"]+)"[^{}]{0,300}"addr"\s*:\s*("?)(\d+)\2',
+    ]
+    for pat in pair_pats:
+        for sn, _, a in re.findall(pat, blob):
+            if sn.startswith("DYD"):
+                try:
+                    add(sn, int(a))
+                except Exception:
+                    pass
+
+    # --- 2) Probe extra endpoints; some may require POST ---
+    probe = [
+        ("GET", "/device/getEnvDevice", None),
+        ("GET", "/device/getEnvList", None),
+        ("POST", "/device/getEnvList", {"plantId": cli.plant_id}),
+        ("POST", "/device/getEnvList", {"selectedPlantId": cli.plant_id}),
+    ]
+    for method, path, data in probe:
+        if method == "GET":
+            st2, parsed2, raw2 = cli.get(path)
+        else:
+            st2, parsed2, raw2 = cli.post(path, data=data or {})
+        if debug_enabled():
+            log(f"🧭 discover: {method} {path} -> HTTP {st2}")
+
+        blob2 = ""
+        if parsed2 is not None:
+            try:
+                blob2 = json.dumps(parsed2, ensure_ascii=False)
+            except Exception:
+                blob2 = str(parsed2)
+        else:
+            blob2 = raw2 or ""
+
+        for sn in re.findall(r"\bDYD[A-Z0-9]{6,12}\b", blob2):
+            add(sn, 1)
+
+        for sn, _, a in re.findall(
+            r'"datalogSn"\s*:\s*"([^"]+)"[^{}]{0,300}"addr"\s*:\s*("?)(\d+)\2', blob2
+        ):
+            if sn.startswith("DYD"):
+                try:
+                    add(sn, int(a))
+                except Exception:
+                    pass
 
     return candidates
 
@@ -468,7 +543,6 @@ def main() -> None:
     if not plant_id:
         die("Missing GROWATT_PLANT_ID.")
 
-    # Initial source from map (might be only plant datalogger — may not be real env device)
     env_datalog_sn, env_addr, plant_name = resolve_env_source(plant_id)
 
     override_day = env("GROWATT_DATE")
@@ -477,8 +551,6 @@ def main() -> None:
     fallback_days = env_int("GROWATT_FALLBACK_DAYS", 2)
     fetch_all_pages = env("GROWATT_FETCH_ALL_PAGES", "1") in ("1", "true", "True", "YES", "yes", "on", "ON")
     sleep_between_pages = env_float("GROWATT_SLEEP_BETWEEN_PAGES", 0.15)
-
-    # Output prefix per plant
     out_prefix = env("GROWATT_OUT_PREFIX", f".growatt_env_{plant_id}") or f".growatt_env_{plant_id}"
 
     log("=== Growatt Weather Fetch (Web UI) ===")
@@ -492,21 +564,20 @@ def main() -> None:
     cli = GrowattWebClient(base=base, username=user, password=pwd, plant_id=plant_id)
     cli.login()
 
-    # dates to try
+    # Dates to try
     try_dates: List[str] = []
     d0 = dt_date.fromisoformat(day0)
     for i in range(0, max(fallback_days, 0) + 1):
         try_dates.append((d0 - timedelta(days=i)).isoformat())
 
-    # Try with mapped env source first
+    # Sources to try: map first, then discovered sources
     sources_to_try: List[Tuple[str, int, str]] = [(env_datalog_sn, env_addr, "map")]
 
-    # If that fails (no rows for all dates), try discovered sources
-    discovered = discover_env_sources(cli)
+    discovered = discover_env_sources(cli, plant_id)
     for sn, a in discovered:
         sources_to_try.append((sn, a, "discover"))
 
-    # Deduplicate preserving order
+    # Deduplicate
     dedup: List[Tuple[str, int, str]] = []
     seen = set()
     for sn, a, origin in sources_to_try:
@@ -516,8 +587,11 @@ def main() -> None:
             dedup.append((sn, a, origin))
     sources_to_try = dedup
 
-    if debug_enabled() and discovered:
-        log("🧩 Discovered env candidates: " + ", ".join([f"{sn}:{a}" for sn, a in discovered[:10]]))
+    if debug_enabled():
+        if discovered:
+            log("🧩 Discovered env candidates: " + ", ".join([f"{sn}:{a}" for sn, a in discovered[:12]]))
+        else:
+            log("🧩 Discovered env candidates: (none)")
 
     chosen_day: Optional[str] = None
     chosen_rows: List[Dict[str, Any]] = []
@@ -563,6 +637,7 @@ def main() -> None:
         )
 
     sn, a, origin = chosen_source
+
     raw_path = f"{out_prefix}.raw.json"
     raw_pages_path = f"{out_prefix}.raw_pages.json"
     rows_csv_path = f"{out_prefix}.rows.csv"
@@ -570,10 +645,12 @@ def main() -> None:
 
     with open(raw_path, "w", encoding="utf-8") as f:
         json.dump(chosen_merged, f, ensure_ascii=False, indent=2)
+
     with open(raw_pages_path, "w", encoding="utf-8") as f:
         json.dump(chosen_pages, f, ensure_ascii=False, indent=2)
 
     rows_to_csv_original(chosen_rows, rows_csv_path)
+
     norm = normalize_rows(chosen_rows, datalog_sn=sn, addr=a)
     write_csv_dicts(norm, norm_csv_path)
 

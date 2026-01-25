@@ -5,3 +5,4 @@ google-auth-oauthlib
 requests
 pandas
 growattServer
+requests>=2.31.0

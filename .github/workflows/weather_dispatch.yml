@@ -1,12 +1,9 @@
-name: Growatt Weather Fetch
+name: Growatt Weather Fetch (Multi Site)
 
 on:
   workflow_dispatch:
-    inputs:
-      plant_id:
-        description: "Growatt PLANT_ID (e.g. 10069072 for SMS, 9309575 for Taigene)"
-        required: true
-        default: "10069072"
+  # schedule:
+  #   - cron: "15 * * * *"  # hourly at :15 UTC (optional)
 
 jobs:
   fetch-weather:
@@ -26,30 +23,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Growatt weather fetch
+      - name: Run Growatt weather fetch (multi site)
         env:
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-          GROWATT_PLANT_MAP_JSON: ${{ secrets.GROWATT_PLANT_MAP_JSON }}
 
-          GROWATT_PLANT_ID: ${{ github.event.inputs.plant_id }}
+          # NEW: list of sites (Growatt + Huawei entries; Huawei will be skipped)
+          GROWATT_SITES_JSON: ${{ secrets.GROWATT_SITES_JSON }}
 
           GROWATT_TZ: America/Mexico_City
           GROWATT_FALLBACK_DAYS: "2"
           GROWATT_FETCH_ALL_PAGES: "1"
+          GROWATT_ENVLIST_MAX_PAGES: "50"
+          GROWATT_OUT_DIR: "out"
           GROWATT_DEBUG: "1"
+
+          # keep 0 while debugging (so job doesn't fail if some sites have no data)
+          GROWATT_FAIL_ON_NO_DATA: "0"
         run: |
           python growatt_weather_fetch.py || true
-          ls -la
+          echo "== out directory =="
+          ls -la out || true
+          find out -type f -maxdepth 2 -print || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: growatt-weather-${{ github.event.inputs.plant_id }}
-          include-hidden-files: true
-          path: |
-            .growatt_env_*.raw.json
-            .growatt_env_*.raw_pages.json
-            .growatt_env_*.rows.csv
-            .growatt_env_*.normalized.csv
-            .growatt_envpage_*.html
+          name: growatt-weather-out
+          path: out/**
+          if-no-files-found: warn

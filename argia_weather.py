@@ -1,7 +1,14 @@
 # argia_weather.py
 # Weather provider for ARGIA PV monitoring:
-# - Irradiance: Growatt Web UI endpoints (getEnvList + getEnvHistory)
+# - Irradiance: Growatt Web UI endpoints (server.growatt.com) via getEnvList + getEnvHistory
 # - Cloud cover: Open-Meteo archive API (as before)
+#
+# DEBUG:
+#   Set GROWATT_DEBUG=1 to print detailed logs in GitHub Actions
+#
+# FALLBACK:
+#   Growatt env history often lags; we try today, today-1, ... today-N
+#   Controlled by GROWATT_FALLBACK_DAYS (default 2)
 
 from __future__ import annotations
 
@@ -13,10 +20,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 # -----------------------------
-# Open-Meteo (Cloud cover)
+# Helpers
 # -----------------------------
-
-OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
@@ -24,49 +29,25 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
     except Exception:
         return default
 
-def _get_cloud_cover_open_meteo(lat: float, lon: float, date_iso: str) -> float:
-    """
-    Returns cloudcover_mean (%) for the date.
-    """
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "daily": "cloudcover_mean",
-        "timezone": "auto",
-        "start_date": date_iso,
-        "end_date": date_iso,
-    }
-    for attempt in range(3):
-        try:
-            r = requests.get(OPEN_METEO_ARCHIVE_URL, params=params, timeout=20)
-            if r.status_code == 200:
-                js = r.json()
-                cc = (js.get("daily", {}).get("cloudcover_mean") or [0])[0]
-                return round(_safe_float(cc, 0.0), 1)
-        except Exception:
-            time.sleep(2)
-    return 0.0
+def _env(name: str, default: Optional[str] = None) -> Optional[str]:
+    v = os.environ.get(name)
+    return v if v not in (None, "") else default
 
+def _env_int(name: str, default: int) -> int:
+    v = _env(name)
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except Exception:
+        return default
 
-# -----------------------------
-# Growatt Web UI (Irradiance)
-# -----------------------------
+def _debug_enabled() -> bool:
+    return (_env("GROWATT_DEBUG", "0") or "0").lower() in ("1", "true", "yes", "on")
 
-GROWATT_WEB_BASE = (os.environ.get("GROWATT_WEB_BASE") or "https://server.growatt.com").rstrip("/")
-GROWATT_USERNAME = os.environ.get("GROWATT_USERNAME")
-GROWATT_PASSWORD = os.environ.get("GROWATT_PASSWORD")
-
-# For Huawei plants: use a reference Growatt plant as weather source
-GROWATT_WEATHER_FALLBACK_PLANT_ID = os.environ.get("GROWATT_WEATHER_FALLBACK_PLANT_ID") or "10069072"  # SMS default
-# Optional preference (not required)
-GROWATT_WEATHER_FALLBACK_DATALOG_SN = os.environ.get("GROWATT_WEATHER_FALLBACK_DATALOG_SN") or "DYD1EZR007"
-GROWATT_WEATHER_FALLBACK_ADDR = os.environ.get("GROWATT_WEATHER_FALLBACK_ADDR") or "32"
-
-# Cache (per process run)
-# - env devices list per plant_id
-# - computed irradiance per (plant_id, date_iso)
-_ENV_DEVICES_CACHE: Dict[str, List[Dict[str, Any]]] = {}
-_IRRADIANCE_CACHE: Dict[Tuple[str, str], float] = {}
+def _dbg(msg: str) -> None:
+    if _debug_enabled():
+        print(msg, flush=True)
 
 def _safe_json_loads(text: str) -> Any:
     text = (text or "").strip()
@@ -92,10 +73,68 @@ def _request_any(session: requests.Session, method: str, url: str, **kwargs) -> 
             parsed = None
     return resp.status_code, parsed, raw
 
+
+# -----------------------------
+# Open-Meteo (Cloud cover)
+# -----------------------------
+
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+
+def _get_cloud_cover_open_meteo(lat: float, lon: float, date_iso: str) -> float:
+    """
+    Returns cloudcover_mean (%) for the date.
+    """
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "cloudcover_mean",
+        "timezone": "auto",
+        "start_date": date_iso,
+        "end_date": date_iso,
+    }
+    for attempt in range(3):
+        try:
+            r = requests.get(OPEN_METEO_ARCHIVE_URL, params=params, timeout=20)
+            if r.status_code == 200:
+                js = r.json()
+                cc = (js.get("daily", {}).get("cloudcover_mean") or [0])[0]
+                return round(_safe_float(cc, 0.0), 1)
+            _dbg(f"🌥️  [OpenMeteo] HTTP {r.status_code} for {date_iso}")
+        except Exception as e:
+            _dbg(f"🌥️  [OpenMeteo] error attempt={attempt+1}: {e}")
+            time.sleep(2)
+    return 0.0
+
+
+# -----------------------------
+# Growatt Web UI (Irradiance)
+# -----------------------------
+
+GROWATT_WEB_BASE = (_env("GROWATT_WEB_BASE") or "https://server.growatt.com").rstrip("/")
+GROWATT_USERNAME = _env("GROWATT_USERNAME")
+GROWATT_PASSWORD = _env("GROWATT_PASSWORD")
+
+# For Huawei plants: use a reference Growatt plant as weather source
+GROWATT_WEATHER_FALLBACK_PLANT_ID = _env("GROWATT_WEATHER_FALLBACK_PLANT_ID", "10069072")  # SMS default
+# Optional preference (not required)
+GROWATT_WEATHER_FALLBACK_DATALOG_SN = _env("GROWATT_WEATHER_FALLBACK_DATALOG_SN", "DYD1EZR007")
+GROWATT_WEATHER_FALLBACK_ADDR = _env("GROWATT_WEATHER_FALLBACK_ADDR", "32")
+
+# How many days back to try if env history is missing for today
+GROWATT_FALLBACK_DAYS = _env_int("GROWATT_FALLBACK_DAYS", 2)
+
+# Cache (per process run)
+_ENV_DEVICES_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+_IRRADIANCE_CACHE: Dict[Tuple[str, str], float] = {}
+_CLIENT_CACHE: Optional["GrowattWebClient"] = None
+
+
 class GrowattWebClient:
     """
-    Minimal Growatt Web UI client (same flow as growatt_weather_fetch.py, but slimmed down).
+    Minimal Growatt Web UI client (same flow as Growatt Web UI):
+      login -> seed plant -> GET /device/getEnvPage -> POST /device/getEnvList -> POST /device/getEnvHistory
     """
+
     def __init__(self, base: str, username: str, password: str) -> None:
         self.base = base
         self.username = username
@@ -114,10 +153,13 @@ class GrowattWebClient:
 
     def login(self) -> bool:
         if not self.username or not self.password:
+            _dbg("❌ [GrowattWeb] Missing GROWATT_USERNAME/PASSWORD.")
             return False
 
         login_url = f"{self.base}/login"
+
         st, _, _ = _request_any(self.s, "GET", login_url, timeout=30)
+        _dbg(f"🔐 [GrowattWeb] GET /login -> HTTP {st}")
         if st != 200:
             return False
 
@@ -132,11 +174,15 @@ class GrowattWebClient:
         st, _, raw = _request_any(self.s, "POST", login_url, data=payload, headers=headers, timeout=30)
 
         cookies = self.s.cookies.get_dict()
-        # Web UI auth cookie
-        if "assToken" not in cookies:
-            # sometimes login endpoint still returns 200 but no cookie
-            return False
-        return True
+        ok = "assToken" in cookies
+        _dbg(
+            "🔐 [GrowattWeb] POST /login -> HTTP "
+            f"{st} | assToken={ok} | cookies={','.join(sorted(cookies.keys()))}"
+        )
+        if not ok:
+            snip = (raw or "").strip().replace("\n", " ")[:160]
+            _dbg(f"❌ [GrowattWeb] Login body snippet: {snip}")
+        return ok
 
     def _seed_plant_context(self, plant_id: str) -> None:
         # Web UI relies on selectedPlantId cookie
@@ -144,6 +190,18 @@ class GrowattWebClient:
         self.s.cookies.set("selPage", "/device")
         self.s.cookies.set("selPageTwo", "/device/photovoltaic")
         self.s.cookies.set("selPageThree", "/device/getEnvPage")
+
+    def get_env_page_seed(self, plant_id: str) -> bool:
+        """
+        Web UI usually loads /device/getEnvPage before calling getEnvList/getEnvHistory.
+        We do a lightweight GET as a context seed.
+        """
+        self._seed_plant_context(plant_id)
+        url = f"{self.base}/device/getEnvPage"
+        headers = {"Referer": f"{self.base}/index", "Accept": "text/html, */*"}
+        st, _, raw = _request_any(self.s, "GET", url, headers=headers, timeout=30)
+        _dbg(f"🧭 [GrowattWeb] GET /device/getEnvPage plant={plant_id} -> HTTP {st} (len={len(raw or '')})")
+        return st == 200
 
     def post_get_env_list(self, plant_id: str, curr_page: int = 1, alias: str = "") -> Any:
         self._seed_plant_context(plant_id)
@@ -155,11 +213,7 @@ class GrowattWebClient:
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
         }
-        data = {
-            "plantId": str(plant_id),
-            "currPage": str(curr_page),
-            "alias": alias,
-        }
+        data = {"plantId": str(plant_id), "currPage": str(curr_page), "alias": alias}
         st, parsed, raw = _request_any(self.s, "POST", url, headers=headers, data=data, timeout=45)
         if parsed is None:
             return {"_http": st, "_parse_error": True, "_raw_snippet": (raw or "")[:200]}
@@ -196,11 +250,26 @@ class GrowattWebClient:
             return st, {"_parse_error": True, "_raw_snippet": (raw or "")[:200]}
         return st, parsed
 
+
+def _get_client() -> Optional[GrowattWebClient]:
+    global _CLIENT_CACHE
+    if _CLIENT_CACHE is not None:
+        return _CLIENT_CACHE
+
+    if not GROWATT_USERNAME or not GROWATT_PASSWORD:
+        _dbg("❌ [GrowattWeb] No credentials in ENV.")
+        return None
+
+    cli = GrowattWebClient(GROWATT_WEB_BASE, GROWATT_USERNAME, GROWATT_PASSWORD)
+    if not cli.login():
+        _dbg("❌ [GrowattWeb] Login failed.")
+        return None
+
+    _CLIENT_CACHE = cli
+    return cli
+
+
 def _extract_env_datas(resp: Any) -> List[Dict[str, Any]]:
-    """
-    Growatt env history expected:
-      {"result":1,"obj":{"datas":[...], "haveNext": true/false, "start": 80, ...}}
-    """
     if not isinstance(resp, dict):
         return []
     obj = resp.get("obj")
@@ -259,9 +328,8 @@ def _calendar_to_dt(cal: Any) -> Optional[datetime]:
 
 def _integrate_radiant_to_kwh_m2(points: List[Tuple[datetime, float]]) -> float:
     """
-    Convert time series radiant(W/m2) into daily energy (kWh/m2):
+    Convert radiant(W/m2) series into daily energy (kWh/m2):
       kWh/m2 = Σ( radiant(W/m2) * Δt[h] ) / 1000
-    Uses left Riemann sum with basic guards on Δt.
     """
     if len(points) < 2:
         return 0.0
@@ -275,28 +343,21 @@ def _integrate_radiant_to_kwh_m2(points: List[Tuple[datetime, float]]) -> float:
         dt_sec = (t1 - t0).total_seconds()
         if dt_sec <= 0:
             continue
-
-        # Guard: if gap too large, we skip (data holes)
-        # Typical env sampling is minutes; > 3h likely a hole
+        # guard: skip huge gaps (holes)
         if dt_sec > 3 * 3600:
             continue
-
         dt_h = dt_sec / 3600.0
         if r0 < 0:
             continue
-
         total += (r0 * dt_h) / 1000.0
 
     return total
 
 def _pick_device(devices: List[Dict[str, Any]], prefer_sn: str = "", prefer_addr: Optional[int] = None) -> Optional[Tuple[str, int]]:
-    """
-    Prefer a specific (sn, addr) if present; otherwise pick the first valid.
-    """
     def _norm_sn(d: Dict[str, Any]) -> str:
         return str(d.get("datalogSn") or d.get("dataLogSn") or d.get("sn") or "").strip()
 
-    # first pass: exact match
+    # exact match first
     if prefer_sn:
         for d in devices:
             sn = _norm_sn(d)
@@ -310,7 +371,7 @@ def _pick_device(devices: List[Dict[str, Any]], prefer_sn: str = "", prefer_addr
             if sn == prefer_sn and (prefer_addr is None or a == prefer_addr):
                 return sn, a
 
-    # second pass: any valid
+    # any valid
     for d in devices:
         sn = _norm_sn(d)
         addr = d.get("addr")
@@ -325,21 +386,21 @@ def _pick_device(devices: List[Dict[str, Any]], prefer_sn: str = "", prefer_addr
     return None
 
 def _get_env_devices(cli: GrowattWebClient, plant_id: str) -> List[Dict[str, Any]]:
-    """
-    Slim pagination for getEnvList. Usually 1 page is enough, but we try few.
-    """
     if plant_id in _ENV_DEVICES_CACHE:
         return _ENV_DEVICES_CACHE[plant_id]
+
+    # seed env page
+    cli.get_env_page_seed(plant_id)
 
     devices: List[Dict[str, Any]] = []
     seen = set()
 
-    # try up to 5 pages (usually 1)
+    # a few pages (usually 1)
     for page in range(1, 6):
         resp = cli.post_get_env_list(plant_id=plant_id, curr_page=page, alias="")
-        datas = []
-        if isinstance(resp, dict):
-            datas = resp.get("datas") if isinstance(resp.get("datas"), list) else []
+        http = resp.get("_http") if isinstance(resp, dict) else None
+        datas = resp.get("datas") if isinstance(resp, dict) and isinstance(resp.get("datas"), list) else []
+        _dbg(f"📡 [GrowattWeb] getEnvList plant={plant_id} page={page} -> http={http} datas={len(datas)}")
         if not datas:
             break
 
@@ -360,81 +421,127 @@ def _get_env_devices(cli: GrowattWebClient, plant_id: str) -> List[Dict[str, Any
             seen.add(key)
             devices.append(d)
 
+    # compact debug list
+    if _debug_enabled():
+        compact = []
+        for d in devices[:10]:
+            sn = d.get("datalogSn") or d.get("dataLogSn") or d.get("sn")
+            compact.append({"sn": sn, "addr": d.get("addr"), "type": d.get("deviceType"), "alias": d.get("alias")})
+        _dbg(f"📟 [GrowattWeb] ENV devices plant={plant_id} count={len(devices)} sample={compact}")
+
     _ENV_DEVICES_CACHE[plant_id] = devices
     return devices
 
-def _get_irradiance_kwh_m2_from_growatt(plant_id: str, date_iso: str, prefer_sn: str = "", prefer_addr: Optional[int] = None) -> float:
+def _fetch_history_rows(cli: GrowattWebClient, plant_id: str, sn: str, addr: int, day_iso: str) -> Tuple[int, int, int]:
     """
-    Returns daily irradiance in kWh/m2 from Growatt ENV history.
-    Uses caching per (plant_id, date_iso).
+    Fetch all pages for env history for given day.
+    Returns (http_last, pages_fetched, total_rows)
     """
-    cache_key = (str(plant_id), str(date_iso))
-    if cache_key in _IRRADIANCE_CACHE:
-        return _IRRADIANCE_CACHE[cache_key]
+    cli.get_env_page_seed(plant_id)
 
-    # Missing creds -> cannot fetch
-    if not GROWATT_USERNAME or not GROWATT_PASSWORD:
-        _IRRADIANCE_CACHE[cache_key] = 0.0
-        return 0.0
-
-    cli = GrowattWebClient(base=GROWATT_WEB_BASE, username=GROWATT_USERNAME, password=GROWATT_PASSWORD)
-    if not cli.login():
-        _IRRADIANCE_CACHE[cache_key] = 0.0
-        return 0.0
-
-    # find devices
-    devices = _get_env_devices(cli, str(plant_id))
-    chosen = _pick_device(devices, prefer_sn=prefer_sn, prefer_addr=prefer_addr)
-    if not chosen:
-        _IRRADIANCE_CACHE[cache_key] = 0.0
-        return 0.0
-
-    datalog_sn, addr = chosen
-
-    # Fetch history (paginate via haveNext + start)
     all_rows: List[Dict[str, Any]] = []
     start = 0
-    guard = 0
+    pages = 0
+    http_last = 0
 
     while True:
-        guard += 1
-        if guard > 120:  # safety
-            break
-
-        st, resp = cli.post_get_env_history(str(plant_id), datalog_sn, int(addr), date_iso, start=start)
-        if st != 200:
-            break
+        pages += 1
+        st, resp = cli.post_get_env_history(plant_id, sn, addr, day_iso, start=start)
+        http_last = st
 
         rows = _extract_env_datas(resp)
-        if rows:
-            all_rows.extend(rows)
+        all_rows.extend(rows)
 
-        if not _resp_have_next(resp):
+        result_val = resp.get("result") if isinstance(resp, dict) else None
+        have_next = _resp_have_next(resp)
+        _dbg(
+            f"📈 [GrowattWeb] getEnvHistory plant={plant_id} sn={sn} addr={addr} day={day_iso} "
+            f"start={start} -> HTTP={st} result={result_val} rows_page={len(rows)} total={len(all_rows)} haveNext={have_next}"
+        )
+
+        if st != 200:
             break
-
-        start = _resp_next_start(resp, current_start=start, page_rows=len(rows))
+        if not have_next:
+            break
         if len(rows) == 0:
             break
 
+        start = _resp_next_start(resp, current_start=start, page_rows=len(rows))
         time.sleep(0.12)
 
-    # Build points list (datetime, radiant)
+        if pages > 120:
+            _dbg("⚠️ [GrowattWeb] History pagination safety stop (pages>120).")
+            break
+
+    # Store rows temporarily in cache by returning points via integration directly here
     points: List[Tuple[datetime, float]] = []
     for r in all_rows:
         dt_obj = _calendar_to_dt(r.get("calendar"))
         if not dt_obj:
             continue
-        rad = r.get("radiant")
-        rad_f = _safe_float(rad, default=-1.0)
-        if rad_f < 0:
+        rad = _safe_float(r.get("radiant"), default=-1.0)
+        if rad < 0:
             continue
-        points.append((dt_obj, rad_f))
+        points.append((dt_obj, rad))
 
     irr = _integrate_radiant_to_kwh_m2(points)
     irr = round(float(irr), 3)
 
-    _IRRADIANCE_CACHE[cache_key] = irr
-    return irr
+    return http_last, pages, len(all_rows), irr
+
+
+def _get_irradiance_kwh_m2_from_growatt(
+    plant_id: str,
+    date_iso: str,
+    prefer_sn: str = "",
+    prefer_addr: Optional[int] = None,
+) -> float:
+    """
+    Returns daily irradiance in kWh/m2 from Growatt ENV history.
+    Tries date_iso and falls back to previous days (GROWATT_FALLBACK_DAYS).
+    """
+    cache_key = (str(plant_id), str(date_iso))
+    if cache_key in _IRRADIANCE_CACHE:
+        return _IRRADIANCE_CACHE[cache_key]
+
+    cli = _get_client()
+    if cli is None:
+        _IRRADIANCE_CACHE[cache_key] = 0.0
+        return 0.0
+
+    if not str(plant_id).isdigit():
+        _dbg(f"⏭️  [GrowattWeb] plant_id not numeric: {plant_id}")
+        _IRRADIANCE_CACHE[cache_key] = 0.0
+        return 0.0
+
+    devices = _get_env_devices(cli, str(plant_id))
+    chosen = _pick_device(devices, prefer_sn=prefer_sn, prefer_addr=prefer_addr)
+    if not chosen:
+        _dbg(f"⚠️  [GrowattWeb] No ENV devices for plant={plant_id}.")
+        _IRRADIANCE_CACHE[cache_key] = 0.0
+        return 0.0
+
+    sn, addr = chosen
+    _dbg(f"✅ [GrowattWeb] Chosen ENV device plant={plant_id}: sn={sn} addr={addr}")
+
+    # Try today then fallback days back
+    try_base = datetime.fromisoformat(date_iso)
+    dates_to_try = [(try_base - timedelta(days=i)).date().isoformat() for i in range(0, max(GROWATT_FALLBACK_DAYS, 0) + 1)]
+    _dbg(f"🗓️  [GrowattWeb] Dates to try for irradiance plant={plant_id}: {dates_to_try}")
+
+    for day in dates_to_try:
+        http_last, pages, total_rows, irr = _fetch_history_rows(cli, str(plant_id), sn, int(addr), day)
+        _dbg(f"🌞 [GrowattWeb] Result plant={plant_id} day={day}: HTTP={http_last} pages={pages} total_rows={total_rows} irr={irr} kWh/m2")
+        if irr > 0:
+            # Cache under requested date key (even if we used fallback day)
+            _IRRADIANCE_CACHE[cache_key] = irr
+            # also store exact fallback key for future calls
+            _IRRADIANCE_CACHE[(str(plant_id), str(day))] = irr
+            return irr
+
+    _dbg(f"❌ [GrowattWeb] No irradiance rows found for plant={plant_id} for {dates_to_try}")
+    _IRRADIANCE_CACHE[cache_key] = 0.0
+    return 0.0
 
 
 # -----------------------------
@@ -466,7 +573,7 @@ def get_weather_for_date(p_key: str, date_iso: str, plants_config: dict) -> Tupl
     site_id = str(conf.get("site_id") or "").strip()
 
     # Choose plant_id for irradiance
-    irr_plant_id = site_id if brand == "GROWATT" and site_id else GROWATT_WEATHER_FALLBACK_PLANT_ID
+    irr_plant_id = site_id if brand == "GROWATT" and site_id else str(GROWATT_WEATHER_FALLBACK_PLANT_ID)
 
     # Prefer hint only for the fallback plant (your SMS plant)
     prefer_sn = ""
@@ -479,13 +586,15 @@ def get_weather_for_date(p_key: str, date_iso: str, plants_config: dict) -> Tupl
             prefer_addr = None
 
     irr = 0.0
-    # Only numeric plant ids are valid for Growatt web context here
-    if irr_plant_id.isdigit():
+    if str(irr_plant_id).isdigit():
         irr = _get_irradiance_kwh_m2_from_growatt(
-            plant_id=irr_plant_id,
+            plant_id=str(irr_plant_id),
             date_iso=date_iso,
             prefer_sn=prefer_sn,
             prefer_addr=prefer_addr,
         )
+    else:
+        _dbg(f"⏭️  [GrowattWeb] Irradiance skipped (non-numeric plant_id): {irr_plant_id}")
 
+    _dbg(f"📌 [Weather] p_key={p_key} brand={brand} irr_source_plant={irr_plant_id} date={date_iso} -> irr={irr} clouds={clouds}")
     return irr, clouds

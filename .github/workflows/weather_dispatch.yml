@@ -7,8 +7,6 @@ on:
         description: "Growatt PLANT_ID (e.g. 10069072 for SMS, 9309575 for Taigene)"
         required: true
         default: "10069072"
-  # schedule:
-  #   - cron: "15 * * * *"  # every hour at minute 15 UTC (adjust if needed)
 
 jobs:
   fetch-weather:
@@ -34,13 +32,9 @@ jobs:
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
           GROWATT_PLANT_MAP_JSON: ${{ secrets.GROWATT_PLANT_MAP_JSON }}
 
-          # plant chosen from workflow input:
           GROWATT_PLANT_ID: ${{ github.event.inputs.plant_id }}
 
-          # IMPORTANT for "today" to be correct:
           GROWATT_TZ: America/Mexico_City
-
-          # Optional:
           GROWATT_FALLBACK_DAYS: "2"
           GROWATT_FETCH_ALL_PAGES: "1"
           GROWATT_DEBUG: "1"
@@ -57,3 +51,4 @@ jobs:
             .growatt_env_*.raw_pages.json
             .growatt_env_*.rows.csv
             .growatt_env_*.normalized.csv
+            .growatt_envpage_*.html

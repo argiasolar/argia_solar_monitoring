@@ -39,7 +39,7 @@ jobs:
           GROWATT_FETCH_ALL_PAGES: "1"
           GROWATT_DEBUG: "1"
         run: |
-          python growatt_weather_fetch.py
+          python growatt_weather_fetch.py || true
           ls -la
 
       - name: Upload artifacts

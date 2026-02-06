@@ -1,0 +1,59 @@
+name: ARGIA Growatt Monitoring (30m)
+
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "snap | probe"
+        required: true
+        default: "snap"
+
+jobs:
+  growatt_monitoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run (probe or snap)
+        env:
+          # Reuse SAME secrets you already have
+          GROWATT_USER: ${{ secrets.GROWATT_USER }}
+          GROWATT_PASS: ${{ secrets.GROWATT_PASS }}
+
+          # Your existing sheet/service-account secrets (keep names as in your repo)
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
+
+          # Provide plant ids / site ids as CSV (safe: doesn’t touch existing daily sync)
+          # Example: "10069072,12345678"
+          GROWATT_PLANT_IDS: ${{ secrets.GROWATT_PLANT_IDS }}
+
+          # Optional: if you want to store raw probe JSON (debug)
+          ARGIA_MONITORING_DEBUG: "1"
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ -z "$MODE" ]; then MODE="snap"; fi
+
+          echo "Mode: $MODE"
+
+          if [ "$MODE" = "probe" ]; then
+            python argia_probe.py
+          else
+            python argia_snap.py
+          fi

@@ -24,20 +24,28 @@ def main() -> None:
         raise RuntimeError("Missing GROWATT_USERNAME / GROWATT_PASSWORD")
 
     client = GrowattMonitoringClient(GrowattAuth(username=username, password=password))
+
+    LOG.info("=== LOGIN START %s ===", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     client.login()
+    LOG.info("✅ LOGIN VALIDATED")
 
     LOG.info("=== PROBE START %s ===", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
-    results = client.probe_endpoints()
 
-    for method, url, payload in results:
-        ok = payload.get("ok")
-        LOG.info("---- %s %s (ok=%s) ----", method, url, ok)
-        if ok:
-            js = payload.get("json")
+    # Keep your probe list as before, but now login is validated first
+    base = os.getenv("GROWATT_BASE_URL", "https://server.growatt.com")
+    endpoints = [
+        ("GET", f"{base}/newPlantAPI.do", {"op": "getPlantList"}),
+        ("GET", f"{base}/newInvAPI.do", {"op": "getInvList"}),
+    ]
+
+    for method, url, params in endpoints:
+        try:
+            js = client._get_json(url, params=params, allow_redirects=True)  # intentionally using helper
+            LOG.info("---- %s %s OK ----", method, url)
             txt = json.dumps(js, ensure_ascii=False)[:6000]
             LOG.info("JSON (trimmed): %s", txt)
-        else:
-            LOG.error("Error: %s", payload.get("error"))
+        except Exception as e:
+            LOG.error("---- %s %s FAIL: %s ----", method, url, e)
 
     LOG.info("=== PROBE END ===")
 

@@ -32,20 +32,20 @@ jobs:
 
       - name: Run (probe or snap)
         env:
-          # Reuse SAME secrets you already have
-          GROWATT_USER: ${{ secrets.GROWATT_USER }}
-          GROWATT_PASS: ${{ secrets.GROWATT_PASS }}
+          # Growatt
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
 
-          # Your existing sheet/service-account secrets (keep names as in your repo)
-          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-          GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
+          # Google Sheets
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-          # Provide plant ids / site ids as CSV (safe: doesn’t touch existing daily sync)
-          # Example: "10069072,12345678"
-          GROWATT_PLANT_IDS: ${{ secrets.GROWATT_PLANT_IDS }}
-
-          # Optional: if you want to store raw probe JSON (debug)
+          # Optional debug verbosity (0/1)
           ARGIA_MONITORING_DEBUG: "1"
+
+          # Optional Growatt endpoint overrides (usually not needed)
+          # GROWATT_BASE_URL: "https://server.growatt.com"
+          # GROWATT_LOGIN_URL: "https://server.growatt.com/login"
         run: |
           MODE="${{ github.event.inputs.mode }}"
           if [ -z "$MODE" ]; then MODE="snap"; fi

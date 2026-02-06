@@ -3,16 +3,15 @@ name: Growatt Inverters
 on:
   workflow_dispatch:
   schedule:
-    # Runs every day at 06:10 Mexico City approx (GitHub uses UTC).
-    # Mexico City is usually UTC-6 -> 12:10 UTC
-    - cron: "10 12 * * *"
+    # Daily at 07:10 Mexico City (UTC-6) ≈ 13:10 UTC
+    - cron: "10 13 * * *"
 
 jobs:
-  run-growatt-inverters:
+  run:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -25,19 +24,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests google-api-python-client google-auth
 
-      - name: Run Growatt Inverters script
+      - name: Run Growatt inverter snapshot
         env:
-          # Growatt
-          GROWATT_USER: ${{ secrets.GROWATT_USERNAME }}
-          GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
-
-          # Google Sheets
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-          # Optional overrides (you can delete these if not needed)
+          GROWATT_USER: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
           SNAP_RANGE: "SNAP!A1:Z"
-          INVERTER_SHEET: "InverterData"
-          LOG_LEVEL: "INFO"
+          INVERTER_TAB: "InverterData"
+          DEBUG_OUT_DIR: "out"
         run: |
           python argia_growatt_inverters.py
+
+      - name: Upload debug output (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: growatt-inverters-debug
+          path: out
+          if-no-files-found: ignore

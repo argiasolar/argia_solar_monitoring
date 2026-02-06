@@ -13,6 +13,10 @@ jobs:
       GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
       GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
 
+      # ✅ add these
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -30,7 +34,6 @@ jobs:
         run: |
           python argia_probe.py
 
-      # 🔧 FIX: sanitize filenames for artifact upload
       - name: Sanitize filenames (remove invalid characters)
         run: |
           echo "Sanitizing filenames..."

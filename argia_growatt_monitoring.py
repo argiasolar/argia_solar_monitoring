@@ -1,15 +1,13 @@
 # argia_growatt_monitoring.py
 #
 # ShineServer (server.growatt.com) monitoring client.
-# Uses the SAME login flow as your working growatt_weather_fetch.py:
-#   GET /login
-#   POST /login (ajax) -> assToken cookie present
+# LOGIN FLOW (matches browser + your working growatt_weather_fetch.py):
+#   GET  /login
+#   POST /login  (ajax) -> assToken cookie
+#   GET  /index  (IMPORTANT: initializes session state for other modules)
 #
-# Adds:
-#  - seed_env_context()  (for /device/getEnvPage)
-#  - seed_pv_context()   (for /device/photovoltaic and PV device pages)
-#
-# Does NOT touch your OpenAPI flow in argia_growatt.py.
+# ENV module works already.
+# PV module (/device/photovoltaic) needs the extra /index initialization.
 
 import os
 import logging
@@ -52,6 +50,8 @@ class GrowattMonitoringClient:
             }
         )
 
+        self._index_initialized = False
+
     # -------------------------
     # Login (Web UI flow)
     # -------------------------
@@ -85,8 +85,25 @@ class GrowattMonitoringClient:
 
         LOG.info("✅ Login OK (assToken present). Cookies: %s", " | ".join(sorted(cookies.keys())))
 
+        # IMPORTANT: Initialize index/dashboard session state.
+        self.init_index()
+
+    def init_index(self) -> None:
+        if self._index_initialized:
+            return
+        # browser always hits /index right after login
+        r = self.s.get(
+            f"{self.base}/index",
+            headers={"Referer": f"{self.base}/login", "Accept": "text/html, */*"},
+            timeout=self.timeout_s,
+            allow_redirects=True,
+        )
+        LOG.info("GET /index -> %s (len=%s)", r.status_code, len(r.text or ""))
+        # Even if it returns 200 with HTML, we treat this as initialization step.
+        self._index_initialized = True
+
     # -------------------------
-    # Context cookies (critical for Growatt UI)
+    # Context cookies (Growatt UI is cookie-stateful)
     # -------------------------
     def seed_env_context(self, plant_id: str) -> None:
         self.s.cookies.set("selectedPlantId", str(plant_id))
@@ -98,18 +115,18 @@ class GrowattMonitoringClient:
         self.s.cookies.set("selectedPlantId", str(plant_id))
         self.s.cookies.set("selPage", "/device")
         self.s.cookies.set("selPageTwo", "/device/photovoltaic")
-        # IMPORTANT: for PV pages, selPageThree must point to the PV page, not Env.
         self.s.cookies.set("selPageThree", "/device/photovoltaic")
 
-    # Backward-compat: keep name used by your probe
+    # compatibility alias
     def seed_plant_context(self, plant_id: str) -> None:
-        # default to env context (safe)
         self.seed_env_context(plant_id)
 
     # -------------------------
     # Low-level HTTP helpers
     # -------------------------
     def _post_json(self, path: str, data: Dict[str, Any], referer_path: str = "/index") -> Any:
+        self.init_index()
+
         url = f"{self.base}{path}"
         headers = {
             "Origin": self.base,
@@ -126,22 +143,26 @@ class GrowattMonitoringClient:
         except Exception:
             return {"_non_json": True, "text": (r.text or "")[:2000]}
 
-    def _get_text(self, path: str, params: Optional[Dict[str, Any]] = None, referer_path: str = "/index") -> str:
+    def _get_text(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        referer_path: str = "/index",
+    ) -> str:
+        self.init_index()
+
         url = f"{self.base}{path}"
-        headers = {
-            "Referer": f"{self.base}{referer_path}",
-            "Accept": "text/html, */*",
-        }
+        headers = {"Referer": f"{self.base}{referer_path}", "Accept": "text/html, */*"}
         r = self.s.get(url, headers=headers, params=params, timeout=self.timeout_s, allow_redirects=True)
         LOG.info("GET %s -> %s (len=%s)", path, r.status_code, len(r.text or ""))
         return r.text or ""
 
     # -------------------------
-    # Convenience wrappers (known-good)
+    # Known-good ENV wrappers
     # -------------------------
     def get_env_page_html(self, plant_id: str) -> str:
         self.seed_env_context(plant_id)
-        return self._get_text("/device/getEnvPage", referer_path="/index")
+        return self._get_text("/device/getEnvPage", referer_path="/device")
 
     def post_get_env_list(self, plant_id: str, curr_page: int = 1, alias: str = "") -> Any:
         self.seed_env_context(plant_id)
@@ -152,7 +173,13 @@ class GrowattMonitoringClient:
         )
 
     def post_get_env_history(
-        self, plant_id: str, datalog_sn: str, addr: int, start_date: str, end_date: str, start: int = 0
+        self,
+        plant_id: str,
+        datalog_sn: str,
+        addr: int,
+        start_date: str,
+        end_date: str,
+        start: int = 0,
     ) -> Any:
         self.seed_env_context(plant_id)
         return self._post_json(
@@ -167,8 +194,13 @@ class GrowattMonitoringClient:
             referer_path="/device/getEnvPage",
         )
 
-    # PV page fetch (to diagnose the 500)
+    # -------------------------
+    # PV page (diagnostics)
+    # -------------------------
+    def get_device_page_html(self) -> str:
+        return self._get_text("/device", referer_path="/index")
+
     def get_pv_page_html(self, plant_id: str) -> str:
         self.seed_pv_context(plant_id)
-        # referer should be /device (UI navigation)
+        # Must refer from /device
         return self._get_text("/device/photovoltaic", referer_path="/device")

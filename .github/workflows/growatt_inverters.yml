@@ -1,14 +1,10 @@
-name: Growatt Inverters (30-min)
+name: Growatt Inverters – 30min
 
 on:
   workflow_dispatch:
   schedule:
-    # Every 30 minutes (UTC). GitHub schedules are UTC.
+    # Every 30 minutes
     - cron: "*/30 * * * *"
-
-concurrency:
-  group: growatt-inverters-30min
-  cancel-in-progress: true
 
 jobs:
   run:
@@ -28,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests google-api-python-client google-auth
 
-      - name: Run Growatt device snapshot
+      - name: Run Growatt inverter snapshot
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
@@ -36,19 +32,5 @@ jobs:
           GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
           SNAP_RANGE: "SNAP!A1:Z"
           INVERTER_TAB: "InverterData"
-          DEBUG_OUT_DIR: "out"
-          MAX_PAGES: "5"
-          PAGE_SIZE: "50"
-          # Your plants appear to be MAX devices (JNM...), but keep inv too for other sites
-          PLANT_DEVICE_TYPES: "max,inv"
-          LOG_LEVEL: "INFO"
         run: |
           python argia_growatt_inverters.py
-
-      - name: Upload debug output (optional)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: growatt-inverters-debug
-          path: out
-          if-no-files-found: ignore

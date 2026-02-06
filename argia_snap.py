@@ -136,7 +136,7 @@ def main() -> None:
             LOG.info("  🔌 %s=%s", col, sn)
 
             try:
-                rt = client.get_inverter_realtime(sn)
+                rt = client.get_inverter_realtime(siteid, sn)
             except Exception as e:
                 LOG.error("    ❌ Failed realtime for %s: %s", sn, e)
                 # still append an error row (useful for alerting / auditing)

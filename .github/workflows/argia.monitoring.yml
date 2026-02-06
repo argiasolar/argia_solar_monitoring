@@ -1,10 +1,10 @@
 name: ARGIA Growatt Monitoring (30m)
 
-on:
-  schedule:
+#on:
+  #schedule:
     # Every 30 minutes
     #- cron: "*/30 * * * *"
-  workflow_dispatch:
+  #workflow_dispatch:
     inputs:
       mode:
         description: "snap | probe"

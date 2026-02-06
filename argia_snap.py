@@ -1,41 +1,35 @@
 import os
+import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from argia_growatt_monitoring import GrowattMonitoringClient, GrowattAuth
-from argia_sheets_monitoring import ensure_tab, append_rows
-
+from argia_sheets_monitoring import ensure_tab, append_rows, read_snap_config
 
 TAB_NAME = "Growatt_Inverter_30m"
 
 HEADERS = [
     "ts_utc",
     "ts_local",
-    "plant_id",
-    "inverter_sn",
-    "inverter_name",
-    "status",
-    "p_ac_w",
-    "e_today_kwh",
-    "e_total_kwh",
-    "raw_json",
+    "Plant_Key",
+    "SITEID",
+    "Inverter_SN",
+    "Inverter_Name",
+    "Status",
+    "P_AC_W",
+    "E_Today_kWh",
+    "E_Total_kWh",
+    "Raw_JSON",
 ]
 
 
-def setup_logging():
+def setup_logging() -> None:
     level = logging.DEBUG if os.getenv("ARGIA_MONITORING_DEBUG", "0") == "1" else logging.INFO
     logging.basicConfig(
         level=level,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
-
-
-def parse_csv_env(name: str) -> List[str]:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return []
-    return [x.strip() for x in raw.split(",") if x.strip()]
 
 
 def _pick(d: Dict[str, Any], keys: List[str]) -> Any:
@@ -45,99 +39,133 @@ def _pick(d: Dict[str, Any], keys: List[str]) -> Any:
     return None
 
 
-def normalize_realtime(inverter_sn: str, inv_meta: Dict[str, Any], rt: Dict[str, Any]) -> Tuple[Any, Any, Any, Any]:
-    """
-    Different endpoints return different JSON shapes.
-    We keep it robust and log raw_json regardless.
-    """
-    # Try common placements
-    data = rt.get("data") if isinstance(rt, dict) else None
-    if isinstance(data, dict):
-        src = data
-    else:
-        src = rt if isinstance(rt, dict) else {"_raw": rt}
+def _as_float(x: Any) -> Optional[float]:
+    if x is None:
+        return None
+    try:
+        if isinstance(x, str) and x.strip() == "":
+            return None
+        return float(x)
+    except Exception:
+        return None
 
+
+def normalize_realtime(inverter_sn: str, inverter_name_hint: str, rt: Dict[str, Any]) -> Tuple[str, Any, Any, Any, Any]:
+    """
+    Normalizes common fields across possible Growatt JSON shapes.
+
+    We DO NOT assume exact keys; we attempt several.
+    We ALWAYS store Raw_JSON for later refinement.
+    """
+    src: Dict[str, Any] = rt
+    if isinstance(rt.get("data"), dict):
+        src = rt["data"]  # type: ignore
+
+    status = _pick(src, ["status", "inverterStatus", "deviceStatus", "runStatus", "invStatus"])
     p_ac_w = _pick(src, ["pac", "p_ac", "acPower", "power", "powerNow", "pAc", "p"])
     e_today_kwh = _pick(src, ["eToday", "todayEnergy", "etoday", "e_today", "energyToday"])
     e_total_kwh = _pick(src, ["eTotal", "totalEnergy", "etotal", "e_total", "energyTotal"])
-    status = _pick(src, ["status", "inverterStatus", "deviceStatus", "runStatus"])
 
-    # Name from inverter list if present
-    inv_name = _pick(inv_meta, ["alias", "name", "invName", "deviceName", "sn"]) or inverter_sn
+    # Try to pick a better name if present in realtime payload
+    name = _pick(src, ["alias", "name", "invName", "deviceName"]) or inverter_name_hint or inverter_sn
 
-    return inv_name, status, p_ac_w, e_today_kwh, e_total_kwh
+    return (
+        str(name),
+        status,
+        _as_float(p_ac_w),
+        _as_float(e_today_kwh),
+        _as_float(e_total_kwh),
+    )
 
 
-def main():
+def _safe_trim(s: str, limit: int = 45000) -> str:
+    if len(s) <= limit:
+        return s
+    return s[:limit] + "...(trimmed)"
+
+
+def main() -> None:
     setup_logging()
     LOG = logging.getLogger("argia.snap")
 
-    user = os.getenv("GROWATT_USER", "")
-    pw = os.getenv("GROWATT_PASS", "")
-    if not user or not pw:
-        raise RuntimeError("Missing GROWATT_USER / GROWATT_PASS")
+    username = os.getenv("GROWATT_USERNAME", "")
+    password = os.getenv("GROWATT_PASSWORD", "")
+    if not username or not password:
+        raise RuntimeError("Missing GROWATT_USERNAME / GROWATT_PASSWORD")
 
-    spreadsheet_id = os.getenv("GOOGLE_SHEETS_ID", "") or os.getenv("GOOGLE_SHEETS_ID".replace("SHEETS", "SHEET"), "")
+    spreadsheet_id = os.getenv("GOOGLE_SHEET_ID", "")
     if not spreadsheet_id:
-        raise RuntimeError("Missing GOOGLE_SHEETS_ID secret/env")
+        raise RuntimeError("Missing GOOGLE_SHEET_ID")
 
-    plant_ids = parse_csv_env("GROWATT_PLANT_IDS")
-    if not plant_ids:
-        raise RuntimeError("Missing GROWATT_PLANT_IDS (CSV)")
+    # Load mapping from SNAP tab
+    snap = read_snap_config(spreadsheet_id)
+    LOG.info("Loaded %s rows from SNAP tab.", len(snap))
 
-    # Login
-    client = GrowattMonitoringClient(GrowattAuth(user, pw))
+    # Login to Growatt
+    client = GrowattMonitoringClient(GrowattAuth(username=username, password=password))
     client.login()
 
-    # Ensure tab + headers
+    # Ensure output tab + headers
     ensure_tab(spreadsheet_id, TAB_NAME, HEADERS)
 
     now_utc = datetime.now(timezone.utc)
     ts_utc = now_utc.isoformat().replace("+00:00", "Z")
-    # Mexico City local time is often what you want in charts; keep it simple without extra deps:
-    # (If your runner timezone is UTC, ts_local = ts_utc; you can later convert in Sheets.)
+
+    # We keep ts_local same for now; convert in Sheets if needed.
+    # (We can add Mexico City tz conversion later if you want.)
     ts_local = ts_utc
 
     rows: List[List[Any]] = []
 
-    for plant_id in plant_ids:
-        LOG.info("🏭 Plant: %s", plant_id)
+    inverter_cols = ["INVERTER1", "INVERTER2", "INVERTER3", "INVERTER4"]
 
-        inv_list = client.list_inverters_for_plant(plant_id)
-        LOG.info("Found inverter entries: %s", len(inv_list))
+    for rec in snap:
+        plant_key = (rec.get("Plant_Key") or "").strip()
+        siteid = (rec.get("SITEID") or "").strip()
 
-        for inv in inv_list:
-            inverter_sn = str(_pick(inv, ["sn", "deviceSn", "invSn", "serialNum", "serial", "id"]) or "").strip()
-            if not inverter_sn:
-                LOG.warning("Skipping inverter without SN. Meta=%s", inv)
+        if not plant_key and not siteid:
+            continue
+
+        LOG.info("🏭 %s | SITEID=%s", plant_key, siteid)
+
+        for col in inverter_cols:
+            sn = (rec.get(col) or "").strip()
+            if not sn:
                 continue
 
-            LOG.info("  🔌 Inverter SN: %s", inverter_sn)
-            rt = client.get_inverter_realtime(inverter_sn)
+            LOG.info("  🔌 %s=%s", col, sn)
 
-            inv_name, status, p_ac_w, e_today_kwh, e_total_kwh = normalize_realtime(inverter_sn, inv, rt)
+            try:
+                rt = client.get_inverter_realtime(sn)
+            except Exception as e:
+                LOG.error("    ❌ Failed realtime for %s: %s", sn, e)
+                # still append an error row (useful for alerting / auditing)
+                rows.append([ts_utc, ts_local, plant_key, siteid, sn, "", "ERROR", "", "", "", str(e)])
+                continue
 
-            raw_json = rt
-            # Keep raw compact-ish; Sheets cell limit is huge but not infinite
-            raw_str = str(raw_json)
-            if len(raw_str) > 45000:
-                raw_str = raw_str[:45000] + "...(trimmed)"
+            inverter_name_hint = sn
+            inv_name, status, p_ac_w, e_today_kwh, e_total_kwh = normalize_realtime(sn, inverter_name_hint, rt)
 
-            rows.append([
-                ts_utc,
-                ts_local,
-                plant_id,
-                inverter_sn,
-                inv_name,
-                status,
-                p_ac_w,
-                e_today_kwh,
-                e_total_kwh,
-                raw_str,
-            ])
+            raw_str = _safe_trim(json.dumps(rt, ensure_ascii=False))
+
+            rows.append(
+                [
+                    ts_utc,
+                    ts_local,
+                    plant_key,
+                    siteid,
+                    sn,
+                    inv_name,
+                    status,
+                    p_ac_w if p_ac_w is not None else "",
+                    e_today_kwh if e_today_kwh is not None else "",
+                    e_total_kwh if e_total_kwh is not None else "",
+                    raw_str,
+                ]
+            )
 
     append_rows(spreadsheet_id, TAB_NAME, rows)
-    LOG.info("✅ Done. Appended %s rows.", len(rows))
+    LOG.info("✅ Done. Appended %s rows to %s.", len(rows), TAB_NAME)
 
 
 if __name__ == "__main__":

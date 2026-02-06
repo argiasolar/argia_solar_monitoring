@@ -2,38 +2,32 @@
 # -*- coding: utf-8 -*-
 
 """
-ARGIA - Growatt Inverters (Step 2: InverterData)
+ARGIA - Growatt Inverters (Step 2)
+- Reads PlantIDs (SITEIDs) from Google Sheet range SNAP!A1:Z (or configured)
+- Logs into Growatt server.growatt.com
+- For each plantId:
+    - Tries multiple known endpoints to obtain inverter list JSON
+    - Extracts: inverter SN, alias, status, today's energy (kWh)
+- Writes rows to Google Sheet tab: InverterData
 
-Goal:
-- For each Growatt plantId in Google Sheet "SNAP" tab:
-  - Discover inverter list endpoints dynamically from /device/getInverterPage
-  - Fetch inverter list (SN + alias if available)
-  - Fetch daily kWh per inverter (E-Today / daily energy)
-  - Write rows to Google Sheet tab "InverterData"
-
-This script expects GOOGLE_CREDENTIALS (Service Account JSON) in GitHub Secrets.
-DO NOT use GOOGLE_SA_JSON / GOOGLE_SA_B64.
-
-Required GitHub Secrets:
-- GOOGLE_CREDENTIALS      (full service account json text)
-- GOOGLE_SHEET_ID         (your spreadsheet id)
+Required Secrets/Vars (GitHub Actions):
+- GOOGLE_CREDENTIALS   (Service Account JSON string)  <-- you use this
+- GOOGLE_SHEET_ID
 - GROWATT_USER
 - GROWATT_PASS
 
-Optional env:
-- SNAP_RANGE              default "SNAP!A1:Z"
-- INVERTER_TAB             default "InverterData"
-- TIMEZONE_OFFSET_HOURS    default "-6" (only for logging; Growatt uses plant TZ)
-- DEBUG_OUT                default "" (set to "out" to write debug html/json files)
+Optional:
+- SNAP_RANGE           default: SNAP!A1:Z
+- INVERTER_SHEET_NAME  default: InverterData
+- DEBUG_OUT            default: out_inverters (creates files for troubleshooting)
+- MAX_PAGES            default: 10
 """
-
-from __future__ import annotations
 
 import os
 import re
 import json
 import time
-import math
+import base64
 import logging
 import datetime as dt
 from dataclasses import dataclass
@@ -41,40 +35,85 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from google.oauth2 import service_account
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 
-# -----------------------------
+# -------------------------
 # Logging
-# -----------------------------
+# -------------------------
 LOG = logging.getLogger("argia.growatt.inverters")
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
 
-# -----------------------------
-# Google Sheets helpers
-# -----------------------------
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+# -------------------------
+# Helpers
+# -------------------------
+def utc_iso_now() -> str:
+    return dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
-def load_google_creds():
+def sanitize_filename(s: str) -> str:
     """
-    Uses GOOGLE_CREDENTIALS containing FULL service account JSON (string).
+    GitHub artifacts and Windows filesystems reject characters like ? : < > | * "
+    So we replace everything not safe with underscore.
     """
-    raw = os.getenv("GOOGLE_CREDENTIALS", "").strip()
-    if not raw:
-        raise RuntimeError("Missing GOOGLE_CREDENTIALS (service account json text)")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", s).strip("_")
 
+
+def ensure_dir(path: str) -> None:
+    if path and not os.path.isdir(path):
+        os.makedirs(path, exist_ok=True)
+
+
+def first_present(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
+    for k in keys:
+        if k in d and d[k] not in (None, "", "null"):
+            return d[k]
+    return None
+
+
+def to_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
     try:
-        info = json.loads(raw)
-    except Exception as e:
-        raise RuntimeError("GOOGLE_CREDENTIALS is not valid JSON") from e
+        if isinstance(v, str):
+            v = v.strip()
+            if v == "" or v.lower() == "null":
+                return None
+        return float(v)
+    except Exception:
+        return None
 
-    return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
+# -------------------------
+# Google Sheets
+# -------------------------
+def load_google_creds() -> Credentials:
+    """
+    Tomasz: You use GOOGLE_CREDENTIALS (JSON string).
+    Also supports GOOGLE_CREDENTIALS_B64 just in case.
+    """
+    if os.getenv("GOOGLE_CREDENTIALS"):
+        raw = os.getenv("GOOGLE_CREDENTIALS", "").strip()
+        try:
+            info = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                "GOOGLE_CREDENTIALS is set but is not valid JSON. "
+                "It must be the full Service Account JSON content."
+            ) from e
+    elif os.getenv("GOOGLE_CREDENTIALS_B64"):
+        b = base64.b64decode(os.getenv("GOOGLE_CREDENTIALS_B64", "").strip())
+        info = json.loads(b.decode("utf-8"))
+    else:
+        raise RuntimeError("Missing GOOGLE_CREDENTIALS (or GOOGLE_CREDENTIALS_B64)")
+
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    return Credentials.from_service_account_info(info, scopes=scopes)
 
 
 def sheets_service():
@@ -83,71 +122,53 @@ def sheets_service():
 
 
 def read_snap_siteids(sheet_id: str, snap_range: str) -> List[str]:
-    """
-    Reads plantIds/siteIds from SNAP sheet.
-    We accept values anywhere in the range that look like a number >= 6 digits.
-    """
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=snap_range).execute()
     values = resp.get("values", [])
-
-    siteids: List[str] = []
+    flat = []
     for row in values:
         for cell in row:
+            if cell is None:
+                continue
             s = str(cell).strip()
+            if not s:
+                continue
+            # collect integers that look like plantIds (>= 6 digits usually)
             if re.fullmatch(r"\d{6,}", s):
-                siteids.append(s)
-
+                flat.append(s)
     # unique + stable order
+    uniq = []
     seen = set()
-    out = []
-    for x in siteids:
+    for x in flat:
         if x not in seen:
-            out.append(x)
+            uniq.append(x)
             seen.add(x)
-    return out
+    return uniq
 
 
-def ensure_tab_exists(sheet_id: str, tab_name: str):
+def write_inverter_rows(sheet_id: str, tab_name: str, rows: List[List[Any]]) -> None:
     """
-    If tab doesn't exist, create it.
+    Appends rows to InverterData.
+    If tab doesn't exist, user must create it manually (simple and safer).
     """
-    svc = sheets_service()
-    ss = svc.spreadsheets().get(spreadsheetId=sheet_id).execute()
-    tabs = [s["properties"]["title"] for s in ss.get("sheets", [])]
-    if tab_name in tabs:
+    if not rows:
+        LOG.info("No rows to write.")
         return
 
-    body = {"requests": [{"addSheet": {"properties": {"title": tab_name}}}]}
-    svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body=body).execute()
-
-
-def write_inverter_rows(
-    sheet_id: str,
-    tab_name: str,
-    header: List[str],
-    rows: List[List[Any]],
-):
-    """
-    Overwrites the entire tab with header + rows.
-    """
     svc = sheets_service()
-    ensure_tab_exists(sheet_id, tab_name)
-
-    values = [header] + rows
-    rng = f"{tab_name}!A1"
-    body = {"values": values}
-    svc.spreadsheets().values().update(
+    body = {"values": rows}
+    svc.spreadsheets().values().append(
         spreadsheetId=sheet_id,
-        range=rng,
+        range=f"{tab_name}!A1",
         valueInputOption="RAW",
+        insertDataOption="INSERT_ROWS",
         body=body,
     ).execute()
 
 
-# -----------------------------
-# Growatt Monitoring client
-# -----------------------------
+# -------------------------
+# Growatt client
+# -------------------------
 @dataclass
 class GrowattAuth:
     user: str
@@ -155,430 +176,278 @@ class GrowattAuth:
 
 
 class GrowattMonitoringClient:
-    """
-    Low-level client that mimics browser flow enough to keep session.
-
-    Key fixes:
-    - Always set plant context using /device?plantId=...
-    - Always open /device/getInverterPage?plantId=... and parse AJAX endpoints
-    - Always call JSON endpoints with XHR headers + Referer
-    """
-
     BASE = "https://server.growatt.com"
 
     def __init__(self, auth: GrowattAuth, timeout: int = 30):
         self.auth = auth
         self.timeout = timeout
         self.s = requests.Session()
-        self.s.headers.update({
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ArgiaGrowatt/1.0",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        })
-        self._last_referer: Optional[str] = None
-
-    def _url(self, path: str) -> str:
-        if path.startswith("http"):
-            return path
-        if not path.startswith("/"):
-            path = "/" + path
-        return self.BASE + path
-
-    def get(self, path: str, **kwargs) -> requests.Response:
-        r = self.s.get(self._url(path), timeout=self.timeout, allow_redirects=True, **kwargs)
-        return r
-
-    def post(self, path: str, data: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> requests.Response:
-        hdrs = {}
-        if headers:
-            hdrs.update(headers)
-        r = self.s.post(
-            self._url(path),
-            data=data,
-            timeout=self.timeout,
-            allow_redirects=True,
-            headers=hdrs
+        self.s.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ArgiaGrowatt/1.0",
+                "Accept": "*/*",
+            }
         )
+
+    def _req(self, method: str, path: str, **kwargs) -> requests.Response:
+        url = self.BASE + path
+        r = self.s.request(method, url, timeout=self.timeout, allow_redirects=True, **kwargs)
         return r
 
-    def login(self):
-        r1 = self.get("/login")
+    def login(self) -> None:
+        r1 = self._req("GET", "/login")
         LOG.info("GET /login -> %s", r1.status_code)
 
         payload = {"account": self.auth.user, "password": self.auth.password}
-        r2 = self.post("/login", data=payload)
-        LOG.info("POST /login -> %s (len=%s)", r2.status_code, len(r2.text))
+        r2 = self._req("POST", "/login", data=payload)
+        LOG.info("POST /login -> %s (len=%s)", r2.status_code, len(r2.text or ""))
 
-        if "assToken" not in self.s.cookies.get_dict():
+        cookies = self.s.cookies.get_dict()
+        if "assToken" not in cookies:
             raise RuntimeError("Login failed: assToken cookie missing")
 
-        LOG.info("✅ Login OK (assToken present). Cookies: %s", " | ".join(sorted(self.s.cookies.get_dict().keys())))
+        LOG.info("✅ Login OK (assToken present). Cookies: %s", " | ".join(sorted(cookies.keys())))
 
-        # warm up index/device
-        self.get("/index")
-        self.get("/device")
+        # Touch /index to fully establish session
+        r3 = self._req("GET", "/index")
+        LOG.info("GET /index -> %s (len=%s)", r3.status_code, len(r3.text or ""))
 
-    def set_plant_context(self, plant_id: str):
-        # This matters: Growatt UI often relies on plant context.
-        self.get(f"/device?plantId={plant_id}")
-        # Optional but helps: open PV page too (Growatt sometimes sets extra state)
-        self.get(f"/device/photovoltaic?plantId={plant_id}")
+    def get_pv_page_html(self, plant_id: str) -> str:
+        r = self._req("GET", "/device/photovoltaic", params={"plantId": plant_id})
+        LOG.info("GET /device/photovoltaic?plantId=%s -> %s (len=%s)", plant_id, r.status_code, len(r.text or ""))
+        return r.text or ""
 
-    @staticmethod
-    def _looks_like_login_html(text: str) -> bool:
-        t = text.lower()
-        return ("data-name=\"dumplogin\"" in t) or ("errornologin" in t) or ("login page" in t)
-
-    @staticmethod
-    def _extract_ajax_paths(html: str) -> List[str]:
+    def _try_json(self, r: requests.Response) -> Tuple[bool, Dict[str, Any]]:
         """
-        Extract candidate endpoints from html.
-        We prefer anything with Inv + List, but keep a broad net.
+        Growatt sometimes returns HTML "not logged in" even with 200.
         """
-        candidates = set()
+        txt = r.text or ""
+        if "<html" in txt.lower() and "dumpLogin" in txt:
+            return False, {"_non_json": True, "text": txt}
+        try:
+            return True, r.json()
+        except Exception:
+            return False, {"_non_json": True, "text": txt}
 
-        # /device/xxxx or /newInvAPI.do?... etc.
-        for m in re.findall(r'/(?:device|newInvAPI\.do|newPlantAPI\.do)[^"\'\s<>]+', html):
-            # strip trailing junk
-            m = m.strip().split("\\")[0]
-            candidates.add(m)
-
-        # also grab things inside JS "url:" patterns
-        for m in re.findall(r'url\s*:\s*[\'"]([^\'"]+)[\'"]', html, flags=re.I):
-            if m.startswith("/"):
-                candidates.add(m)
-
-        # rank: inv/list first
-        def score(p: str) -> int:
-            s = 0
-            low = p.lower()
-            if "inv" in low:
-                s += 10
-            if "list" in low:
-                s += 10
-            if "get" in low:
-                s += 2
-            if "api" in low:
-                s += 1
-            return -s
-
-        return sorted(candidates, key=score)
-
-    def get_inverter_page_html(self, plant_id: str) -> str:
+    def _post_list(self, endpoint: str, plant_id: str, page: int) -> Tuple[bool, Dict[str, Any]]:
         """
-        Open inverter page (this is where Growatt hides the AJAX URLs).
+        Tries common paging parameter names.
         """
-        r = self.get(f"/device/getInverterPage?plantId={plant_id}")
-        if r.status_code != 200:
-            raise RuntimeError(f"Failed to open inverter page for plantId={plant_id}: {r.status_code}")
-        if self._looks_like_login_html(r.text):
-            raise RuntimeError(f"Inverter page returned login HTML for plantId={plant_id}")
-        self._last_referer = self._url(f"/device/getInverterPage?plantId={plant_id}")
-        return r.text
+        data_variants = [
+            {"plantId": plant_id, "currPage": page, "pageSize": 50},
+            {"plantId": plant_id, "pageNum": page, "pageSize": 50},
+            {"plantId": plant_id, "page": page, "pageSize": 50},
+            {"plantId": plant_id, "currPage": page},
+            {"plantId": plant_id, "pageNum": page},
+            {"plantId": plant_id, "page": page},
+        ]
 
-    def _xhr_headers(self) -> Dict[str, str]:
-        hdrs = {
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "X-Requested-With": "XMLHttpRequest",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        }
-        if self._last_referer:
-            hdrs["Referer"] = self._last_referer
-        return hdrs
+        for data in data_variants:
+            r = self._req("POST", endpoint, data=data)
+            ok, j = self._try_json(r)
+            if ok and isinstance(j, dict):
+                return True, j
+        return False, {"_non_json": True, "text": (r.text or "")[:500]}
 
-    def try_fetch_inverter_list(self, plant_id: str, page: int, page_size: int) -> Optional[Dict[str, Any]]:
+    def iter_all_inverters(self, plant_id: str, max_pages: int = 10, debug_out: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Try several candidate endpoints + payload shapes until we get JSON.
-        Returns parsed json or None.
+        Main discovery:
+        - Try several known endpoints. One of them works in your account (we already saw it finds 12 inverters).
+        - We keep it robust and log when something fails.
         """
-        inv_html = self.get_inverter_page_html(plant_id)
-        endpoints = self._extract_ajax_paths(inv_html)
-
-        # Candidate endpoints to try FIRST (common patterns)
-        preferred = []
-        for p in endpoints:
-            low = p.lower()
-            if ("inv" in low and "list" in low) or ("newinvapi.do" in low and "getinvlist" in low):
-                preferred.append(p)
-
-        # Add some known fallbacks if not present
-        fallbacks = [
-            "/newInvAPI.do?op=getInvList",
+        endpoints = [
             "/device/getInvList",
             "/device/getInverterList",
             "/device/getInverterListData",
+            "/device/getPlantInvList",
+            "/newInvAPI.do?op=getInvList",
         ]
 
-        tried = []
-        for p in preferred + fallbacks + endpoints:
-            if p in tried:
-                continue
-            tried.append(p)
-
-            # Build payload variants Growatt might expect
-            payload_variants = [
-                {"plantId": plant_id, "currPage": page, "pageSize": page_size},
-                {"plantId": plant_id, "page": page, "pageSize": page_size},
-                {"plantId": plant_id, "currPage": page},
-                {"plantId": plant_id},
-            ]
-
-            for data in payload_variants:
-                try:
-                    r = self.post(p, data=data, headers=self._xhr_headers())
-                    txt = r.text or ""
-                    if r.status_code != 200:
-                        continue
-                    if self._looks_like_login_html(txt):
-                        continue
-
-                    # must be JSON
-                    try:
-                        js = r.json()
-                    except Exception:
-                        continue
-
-                    # sanity: must contain list-ish keys
-                    if isinstance(js, dict) and any(k in js for k in ["datas", "data", "rows", "obj", "result"]):
-                        return js
-                except Exception:
-                    continue
-
-        return None
-
-    @staticmethod
-    def _normalize_inverter_items(js: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Convert various Growatt JSON shapes into a list of inverter dicts.
-        """
-        # Most common: {"datas":[...], "count":..., "pages":...}
-        if "datas" in js and isinstance(js["datas"], list):
-            return js["datas"]
-
-        # Sometimes: {"data":{"datas":[...]}}
-        if "data" in js and isinstance(js["data"], dict) and "datas" in js["data"]:
-            if isinstance(js["data"]["datas"], list):
-                return js["data"]["datas"]
-
-        # Sometimes: {"rows":[...]}
-        if "rows" in js and isinstance(js["rows"], list):
-            return js["rows"]
-
-        # Sometimes nested
-        for k in ["obj", "result"]:
-            if k in js and isinstance(js[k], dict):
-                inner = js[k]
-                if "datas" in inner and isinstance(inner["datas"], list):
-                    return inner["datas"]
-                if "rows" in inner and isinstance(inner["rows"], list):
-                    return inner["rows"]
-
-        return []
-
-    @staticmethod
-    def _extract_sn(item: Dict[str, Any]) -> Optional[str]:
-        for key in ["sn", "serialNum", "deviceSn", "invSn", "inverterSn"]:
-            v = item.get(key)
-            if v and str(v).strip().lower() != "null":
-                s = str(v).strip()
-                if s:
-                    return s
-        return None
-
-    @staticmethod
-    def _extract_alias(item: Dict[str, Any]) -> str:
-        for key in ["alias", "name", "deviceName", "invName"]:
-            v = item.get(key)
-            if v and str(v).strip().lower() != "null":
-                return str(v).strip()
-        return ""
-
-    def list_all_inverters(self, plant_id: str, max_pages: int = 20, page_size: int = 50) -> List[Dict[str, Any]]:
-        """
-        Attempts paginated listing. Stops when no new items.
-        """
         all_items: List[Dict[str, Any]] = []
-        seen = set()
+        used_endpoint: Optional[str] = None
 
-        for page in range(1, max_pages + 1):
-            js = self.try_fetch_inverter_list(plant_id, page=page, page_size=page_size)
-            if not js:
-                raise RuntimeError(f"Could not fetch inverter list JSON for plantId={plant_id} (still getting login/non-json)")
+        for ep in endpoints:
+            items: List[Dict[str, Any]] = []
+            for page in range(1, max_pages + 1):
+                # some endpoints are GET (newInvAPI.do) but POST often works too; we attempt POST first, then GET fallback
+                ok, j = self._post_list(ep, plant_id, page)
 
-            items = self._normalize_inverter_items(js)
-            if not items:
-                break
+                if not ok:
+                    # try GET fallback
+                    r = self._req("GET", ep, params={"plantId": plant_id, "currPage": page, "pageSize": 50})
+                    ok2, j2 = self._try_json(r)
+                    if ok2:
+                        ok, j = True, j2
 
-            added = 0
-            for it in items:
-                sn = self._extract_sn(it)
-                if not sn:
-                    continue
-                if sn in seen:
-                    continue
-                seen.add(sn)
-                all_items.append(it)
-                added += 1
+                if not ok:
+                    # non-json -> likely wrong endpoint; stop paging this endpoint
+                    break
 
-            # if a page adds nothing new, stop
-            if added == 0:
-                break
+                # save debug payload (safe filename)
+                if debug_out:
+                    ensure_dir(debug_out)
+                    fn = sanitize_filename(f"{plant_id}__{ep}__p{page}.json")
+                    with open(os.path.join(debug_out, fn), "w", encoding="utf-8") as f:
+                        json.dump(j, f, ensure_ascii=False, indent=2)
 
-            # if response has pages and we're at the end, stop
-            pages = js.get("pages")
-            try:
-                pages_i = int(pages) if pages is not None else None
-            except Exception:
-                pages_i = None
-            if pages_i and page >= pages_i:
-                break
+                # Find list
+                data_list = None
+                for key in ["datas", "data", "rows", "list", "obj", "result"]:
+                    if isinstance(j.get(key), list):
+                        data_list = j.get(key)
+                        break
 
-        return all_items
+                # Sometimes payload is { "datas": [...], "count": ..., "pages": ...}
+                if data_list is None:
+                    # Could be nested
+                    for key in ["data", "obj", "result"]:
+                        node = j.get(key)
+                        if isinstance(node, dict):
+                            for key2 in ["datas", "rows", "list"]:
+                                if isinstance(node.get(key2), list):
+                                    data_list = node.get(key2)
+                                    break
+                        if data_list is not None:
+                            break
 
-    def fetch_daily_kwh_for_inverter(self, plant_id: str, sn: str, date_iso: str) -> Optional[float]:
-        """
-        Growatt has multiple daily endpoints depending on account.
-        We try a few patterns and parse JSON if possible.
+                if not data_list:
+                    # no rows => done
+                    break
 
-        date_iso: YYYY-MM-DD
-        """
-        # keep plant context
-        self.set_plant_context(plant_id)
-        # refresh referer to inverter page for XHR calls
-        self.get_inverter_page_html(plant_id)
+                # accumulate
+                for it in data_list:
+                    if isinstance(it, dict):
+                        items.append(it)
 
-        candidates = [
-            # common "panel" style
-            ("/panel/inverter/getInverterData", {"sn": sn}),
-            # older style
-            ("/indexbC/inv/getInvData", {"sn": sn}),
-            # sometimes there is a daily report api (varies)
-            ("/newInvAPI.do?op=getInvData", {"sn": sn}),
-            ("/newInvAPI.do?op=getInvDayData", {"sn": sn, "date": date_iso}),
-            ("/newInvAPI.do?op=getInvEday", {"sn": sn, "date": date_iso}),
-        ]
-
-        for path, params in candidates:
-            try:
-                # some are GET
-                url = path + "?" + "&".join(f"{k}={v}" for k, v in params.items())
-                r = self.get(url, headers=self._xhr_headers())
-                if r.status_code != 200:
-                    continue
-                if self._looks_like_login_html(r.text or ""):
-                    continue
-                try:
-                    js = r.json()
-                except Exception:
-                    continue
-
-                # Heuristics for daily energy field
-                # Look for etoday / eToday / todayEnergy / e_today etc.
-                flat = json.dumps(js).lower()
-                for k in ["etoday", "e_today", "todayenergy", "today_energy", "eday", "e_day", "energy_today"]:
-                    if k in flat:
+                # stop if last page
+                pages = j.get("pages") or j.get("totalPage") or j.get("pageCount")
+                if pages is not None:
+                    try:
+                        if int(pages) <= page:
+                            break
+                    except Exception:
                         pass
 
-                # attempt extraction:
-                val = None
+            if items:
+                used_endpoint = ep
+                all_items = items
+                break
 
-                def dig(obj):
-                    nonlocal val
-                    if val is not None:
-                        return
-                    if isinstance(obj, dict):
-                        for kk, vv in obj.items():
-                            low = str(kk).lower()
-                            if low in ["etoday", "e_today", "todayenergy", "today_energy", "eday", "e_day", "energy_today"]:
-                                try:
-                                    val = float(str(vv).strip())
-                                    return
-                                except Exception:
-                                    pass
-                            dig(vv)
-                    elif isinstance(obj, list):
-                        for x in obj:
-                            dig(x)
+        if not all_items:
+            raise RuntimeError(f"Could not fetch inverter list for plantId={plant_id} (all endpoints failed)")
 
-                dig(js)
-
-                if val is not None and (not math.isnan(val)):
-                    return float(val)
-            except Exception:
-                continue
-
-        return None
+        LOG.info("Inverter list endpoint used for plantId=%s: %s", plant_id, used_endpoint)
+        return all_items
 
 
-# -----------------------------
+# -------------------------
+# Parsing inverter fields
+# -------------------------
+def extract_inverter_fields(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[float]]:
+    """
+    Returns (sn, alias, status, today_kwh)
+
+    We try MANY key variants because Growatt varies by device type and UI language.
+    """
+    sn = first_present(item, ["sn", "deviceSn", "invSn", "serialNum", "serialNo", "inverterSn"])
+    alias = first_present(item, ["alias", "deviceName", "name", "invName", "inverterName"])
+
+    # Status-like fields
+    status_raw = first_present(item, ["deviceStatus", "invStatus", "status", "runStatus", "lost", "faultStatus"])
+    status = None
+    if status_raw is not None:
+        status = str(status_raw)
+
+    # Today energy (kWh) fields
+    e_today_raw = first_present(
+        item,
+        [
+            "etoday", "eToday", "EToday", "todayEnergy", "energyToday", "energy_today",
+            "today_energy", "eTodayStr", "etoday_kwh", "e_today", "etodayEnergy"
+        ],
+    )
+    today_kwh = to_float(e_today_raw)
+
+    return sn, alias, status, today_kwh
+
+
+# -------------------------
 # Main
-# -----------------------------
-def main():
+# -------------------------
+def main() -> None:
+    LOG.info("=== GROWATT INVERTERS START %s ===", utc_iso_now())
+
     sheet_id = os.getenv("GOOGLE_SHEET_ID", "").strip()
     if not sheet_id:
         raise RuntimeError("Missing GOOGLE_SHEET_ID")
 
     snap_range = os.getenv("SNAP_RANGE", "SNAP!A1:Z").strip()
-    inverter_tab = os.getenv("INVERTER_TAB", "InverterData").strip()
+    inv_tab = os.getenv("INVERTER_SHEET_NAME", "InverterData").strip()
+    max_pages = int(os.getenv("MAX_PAGES", "10").strip() or "10")
+    debug_out = os.getenv("DEBUG_OUT", "out_inverters").strip()
 
     user = os.getenv("GROWATT_USER", "").strip()
-    pw = os.getenv("GROWATT_PASS", "").strip()
-    if not user or not pw:
+    pwd = os.getenv("GROWATT_PASS", "").strip()
+    if not user or not pwd:
         raise RuntimeError("Missing GROWATT_USER or GROWATT_PASS")
 
-    # Date to fetch = yesterday in Mexico time (default -6) OR just "today" if you prefer.
-    # For now: use TODAY in UTC-6 as "date".
-    tz_hours = int(os.getenv("TIMEZONE_OFFSET_HOURS", "-6"))
-    now_utc = dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc)
-    local = now_utc.astimezone(dt.timezone(dt.timedelta(hours=tz_hours)))
-    date_iso = local.date().isoformat()
-
-    LOG.info("This script expects GOOGLE_CREDENTIALS (not GOOGLE_SA_JSON/GOOGLE_SA_B64)")
     siteids = read_snap_siteids(sheet_id, snap_range)
+    if not siteids:
+        raise RuntimeError(f"No SITEIDs found in range {snap_range}")
     LOG.info("Loaded %s SITEIDs from SNAP: %s", len(siteids), ", ".join(siteids))
 
-    cli = GrowattMonitoringClient(GrowattAuth(user=user, password=pw))
+    cli = GrowattMonitoringClient(GrowattAuth(user=user, password=pwd))
     cli.login()
 
-    rows: List[List[Any]] = []
-    header = ["Date", "PlantId", "InverterSN", "InverterAlias", "Daily_kWh"]
+    today = dt.date.today().isoformat()
+    out_rows: List[List[Any]] = []
 
+    # Header suggestion (create this row once manually in sheet if you want):
+    # Date | PlantId | InverterSN | InverterAlias | Status | Today_kWh
     for plant_id in siteids:
         LOG.info("==============================================")
         LOG.info("🏭 PlantId=%s", plant_id)
 
-        # critical: plant context first
-        cli.set_plant_context(plant_id)
+        # Touch PV page (helps session for some accounts)
+        _ = cli.get_pv_page_html(plant_id)
 
-        inv_items = cli.list_all_inverters(plant_id, max_pages=10, page_size=50)
-        LOG.info("Found %s inverters for plantId=%s", len(inv_items), plant_id)
+        inv_items = cli.iter_all_inverters(plant_id, max_pages=max_pages, debug_out=debug_out)
 
-        if not inv_items:
-            continue
-
+        # We want unique by SN
+        by_sn: Dict[str, Dict[str, Any]] = {}
         for it in inv_items:
-            sn = cli._extract_sn(it)
-            if not sn:
-                continue
-            alias = cli._extract_alias(it)
+            sn, _, _, _ = extract_inverter_fields(it)
+            if sn:
+                by_sn[sn] = it
 
-            kwh = cli.fetch_daily_kwh_for_inverter(plant_id, sn, date_iso=date_iso)
-            if kwh is None:
-                # keep row but empty kWh (so you see missing endpoints)
-                rows.append([date_iso, plant_id, sn, alias, ""])
-            else:
-                rows.append([date_iso, plant_id, sn, alias, round(kwh, 3)])
+        LOG.info("Found %s inverters for plantId=%s", len(by_sn) if by_sn else len(inv_items), plant_id)
 
-            time.sleep(0.2)
+        # Build rows
+        for it in (by_sn.values() if by_sn else inv_items):
+            sn, alias, status, today_kwh = extract_inverter_fields(it)
 
-        time.sleep(0.5)
+            # If energy/status missing, log a quick hint (but still write row)
+            if today_kwh is None or status is None:
+                # Show available keys to help mapping if needed
+                keys_preview = ", ".join(sorted(list(it.keys()))[:40])
+                LOG.info(
+                    "Note: Missing fields for plantId=%s inverter=%s (status=%s today_kwh=%s). Keys(sample)=%s",
+                    plant_id, sn or "?", status, today_kwh, keys_preview
+                )
 
-    write_inverter_rows(sheet_id, inverter_tab, header, rows)
-    LOG.info("✅ Wrote %s rows to %s", len(rows), inverter_tab)
+            out_rows.append([today, plant_id, sn or "", alias or "", status or "", today_kwh if today_kwh is not None else ""])
+
+        # be nice to Growatt
+        time.sleep(2)
+
+    write_inverter_rows(sheet_id, inv_tab, out_rows)
+    LOG.info("✅ Wrote %s rows to %s", len(out_rows), inv_tab)
+    LOG.info("=== GROWATT INVERTERS END ===")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        LOG.error("FAILED: %s", e, exc_info=True)
+        LOG.exception("FAILED: %s", e)
         raise

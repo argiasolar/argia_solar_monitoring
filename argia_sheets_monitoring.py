@@ -1,10 +1,9 @@
 import os
 import json
-import base64
 import logging
 from typing import Any, Dict, List
 
-from google.oauth2.service_account import Credentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 LOG = logging.getLogger("argia.sheets.monitoring")
@@ -12,19 +11,20 @@ LOG = logging.getLogger("argia.sheets.monitoring")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
-def _load_sa_credentials_from_b64(env_name: str = "GOOGLE_CREDENTIALS") -> Credentials:
-    b64 = os.getenv(env_name, "")
-    if not b64:
-        raise RuntimeError(f"Missing env {env_name}")
+def _get_service():
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+    if not creds_json:
+        raise RuntimeError("Missing env GOOGLE_CREDENTIALS (raw JSON, not base64).")
 
-    raw = base64.b64decode(b64.encode("utf-8")).decode("utf-8")
-    info = json.loads(raw)
-    return Credentials.from_service_account_info(info, scopes=SCOPES)
+    creds = service_account.Credentials.from_service_account_info(
+        json.loads(creds_json),
+        scopes=SCOPES,
+    )
+    return build("sheets", "v4", credentials=creds)
 
 
 def ensure_tab(spreadsheet_id: str, tab_name: str, headers: List[str]) -> None:
-    creds = _load_sa_credentials_from_b64()
-    service = build("sheets", "v4", credentials=creds)
+    service = _get_service()
 
     ss = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
     sheets = ss.get("sheets", [])
@@ -54,9 +54,7 @@ def append_rows(spreadsheet_id: str, tab_name: str, rows: List[List[Any]]) -> No
         LOG.warning("No rows to append.")
         return
 
-    creds = _load_sa_credentials_from_b64()
-    service = build("sheets", "v4", credentials=creds)
-
+    service = _get_service()
     range_a1 = f"{tab_name}!A:Z"
     body = {"values": rows}
 
@@ -77,8 +75,7 @@ def read_snap_config(spreadsheet_id: str) -> List[Dict[str, str]]:
     Reads SNAP!A1:Z as a config table.
     Returns list of dicts per row (keys from header row).
     """
-    creds = _load_sa_credentials_from_b64()
-    service = build("sheets", "v4", credentials=creds)
+    service = _get_service()
 
     resp = service.spreadsheets().values().get(
         spreadsheetId=spreadsheet_id,
@@ -97,7 +94,6 @@ def read_snap_config(spreadsheet_id: str) -> List[Dict[str, str]]:
         rec: Dict[str, str] = {}
         for i, h in enumerate(headers):
             rec[h] = row[i] if i < len(row) else ""
-        # Skip completely empty rows
         if any(v.strip() for v in rec.values()):
             out.append(rec)
 

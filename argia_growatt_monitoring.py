@@ -1,7 +1,7 @@
 # argia_growatt_monitoring.py
 # ------------------------------------------------------------
 # Growatt WEB monitoring client (NOT OpenAPI)
-# - Compatible with existing argia_probe.py signature expectations
+# - Probe-compatible signatures
 # - Login via /login -> assToken cookie
 # - Plant context seeding required for plant-scoped pages
 # ------------------------------------------------------------
@@ -32,7 +32,7 @@ class GrowattAuth:
     Probe expects:
       GrowattAuth(username=..., password=..., base=...)
 
-    We also allow env fallback:
+    Also supports env fallback:
       GrowattAuth()
     """
     username: Optional[str] = None
@@ -101,18 +101,48 @@ class GrowattMonitoringClient:
       GrowattMonitoringClient(GrowattAuth(...))
     OR
       GrowattMonitoringClient(requests.Session())
+
+    Probe expects:
+      cli.login()
     """
     def __init__(self, auth_or_session: Union[GrowattAuth, requests.Session], base: Optional[str] = None, debug: bool = False):
         self.debug = debug
+        self._logged_in = False
 
         if isinstance(auth_or_session, GrowattAuth):
-            self.auth = auth_or_session
+            self.auth: Optional[GrowattAuth] = auth_or_session
             self.base = (base or self.auth.base or "https://server.growatt.com").rstrip("/")
-            self.session = self.auth.login()
+            self.session = self.auth.session  # will be logged in by cli.login()
         else:
             self.auth = None
             self.session = auth_or_session
             self.base = (base or "https://server.growatt.com").rstrip("/")
+
+    # ----------------------------
+    # Probe-compatible login method
+    # ----------------------------
+    def login(self) -> None:
+        """
+        Idempotent: safe to call multiple times.
+        If we have GrowattAuth, perform login and verify assToken.
+        If we only have a session, assume caller already logged in (but we still try a light check).
+        """
+        if self._logged_in:
+            return
+
+        if self.auth is not None:
+            self.session = self.auth.login()
+            self._logged_in = True
+            return
+
+        # No auth object: attempt a light check (optional)
+        cookies = self.session.cookies.get_dict()
+        if "assToken" in cookies:
+            self._logged_in = True
+            return
+
+        # If no assToken, we can't login without credentials
+        raise RuntimeError("GrowattMonitoringClient.login() called without GrowattAuth and session has no assToken cookie.")
 
     # ----------------------------
     # Request helper
@@ -127,16 +157,22 @@ class GrowattMonitoringClient:
     # Growatt returns "not login" / 500 unless plantId context is set
     # ----------------------------
     def seed_plant_context(self, plant_id: str) -> None:
+        # Ensure logged in first (probe calls cli.login(), but this keeps it safe)
+        if not self._logged_in:
+            self.login()
+
         # Web UI behavior: plantId is applied through navigation
         # We do GET /device?plantId=... to establish context
         self._req("GET", "/device", params={"plantId": str(plant_id)}, timeout=30)
         time.sleep(0.15)
 
     # ============================================================
-    # Methods that probe uses / expects
+    # Methods probe uses / expects
     # ============================================================
 
     def get_device_page_html(self) -> str:
+        if not self._logged_in:
+            self.login()
         st, _, html = self._req("GET", "/device", timeout=30)
         if self.debug:
             log.info(f"GET /device -> {st} (len={len(html)})")

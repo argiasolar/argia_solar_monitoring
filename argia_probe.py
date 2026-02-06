@@ -28,12 +28,12 @@ def write_text(path: str, content: str) -> None:
         f.write(content or "")
 
 
-def _trim_text(t: str, n: int = 500) -> str:
+def trim_text(t: str, n: int = 350) -> str:
     t = (t or "").strip().replace("\n", " ")
     return t if len(t) <= n else t[:n] + "...(trimmed)"
 
 
-def _trim_json(x: Any, n: int = 1500) -> str:
+def trim_json(x: Any, n: int = 1200) -> str:
     try:
         s = json.dumps(x, ensure_ascii=False)
     except Exception:
@@ -41,10 +41,29 @@ def _trim_json(x: Any, n: int = 1500) -> str:
     return s if len(s) <= n else s[:n] + "...(trimmed)"
 
 
-def extract_paths(html: str, prefix: str = "/device/") -> List[str]:
+def extract_data_urls(html: str) -> List[str]:
+    """
+    Extract values like data-url="/device/xxx?tab=1"
+    """
     if not html:
         return []
-    found = re.findall(rf"({re.escape(prefix)}[A-Za-z0-9_\-\/]+)", html)
+    found = re.findall(r'data-url\s*=\s*"([^"]+)"', html)
+    out: List[str] = []
+    seen = set()
+    for u in found:
+        if u.startswith("/device") and u not in seen:
+            out.append(u)
+            seen.add(u)
+    return out
+
+
+def extract_any_device_paths(html: str) -> List[str]:
+    """
+    More permissive matcher: allow ?, =, &, ., digits, etc.
+    """
+    if not html:
+        return []
+    found = re.findall(r"(/device/[A-Za-z0-9_\-\/\.\?\=\&]+)", html)
     out: List[str] = []
     seen = set()
     for p in found:
@@ -55,38 +74,16 @@ def extract_paths(html: str, prefix: str = "/device/") -> List[str]:
 
 
 def extract_ajax_endpoints(html: str) -> List[str]:
-    eps = extract_paths(html, "/device/")
+    paths = extract_any_device_paths(html)
+    eps = [p for p in paths if "get" in p.lower()]
+    # stable dedupe
     out: List[str] = []
-    for e in eps:
-        if "get" in e.lower():
-            out.append(e)
     seen = set()
-    uniq = []
-    for x in out:
-        if x not in seen:
-            uniq.append(x)
-            seen.add(x)
-    return uniq
-
-
-def try_get_page(cli: GrowattMonitoringClient, path: str, referer_path: str = "/index") -> Tuple[int, str]:
-    url = f"{cli.base}{path}"
-    r = cli.s.get(
-        url,
-        headers={"Referer": f"{cli.base}{referer_path}", "Accept": "text/html, */*"},
-        timeout=45,
-        allow_redirects=True,
-    )
-    return r.status_code, (r.text or "")
-
-
-def try_post_endpoint(cli: GrowattMonitoringClient, ep: str, plant_id: str, referer_path: str):
-    payload = {"plantId": plant_id, "currPage": "1", "alias": ""}
-    try:
-        js = cli._post_json(ep, payload, referer_path=referer_path)
-        return True, js
-    except Exception as e:
-        return False, str(e)
+    for e in eps:
+        if e not in seen:
+            out.append(e)
+            seen.add(e)
+    return out
 
 
 def main() -> None:
@@ -111,30 +108,28 @@ def main() -> None:
         sid = str(r.get("SITEID", "")).strip()
         if sid and sid not in siteids:
             siteids.append(sid)
-
     LOG.info("Loaded %d SITEIDs from SNAP: %s", len(siteids), ", ".join(siteids))
 
     cli = GrowattMonitoringClient(GrowattAuth(username=username, password=password))
     cli.login()
 
-    # ---- STEP 1: FETCH /index ----
-    st_index, index_html = try_get_page(cli, "/index", referer_path="/login")
-    LOG.info("GET /index -> %s len=%s", st_index, len(index_html))
-    write_text(os.path.join(OUT_DIR, "index.html"), index_html)
+    # ---- Discover device sub-pages from /device (not /index) ----
+    device_html = cli._get_text("/device", referer_path="/index")
+    write_text(os.path.join(OUT_DIR, "device.html"), device_html)
 
-    device_paths = extract_paths(index_html, "/device/")
-    LOG.info("Discovered %d /device/* paths in /index", len(device_paths))
-    if device_paths:
-        LOG.info("Sample paths: %s", ", ".join(device_paths[:20]))
+    urls = extract_data_urls(device_html)
+    paths = extract_any_device_paths(device_html)
 
-    candidate_pages = list(dict.fromkeys(
-        device_paths + [
-            "/device",
-            "/device/getEnvPage",
-        ]
-    ))
+    LOG.info("Discovered %d data-url /device* entries", len(urls))
+    if urls:
+        LOG.info("data-url sample: %s", ", ".join(urls[:25]))
 
-    # ---- STEP 2: PER PLANT ----
+    LOG.info("Discovered %d /device* paths via regex", len(paths))
+    if paths:
+        LOG.info("path sample: %s", ", ".join(paths[:25]))
+
+    candidate_pages = list(dict.fromkeys(urls + paths + ["/device/getEnvPage", "/device/photovoltaic"]))
+
     for plant_id in siteids:
         if not plant_id.isdigit():
             LOG.warning("Skipping non-numeric SITEID: %s", plant_id)
@@ -143,47 +138,48 @@ def main() -> None:
         LOG.info("==============================================")
         LOG.info("🏭 PlantId=%s", plant_id)
 
-        cli.seed_plant_context(plant_id)
-
-        # ENV PAGE (known good)
+        # ENV proven
         env_html = cli.get_env_page_html(plant_id)
         write_text(os.path.join(OUT_DIR, f"{plant_id}__envpage.html"), env_html)
 
-        ajax_env = extract_ajax_endpoints(env_html)
-        LOG.info("Env page AJAX endpoints: %s", ", ".join(ajax_env))
+        env_eps = extract_ajax_endpoints(env_html)
+        LOG.info("Env page AJAX endpoints: %s", ", ".join(env_eps))
+        js = cli.post_get_env_list(plant_id, 1, "")
+        LOG.info("POST /device/getEnvList OK keys=%s", list(js.keys()) if isinstance(js, dict) else type(js))
 
-        try:
-            js = cli.post_get_env_list(plant_id, curr_page=1, alias="")
-            LOG.info("POST /device/getEnvList OK keys=%s", list(js.keys()))
-        except Exception as e:
-            LOG.error("POST /device/getEnvList FAIL: %s", e)
+        # PV retry with proper PV context cookies
+        pv_html = cli.get_pv_page_html(plant_id)
+        write_text(os.path.join(OUT_DIR, f"{plant_id}__pvpage.html"), pv_html)
+        LOG.info("PV page /device/photovoltaic body='%s'", trim_text(pv_html, 300))
 
-        # ---- STEP 3: TRY ALL CANDIDATE DEVICE PAGES ----
+        # Crawl candidates (only first ~30 to avoid log spam)
         good_pages: List[str] = []
-
-        for path in candidate_pages:
-            st, html = try_get_page(cli, path)
-            LOG.info("GET %s -> %s len=%s body='%s'", path, st, len(html), _trim_text(html, 200))
-            safe = path.strip("/").replace("/", "_") or "root"
-            write_text(os.path.join(OUT_DIR, f"{plant_id}__{safe}.html"), html)
-            if st == 200 and len(html) > 500:
+        for path in candidate_pages[:30]:
+            html = cli._get_text(path, referer_path="/device")
+            write_text(os.path.join(OUT_DIR, f"{plant_id}__{path.strip('/').replace('/','_')}.html"), html)
+            LOG.info("GET %s len=%s body='%s'", path, len(html), trim_text(html, 220))
+            if len(html) > 800 and "<html" in html.lower():
                 good_pages.append(path)
 
-        # ---- STEP 4: EXTRACT AJAX FROM GOOD PAGES ----
-        for page in good_pages:
-            _, html = try_get_page(cli, page)
-            ajax_eps = extract_ajax_endpoints(html)
-            if not ajax_eps:
+        # From good pages, extract ajax endpoints and try POST with generic params
+        for page in good_pages[:10]:
+            html = cli._get_text(page, referer_path="/device")
+            ajax = extract_ajax_endpoints(html)
+            if not ajax:
                 continue
+            LOG.info("Page %s AJAX endpoints: %s", page, ", ".join(ajax[:25]))
 
-            LOG.info("Page %s AJAX endpoints: %s", page, ", ".join(ajax_eps))
-
-            for ep in ajax_eps:
-                if "Env" in ep:
+            for ep in ajax[:20]:
+                if ep in ("/device/getEnvList", "/device/getEnvHistory", "/device/getEnvHisPage"):
                     continue
-                ok, out = try_post_endpoint(cli, ep, plant_id, referer_path=page)
-                if ok:
-                    LOG.info("POST %s OK -> %s", ep, _trim_json(out, 800))
+                try:
+                    out = cli._post_json(ep, {"plantId": plant_id, "currPage": "1", "alias": ""}, referer_path=page)
+                    if isinstance(out, dict):
+                        LOG.info("POST %s OK keys=%s sample=%s", ep, list(out.keys())[:40], trim_json(out, 800))
+                    else:
+                        LOG.info("POST %s OK type=%s sample=%s", ep, type(out).__name__, trim_json(out, 800))
+                except Exception as e:
+                    LOG.debug("POST %s failed: %s", ep, e)
 
     LOG.info("=== PROBE END ===")
 

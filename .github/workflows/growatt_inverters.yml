@@ -1,10 +1,10 @@
-name: Growatt Inverters
+name: Growatt Inverters (30min)
 
 on:
   workflow_dispatch:
   schedule:
-    # Daily at 07:10 Mexico City (UTC-6) ≈ 13:10 UTC
-    - cron: "10 13 * * *"
+    # Every 30 minutes (GitHub Actions is best-effort; may drift a bit)
+    - cron: "*/30 * * * *"
 
 jobs:
   run:
@@ -33,6 +33,10 @@ jobs:
           SNAP_RANGE: "SNAP!A1:Z"
           INVERTER_TAB: "InverterData"
           DEBUG_OUT_DIR: "out"
+          # Optional tuning:
+          # MAX_PAGES: "10"
+          # PAGE_SIZE: "20"
+          # LOG_LEVEL: "INFO"
         run: |
           python argia_growatt_inverters.py
 

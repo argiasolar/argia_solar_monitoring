@@ -3,7 +3,7 @@ name: Growatt Inverters (30min)
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"  # UTC
+    - cron: "*/10 * * * *"  # UTC
 
 concurrency:
   group: growatt-inverters

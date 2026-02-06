@@ -1,13 +1,16 @@
 # argia_growatt_monitoring.py
 #
 # ShineServer (server.growatt.com) monitoring client.
-# LOGIN FLOW (matches browser + your working growatt_weather_fetch.py):
+# We KEEP the working login flow (same as your growatt_weather_fetch.py):
 #   GET  /login
 #   POST /login  (ajax) -> assToken cookie
-#   GET  /index  (IMPORTANT: initializes session state for other modules)
+#   GET  /index  (session init)
 #
-# ENV module works already.
-# PV module (/device/photovoltaic) needs the extra /index initialization.
+# ENV endpoints work.
+# PV page (/device/photovoltaic) still shows "not login" unless we:
+#   - pass plantId explicitly in query params
+#   - warm up /device with plantId (server-side context)
+#   - seed plant cookies (selectedPlantId + common plantId cookies)
 
 import os
 import logging
@@ -85,13 +88,12 @@ class GrowattMonitoringClient:
 
         LOG.info("✅ Login OK (assToken present). Cookies: %s", " | ".join(sorted(cookies.keys())))
 
-        # IMPORTANT: Initialize index/dashboard session state.
+        # IMPORTANT: Initialize dashboard/index session state.
         self.init_index()
 
     def init_index(self) -> None:
         if self._index_initialized:
             return
-        # browser always hits /index right after login
         r = self.s.get(
             f"{self.base}/index",
             headers={"Referer": f"{self.base}/login", "Accept": "text/html, */*"},
@@ -99,11 +101,10 @@ class GrowattMonitoringClient:
             allow_redirects=True,
         )
         LOG.info("GET /index -> %s (len=%s)", r.status_code, len(r.text or ""))
-        # Even if it returns 200 with HTML, we treat this as initialization step.
         self._index_initialized = True
 
     # -------------------------
-    # Context cookies (Growatt UI is cookie-stateful)
+    # Context cookies
     # -------------------------
     def seed_env_context(self, plant_id: str) -> None:
         self.s.cookies.set("selectedPlantId", str(plant_id))
@@ -111,11 +112,19 @@ class GrowattMonitoringClient:
         self.s.cookies.set("selPageTwo", "/device/photovoltaic")
         self.s.cookies.set("selPageThree", "/device/getEnvPage")
 
+        # extra common variants (harmless)
+        self.s.cookies.set("plantId", str(plant_id))
+        self.s.cookies.set("plantid", str(plant_id))
+
     def seed_pv_context(self, plant_id: str) -> None:
         self.s.cookies.set("selectedPlantId", str(plant_id))
         self.s.cookies.set("selPage", "/device")
         self.s.cookies.set("selPageTwo", "/device/photovoltaic")
         self.s.cookies.set("selPageThree", "/device/photovoltaic")
+
+        # PV pages often read these
+        self.s.cookies.set("plantId", str(plant_id))
+        self.s.cookies.set("plantid", str(plant_id))
 
     # compatibility alias
     def seed_plant_context(self, plant_id: str) -> None:
@@ -126,7 +135,6 @@ class GrowattMonitoringClient:
     # -------------------------
     def _post_json(self, path: str, data: Dict[str, Any], referer_path: str = "/index") -> Any:
         self.init_index()
-
         url = f"{self.base}{path}"
         headers = {
             "Origin": self.base,
@@ -150,7 +158,6 @@ class GrowattMonitoringClient:
         referer_path: str = "/index",
     ) -> str:
         self.init_index()
-
         url = f"{self.base}{path}"
         headers = {"Referer": f"{self.base}{referer_path}", "Accept": "text/html, */*"}
         r = self.s.get(url, headers=headers, params=params, timeout=self.timeout_s, allow_redirects=True)
@@ -195,12 +202,25 @@ class GrowattMonitoringClient:
         )
 
     # -------------------------
-    # PV page (diagnostics)
+    # Device + PV
     # -------------------------
-    def get_device_page_html(self) -> str:
+    def get_device_page_html(self, plant_id: Optional[str] = None) -> str:
+        # Optional plant warmup. This matters for PV.
+        if plant_id:
+            self.seed_pv_context(plant_id)
+            return self._get_text("/device", params={"plantId": str(plant_id)}, referer_path="/index")
         return self._get_text("/device", referer_path="/index")
 
     def get_pv_page_html(self, plant_id: str) -> str:
+        # PV needs BOTH: cookie context + explicit plantId param + warm-up on /device
         self.seed_pv_context(plant_id)
-        # Must refer from /device
-        return self._get_text("/device/photovoltaic", referer_path="/device")
+
+        # warm-up /device module with plantId (server-side context)
+        _ = self.get_device_page_html(plant_id=plant_id)
+
+        # request PV with plantId param (key change)
+        return self._get_text(
+            "/device/photovoltaic",
+            params={"plantId": str(plant_id)},
+            referer_path="/device",
+        )

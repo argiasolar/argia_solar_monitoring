@@ -37,12 +37,15 @@ jobs:
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
 
-          # If you ever move regions, override this:
+          # Region base; keep LA5 unless you move tenants
           HUAWEI_BASE_URL: "https://la5.fusionsolar.huawei.com/thirdData"
 
           SNAP_RANGE: "SNAP!A1:Z"
           HUAWEI_INVERTER_TAB: "HuaweiInverterData"
           LOG_LEVEL: "INFO"
+
+          # Optional override if your tenant uses a different devTypeId for inverters
+          HUAWEI_INVERTER_DEVTYPE: "1"
 
         run: |
           python argia_huawei_inverters.py

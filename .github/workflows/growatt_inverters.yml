@@ -1,10 +1,13 @@
-name: Growatt Inverters – 30min
+name: Growatt Inverters (30min)
 
 on:
   workflow_dispatch:
   schedule:
-    # Every 30 minutes
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"  # UTC
+
+concurrency:
+  group: growatt-inverters
+  cancel-in-progress: true
 
 jobs:
   run:
@@ -32,5 +35,17 @@ jobs:
           GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
           SNAP_RANGE: "SNAP!A1:Z"
           INVERTER_TAB: "InverterData"
+          DEBUG_OUT_DIR: "out"
+          PAGE_SIZE: "50"
+          MAX_PAGES: "5"
+          LOG_LEVEL: "INFO"
         run: |
           python argia_growatt_inverters.py
+
+      - name: Upload debug output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: growatt-inverters-debug
+          path: out
+          if-no-files-found: ignore

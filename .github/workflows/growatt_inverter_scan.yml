@@ -1,0 +1,48 @@
+name: ARGIA - Growatt Inverter Scan (manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests
+          fi
+
+      - name: Run inverter scanner
+        env:
+          # --- REQUIRED ---
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+
+          # --- REQUIRED: your 4 plants from SNAP ---
+          GROWATT_PLANT_IDS: "9275498,9309589,9309575,10078094"
+
+          # --- OPTIONAL ---
+          GROWATT_BASE: "https://server.growatt.com"
+          GROWATT_OUT_DIR: "out"
+        run: |
+          python argia_growatt_scan_inverters.py
+
+      - name: Upload outputs (out/)
+        uses: actions/upload-artifact@v4
+        with:
+          name: growatt-inverter-scan-out
+          path: out
+          if-no-files-found: warn

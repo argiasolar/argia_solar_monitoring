@@ -23,29 +23,30 @@ def main() -> None:
     if not username or not password:
         raise RuntimeError("Missing GROWATT_USERNAME / GROWATT_PASSWORD")
 
-    client = GrowattMonitoringClient(GrowattAuth(username=username, password=password))
+    cli = GrowattMonitoringClient(GrowattAuth(username=username, password=password))
 
     LOG.info("=== LOGIN START %s ===", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
-    client.login()
-    LOG.info("✅ LOGIN VALIDATED")
+    cli.login()
 
-    LOG.info("=== PROBE START %s ===", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    ok, js = cli.auth_check()
+    LOG.info("Auth check: %s", "OK" if ok else "FAIL")
+    LOG.info("Auth check payload (trimmed): %s", json.dumps(js, ensure_ascii=False)[:3000])
 
-    # Keep your probe list as before, but now login is validated first
-    base = os.getenv("GROWATT_BASE_URL", "https://server.growatt.com")
-    endpoints = [
-        ("GET", f"{base}/newPlantAPI.do", {"op": "getPlantList"}),
-        ("GET", f"{base}/newInvAPI.do", {"op": "getInvList"}),
+    # Probe a few candidate endpoints we care about
+    probes = [
+        ("/newPlantAPI.do", {"op": "getPlantList"}),
+        ("/newInvAPI.do", {"op": "getInvList"}),
+        ("/panel/inverter/getInverterData", {"sn": "TEST_SN"}),
+        ("/indexbC/inv/getInvData", {"sn": "TEST_SN"}),
     ]
 
-    for method, url, params in endpoints:
+    for path, params in probes:
         try:
-            js = client._get_json(url, params=params, allow_redirects=True)  # intentionally using helper
-            LOG.info("---- %s %s OK ----", method, url)
-            txt = json.dumps(js, ensure_ascii=False)[:6000]
-            LOG.info("JSON (trimmed): %s", txt)
+            out = cli._get_json(path, params=params, referer_path="/index")
+            LOG.info("---- PROBE %s OK ----", path)
+            LOG.info("JSON (trimmed): %s", json.dumps(out, ensure_ascii=False)[:2000])
         except Exception as e:
-            LOG.error("---- %s %s FAIL: %s ----", method, url, e)
+            LOG.error("---- PROBE %s FAIL: %s ----", path, e)
 
     LOG.info("=== PROBE END ===")
 

@@ -464,7 +464,7 @@ def get_weather_for_date(p_key: str, date_iso: str, plants_config: dict) -> Tupl
     else:
         _dbg(f"⚠️ [ARGIA_WEATHER] non-numeric irradiance plantId={irr_plant_id}")
 
-    clouds = _avg_cloudcover_7_19_from_open_meteo(float(lat), float(lon), date_iso)
+    clouds = _avg_cloudcover_7_19_from_open_meteo(float(lat), float(lon), date_iso) / 100.0
 
     _dbg(f"📌 [ARGIA_WEATHER] p_key={p_key} brand={brand} irr_source_plant={irr_plant_id} date={date_iso} -> irr={irr} clouds_7_19={clouds}")
     return irr, clouds

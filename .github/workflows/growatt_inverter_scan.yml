@@ -7,6 +7,12 @@ jobs:
   scan:
     runs-on: ubuntu-latest
 
+    env:
+      MODE: scan
+      GROWATT_BASE: https://server.growatt.com
+      GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+      GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -16,33 +22,27 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            pip install requests
-          fi
+          pip install requests google-api-python-client google-auth google-auth-httplib2
 
-      - name: Run inverter scanner
-        env:
-          # --- REQUIRED ---
-          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
-          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-
-          # --- REQUIRED: your 4 plants from SNAP ---
-          GROWATT_PLANT_IDS: "9275498,9309589,9309575,10078094"
-
-          # --- OPTIONAL ---
-          GROWATT_BASE: "https://server.growatt.com"
-          GROWATT_OUT_DIR: "out"
+      - name: Run inverter scan
         run: |
-          python argia_growatt_scan_inverters.py
+          python argia_probe.py
 
-      - name: Upload outputs (out/)
+      # 🔧 FIX: sanitize filenames for artifact upload
+      - name: Sanitize filenames (remove invalid characters)
+        run: |
+          echo "Sanitizing filenames..."
+          find out -type f | while read f; do
+            clean=$(echo "$f" | sed 's/[<>:"|?*\r\n]/_/g')
+            if [ "$f" != "$clean" ]; then
+              mv "$f" "$clean"
+            fi
+          done
+
+      - name: Upload scan results
         uses: actions/upload-artifact@v4
         with:
           name: growatt-inverter-scan-out
           path: out
-          if-no-files-found: warn

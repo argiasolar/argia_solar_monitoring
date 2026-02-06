@@ -2,15 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-ARGIA - Growatt Inverter Snapshot (Step 2) - FIXED v2 (panel context)
---------------------------------------------------------------------
-Fixes included:
-- After login, open /index to match browser flow.
-- For each plant:
-  - Enter panel context (/panel) so Growatt sets/uses selectedPlantId state.
-  - Force cookie selectedPlantId + selPage to mimic browser session.
-- Use strong referer tied to /index and inverter page (?plantId=...).
-- Keep debug artifact outputs.
+ARGIA - Growatt Inverter Snapshot (Step 2) - WORKING (Index HTML scrape)
+------------------------------------------------------------------------
+Why this works:
+- For many Growatt accounts, /device/getInverterList returns empty (legacy endpoint).
+- The actual inverter list + KPIs (SN, status, current power, generation today)
+  are present on the server-rendered /index page once selectedPlantId is set.
+- This script:
+  1) logs in
+  2) for each plantId sets selectedPlantId cookie
+  3) GET /index
+  4) scrapes inverter blocks from HTML
+  5) appends rows to Google Sheet tab "InverterData"
 
 Secrets/Env expected:
 - GOOGLE_SHEET_ID
@@ -21,9 +24,8 @@ Secrets/Env expected:
 Optional env:
 - SNAP_RANGE                  default: "SNAP!A1:Z"
 - INVERTER_TAB                default: "InverterData"
-- MAX_PAGES                   default: 10
-- PAGE_SIZE                   default: 20
-- DEBUG_OUT_DIR               default: "out"
+- DEBUG_OUT_DIR               default: "out"  (writes debug html)
+- LOG_LEVEL                   default: INFO
 """
 
 import os
@@ -37,12 +39,12 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+# Google Sheets
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 
 LOG = logging.getLogger("argia.growatt.inverters")
-
 INVALID_FS_CHARS = r'["<>:|*?\r\n]'
 
 
@@ -64,13 +66,6 @@ def ensure_dir(path: str) -> None:
 
 def now_utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
-def try_parse_json(text: str) -> Optional[dict]:
-    try:
-        return json.loads(text)
-    except Exception:
-        return None
 
 
 # ----------------------------
@@ -179,6 +174,10 @@ class GrowattMonitoringClient:
         with open(path, "w", encoding="utf-8", errors="ignore") as f:
             f.write(content)
 
+    def _set_cookie(self, key: str, value: str) -> None:
+        # ensure cookie is scoped correctly
+        self.s.cookies.set(key, value, domain="server.growatt.com", path="/")
+
     def get(self, path: str, params: Optional[dict] = None, referer: Optional[str] = None) -> requests.Response:
         url = self.BASE + path
         headers = {}
@@ -208,184 +207,113 @@ class GrowattMonitoringClient:
 
         LOG.info("✅ Login OK (assToken present). Cookies: %s", " | ".join(sorted(list(cookies.keys()))))
 
-        # Match browser flow: hit /index once after login
+        # enter /index once
         r_idx = self.get("/index", referer=self.BASE + "/login")
         LOG.info("GET /index -> %s (len=%s)", r_idx.status_code, len(r_idx.text or ""))
 
-    def _set_cookie(self, key: str, value: str) -> None:
-        # Ensure cookie is available for server.growatt.com
-        self.s.cookies.set(key, value, domain="server.growatt.com", path="/")
-
-    def enter_panel_context(self, plant_id: str) -> None:
+    def load_index_for_plant(self, plant_id: str) -> str:
         """
-        Critical for your account:
-        Browser sets selectedPlantId + selPage=/panel and then XHRs start returning data.
+        Sets selectedPlantId and loads /index HTML.
+        This page (for your account) contains inverter cards with:
+          Device Serial Number, Connection Status, Update Time,
+          Current Power(W), Generation Today(kWh), etc.
         """
-        # Force cookies like browser (safe; if Growatt overwrites them, that's fine)
         self._set_cookie("selectedPlantId", str(plant_id))
-        self._set_cookie("selPage", "/panel")
+        self._set_cookie("selPage", "/index")
 
-        # Open /panel to initialize context
-        r_panel = self.get("/panel", params={"plantId": plant_id}, referer=self.BASE + "/index")
-        LOG.info("GET /panel?plantId=%s -> %s (len=%s)", plant_id, r_panel.status_code, len(r_panel.text or ""))
-        if r_panel.status_code == 200 and r_panel.text:
-            self._save_debug(plant_id, "panel", r_panel.text, "html")
+        r = self.get("/index", referer=self.BASE + "/index")
+        LOG.info("GET /index (selectedPlantId=%s) -> %s (len=%s)", plant_id, r.status_code, len(r.text or ""))
 
-    def warm_plant_context(self, plant_id: str) -> None:
-        # Keep your original warm-up (doesn't hurt)
-        r_dev = self.get("/device", referer=self.BASE + "/index")
-        LOG.info("GET /device -> %s (len=%s)", r_dev.status_code, len(r_dev.text or ""))
-
-        r_pv = self.get("/device/photovoltaic", params={"plantId": plant_id}, referer=self.BASE + "/device")
-        LOG.info(
-            "GET /device/photovoltaic?plantId=%s -> %s (len=%s)",
-            plant_id,
-            r_pv.status_code,
-            len(r_pv.text or ""),
-        )
-        if r_pv.status_code == 200 and r_pv.text:
-            self._save_debug(plant_id, "pvpage", r_pv.text, "html")
-
-    def get_inverter_page_html(self, plant_id: str) -> str:
-        r = self.get("/device/getInverterPage", params={"plantId": plant_id}, referer=self.BASE + "/device")
-        LOG.info("GET /device/getInverterPage?plantId=%s -> %s", plant_id, r.status_code)
         if r.status_code != 200:
-            raise RuntimeError(f"GET /device/getInverterPage?plantId={plant_id} -> {r.status_code}")
-        self._save_debug(plant_id, "inverter_page", r.text or "", "html")
-        return r.text or ""
+            raise RuntimeError(f"GET /index for plantId={plant_id} -> {r.status_code}")
 
-    @staticmethod
-    def discover_inv_endpoints(html: str) -> Dict[str, str]:
-        found: Dict[str, str] = {}
-        m = re.search(r"(\/newInvAPI\.do\?op=getInvList)", html)
-        if m:
-            found["list"] = m.group(1)
-        m = re.search(r"(\/device\/getInverterList)", html)
-        if m and "list" not in found:
-            found["list"] = m.group(1)
-        m = re.search(r"(\/newInvAPI\.do\?op=getInvData)", html)
-        if m:
-            found["detail"] = m.group(1)
-        return found
-
-    def _call_list_endpoint(self, endpoint: str, plant_id: str, page: int, page_size: int, referer: str) -> dict:
-        payload = {"plantId": str(plant_id), "currPage": str(page), "pageSize": str(page_size)}
-        r = self.post(endpoint, data=payload, referer=referer)
-
-        if r.status_code in (404, 405) or (r.text and r.text.lstrip().startswith("<!DOCTYPE")):
-            r = self.get(endpoint, params=payload, referer=referer)
-
-        txt = r.text or ""
-        self._save_debug(plant_id, f"inv_list__{safe_filename(endpoint)}__p{page}", txt, "json")
-
-        data = try_parse_json(txt)
-        if not data:
-            raise RuntimeError(f"Non-JSON inverter list for plantId={plant_id} endpoint={endpoint}: {txt[:200]}")
-        return data
-
-    def iter_all_inverters(self, plant_id: str, max_pages: int = 10, page_size: int = 20) -> List[Dict[str, Any]]:
-        # Discover endpoints from page (still useful)
-        html = self.get_inverter_page_html(plant_id)
-        eps = self.discover_inv_endpoints(html)
-
-        inverter_page_url = self.BASE + f"/device/getInverterPage?plantId={plant_id}"
-
-        candidates: List[str] = []
-        if eps.get("list"):
-            candidates.append(eps["list"])
-
-        candidates += [
-            "/newInvAPI.do?op=getInvList",
-            "/newInvApi.do?op=getInvList",
-            "/device/getInverterList",
-        ]
-
-        last_err: Optional[Exception] = None
-
-        # IMPORTANT: use /index as referer for “panel-like” XHRs
-        # and inverter page URL for inverter-specific calls.
-        # We’ll try both referers automatically.
-        referers_to_try = [self.BASE + "/index", inverter_page_url]
-
-        for endpoint in candidates:
-            for ref in referers_to_try:
-                try:
-                    all_items: List[Dict[str, Any]] = []
-                    for page in range(1, max_pages + 1):
-                        data = self._call_list_endpoint(endpoint, plant_id, page, page_size, referer=ref)
-
-                        items = data.get("datas") or data.get("data") or data.get("rows") or []
-                        if not isinstance(items, list):
-                            items = []
-
-                        LOG.info(
-                            "List endpoint=%s referer=%s plantId=%s -> count=%s pages=%s items_len=%s",
-                            endpoint,
-                            "/index" if ref.endswith("/index") else "invpage",
-                            plant_id,
-                            data.get("count"),
-                            data.get("pages"),
-                            len(items),
-                        )
-
-                        all_items.extend([it for it in items if isinstance(it, dict)])
-
-                        pages = data.get("pages")
-                        if isinstance(pages, int) and page >= pages:
-                            break
-                        if not pages and len(items) < page_size:
-                            break
-
-                    return all_items
-
-                except Exception as e:
-                    last_err = e
-                    continue
-
-        raise RuntimeError(f"Could not find JSON inverter list endpoint for plantId={plant_id}") from last_err
+        html = r.text or ""
+        self._save_debug(plant_id, "index", html, "html")
+        return html
 
 
-def pick(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
-    for k in keys:
-        if k in d and d[k] not in (None, "", "null"):
-            return d[k]
-    return None
-
-
-def normalize_float(x: Any) -> Optional[float]:
-    if x is None:
+# ----------------------------
+# HTML parsing (regex-based)
+# ----------------------------
+def _to_float(x: Optional[str]) -> Optional[float]:
+    if not x:
         return None
     try:
-        if isinstance(x, str):
-            x = x.strip().replace(",", "")
-        return float(x)
+        return float(x.strip().replace(",", ""))
     except Exception:
         return None
 
 
+def parse_inverters_from_index_html(html: str) -> List[Dict[str, Any]]:
+    """
+    Parses inverter blocks like you pasted:
+
+    Device Serial Number：JNM7DY306G
+    Connection Status：Connected
+    Update Time：2026-02-06 14:15:00
+    Current Power(W)：49533.9
+    Generation Today(kWh)：228.2
+    ...
+
+    Returns list of dicts with keys: sn, status, power_w, etoday_kwh
+    """
+    # Make punctuation variations more tolerant (Growatt uses full-width colon ：)
+    # We match minimally between fields, DOTALL for multi-line.
+    pattern = re.compile(
+        r"Device Serial Number[：:]\s*(?P<sn>[A-Za-z0-9_\-]+).*?"
+        r"Connection Status[：:]\s*(?P<status>[^ \r\n\t<]+).*?"
+        r"Update Time[：:]\s*(?P<update>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}).*?"
+        r"Current Power\(W\)[：:]\s*(?P<power>[\d.,]+).*?"
+        r"Generation Today\(kWh\)[：:]\s*(?P<today>[\d.,]+)",
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    items: List[Dict[str, Any]] = []
+    for m in pattern.finditer(html):
+        sn = m.group("sn").strip()
+        status = m.group("status").strip()
+        power_w = _to_float(m.group("power"))
+        etoday_kwh = _to_float(m.group("today"))
+        update_time = m.group("update").strip()
+
+        items.append(
+            {
+                "sn": sn,
+                "status": status,
+                "power_w": power_w,
+                "etoday_kwh": etoday_kwh,
+                "update_time": update_time,
+            }
+        )
+
+    return items
+
+
 def build_rows_for_sheet(extracted_at: str, plant_id: str, inv_items: List[Dict[str, Any]]) -> List[List[Any]]:
+    """
+    Keeps your original 7-column schema:
+      ExtractedAtUTC, PlantId, InverterSN, InverterAlias, Status, EToday_kWh, Power_W
+    Alias is not reliably present in index HTML, so we leave it blank.
+    """
     rows: List[List[Any]] = []
     for inv in inv_items:
-        sn = pick(inv, ["sn", "invSn", "deviceSn", "inverterSn", "serialNum", "serialNo"])
-        alias = pick(inv, ["alias", "invAlias", "deviceAilas", "name", "deviceName"])
-        status = pick(inv, ["deviceStatus", "status", "invStatus", "workStatus", "statusText"])
-        etoday = pick(inv, ["eToday", "etoday", "eTodayEnergy", "todayEnergy", "EToday", "etodayEnergy"])
-        power = pick(inv, ["power", "pac", "powerNow", "pNow", "actPower", "p"])
-
         rows.append(
             [
                 extracted_at,
                 str(plant_id),
-                sn or "",
-                alias or "",
-                str(status) if status is not None else "",
-                normalize_float(etoday) if normalize_float(etoday) is not None else "",
-                normalize_float(power) if normalize_float(power) is not None else "",
+                inv.get("sn") or "",
+                "",  # alias not available from index scrape
+                inv.get("status") or "",
+                inv.get("etoday_kwh") if inv.get("etoday_kwh") is not None else "",
+                inv.get("power_w") if inv.get("power_w") is not None else "",
             ]
         )
     return rows
 
 
+# ----------------------------
+# Main
+# ----------------------------
 def main() -> None:
     setup_logging()
 
@@ -400,8 +328,6 @@ def main() -> None:
 
     snap_range = os.getenv("SNAP_RANGE", "SNAP!A1:Z").strip()
     tab = os.getenv("INVERTER_TAB", "InverterData").strip()
-    max_pages = int(os.getenv("MAX_PAGES", "10").strip())
-    page_size = int(os.getenv("PAGE_SIZE", "20").strip())
     out_dir = os.getenv("DEBUG_OUT_DIR", "out").strip()
 
     LOG.info("This script expects GOOGLE_CREDENTIALS (not GOOGLE_SA_JSON/GOOGLE_SA_B64)")
@@ -422,14 +348,13 @@ def main() -> None:
         LOG.info("==============================================")
         LOG.info("🏭 PlantId=%s", plant_id)
 
-        # NEW: panel context first (this matches your browser cookies / referer flow)
-        cli.enter_panel_context(plant_id)
+        html = cli.load_index_for_plant(plant_id)
+        inv_items = parse_inverters_from_index_html(html)
 
-        # keep original warm-up too
-        cli.warm_plant_context(plant_id)
-
-        inv_items = cli.iter_all_inverters(plant_id, max_pages=max_pages, page_size=page_size)
-        LOG.info("Found %s inverters for plantId=%s", len(inv_items), plant_id)
+        LOG.info("Parsed %s inverter blocks from /index for plantId=%s", len(inv_items), plant_id)
+        if len(inv_items) == 0:
+            # helpful debug: show a tiny hint in logs
+            LOG.warning("No inverters parsed for plantId=%s. Check out/%s__index.html", plant_id, plant_id)
 
         all_rows.extend(build_rows_for_sheet(extracted_at, plant_id, inv_items))
         time.sleep(1)

@@ -4,12 +4,14 @@
 """
 ARGIA – Huawei Inverter Snapshot (10-min)
 
-Reads Huawei plants & inverter SNs from SNAP sheet, then queries FusionSolar thirdData:
-  1) POST /thirdData/login
-  2) POST /thirdData/getDevList   (stationCodes -> devices, incl. devId/devTypeId/sn)
-  3) POST /thirdData/getDevRealKpi (devTypeId + devIds -> realtime KPI for inverters)
+Reads Huawei plants + inverter SNs from SNAP, filters by SNAP.Brand == "HUAWEI",
+then queries FusionSolar thirdData:
 
-Writes rows into a Google Sheets tab (default: HuaweiInverterData) with schema:
+  1) POST /thirdData/login
+  2) POST /thirdData/getDevRealKpi using SNS (not devIds)
+     - This avoids dependence on getDevList SN field naming differences.
+
+Writes rows into Google Sheets tab (default: HuaweiInverterData) with schema:
 ExtractedAtUTC, SiteId, DeviceType, DeviceSN, Status, UpdateTime,
 RatedPower_W, CurrentPower_W, EToday_kWh, EMonth_kWh, ETotal_kWh
 
@@ -73,19 +75,30 @@ def safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def to_text_station_code(x: Any) -> str:
-    return normalize_text(x)
+def chunked(xs: List[str], n: int) -> List[List[str]]:
+    return [xs[i : i + n] for i in range(0, len(xs), n)]
 
 
-def is_huawei_station_code(siteid: str) -> bool:
-    # Your SNAP uses "NE=35314736"
-    return siteid.startswith("NE=") or bool(re.fullmatch(r"[A-Za-z]{2}=\d+", siteid))
+def qrange(tab: str, a1: str) -> str:
+    # Always quote tab name to avoid parse issues
+    return f"'{tab}'!{a1}"
 
 
 def is_sn_like(x: str) -> bool:
     # Huawei inverter SNs in your SNAP look like: ES2470051825 / GR2499018270
-    # We'll accept alnum 8..20
-    return bool(re.fullmatch(r"[A-Za-z0-9]{8,24}", x))
+    return bool(re.fullmatch(r"[A-Za-z0-9]{8,32}", x or ""))
+
+
+def is_huawei_station_code(siteid: str) -> bool:
+    s = normalize_text(siteid)
+    return s.startswith("NE=") or bool(re.fullmatch(r"[A-Za-z]{2}=\d+", s))
+
+
+def pick(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
+    for k in keys:
+        if k in d and d[k] not in (None, "", "null"):
+            return d[k]
+    return None
 
 
 # ----------------------------
@@ -104,11 +117,81 @@ def sheets_service():
     return build("sheets", "v4", credentials=load_google_creds(), cache_discovery=False)
 
 
+def ensure_sheet_exists(sheet_id: str, tab: str) -> None:
+    svc = sheets_service()
+    meta = svc.spreadsheets().get(spreadsheetId=sheet_id).execute()
+    sheets = meta.get("sheets", []) or []
+    titles = {s.get("properties", {}).get("title") for s in sheets}
+    if tab in titles:
+        return
+
+    req = {"requests": [{"addSheet": {"properties": {"title": tab}}}]}
+    svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body=req).execute()
+    LOG.info("Created missing sheet tab '%s'", tab)
+
+
+def ensure_header(sheet_id: str, tab: str) -> None:
+    """
+    Ensures tab exists and header row A1:K1 is present.
+    """
+    ensure_sheet_exists(sheet_id, tab)
+
+    header = [
+        "ExtractedAtUTC",
+        "SiteId",
+        "DeviceType",
+        "DeviceSN",
+        "Status",
+        "UpdateTime",
+        "RatedPower_W",
+        "CurrentPower_W",
+        "EToday_kWh",
+        "EMonth_kWh",
+        "ETotal_kWh",
+    ]
+
+    svc = sheets_service()
+    rng = qrange(tab, "A1:K1")
+    resp = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng).execute()
+    existing = (resp.get("values") or [[]])[0] if resp else []
+    existing = existing or []
+
+    if len(existing) == 0:
+        svc.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=qrange(tab, "A1"),
+            valueInputOption="RAW",
+            body={"values": [header]},
+        ).execute()
+        LOG.info("Ensured header on tab '%s'", tab)
+
+
+def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
+    if not rows:
+        return
+    svc = sheets_service()
+    svc.spreadsheets().values().append(
+        spreadsheetId=sheet_id,
+        range=qrange(tab, "A1"),
+        valueInputOption="RAW",
+        insertDataOption="INSERT_ROWS",
+        body={"values": rows},
+    ).execute()
+
+
 def read_snap_huawei(sheet_id: str, snap_range: str) -> Dict[str, Dict[str, Any]]:
     """
-    Returns dict keyed by stationCode (SiteId), containing:
-      { plant_key: str, inverter_sns: [..] }
-    Reads SNAP header row to locate columns by name.
+    Reads SNAP and returns dict keyed by stationCode (SiteId NE=...):
+      {
+        "NE=35314736": {"plant_key": "MEX1", "inverter_sns": ["ES..", "GR..", ...]},
+        ...
+      }
+
+    Requires SNAP columns:
+    - Plant_Key
+    - SITEID
+    - Brand  (must be "HUAWEI" to include)
+    - INVERTER1..4 (supports common typos like IVERTER2)
     """
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
@@ -131,25 +214,36 @@ def read_snap_huawei(sheet_id: str, snap_range: str) -> Dict[str, Dict[str, Any]
             return None
 
     i_plant = idx("PLANT_KEY")
-    i_site = idx("SITEID") or idx("SITEID ")  # defensive
-    # Inverter columns may have typos: IVERTER2 etc.
-    inv_cols = []
+    i_site = idx("SITEID")
+    i_brand = idx("BRAND")
+
+    inv_cols: List[int] = []
     for key in ("INVERTER1", "INVERTER2", "IVERTER2", "INVERTER3", "IVERTER3", "INVERTER4", "IVERTER4"):
         j = idx(key)
         if j is not None and j not in inv_cols:
             inv_cols.append(j)
 
-    if i_plant is None or i_site is None or not inv_cols:
-        raise RuntimeError(f"SNAP header missing required columns. Found header={header}")
+    if i_plant is None or i_site is None or i_brand is None:
+        raise RuntimeError(f"SNAP header missing Plant_Key / SITEID / Brand. Found header={header}")
+    if not inv_cols:
+        raise RuntimeError(f"SNAP header missing inverter columns. Found header={header}")
 
     out: Dict[str, Dict[str, Any]] = {}
+
     for r in rows:
-        if len(r) <= max([i_plant, i_site] + inv_cols):
+        if len(r) <= max([i_plant, i_site, i_brand] + inv_cols):
             continue
 
         plant_key = normalize_text(r[i_plant])
-        siteid = to_text_station_code(r[i_site])
-        if not plant_key or not siteid or not is_huawei_station_code(siteid):
+        siteid = normalize_text(r[i_site])
+        brand = normalize_text(r[i_brand]).upper()
+
+        if not plant_key or not siteid:
+            continue
+        if brand != "HUAWEI":
+            continue
+        if not is_huawei_station_code(siteid):
+            # defensive: only keep NE=... for Huawei
             continue
 
         sns: List[str] = []
@@ -158,55 +252,13 @@ def read_snap_huawei(sheet_id: str, snap_range: str) -> Dict[str, Dict[str, Any]
             if sn and is_sn_like(sn):
                 sns.append(sn)
 
+        sns = sorted(list(dict.fromkeys(sns)))
         if not sns:
             continue
 
-        out[siteid] = {"plant_key": plant_key, "inverter_sns": sorted(list(dict.fromkeys(sns)))}
+        out[siteid] = {"plant_key": plant_key, "inverter_sns": sns}
 
     return out
-
-
-def ensure_header(sheet_id: str, tab: str) -> None:
-    header = [
-        "ExtractedAtUTC",
-        "SiteId",
-        "DeviceType",
-        "DeviceSN",
-        "Status",
-        "UpdateTime",
-        "RatedPower_W",
-        "CurrentPower_W",
-        "EToday_kWh",
-        "EMonth_kWh",
-        "ETotal_kWh",
-    ]
-    svc = sheets_service()
-    rng = f"{tab}!A1:K1"
-    resp = svc.spreadsheets().values().get(spreadsheetId=sheet_id, range=rng).execute()
-    existing = (resp.get("values") or [[]])[0] if resp else []
-    existing = existing or []
-
-    if len(existing) == 0:
-        svc.spreadsheets().values().update(
-            spreadsheetId=sheet_id,
-            range=f"{tab}!A1",
-            valueInputOption="RAW",
-            body={"values": [header]},
-        ).execute()
-        LOG.info("Ensured header on tab '%s'", tab)
-
-
-def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
-    if not rows:
-        return
-    svc = sheets_service()
-    svc.spreadsheets().values().append(
-        spreadsheetId=sheet_id,
-        range=f"{tab}!A1",
-        valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
-        body={"values": rows},
-    ).execute()
 
 
 # ----------------------------
@@ -232,18 +284,11 @@ class HuaweiThirdDataClient:
             raise RuntimeError("Huawei login failed: missing XSRF-TOKEN")
         self.s.headers.update({"XSRF-TOKEN": token})
 
-    def get_dev_list(self, station_codes: List[str]) -> List[Dict[str, Any]]:
-        body = {"stationCodes": ",".join(station_codes)}
-        r = self.s.post(f"{self.base}/getDevList", json=body, timeout=self.timeout)
-        js = r.json()
-        if not js.get("success"):
-            raise RuntimeError(f"getDevList failed: failCode={js.get('failCode')} message={js.get('message')}")
-        data = js.get("data") or []
-        return [d for d in data if isinstance(d, dict)]
-
-    def get_dev_real_kpi(self, dev_type_id: int, dev_ids: List[str]) -> List[Dict[str, Any]]:
-        # devIds often accepted as comma-separated string
-        body = {"devTypeId": str(dev_type_id), "devIds": ",".join(dev_ids)}
+    def get_dev_real_kpi_by_sns(self, dev_type_id: int, sns: List[str]) -> List[Dict[str, Any]]:
+        """
+        Query KPI using SNS list (robust vs devId mapping differences).
+        """
+        body = {"devTypeId": str(dev_type_id), "sns": ",".join(sns)}
         r = self.s.post(f"{self.base}/getDevRealKpi", json=body, timeout=self.timeout)
         js = r.json()
         if not js.get("success"):
@@ -252,78 +297,28 @@ class HuaweiThirdDataClient:
         return [d for d in data if isinstance(d, dict)]
 
 
-def pick(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
-    for k in keys:
-        if k in d and d[k] not in (None, "", "null"):
-            return d[k]
-    return None
-
-
-def chunked(xs: List[str], n: int) -> List[List[str]]:
-    return [xs[i : i + n] for i in range(0, len(xs), n)]
-
-
 # ----------------------------
-# Mapping + row building
+# KPI parsing
 # ----------------------------
-def build_dev_maps(
-    snap: Dict[str, Dict[str, Any]],
-    dev_list: List[Dict[str, Any]],
-) -> Tuple[Dict[str, Dict[str, Any]], Dict[int, List[str]]]:
-    """
-    Returns:
-      wanted_by_devid: devId -> {stationCode, sn, devTypeId, ratedPowerW?}
-      dev_ids_by_type: devTypeId -> [devId...]
-    """
-    wanted_sns = set()
-    for station, meta in snap.items():
-        for sn in meta["inverter_sns"]:
-            wanted_sns.add(sn)
-
-    wanted_by_devid: Dict[str, Dict[str, Any]] = {}
-    dev_ids_by_type: Dict[int, List[str]] = {}
-
-    for d in dev_list:
-        sn = normalize_text(pick(d, ["sn", "devSn", "deviceSn", "serialNum", "esn"]))
-        if not sn or sn not in wanted_sns:
-            continue
-
-        dev_id = normalize_text(pick(d, ["id", "devId", "deviceId"]))
-        if not dev_id:
-            continue
-
-        dev_type_id = pick(d, ["devTypeId", "typeId"])
-        try:
-            dev_type_id = int(dev_type_id)
-        except Exception:
-            continue
-
-        station_code = normalize_text(pick(d, ["stationCode", "plantCode"]))  # best-effort
-        rated = pick(d, ["ratedPower", "ratedCapacity", "capacity", "ratedPowerW"])
-
-        wanted_by_devid[dev_id] = {
-            "stationCode": station_code,
-            "sn": sn,
-            "devTypeId": dev_type_id,
-            "ratedPowerW": safe_float(rated),
-        }
-        dev_ids_by_type.setdefault(dev_type_id, []).append(dev_id)
-
-    # Dedup lists
-    for t in list(dev_ids_by_type.keys()):
-        dev_ids_by_type[t] = sorted(list(dict.fromkeys(dev_ids_by_type[t])))
-
-    return wanted_by_devid, dev_ids_by_type
-
-
 def parse_kpi_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Normalizes a single KPI response item into:
-      devId, status, updateTime, powerW, eToday, eMonth, eTotal
-    For inverters, dataItemMap commonly contains keys like:
-      active_power, day_cap, month_cap, total_cap
+    Normalizes a single KPI response item.
+
+    Common structure:
+      {
+        "sn": "...",
+        "devStatus": ...,
+        "collectTime": ...,
+        "dataItemMap": {
+            "active_power": ... (often kW)
+            "day_cap": ... (kWh)
+            "month_cap": ... (kWh)
+            "total_cap": ... (kWh)
+        }
+      }
     """
-    dev_id = normalize_text(pick(item, ["devId", "id", "deviceId"]))
+    sn = normalize_text(pick(item, ["sn", "devSn", "deviceSn", "serialNum", "esn"]))
+
     status = normalize_text(pick(item, ["devStatus", "status", "workStatus"]))
     update_time = normalize_text(pick(item, ["collectTime", "updateTime", "time"]))
 
@@ -332,10 +327,9 @@ def parse_kpi_item(item: Dict[str, Any]) -> Dict[str, Any]:
         m = {}
 
     power = safe_float(pick(m, ["active_power", "activePower", "pac", "power"]))
-    # Some deployments return kW; best-effort conversion if value looks like kW
+    # best-effort: if <= 1000 assume kW, else already W
     power_w: Optional[float] = None
     if power is not None:
-        # if small number (<= 1000) it's likely kW; if huge already W
         power_w = power * 1000.0 if power <= 1000 else power
 
     e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy"]))
@@ -343,7 +337,7 @@ def parse_kpi_item(item: Dict[str, Any]) -> Dict[str, Any]:
     e_total = safe_float(pick(m, ["total_cap", "eTotal", "totalEnergy"]))
 
     return {
-        "devId": dev_id,
+        "sn": sn,
         "status": status,
         "updateTime": update_time,
         "powerW": power_w,
@@ -351,40 +345,6 @@ def parse_kpi_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "eMonth": e_month,
         "eTotal": e_total,
     }
-
-
-def build_rows(extracted_at: str, wanted_by_devid: Dict[str, Dict[str, Any]], kpi_items: List[Dict[str, Any]]) -> List[List[Any]]:
-    rows: List[List[Any]] = []
-
-    for item in kpi_items:
-        k = parse_kpi_item(item)
-        dev_id = k.get("devId") or ""
-        if not dev_id or dev_id not in wanted_by_devid:
-            continue
-
-        meta = wanted_by_devid[dev_id]
-        station = normalize_text(meta.get("stationCode"))
-        sn = normalize_text(meta.get("sn"))
-        dev_type = normalize_text(meta.get("devTypeId"))
-
-        rated = meta.get("ratedPowerW")
-        power_w = k.get("powerW")
-
-        rows.append([
-            extracted_at,
-            station,
-            dev_type,
-            sn,
-            normalize_text(k.get("status")),
-            normalize_text(k.get("updateTime")),
-            rated if rated is not None else "",
-            power_w if power_w is not None else "",
-            k.get("eToday") if k.get("eToday") is not None else "",
-            k.get("eMonth") if k.get("eMonth") is not None else "",
-            k.get("eTotal") if k.get("eTotal") is not None else "",
-        ])
-
-    return rows
 
 
 # ----------------------------
@@ -411,7 +371,7 @@ def main() -> None:
 
     snap = read_snap_huawei(sheet_id, snap_range)
     if not snap:
-        LOG.warning("No Huawei plants found in SNAP range=%s", snap_range)
+        LOG.warning("No Huawei plants found in SNAP (Brand=HUAWEI) range=%s", snap_range)
         return
 
     stations = sorted(list(snap.keys()))
@@ -421,35 +381,42 @@ def main() -> None:
     cli.login()
     LOG.info("✅ Huawei login OK")
 
-    # getDevList max is commonly 100 stations per call; we'll chunk defensively
-    dev_list: List[Dict[str, Any]] = []
-    for group in chunked(stations, 100):
-        LOG.info("Fetching getDevList for %d station(s)", len(group))
-        dev_list.extend(cli.get_dev_list(group))
-        time.sleep(0.3)
-
-    LOG.info("Devices in devList: %d", len(dev_list))
-
-    wanted_by_devid, dev_ids_by_type = build_dev_maps(snap, dev_list)
-    LOG.info("Matched Huawei inverter devIds from SNAP SNs: %d", len(wanted_by_devid))
-
-    if not wanted_by_devid:
-        LOG.warning("No Huawei inverter devices matched SNAP SNs. Check SN formats / devList fields.")
-        return
-
     extracted_at = now_utc_iso()
     all_rows: List[List[Any]] = []
 
-    # getDevRealKpi supports up to 100 devices of the same type per call
-    for dev_type_id, dev_ids in dev_ids_by_type.items():
-        if not dev_ids:
+    DEVTYPE_INVERTER = int(os.getenv("HUAWEI_INVERTER_DEVTYPE", "1").strip())  # usually 1 for inverters
+
+    for station_code, meta in snap.items():
+        sns = meta.get("inverter_sns") or []
+        if not sns:
             continue
-        for batch in chunked(dev_ids, 100):
-            LOG.info("Fetching getDevRealKpi devTypeId=%s devs=%d", dev_type_id, len(batch))
-            items = cli.get_dev_real_kpi(dev_type_id, batch)
-            rows = build_rows(extracted_at, wanted_by_devid, items)
-            all_rows.extend(rows)
-            time.sleep(0.3)
+
+        # Keep calls small; Huawei rate limits can be strict
+        for batch in chunked(sns, 50):
+            LOG.info("Fetching getDevRealKpi station=%s sns=%d", station_code, len(batch))
+            items = cli.get_dev_real_kpi_by_sns(DEVTYPE_INVERTER, batch)
+
+            for it in items:
+                k = parse_kpi_item(it)
+                sn = k["sn"]
+                if not sn:
+                    continue
+
+                all_rows.append([
+                    extracted_at,
+                    station_code,               # SiteId (NE=...)
+                    str(DEVTYPE_INVERTER),      # DeviceType
+                    sn,                         # DeviceSN
+                    k["status"],
+                    k["updateTime"],
+                    "",                         # RatedPower_W (unknown unless you add getDevList mapping later)
+                    k["powerW"] if k["powerW"] is not None else "",
+                    k["eToday"] if k["eToday"] is not None else "",
+                    k["eMonth"] if k["eMonth"] is not None else "",
+                    k["eTotal"] if k["eTotal"] is not None else "",
+                ])
+
+            time.sleep(0.25)
 
     append_rows(sheet_id, tab, all_rows)
     LOG.info("✅ Written %d rows to %s", len(all_rows), tab)

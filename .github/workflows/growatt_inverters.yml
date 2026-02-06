@@ -1,18 +1,16 @@
-name: Growatt InverterData (per inverter)
+name: Growatt Inverters
 
 on:
   workflow_dispatch:
   schedule:
-    # runs daily at 01:40 UTC = 19:40 Mexico City (UTC-6)
+    # every day at 01:40 UTC (adjust if you want)
     - cron: "40 1 * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -20,20 +18,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install requests google-api-python-client google-auth
+          pip install -r requirements.txt
 
-      - name: Run inverter snapshot to Google Sheets
+      - name: Run Growatt inverter script
         env:
-          GROWATT_USER: ${{ secrets.GROWATT_USERNAME }}
-          GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GROWATT_USER: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
           SNAP_RANGE: "SNAP!A1:Z"
-          INVERTER_SHEET: "InverterData"
-          TIMEZONE_OFFSET: "-06:00"
-          DEBUG: "0"
+          INVERTER_TAB: "InverterData"
+          TIMEZONE_OFFSET_HOURS: "-6"
         run: |
           python argia_growatt_inverters.py

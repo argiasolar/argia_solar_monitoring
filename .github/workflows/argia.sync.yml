@@ -51,7 +51,7 @@ jobs:
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           HUAWEI_INVERTER_DEVTYPE: "1"
-
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
           # Interval settings
           INTERVAL_MINUTES: "10"
 

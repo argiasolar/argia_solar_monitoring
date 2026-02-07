@@ -6,7 +6,7 @@ import re
 import json
 import time
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -16,7 +16,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 import argia_meteo as meteo
-from argia_growatt_inverters import GrowattMonitoringClient, GrowattAuth  # uses your working client
+from argia_growatt_inverters import GrowattMonitoringClient, GrowattAuth
 
 LOG = logging.getLogger("argia.sync")
 MX_TZ = ZoneInfo("America/Mexico_City")
@@ -36,22 +36,22 @@ def now_utc_iso() -> str:
 
 
 def utc_iso_to_mx_str(iso_utc: str) -> str:
-    """
-    Convert ISO UTC like '2026-02-07T01:54:28+00:00' to Mexico City 'YYYY-MM-DD HH:MM:SS'
-    """
     try:
         dt_utc = datetime.fromisoformat(iso_utc)
         if dt_utc.tzinfo is None:
             dt_utc = dt_utc.replace(tzinfo=timezone.utc)
-        dt_mx = dt_utc.astimezone(MX_TZ)
-        return dt_mx.strftime("%Y-%m-%d %H:%M:%S")
+        return dt_utc.astimezone(MX_TZ).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
-        # fallback: "now" in MX
         return datetime.now(MX_TZ).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def normalize_text(x: Any) -> str:
     return "" if x is None else str(x).strip()
+
+
+def normalize_sn(x: Any) -> str:
+    # case-insensitive + remove spaces
+    return re.sub(r"\s+", "", normalize_text(x)).upper()
 
 
 def safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
@@ -125,7 +125,7 @@ def ensure_header(sheet_id: str, tab: str) -> None:
     ensure_sheet_exists(sheet_id, tab)
     header = [
         "ExtractedAtUTC",
-        "UpdateTime",            # always Mexico City time
+        "UpdateTime",            # Mexico City time
         "SiteId",
         "DeviceType",
         "DeviceSN",
@@ -294,7 +294,7 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
 
 
 # ----------------------------
-# Huawei thirdData
+# Huawei thirdData (by SN)
 # ----------------------------
 class HuaweiThirdDataClient:
     def __init__(self, base_url: str, username: str, password: str, timeout: int = 30):
@@ -331,9 +331,9 @@ def huawei_parse_item(item: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(m, dict):
         m = {}
 
-    sn = normalize_text(pick(item, ["sn", "devSn", "deviceSn", "serialNum", "esn"]))
+    sn = normalize_sn(pick(item, ["sn", "devSn", "deviceSn", "serialNum", "esn"]))
     status = normalize_text(pick(item, ["devStatus", "status", "workStatus"]))
-    e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy"]), None)
+    e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy", "etoday"]), None)
 
     st = 1
     if status:
@@ -351,6 +351,20 @@ def growatt_status_to_1_3(val: Any) -> int:
     if s in ("3", "offline", "off", "0", "disconnect", "disconnected"):
         return 3
     return 1
+
+
+def growatt_extract_etoday(it: Dict[str, Any]) -> Optional[float]:
+    """
+    Growatt device list keys vary across plants. Try many candidates.
+    """
+    candidates = [
+        "eToday", "EToday", "etoday",
+        "todayEnergy", "TodayEnergy", "today_energy",
+        "generationToday", "genToday",
+        "e_today", "E_TODAY",
+    ]
+    v = pick(it, candidates)
+    return safe_float(v, None)
 
 
 # ----------------------------
@@ -380,7 +394,6 @@ def main() -> None:
     extracted_at = now_utc_iso()
     extracted_mx = utc_iso_to_mx_str(extracted_at)
 
-    # Cache meteo per weather-source tuple
     meteo_cache: Dict[Tuple[str, str, int], Tuple[float, float]] = {}
 
     def get_meteo_for(plant_key: str, siteid: str) -> Tuple[float, float]:
@@ -412,7 +425,7 @@ def main() -> None:
             when_utc=when,
             interval_minutes=interval_min,
         )
-        meteo_cache[key] = (irr, cloud_frac)  # cloud is already 0..1
+        meteo_cache[key] = (irr, cloud_frac)
         return irr, cloud_frac
 
     rows_out: List[List[Any]] = []
@@ -432,7 +445,9 @@ def main() -> None:
 
             siteid = srow["siteid"]
             plant_key = srow["plant_key"]
-            wanted_sns = [sn for sn in srow["sns"] if sn]
+            wanted_sns_raw = [sn for sn in srow["sns"] if sn]
+            wanted_sns = [normalize_sn(sn) for sn in wanted_sns_raw]
+
             if not looks_like_growatt_siteid(siteid):
                 continue
 
@@ -441,22 +456,34 @@ def main() -> None:
             gcli.warm_plant_context(siteid)
             items = gcli.fetch_devices_for_plant(siteid, page_size=50, max_pages=5)
 
+            # Build fetched map using normalized SN
             fetched: Dict[str, Dict[str, Any]] = {}
             for it in items:
-                sn = normalize_text(pick(it, ["sn", "deviceSn", "invSn", "serialNum", "serialNo"]))
+                sn0 = pick(it, ["sn", "deviceSn", "invSn", "serialNum", "serialNo"])
+                sn = normalize_sn(sn0)
                 if sn:
                     fetched[sn] = it
 
+            # Debug: if we have no match on this plant, show sample keys once
+            if items and not any(sn in fetched for sn in wanted_sns):
+                LOG.warning("Growatt plant %s: 0/%d SNAP SNs matched device list (check SN format).", siteid, len(wanted_sns))
+                sample = items[0]
+                LOG.info("Growatt plant %s sample keys: %s", siteid, list(sample.keys())[:25])
+
             for sn in wanted_sns:
                 it = fetched.get(sn)
-
-                # ✅ UpdateTime always Mexico City time (one consistent rule)
                 update_time_mx = extracted_mx
 
                 if it:
                     device_type = normalize_text(pick(it, ["deviceType", "deviceTypeNum", "type", "deviceTypeName"])) or "4"
                     status_raw = pick(it, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus"])
-                    etoday = safe_float(pick(it, ["eToday", "EToday", "todayEnergy", "generationToday"]), None)
+                    etoday = growatt_extract_etoday(it)
+
+                    # If still None, log once (helps find correct key)
+                    if etoday is None:
+                        LOG.warning("Growatt plant %s inverter %s: EToday missing. Candidate fields seen: %s",
+                                    siteid, sn, {k: it.get(k) for k in it.keys() if "today" in k.lower() or "e" == k.lower()})
+
                     rows_out.append([
                         extracted_at,
                         update_time_mx,
@@ -469,7 +496,8 @@ def main() -> None:
                         cloud_frac,
                     ])
                 else:
-                    # placeholder: inverter from SNAP not present in list
+                    # Important: don't pretend it's 0 generation; keep blank + mark offline
+                    LOG.warning("Growatt plant %s: SNAP inverter %s not found in device list.", siteid, sn)
                     rows_out.append([
                         extracted_at,
                         update_time_mx,
@@ -504,7 +532,9 @@ def main() -> None:
 
             siteid = srow["siteid"]
             plant_key = srow["plant_key"]
-            wanted_sns = [sn for sn in srow["sns"] if sn]
+            wanted_sns_raw = [sn for sn in srow["sns"] if sn]
+            wanted_sns = [normalize_sn(sn) for sn in wanted_sns_raw]
+
             if not looks_like_huawei_station(siteid):
                 continue
 
@@ -520,7 +550,7 @@ def main() -> None:
                 time.sleep(0.25)
 
             for sn in wanted_sns:
-                update_time_mx = extracted_mx  # ✅ same rule
+                update_time_mx = extracted_mx
                 k = fetched.get(sn)
                 if k:
                     rows_out.append([
@@ -535,6 +565,7 @@ def main() -> None:
                         cloud_frac,
                     ])
                 else:
+                    LOG.warning("Huawei station %s: SNAP inverter %s not returned by getDevRealKpi.", siteid, sn)
                     rows_out.append([
                         extracted_at,
                         update_time_mx,

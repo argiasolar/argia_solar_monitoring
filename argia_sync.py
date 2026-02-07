@@ -215,6 +215,7 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     values = read_table(sheet_id, snap_range)
     if not values:
         return []
+
     header = [normalize_text(h).upper() for h in values[0]]
     rows = values[1:]
 
@@ -224,9 +225,14 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
         except ValueError:
             return None
 
-    i_plant = idx("PLANT_KEY") or idx("PLANTKEY")
+    # ✅ IMPORTANT: do NOT use `or` with indexes (0 is valid but falsy)
+    i_plant = idx("PLANT_KEY")
+    if i_plant is None:
+        i_plant = idx("PLANTKEY")
+
     i_site = idx("SITEID")
     i_brand = idx("BRAND")
+
     if i_plant is None or i_site is None or i_brand is None:
         raise RuntimeError(f"SNAP missing Plant_Key/SITEID/Brand columns. Header={header}")
 
@@ -234,8 +240,10 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
 
     out = []
     for r in rows:
-        if len(r) <= max([i_plant, i_site, i_brand] + (inv_cols or [0])):
+        need_max = max([i_plant, i_site, i_brand] + (inv_cols or [0]))
+        if len(r) <= need_max:
             continue
+
         plant = normalize_text(r[i_plant])
         siteid = normalize_text(r[i_site])
         brand = normalize_text(r[i_brand]).upper()
@@ -246,9 +254,11 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
                 sn = normalize_text(r[j])
                 if sn:
                     sns.append(sn)
+
         sns = list(dict.fromkeys(sns))
         if plant and siteid and sns:
             out.append({"plant_key": plant, "siteid": siteid, "brand": brand, "sns": sns})
+
     return out
 
 
@@ -256,9 +266,6 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
 # Growatt inverter list: force the correct endpoint
 # ----------------------------
 def growatt_fetch_inverters(cli: GrowattMonitoringClient, plant_id: str, page_size: int = 50, max_pages: int = 5) -> List[Dict[str, Any]]:
-    """
-    Force inverter list endpoints. If one fails, try a small set of known safe endpoints.
-    """
     candidates = [
         "/device/getInverterList",
         "/device/getInvList",
@@ -271,8 +278,6 @@ def growatt_fetch_inverters(cli: GrowattMonitoringClient, plant_id: str, page_si
         {"currPage": "1", "pageSize": str(page_size)},  # plantId from cookie
     ]
 
-    all_items: List[Dict[str, Any]] = []
-
     for ep in candidates:
         items_here: List[Dict[str, Any]] = []
         for page in range(1, max_pages + 1):
@@ -282,14 +287,13 @@ def growatt_fetch_inverters(cli: GrowattMonitoringClient, plant_id: str, page_si
                 payload["currPage"] = str(page)
                 payload["pageSize"] = str(page_size)
 
-                data = cli._call_json(plant_id, ep, payload)  # uses safe post/get in your class
+                data = cli._call_json(plant_id, ep, payload)
                 if not data:
                     continue
                 items = cli._extract_items(data)
                 if not items:
                     continue
 
-                # Accept only items that actually have inverter SN fields
                 if not any(growatt_pick(it, ["sn", "deviceSn", "invSn", "serialNum", "serialNo"]) for it in items):
                     continue
 
@@ -304,16 +308,12 @@ def growatt_fetch_inverters(cli: GrowattMonitoringClient, plant_id: str, page_si
 
         if items_here:
             LOG.info("✅ Growatt inverter endpoint %s items=%d plant=%s", ep, len(items_here), plant_id)
-            all_items = items_here
-            break
+            return items_here
 
-    return all_items
+    return []
 
 
 def growatt_status_to_1_3(val: Any) -> int:
-    """
-    Growatt: treat only explicit offline states as 3, everything else is 1.
-    """
     if val is None:
         return 1
     s = str(val).strip().lower()
@@ -361,9 +361,6 @@ class HuaweiThirdDataClient:
 
 
 def huawei_status_to_1_3(val: Any) -> int:
-    """
-    Huawei: be conservative — offline only if explicit 0/3/offline/disconnected.
-    """
     if val is None:
         return 1
     s = str(val).strip().lower()
@@ -466,8 +463,6 @@ def main() -> None:
             irr, cloud_frac = get_meteo_for(plant_key, siteid)
 
             gcli.warm_plant_context(siteid)
-
-            # 🔥 KEY CHANGE: force inverter list
             items = growatt_fetch_inverters(gcli, siteid, page_size=50, max_pages=5)
 
             fetched: Dict[str, Dict[str, Any]] = {}
@@ -480,12 +475,6 @@ def main() -> None:
             if items and not any(sn in fetched for sn in wanted_sns):
                 LOG.warning("Growatt plant %s: 0/%d SNAP SNs matched INVERTER list (check SNAP SNs).", siteid, len(wanted_sns))
                 LOG.info("Growatt plant %s inverter sample keys: %s", siteid, list(items[0].keys())[:25])
-                LOG.info("Growatt plant %s inverter sample SN fields: sn=%s deviceSn=%s invSn=%s serialNum=%s",
-                         siteid,
-                         items[0].get("sn"),
-                         items[0].get("deviceSn"),
-                         items[0].get("invSn"),
-                         items[0].get("serialNum"))
 
             for sn in wanted_sns:
                 it = fetched.get(sn)
@@ -495,7 +484,6 @@ def main() -> None:
                     etoday = growatt_extract_etoday(it)
                     rows_out.append([extracted_at, extracted_mx, siteid, device_type, sn, growatt_status_to_1_3(status_raw), etoday if etoday is not None else "", irr, cloud_frac])
                 else:
-                    # if not found we DON'T claim offline; we set status blank -> you can decide in Looker
                     LOG.warning("Growatt plant %s: SNAP inverter %s not found in INVERTER list.", siteid, sn)
                     rows_out.append([extracted_at, extracted_mx, siteid, "4", sn, "", "", irr, cloud_frac])
 

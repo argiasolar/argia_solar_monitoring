@@ -1,33 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-ARGIA Unified 10-min Sync
-------------------------
-Writes one unified table containing:
-ExtractedAtUTC, UpdateTime, SiteId, DeviceType, DeviceSN, Status, EToday_kWh, Irradiance_kWh_m2, Cloud_Coverage
-
-Sources:
-- Growatt inverters: Growatt web (safe list endpoints, via argia_growatt_inverters.py client)
-- Huawei inverters: FusionSolar thirdData getDevRealKpi by SNS
-- Meteo: Growatt ENV radiant -> 10-min kWh/m² interval + Open-Meteo cloud cover (%)
-
-ENV required:
-- GOOGLE_SHEET_ID
-- GOOGLE_CREDENTIALS (service account json as TEXT)
-
-- GROWATT_USERNAME / GROWATT_PASSWORD
-- HUAWEI_USERNAME / HUAWEI_PASSWORD
-
-Optional:
-- UNIFIED_TAB (default "InverterUnified10m")
-- CONFIG_RANGE (default "Config_Plants!A1:Z1000")
-- SNAP_RANGE (default "SNAP!A1:Z1000")
-- HUAWEI_BASE_URL (default LA5 thirdData)
-- LOG_LEVEL (default INFO)
-- INTERVAL_MINUTES (default 10)
-"""
-
 import os
 import re
 import json
@@ -42,24 +15,16 @@ from googleapiclient.discovery import build
 
 import argia_meteo as meteo
 
-# Import Growatt safe client from your working script
 from argia_growatt_inverters import GrowattMonitoringClient, GrowattAuth  # noqa
-
 
 LOG = logging.getLogger("argia.sync")
 
 
-# ----------------------------
-# Logging
-# ----------------------------
 def setup_logging() -> None:
     level = os.getenv("LOG_LEVEL", "INFO").upper().strip()
     logging.basicConfig(level=level, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
 
-# ----------------------------
-# Helpers
-# ----------------------------
 def now_utc() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -73,11 +38,6 @@ def normalize_text(x: Any) -> str:
 
 
 def safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
-    """
-    Safe float conversion.
-    If default is provided, returns default on failure.
-    If default is None, returns None on failure.
-    """
     try:
         if x is None:
             return default
@@ -115,9 +75,6 @@ def looks_like_huawei_station(s: str) -> bool:
     return (s or "").startswith("NE=")
 
 
-# ----------------------------
-# Google Sheets
-# ----------------------------
 def load_google_creds() -> Credentials:
     raw = os.getenv("GOOGLE_CREDENTIALS", "").strip()
     if not raw:
@@ -185,9 +142,9 @@ def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
 
 
 # ----------------------------
-# Read Config_Plants (header-based)
+# Config_Plants (header-based)
 # ----------------------------
-def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, Any]]:
+def read_config_plants(sheet_id: str, config_range: str) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
@@ -196,7 +153,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
     ).execute()
     values = resp.get("values", []) or []
     if not values:
-        return {}
+        return {}, []
 
     header = [normalize_text(h).upper() for h in values[0]]
     rows = values[1:]
@@ -215,7 +172,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
     i_lon = idx("LONGTITUDE", "LONGITUDE", "LON")
     i_ws = idx("WEATHERSTATION", "WEATHER STATION")
     i_addr = idx("ADDR", "ADDRESS")
-    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SITEID ", "GROWATT_SITEID\t", "GROWATT_SiteID", "GROWATT_SiteID ")
+    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SITEID ", "GROWATT_SITEID\t", "GROWATT_SiteID")
 
     if i_plant is None:
         raise RuntimeError(f"Config_Plants missing PlantKey column. Header={header}")
@@ -251,17 +208,14 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
             "addr": addr,
             "growatt_siteid_for_weather": growatt_site,
         }
-    return out
+
+    return out, header
 
 
 # ----------------------------
-# Read SNAP (header-based)  ✅ FIXED
+# SNAP (header-based) — always reads INVERTER1..4
 # ----------------------------
 def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
-    """
-    Returns list of rows:
-      {plant_key, brand, siteid, sns[]}
-    """
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
@@ -281,7 +235,6 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
         except ValueError:
             return None
 
-    # ✅ IMPORTANT: do NOT use "or" here, because index 0 is falsy
     i_plant = idx("PLANT_KEY")
     if i_plant is None:
         i_plant = idx("PLANTKEY")
@@ -292,11 +245,8 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     if i_plant is None or i_site is None or i_brand is None:
         raise RuntimeError(f"SNAP missing Plant_Key/SITEID/Brand columns. Header={header}")
 
-    # ✅ your sheet has typos: IVERTER2/IVERTER3, so accept both strings
-    inv_cols = [
-        i for i, h in enumerate(header)
-        if ("INVERTER" in h) or ("IVERTER" in h)
-    ]
+    # Accept INVERTER and also legacy typo IVERTER
+    inv_cols = [i for i, h in enumerate(header) if ("INVERTER" in h) or ("IVERTER" in h)]
 
     out = []
     for r in rows:
@@ -312,10 +262,13 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
         for j in inv_cols:
             if j < len(r):
                 sn = normalize_text(r[j])
-                if sn and re.fullmatch(r"[A-Za-z0-9]{8,32}", sn):
+                if sn:
                     sns.append(sn)
 
-        sns = sorted(list(dict.fromkeys(sns)))
+        # keep only non-empty unique
+        sns = [s for s in sns if s]
+        sns = list(dict.fromkeys(sns))
+
         if not plant or not siteid or not sns:
             continue
 
@@ -325,7 +278,7 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
 
 
 # ----------------------------
-# Huawei client (thirdData by SNS)
+# Huawei thirdData
 # ----------------------------
 class HuaweiThirdDataClient:
     def __init__(self, base_url: str, username: str, password: str, timeout: int = 30):
@@ -364,7 +317,10 @@ def huawei_parse_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
     sn = normalize_text(pick(item, ["sn", "devSn", "deviceSn", "serialNum", "esn"]))
     status = normalize_text(pick(item, ["devStatus", "status", "workStatus"]))
-    update_time = normalize_text(pick(item, ["collectTime", "updateTime", "time", "dataTime"]))
+    update_time = normalize_text(
+        pick(item, ["collectTime", "updateTime", "time", "dataTime"])
+        or pick(m, ["collectTime", "updateTime", "time", "dataTime"])
+    )
 
     e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy"]), None)
 
@@ -400,17 +356,21 @@ def main() -> None:
     config_range = os.getenv("CONFIG_RANGE", "Config_Plants!A1:Z1000").strip()
     snap_range = os.getenv("SNAP_RANGE", "SNAP!A1:Z1000").strip()
     interval_min = int(os.getenv("INTERVAL_MINUTES", "10").strip())
+    meteo_debug = os.getenv("ARGIA_METEO_DEBUG", "0").strip()
 
     ensure_header(sheet_id, unified_tab)
 
-    plants = read_config_plants(sheet_id, config_range)
+    plants, config_header = read_config_plants(sheet_id, config_range)
     snap_rows = read_snap(sheet_id, snap_range)
 
+    LOG.info("SNAP rows=%d", len(snap_rows))
     if not snap_rows:
-        LOG.warning("No SNAP rows found.")
         return
 
     when = now_utc()
+    extracted_at = now_utc_iso()
+
+    # meteo cache per plant
     meteo_by_plant: Dict[str, Tuple[float, float]] = {}
 
     def get_meteo_for_plant(plant_key: str, siteid: str) -> Tuple[float, float]:
@@ -423,13 +383,27 @@ def main() -> None:
         ws = conf.get("weather_sn") or ""
         addr = int(conf.get("addr") or 0)
 
-        weather_plant_id = ""
+        # for Huawei stations, use Growatt_SiteID as weather plant id
         if looks_like_growatt_siteid(siteid):
             weather_plant_id = siteid
         else:
             weather_plant_id = normalize_text(conf.get("growatt_siteid_for_weather") or "")
 
-        if not lat or not lon or not ws or not addr or not weather_plant_id:
+        missing = []
+        if not lat: missing.append("lat")
+        if not lon: missing.append("lon")
+        if not ws: missing.append("weather_sn")
+        if not addr: missing.append("addr")
+        if not weather_plant_id: missing.append("weather_plant_id")
+
+        if missing:
+            if meteo_debug in ("1", "true", "yes", "on"):
+                LOG.warning(
+                    "METEO missing for %s (%s): missing=%s conf=%s | Config header=%s",
+                    plant_key, siteid, ",".join(missing),
+                    {k: conf.get(k) for k in ["lat","lon","weather_sn","addr","growatt_siteid_for_weather"]},
+                    config_header,
+                )
             meteo_by_plant[plant_key] = (0.0, 0.0)
             return (0.0, 0.0)
 
@@ -445,11 +419,10 @@ def main() -> None:
         meteo_by_plant[plant_key] = (irr, clouds)
         return irr, clouds
 
-    extracted_at = now_utc_iso()
     rows_out: List[List[Any]] = []
 
     # ----------------------------
-    # Growatt inverters
+    # Growatt inverters (ALWAYS output all SNs)
     # ----------------------------
     growatt_user = os.getenv("GROWATT_USERNAME", "").strip()
     growatt_pass = os.getenv("GROWATT_PASSWORD", "").strip()
@@ -462,44 +435,65 @@ def main() -> None:
         for srow in snap_rows:
             if srow["brand"] != "GROWATT":
                 continue
+
             siteid = srow["siteid"]
             plant_key = srow["plant_key"]
+            wanted_sns = [sn for sn in srow["sns"] if sn]
+
             if not looks_like_growatt_siteid(siteid):
                 continue
 
             irr, clouds = get_meteo_for_plant(plant_key, siteid)
 
             growatt_cli.warm_plant_context(siteid)
-            items = growatt_cli.fetch_devices_for_plant(siteid, page_size=50, max_pages=3)
+            items = growatt_cli.fetch_devices_for_plant(siteid, page_size=50, max_pages=5)
 
-            wanted_sns = set(srow["sns"])
+            # map fetched by SN
+            fetched: Dict[str, Dict[str, Any]] = {}
             for it in items:
                 sn = normalize_text(pick(it, ["sn", "deviceSn", "invSn", "serialNum", "serialNo"]))
-                if not sn or (wanted_sns and sn not in wanted_sns):
-                    continue
+                if sn:
+                    fetched[sn] = it
 
-                device_type = normalize_text(pick(it, ["deviceType", "deviceTypeNum", "type", "deviceTypeName"]))
-                status_raw = pick(it, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus"])
-                update_time = normalize_text(pick(it, ["updateTime", "lastUpdateTime", "time"]))
+            # ALWAYS write for every inverter in SNAP
+            for sn in wanted_sns:
+                it = fetched.get(sn)
 
-                etoday = safe_float(pick(it, ["eToday", "EToday", "todayEnergy", "generationToday"]), None)
+                if it:
+                    device_type = normalize_text(pick(it, ["deviceType", "deviceTypeNum", "type", "deviceTypeName"]))
+                    status_raw = pick(it, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus"])
+                    update_time = normalize_text(pick(it, ["updateTime", "lastUpdateTime", "time"]))
+                    etoday = safe_float(pick(it, ["eToday", "EToday", "todayEnergy", "generationToday"]), None)
 
-                rows_out.append([
-                    extracted_at,
-                    update_time,
-                    siteid,
-                    device_type,
-                    sn,
-                    growatt_status_to_1_3(status_raw),
-                    etoday if etoday is not None else "",
-                    irr,
-                    clouds,
-                ])
+                    rows_out.append([
+                        extracted_at,
+                        update_time,
+                        siteid,
+                        device_type,
+                        sn,
+                        growatt_status_to_1_3(status_raw),
+                        etoday if etoday is not None else "",
+                        irr,
+                        clouds,
+                    ])
+                else:
+                    # placeholder row if not returned by endpoint
+                    rows_out.append([
+                        extracted_at,
+                        "",
+                        siteid,
+                        "",
+                        sn,
+                        3,          # treat as offline/unknown
+                        "",
+                        irr,
+                        clouds,
+                    ])
 
             time.sleep(0.6)
 
     # ----------------------------
-    # Huawei inverters
+    # Huawei inverters (ALWAYS output all SNs)
     # ----------------------------
     h_user = os.getenv("HUAWEI_USERNAME", "").strip()
     h_pass = os.getenv("HUAWEI_PASSWORD", "").strip()
@@ -515,26 +509,33 @@ def main() -> None:
         for srow in snap_rows:
             if srow["brand"] != "HUAWEI":
                 continue
+
             siteid = srow["siteid"]
             plant_key = srow["plant_key"]
+            wanted_sns = [sn for sn in srow["sns"] if sn]
+
             if not looks_like_huawei_station(siteid):
                 continue
 
             irr, clouds = get_meteo_for_plant(plant_key, siteid)
 
-            sns = srow["sns"]
-            for batch in chunked(sns, 50):
+            # fetch KPI for all SNs (batch)
+            fetched: Dict[str, Dict[str, Any]] = {}
+            for batch in chunked(wanted_sns, 50):
                 items = hcli.get_dev_real_kpi_by_sns(devtype, batch)
-
                 for it in items:
                     k = huawei_parse_item(it)
-                    sn = k["sn"]
-                    if not sn:
-                        continue
+                    if k["sn"]:
+                        fetched[k["sn"]] = k
+                time.sleep(0.25)
 
+            for sn in wanted_sns:
+                k = fetched.get(sn)
+                if k:
+                    upd = k["update_time"] or extracted_at  # if Huawei gives nothing, use extraction time
                     rows_out.append([
                         extracted_at,
-                        k["update_time"] or "",
+                        upd,
                         siteid,
                         str(devtype),
                         sn,
@@ -543,8 +544,20 @@ def main() -> None:
                         irr,
                         clouds,
                     ])
+                else:
+                    rows_out.append([
+                        extracted_at,
+                        extracted_at,
+                        siteid,
+                        str(devtype),
+                        sn,
+                        3,
+                        "",
+                        irr,
+                        clouds,
+                    ])
 
-                time.sleep(0.35)
+            time.sleep(0.2)
 
     append_rows(sheet_id, unified_tab, rows_out)
     LOG.info("✅ Unified sync written rows=%d tab=%s", len(rows_out), unified_tab)

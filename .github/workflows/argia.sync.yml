@@ -1,0 +1,62 @@
+name: ARGIA Unified Sync (10min)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 10 minutes from 06:00–19:59 Mexico City time (UTC-6)
+    - cron: "*/10 12-23 * * *"
+    # And 20:00–20:59 MX time == 02:00–02:59 UTC next day
+    - cron: "*/10 0-2 * * *"
+
+concurrency:
+  group: argia-unified-sync
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Unified Sync
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+          # Growatt Web (inverters + meteo radiant)
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          GROWATT_WEB_BASE: "https://server.growatt.com"
+
+          # Huawei (inverters)
+          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
+          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          HUAWEI_BASE_URL: "https://la5.fusionsolar.huawei.com/thirdData"
+          HUAWEI_INVERTER_DEVTYPE: "1"
+
+          # Where to read config/snap and where to write unified table
+          CONFIG_RANGE: "Config_Plants!A1:Z1000"
+          SNAP_RANGE: "SNAP!A1:Z1000"
+          UNIFIED_TAB: "InverterUnified10m"
+
+          # Meteo tuning
+          INTERVAL_MINUTES: "10"
+          ARGIA_METEO_MAX_PAGES: "4"
+          ARGIA_METEO_DEBUG: "0"
+
+          LOG_LEVEL: "INFO"
+        run: |
+          python argia_sync.py

@@ -9,9 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 
-# ============================
-# ENV helpers
-# ============================
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     v = os.environ.get(name)
     return v if v not in (None, "") else default
@@ -52,19 +49,18 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
-# ============================
-# Open-Meteo: nearest hourly cloud cover
-# ============================
+# Reuse sessions
+_SESS = requests.Session()
+_SESS.headers.update({"User-Agent": "ARGIA Meteo Bot", "Accept": "application/json"})
+
+
+# ----------------------------
+# Cloud cover: Open-Meteo (primary)
+# ----------------------------
 _OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 
 
-def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime) -> float:
-    """
-    Returns cloud cover (%) near the given timestamp (converted by Open-Meteo timezone=auto).
-    We query hourly cloudcover and pick the closest hour.
-
-    On failure returns 0.
-    """
+def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
     timeout = _env_int("OPEN_METEO_TIMEOUT", 10)
     retries = _env_int("OPEN_METEO_RETRIES", 3)
     backoff = _env_float("OPEN_METEO_BACKOFF_SEC", 1.2)
@@ -78,51 +74,39 @@ def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime
         "forecast_days": 2,
     }
 
+    target = when_utc.replace(tzinfo=None)
+
     last_err: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
-            r = requests.get(_OPEN_METEO_FORECAST, params=params, timeout=timeout)
+            r = _SESS.get(_OPEN_METEO_FORECAST, params=params, timeout=timeout)
             if r.status_code != 200:
                 _dbg(f"☁️ [OpenMeteo] http={r.status_code} attempt={attempt}")
-                time.sleep(backoff)
+                time.sleep(backoff * attempt)
                 continue
 
             js = r.json()
             hourly = js.get("hourly") or {}
             times = hourly.get("time") or []
             clouds = hourly.get("cloudcover") or []
-
             if not isinstance(times, list) or not isinstance(clouds, list) or len(times) != len(clouds) or not times:
-                _dbg("☁️ [OpenMeteo] bad hourly payload")
-                return 0.0
-
-            # Pick closest hour (Open-Meteo returns local timestamps in "time")
-            # We'll compare by parsing to datetime (no tz) and compare to local projection of when_utc is tricky.
-            # Instead we choose the last timestamp <= now_local-ish by string order and accept it.
-            # Better: pick last time entry and just find nearest by absolute difference to 'now' as naive.
-
-            # Convert when_utc to naive local? Not available. So we choose "nearest" by comparing to last entry
-            # within the same date as when_utc in UTC is not stable. We'll do: choose last item of list as fallback,
-            # but also compute absolute difference vs parsed times assuming they are local and when_utc is also treated naive.
-            target = when_utc.replace(tzinfo=None)
+                return None
 
             best_i = 0
-            best_dt = None
             best_abs = None
-
+            best_dt = None
             for i, tstr in enumerate(times):
-                if not isinstance(tstr, str) or len(tstr) < 13:
+                if not isinstance(tstr, str):
                     continue
                 try:
-                    # "YYYY-MM-DDTHH:MM"
                     dti = dt.datetime.fromisoformat(tstr)
                 except Exception:
                     continue
                 diff = abs((dti - target).total_seconds())
                 if best_abs is None or diff < best_abs:
                     best_abs = diff
-                    best_dt = dti
                     best_i = i
+                    best_dt = dti
 
             cc = _safe_float(clouds[best_i], 0.0)
             _dbg(f"☁️ [OpenMeteo] cloud={cc:.1f}% near={best_dt} (idx={best_i})")
@@ -134,12 +118,64 @@ def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime
             time.sleep(backoff * attempt)
 
     _dbg(f"☁️ [OpenMeteo] error: {last_err}")
-    return 0.0
+    return None
 
 
-# ============================
-# Growatt Web UI: ENV history radiant (W/m²)
-# ============================
+# ----------------------------
+# Cloud cover: OpenWeather fallback (optional)
+# ----------------------------
+def _openweather_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
+    key = _env("OPENWEATHER_API_KEY")
+    if not key:
+        return None
+
+    timeout = _env_int("OPENWEATHER_TIMEOUT", 10)
+    url = "https://api.openweathermap.org/data/2.5/onecall"
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "appid": key,
+        "exclude": "minutely,daily,alerts",
+        "units": "metric",
+    }
+
+    try:
+        r = _SESS.get(url, params=params, timeout=timeout)
+        if r.status_code != 200:
+            _dbg(f"☁️ [OpenWeather] http={r.status_code}")
+            return None
+        js = r.json()
+        hourly = js.get("hourly") or []
+        if not isinstance(hourly, list) or not hourly:
+            return None
+
+        target_ts = int(when_utc.timestamp())
+        best = None
+        best_abs = None
+        for h in hourly:
+            if not isinstance(h, dict):
+                continue
+            ts = h.get("dt")
+            cc = h.get("clouds")
+            if ts is None or cc is None:
+                continue
+            diff = abs(int(ts) - target_ts)
+            if best_abs is None or diff < best_abs:
+                best_abs = diff
+                best = cc
+
+        if best is None:
+            return None
+        _dbg(f"☁️ [OpenWeather] cloud={float(best):.1f}%")
+        return float(best)
+    except Exception as e:
+        _dbg(f"☁️ [OpenWeather] error: {e}")
+        return None
+
+
+# ----------------------------
+# Growatt ENV radiant -> interval irradiance
+# ----------------------------
 class GrowattWebClient:
     def __init__(self, base: str, username: str, password: str) -> None:
         self.base = base.rstrip("/")
@@ -160,15 +196,11 @@ class GrowattWebClient:
     def login(self) -> None:
         r1 = self.s.get(f"{self.base}/login", timeout=30)
         _dbg(f"🔐 [GrowattWeb] GET /login -> {r1.status_code}")
-
         payload = {"account": self.username, "password": self.password}
         r2 = self.s.post(f"{self.base}/login", data=payload, timeout=30)
-
         cookies = self.s.cookies.get_dict()
         ok = "assToken" in cookies
-        _dbg(
-            f"🔐 [GrowattWeb] POST /login -> {r2.status_code} | assToken={ok} | cookies={','.join(sorted(cookies.keys()))}"
-        )
+        _dbg(f"🔐 [GrowattWeb] POST /login -> {r2.status_code} | assToken={ok}")
         if not ok:
             raise RuntimeError("Growatt login failed (no assToken cookie).")
 
@@ -198,7 +230,7 @@ class GrowattWebClient:
 def _calendar_to_dt(cal: Dict[str, Any]) -> Optional[dt.datetime]:
     try:
         y = int(cal["year"])
-        m0 = int(cal["month"])  # 0-based
+        m0 = int(cal["month"])
         d = int(cal.get("dayOfMonth") or cal.get("day"))
         hh = int(cal.get("hourOfDay", 0))
         mm = int(cal.get("minute", 0))
@@ -208,7 +240,6 @@ def _calendar_to_dt(cal: Dict[str, Any]) -> Optional[dt.datetime]:
         return None
 
 
-# per-run cache
 _GROWATT_CLIENT: Optional[GrowattWebClient] = None
 
 
@@ -221,7 +252,6 @@ def _get_growatt_client() -> Optional[GrowattWebClient]:
     user = _env("GROWATT_USERNAME")
     pwd = _env("GROWATT_PASSWORD")
     if not user or not pwd:
-        _dbg("❌ [GrowattWeb] Missing GROWATT_USERNAME/GROWATT_PASSWORD")
         return None
 
     cli = GrowattWebClient(base, user, pwd)
@@ -237,24 +267,14 @@ def _fetch_recent_radiant_wm2(
     when_utc: dt.datetime,
     interval_minutes: int,
 ) -> float:
-    """
-    Pull ENV history for today's date and return a radiant W/m² estimate for the last interval.
-
-    Strategy:
-    - Download env history pages (today)
-    - Convert calendar->datetime
-    - Keep points within last `interval_minutes*2` window (buffer)
-    - Compute average radiant of last two points (or last point)
-    """
     cli = _get_growatt_client()
     if cli is None:
         return 0.0
 
     cli.env_page_seed(plant_id)
-
     day_iso = when_utc.date().isoformat()
-    all_rows: List[Dict[str, Any]] = []
 
+    all_rows: List[Dict[str, Any]] = []
     start = 0
     pages = 0
     max_pages = _env_int("GROWATT_ENV_MAX_PAGES", 6)
@@ -266,19 +286,14 @@ def _fetch_recent_radiant_wm2(
         obj = js.get("obj") or {}
         rows = obj.get("datas") or []
         have_next = bool(obj.get("haveNext"))
-
         if not rows:
             break
-
         all_rows.extend(rows)
-
         if not have_next:
             break
-
         start += len(rows)
         time.sleep(page_sleep)
 
-    # Build points
     pts: List[Tuple[dt.datetime, float]] = []
     for r in all_rows:
         cal = r.get("calendar") or {}
@@ -292,34 +307,20 @@ def _fetch_recent_radiant_wm2(
         return 0.0
 
     pts.sort(key=lambda x: x[0])
-
-    # Filter to recent window in local timestamps returned by Growatt (naive)
-    # We'll treat when_utc naive for approximate filtering.
     target = when_utc.replace(tzinfo=None)
-    window_sec = max(900, interval_minutes * 60 * 2)  # at least 15 min buffer
+    window_sec = max(900, interval_minutes * 60 * 2)
     recent = [(t, r) for (t, r) in pts if abs((t - target).total_seconds()) <= window_sec]
-
-    use = recent if len(recent) >= 1 else pts[-2:]
+    use = recent if recent else pts[-2:]
     if len(use) == 1:
         return float(use[-1][1])
-
-    # Average of last two points
     return float(0.5 * (use[-1][1] + use[-2][1]))
 
 
 def _radiant_to_interval_kwh_m2(radiant_wm2: float, interval_minutes: int) -> float:
-    """
-    Convert radiant W/m² (assumed approx constant during interval) to kWh/m² for that interval:
-      Wh/m² = W/m² * hours
-      kWh/m² = Wh/m² / 1000
-    """
     hours = float(interval_minutes) / 60.0
     return round((max(radiant_wm2, 0.0) * hours) / 1000.0, 5)
 
 
-# ============================
-# Public API
-# ============================
 def get_meteo_snapshot(
     plant_id_for_weather: str,
     lat: float,
@@ -329,13 +330,6 @@ def get_meteo_snapshot(
     when_utc: dt.datetime,
     interval_minutes: int = 10,
 ) -> Tuple[float, float]:
-    """
-    Returns:
-      (Irradiance_kWh_m2_for_interval, Cloud_Coverage_percent)
-
-    - Irradiance: based on Growatt ENV 'radiant' W/m², converted to kWh/m² for the interval
-    - Clouds: Open-Meteo hourly cloud cover nearest to timestamp
-    """
     rad = _fetch_recent_radiant_wm2(
         plant_id=str(plant_id_for_weather),
         weather_sn=str(weather_sn),
@@ -344,9 +338,12 @@ def get_meteo_snapshot(
         interval_minutes=int(interval_minutes),
     )
     irr = _radiant_to_interval_kwh_m2(rad, int(interval_minutes))
-
-    # small informative log line (you already saw this)
     print(f"🌞 [Meteo] plant={plant_id_for_weather} sn={weather_sn} addr={addr} day={when_utc.date().isoformat()} radiant={rad:.1f} W/m²", flush=True)
 
-    clouds = _open_meteo_cloudcover_nearest(float(lat), float(lon), when_utc)
-    return irr, clouds
+    cc = _open_meteo_cloudcover_nearest(float(lat), float(lon), when_utc)
+    if cc is None:
+        cc = _openweather_cloudcover_nearest(float(lat), float(lon), when_utc)
+    if cc is None:
+        cc = 0.0
+
+    return irr, float(cc)

@@ -49,18 +49,22 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
-# Reuse sessions
+# Reuse session
 _SESS = requests.Session()
 _SESS.headers.update({"User-Agent": "ARGIA Meteo Bot", "Accept": "application/json"})
 
 
 # ----------------------------
-# Cloud cover: Open-Meteo (primary)
+# Cloud cover: Open-Meteo (primary) -> returns 0..1
 # ----------------------------
 _OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 
 
-def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
+def _open_meteo_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
+    """
+    Returns cloud cover as fraction 0..1 nearest to the given timestamp.
+    Correctly aligns UTC -> local using Open-Meteo utc_offset_seconds.
+    """
     timeout = _env_int("OPEN_METEO_TIMEOUT", 10)
     retries = _env_int("OPEN_METEO_RETRIES", 3)
     backoff = _env_float("OPEN_METEO_BACKOFF_SEC", 1.2)
@@ -73,8 +77,6 @@ def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime
         "past_days": 2,
         "forecast_days": 2,
     }
-
-    target = when_utc.replace(tzinfo=None)
 
     last_err: Optional[Exception] = None
     for attempt in range(1, retries + 1):
@@ -89,28 +91,36 @@ def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime
             hourly = js.get("hourly") or {}
             times = hourly.get("time") or []
             clouds = hourly.get("cloudcover") or []
+
             if not isinstance(times, list) or not isinstance(clouds, list) or len(times) != len(clouds) or not times:
                 return None
+
+            # Open-Meteo returns "time" in local timezone ("auto")
+            # It also provides utc_offset_seconds so we can convert when_utc -> local naive.
+            offset_sec = int(js.get("utc_offset_seconds") or 0)
+            target_local = (when_utc + dt.timedelta(seconds=offset_sec)).replace(tzinfo=None)
 
             best_i = 0
             best_abs = None
             best_dt = None
+
             for i, tstr in enumerate(times):
                 if not isinstance(tstr, str):
                     continue
                 try:
-                    dti = dt.datetime.fromisoformat(tstr)
+                    dti_local = dt.datetime.fromisoformat(tstr)  # local naive
                 except Exception:
                     continue
-                diff = abs((dti - target).total_seconds())
+                diff = abs((dti_local - target_local).total_seconds())
                 if best_abs is None or diff < best_abs:
                     best_abs = diff
                     best_i = i
-                    best_dt = dti
+                    best_dt = dti_local
 
-            cc = _safe_float(clouds[best_i], 0.0)
-            _dbg(f"☁️ [OpenMeteo] cloud={cc:.1f}% near={best_dt} (idx={best_i})")
-            return float(cc)
+            cc_pct = _safe_float(clouds[best_i], 0.0)
+            cc_frac = max(0.0, min(1.0, cc_pct / 100.0))
+            _dbg(f"☁️ [OpenMeteo] cloud={cc_pct:.1f}% (frac={cc_frac:.3f}) near={best_dt} offset_sec={offset_sec}")
+            return float(round(cc_frac, 4))
 
         except Exception as e:
             last_err = e
@@ -122,9 +132,9 @@ def _open_meteo_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime
 
 
 # ----------------------------
-# Cloud cover: OpenWeather fallback (optional)
+# Cloud cover: OpenWeather fallback (optional) -> returns 0..1
 # ----------------------------
-def _openweather_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
+def _openweather_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
     key = _env("OPENWEATHER_API_KEY")
     if not key:
         return None
@@ -150,7 +160,7 @@ def _openweather_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetim
             return None
 
         target_ts = int(when_utc.timestamp())
-        best = None
+        best_cc = None
         best_abs = None
         for h in hourly:
             if not isinstance(h, dict):
@@ -162,19 +172,22 @@ def _openweather_cloudcover_nearest(lat: float, lon: float, when_utc: dt.datetim
             diff = abs(int(ts) - target_ts)
             if best_abs is None or diff < best_abs:
                 best_abs = diff
-                best = cc
+                best_cc = float(cc)
 
-        if best is None:
+        if best_cc is None:
             return None
-        _dbg(f"☁️ [OpenWeather] cloud={float(best):.1f}%")
-        return float(best)
+
+        cc_frac = max(0.0, min(1.0, best_cc / 100.0))
+        _dbg(f"☁️ [OpenWeather] cloud={best_cc:.1f}% (frac={cc_frac:.3f})")
+        return float(round(cc_frac, 4))
+
     except Exception as e:
         _dbg(f"☁️ [OpenWeather] error: {e}")
         return None
 
 
 # ----------------------------
-# Growatt ENV radiant -> interval irradiance
+# Growatt ENV radiant -> interval irradiance (kWh/m² for interval)
 # ----------------------------
 class GrowattWebClient:
     def __init__(self, base: str, username: str, password: str) -> None:
@@ -230,7 +243,7 @@ class GrowattWebClient:
 def _calendar_to_dt(cal: Dict[str, Any]) -> Optional[dt.datetime]:
     try:
         y = int(cal["year"])
-        m0 = int(cal["month"])
+        m0 = int(cal["month"])  # 0-based
         d = int(cal.get("dayOfMonth") or cal.get("day"))
         hh = int(cal.get("hourOfDay", 0))
         mm = int(cal.get("minute", 0))
@@ -307,6 +320,8 @@ def _fetch_recent_radiant_wm2(
         return 0.0
 
     pts.sort(key=lambda x: x[0])
+
+    # Growatt calendar timestamps are local-naive; we approximate by comparing to when_utc as naive
     target = when_utc.replace(tzinfo=None)
     window_sec = max(900, interval_minutes * 60 * 2)
     recent = [(t, r) for (t, r) in pts if abs((t - target).total_seconds()) <= window_sec]
@@ -330,6 +345,10 @@ def get_meteo_snapshot(
     when_utc: dt.datetime,
     interval_minutes: int = 10,
 ) -> Tuple[float, float]:
+    """
+    Returns:
+      (Irradiance_kWh_m2_for_interval, Cloud_Coverage_fraction_0_1)
+    """
     rad = _fetch_recent_radiant_wm2(
         plant_id=str(plant_id_for_weather),
         weather_sn=str(weather_sn),
@@ -338,11 +357,14 @@ def get_meteo_snapshot(
         interval_minutes=int(interval_minutes),
     )
     irr = _radiant_to_interval_kwh_m2(rad, int(interval_minutes))
-    print(f"🌞 [Meteo] plant={plant_id_for_weather} sn={weather_sn} addr={addr} day={when_utc.date().isoformat()} radiant={rad:.1f} W/m²", flush=True)
+    print(
+        f"🌞 [Meteo] plant={plant_id_for_weather} sn={weather_sn} addr={addr} day={when_utc.date().isoformat()} radiant={rad:.1f} W/m²",
+        flush=True,
+    )
 
-    cc = _open_meteo_cloudcover_nearest(float(lat), float(lon), when_utc)
+    cc = _open_meteo_cloud_fraction_nearest(float(lat), float(lon), when_utc)
     if cc is None:
-        cc = _openweather_cloudcover_nearest(float(lat), float(lon), when_utc)
+        cc = _openweather_cloud_fraction_nearest(float(lat), float(lon), when_utc)
     if cc is None:
         cc = 0.0
 

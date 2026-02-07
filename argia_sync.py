@@ -6,17 +6,20 @@ import re
 import json
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from zoneinfo import ZoneInfo
+
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 import argia_meteo as meteo
-from argia_growatt_inverters import GrowattMonitoringClient, GrowattAuth  # noqa
+from argia_growatt_inverters import GrowattMonitoringClient, GrowattAuth  # uses your working client
 
 LOG = logging.getLogger("argia.sync")
+MX_TZ = ZoneInfo("America/Mexico_City")
 
 
 def setup_logging() -> None:
@@ -30,6 +33,21 @@ def now_utc() -> datetime:
 
 def now_utc_iso() -> str:
     return now_utc().isoformat()
+
+
+def utc_iso_to_mx_str(iso_utc: str) -> str:
+    """
+    Convert ISO UTC like '2026-02-07T01:54:28+00:00' to Mexico City 'YYYY-MM-DD HH:MM:SS'
+    """
+    try:
+        dt_utc = datetime.fromisoformat(iso_utc)
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        dt_mx = dt_utc.astimezone(MX_TZ)
+        return dt_mx.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        # fallback: "now" in MX
+        return datetime.now(MX_TZ).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def normalize_text(x: Any) -> str:
@@ -107,14 +125,14 @@ def ensure_header(sheet_id: str, tab: str) -> None:
     ensure_sheet_exists(sheet_id, tab)
     header = [
         "ExtractedAtUTC",
-        "UpdateTime",
+        "UpdateTime",            # always Mexico City time
         "SiteId",
         "DeviceType",
         "DeviceSN",
         "Status",
         "EToday_kWh",
         "Irradiance_kWh_m2",
-        "Cloud_Coverage",
+        "Cloud_Coverage",        # 0..1
     ]
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
@@ -146,7 +164,7 @@ def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
 # ----------------------------
 # Config_Plants (header-based)
 # ----------------------------
-def read_config_plants(sheet_id: str, config_range: str) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, Any]]:
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
@@ -155,7 +173,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Tuple[Dict[str, Dict
     ).execute()
     values = resp.get("values", []) or []
     if not values:
-        return {}, []
+        return {}
 
     header = [normalize_text(h).upper() for h in values[0]]
     rows = values[1:]
@@ -174,7 +192,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Tuple[Dict[str, Dict
     i_lon = idx("LONGTITUDE", "LONGITUDE", "LON")
     i_ws = idx("WEATHERSTATION", "WEATHER STATION")
     i_addr = idx("ADDR", "ADDRESS")
-    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SiteID", "GROWATT_SITEID ")
+    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SiteID")
 
     if i_plant is None:
         raise RuntimeError(f"Config_Plants missing PlantKey column. Header={header}")
@@ -211,7 +229,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Tuple[Dict[str, Dict
             "growatt_siteid_for_weather": growatt_site,
         }
 
-    return out, header
+    return out
 
 
 # ----------------------------
@@ -265,8 +283,7 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
                 if sn:
                     sns.append(sn)
 
-        sns = [s for s in sns if s]
-        sns = list(dict.fromkeys(sns))
+        sns = list(dict.fromkeys([s for s in sns if s]))
 
         if not plant or not siteid or not sns:
             continue
@@ -316,11 +333,6 @@ def huawei_parse_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
     sn = normalize_text(pick(item, ["sn", "devSn", "deviceSn", "serialNum", "esn"]))
     status = normalize_text(pick(item, ["devStatus", "status", "workStatus"]))
-    update_time = normalize_text(
-        pick(item, ["collectTime", "updateTime", "time", "dataTime"])
-        or pick(m, ["collectTime", "updateTime", "time", "dataTime"])
-    )
-
     e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy"]), None)
 
     st = 1
@@ -329,7 +341,7 @@ def huawei_parse_item(item: Dict[str, Any]) -> Dict[str, Any]:
         if s in ("3", "offline", "off", "0", "disconnected"):
             st = 3
 
-    return {"sn": sn, "status_num": st, "update_time": update_time, "e_today": e_today}
+    return {"sn": sn, "status_num": st, "e_today": e_today}
 
 
 def growatt_status_to_1_3(val: Any) -> int:
@@ -358,17 +370,17 @@ def main() -> None:
 
     ensure_header(sheet_id, unified_tab)
 
-    plants, _ = read_config_plants(sheet_id, config_range)
+    plants = read_config_plants(sheet_id, config_range)
     snap_rows = read_snap(sheet_id, snap_range)
-
     LOG.info("SNAP rows=%d", len(snap_rows))
     if not snap_rows:
         return
 
     when = now_utc()
     extracted_at = now_utc_iso()
+    extracted_mx = utc_iso_to_mx_str(extracted_at)
 
-    # ✅ cache by "meteo source", not by plant_key
+    # Cache meteo per weather-source tuple
     meteo_cache: Dict[Tuple[str, str, int], Tuple[float, float]] = {}
 
     def get_meteo_for(plant_key: str, siteid: str) -> Tuple[float, float]:
@@ -391,7 +403,7 @@ def main() -> None:
             meteo_cache[key] = (0.0, 0.0)
             return (0.0, 0.0)
 
-        irr, clouds = meteo.get_meteo_snapshot(
+        irr, cloud_frac = meteo.get_meteo_snapshot(
             plant_id_for_weather=str(weather_plant_id),
             lat=float(lat),
             lon=float(lon),
@@ -400,12 +412,14 @@ def main() -> None:
             when_utc=when,
             interval_minutes=interval_min,
         )
-        meteo_cache[key] = (irr, clouds)
-        return irr, clouds
+        meteo_cache[key] = (irr, cloud_frac)  # cloud is already 0..1
+        return irr, cloud_frac
 
     rows_out: List[List[Any]] = []
 
+    # ----------------------------
     # Growatt
+    # ----------------------------
     g_user = os.getenv("GROWATT_USERNAME", "").strip()
     g_pass = os.getenv("GROWATT_PASSWORD", "").strip()
     if g_user and g_pass:
@@ -422,7 +436,7 @@ def main() -> None:
             if not looks_like_growatt_siteid(siteid):
                 continue
 
-            irr, clouds = get_meteo_for(plant_key, siteid)
+            irr, cloud_frac = get_meteo_for(plant_key, siteid)
 
             gcli.warm_plant_context(siteid)
             items = gcli.fetch_devices_for_plant(siteid, page_size=50, max_pages=5)
@@ -435,21 +449,46 @@ def main() -> None:
 
             for sn in wanted_sns:
                 it = fetched.get(sn)
+
+                # ✅ UpdateTime always Mexico City time (one consistent rule)
+                update_time_mx = extracted_mx
+
                 if it:
-                    device_type = normalize_text(pick(it, ["deviceType", "deviceTypeNum", "type", "deviceTypeName"]))
+                    device_type = normalize_text(pick(it, ["deviceType", "deviceTypeNum", "type", "deviceTypeName"])) or "4"
                     status_raw = pick(it, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus"])
-                    update_time = normalize_text(pick(it, ["updateTime", "lastUpdateTime", "time"]))
                     etoday = safe_float(pick(it, ["eToday", "EToday", "todayEnergy", "generationToday"]), None)
-                    rows_out.append([extracted_at, update_time, siteid, device_type, sn, growatt_status_to_1_3(status_raw),
-                                     etoday if etoday is not None else "", irr, clouds])
+                    rows_out.append([
+                        extracted_at,
+                        update_time_mx,
+                        siteid,
+                        device_type,
+                        sn,
+                        growatt_status_to_1_3(status_raw),
+                        etoday if etoday is not None else "",
+                        irr,
+                        cloud_frac,
+                    ])
                 else:
-                    rows_out.append([extracted_at, "", siteid, "", sn, 3, "", irr, clouds])
+                    # placeholder: inverter from SNAP not present in list
+                    rows_out.append([
+                        extracted_at,
+                        update_time_mx,
+                        siteid,
+                        "4",
+                        sn,
+                        3,
+                        "",
+                        irr,
+                        cloud_frac,
+                    ])
 
             time.sleep(0.6)
     else:
         LOG.warning("Missing Growatt creds; skipping Growatt.")
 
+    # ----------------------------
     # Huawei
+    # ----------------------------
     h_user = os.getenv("HUAWEI_USERNAME", "").strip()
     h_pass = os.getenv("HUAWEI_PASSWORD", "").strip()
     if h_user and h_pass:
@@ -469,7 +508,7 @@ def main() -> None:
             if not looks_like_huawei_station(siteid):
                 continue
 
-            irr, clouds = get_meteo_for(plant_key, siteid)
+            irr, cloud_frac = get_meteo_for(plant_key, siteid)
 
             fetched: Dict[str, Dict[str, Any]] = {}
             for batch in chunked(wanted_sns, 50):
@@ -481,13 +520,32 @@ def main() -> None:
                 time.sleep(0.25)
 
             for sn in wanted_sns:
+                update_time_mx = extracted_mx  # ✅ same rule
                 k = fetched.get(sn)
                 if k:
-                    upd = k["update_time"] or extracted_at
-                    rows_out.append([extracted_at, upd, siteid, str(devtype), sn, k["status_num"],
-                                     k["e_today"] if k["e_today"] is not None else "", irr, clouds])
+                    rows_out.append([
+                        extracted_at,
+                        update_time_mx,
+                        siteid,
+                        str(devtype) if devtype else "1",
+                        sn,
+                        k["status_num"],
+                        k["e_today"] if k["e_today"] is not None else "",
+                        irr,
+                        cloud_frac,
+                    ])
                 else:
-                    rows_out.append([extracted_at, extracted_at, siteid, str(devtype), sn, 3, "", irr, clouds])
+                    rows_out.append([
+                        extracted_at,
+                        update_time_mx,
+                        siteid,
+                        str(devtype) if devtype else "1",
+                        sn,
+                        3,
+                        "",
+                        irr,
+                        cloud_frac,
+                    ])
 
             time.sleep(0.2)
     else:

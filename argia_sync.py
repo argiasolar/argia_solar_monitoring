@@ -188,12 +188,6 @@ def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
 # Read Config_Plants (header-based)
 # ----------------------------
 def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, Any]]:
-    """
-    Returns dict keyed by PlantKey with fields:
-      brand, siteid, lat, lon, weather_sn, addr, growatt_siteid_for_weather
-
-    We search by header names, NOT fixed indexes, so it tolerates your changing columns.
-    """
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
@@ -221,7 +215,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
     i_lon = idx("LONGTITUDE", "LONGITUDE", "LON")
     i_ws = idx("WEATHERSTATION", "WEATHER STATION")
     i_addr = idx("ADDR", "ADDRESS")
-    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SiteID", "GROWATT_SITeID", "GROWATT_SiteID")
+    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SITEID ", "GROWATT_SITEID\t", "GROWATT_SiteID", "GROWATT_SiteID ")
 
     if i_plant is None:
         raise RuntimeError(f"Config_Plants missing PlantKey column. Header={header}")
@@ -261,7 +255,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
 
 
 # ----------------------------
-# Read SNAP (header-based)
+# Read SNAP (header-based)  ✅ FIXED
 # ----------------------------
 def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     """
@@ -287,21 +281,26 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
         except ValueError:
             return None
 
-    i_plant = idx("PLANT_KEY") or idx("PLANTKEY")
+    # ✅ IMPORTANT: do NOT use "or" here, because index 0 is falsy
+    i_plant = idx("PLANT_KEY")
+    if i_plant is None:
+        i_plant = idx("PLANTKEY")
+
     i_site = idx("SITEID")
     i_brand = idx("BRAND")
 
     if i_plant is None or i_site is None or i_brand is None:
         raise RuntimeError(f"SNAP missing Plant_Key/SITEID/Brand columns. Header={header}")
 
-    inv_cols = [i for i, h in enumerate(header) if "INVERTER" in h]
+    # ✅ your sheet has typos: IVERTER2/IVERTER3, so accept both strings
+    inv_cols = [
+        i for i, h in enumerate(header)
+        if ("INVERTER" in h) or ("IVERTER" in h)
+    ]
 
     out = []
     for r in rows:
-        if inv_cols:
-            need = max([i_plant, i_site, i_brand] + inv_cols)
-        else:
-            need = max([i_plant, i_site, i_brand])
+        need = max([i_plant, i_site, i_brand] + (inv_cols or [0]))
         if len(r) <= need:
             continue
 

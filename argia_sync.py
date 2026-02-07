@@ -4,22 +4,25 @@
 """
 ARGIA – Unified Inverter + Meteo Sync (10-min)
 ----------------------------------------------
-Reads:
+Reads from Google Sheets:
 - SNAP (Plant_Key, SITEID, INVERTER1..4, DATALOGGER, BRAND)
 - Config_Plants (Plantkey, Brand, Latitude, Longtitude, WeatherStation, Addr, Growatt_SiteID, etc.)
 
 Fetches:
-- Growatt inverter snapshot per plant (SNAP-aware endpoint selection so SNs match)
-- Huawei inverter real KPI per inverter SN (FusionSolar thirdData)
+- Growatt: inverter snapshot per plant (SNAP-aware endpoint selection so returned SNs match SNAP)
+- Huawei: inverter real KPI by SNS (stable method) via FusionSolar thirdData getDevRealKpi
 - Meteo:
-    - Irradiance from Growatt ENV station (radiant W/m² latest point near "now")
-    - Cloud cover from Open-Meteo + optional OpenWeather blend
-Outputs to Google Sheets tab UNIFIED_TAB:
+    - Irradiance interval kWh/m² from Growatt ENV "radiant" using argia_meteo.get_meteo_snapshot()
+    - Cloud cover fraction 0..1 via argia_meteo.get_cloud_fraction() (inside get_meteo_snapshot)
+
+Writes to Google Sheets tab UNIFIED_TAB (default InverterUnified10m):
 ExtractedAtUTC, UpdateTime, SiteId, DeviceType, DeviceSN, Status, EToday_kWh, Irradiance_kWh_m2, Cloud_Coverage
 
 Notes:
-- Cloud_Coverage is written as 0..1 fraction (not %).
-- UpdateTime is always Mexico City local time (America/Mexico_City).
+- Cloud_Coverage is 0..1 fraction (not %).
+- UpdateTime is Mexico City local time string (America/Mexico_City).
+- Huawei is done by SNS because it worked reliably in your previous version.
+- Irradiance is interval energy (kWh/m² per INTERVAL_MINUTES), not W/m².
 
 Env required:
 - GOOGLE_SHEET_ID
@@ -32,12 +35,13 @@ Growatt (web):
 Huawei:
 - HUAWEI_USERNAME / HUAWEI_PASSWORD
 - HUAWEI_BASE_URL (default https://la5.fusionsolar.huawei.com/thirdData)
+- HUAWEI_INVERTER_DEVTYPE (default "1")
 
-Meteo:
-- OPENWEATHER_API_KEY (optional)  (also supports OPEN_WEATHER_API_KEY)
-- OPEN_METEO_TIMEOUT (default 10)
-- OPEN_METEO_RETRIES (default 3)
-- OPEN_METEO_BACKOFF_SEC (default 1.2)
+Meteo (used by argia_meteo.py):
+- GROWATT_USERNAME / GROWATT_PASSWORD / GROWATT_WEB_BASE
+- OPENWEATHER_API_KEY (optional)
+- OPEN_METEO_TIMEOUT / OPEN_METEO_RETRIES / OPEN_METEO_BACKOFF_SEC
+- GROWATT_ENV_MAX_PAGES
 
 Ranges/tabs:
 - UNIFIED_TAB (default InverterUnified10m)
@@ -47,6 +51,7 @@ Ranges/tabs:
 Tuning:
 - PAGE_SIZE (default 50)
 - MAX_PAGES (default 6)
+- INTERVAL_MINUTES (default 10)
 - LOG_LEVEL (default INFO)
 """
 
@@ -66,16 +71,17 @@ import requests
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 try:
     from zoneinfo import ZoneInfo
 except Exception:
     ZoneInfo = None  # type: ignore
 
+import argia_meteo as meteo  # uses Growatt ENV + OpenMeteo/OpenWeather internally
+
 
 # ============================
-# Logging
+# Logging / TZ
 # ============================
 
 LOG = logging.getLogger("argia.sync")
@@ -84,6 +90,27 @@ LOG = logging.getLogger("argia.sync")
 def setup_logging() -> None:
     level = os.getenv("LOG_LEVEL", "INFO").upper().strip()
     logging.basicConfig(level=level, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+
+
+def tz_mx() -> dt.tzinfo:
+    if ZoneInfo:
+        try:
+            return ZoneInfo("America/Mexico_City")
+        except Exception:
+            pass
+    return dt.timezone(dt.timedelta(hours=-6))
+
+
+def now_utc() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+
+
+def now_mx() -> dt.datetime:
+    return now_utc().astimezone(tz_mx())
+
+
+def fmt_mx(ts: dt.datetime) -> str:
+    return ts.astimezone(tz_mx()).strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ============================
@@ -124,27 +151,12 @@ def normalize_sn(x: Any) -> str:
     return s
 
 
-def now_utc() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+def looks_like_growatt_siteid(s: str) -> bool:
+    return bool(re.fullmatch(r"\d{6,12}", s or ""))
 
 
-def tz_mx() -> dt.tzinfo:
-    # Mexico City
-    if ZoneInfo:
-        try:
-            return ZoneInfo("America/Mexico_City")
-        except Exception:
-            pass
-    # fallback: fixed offset -6
-    return dt.timezone(dt.timedelta(hours=-6))
-
-
-def now_mx() -> dt.datetime:
-    return now_utc().astimezone(tz_mx())
-
-
-def fmt_mx(ts: dt.datetime) -> str:
-    return ts.astimezone(tz_mx()).strftime("%Y-%m-%d %H:%M:%S")
+def looks_like_huawei_station(s: str) -> bool:
+    return (s or "").startswith("NE=")
 
 
 def parse_vendor_time_to_mx(s: Any) -> Optional[str]:
@@ -174,12 +186,9 @@ def parse_vendor_time_to_mx(s: Any) -> Optional[str]:
         except Exception:
             return None
 
-    # common formats
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):
         try:
             naive = dt.datetime.strptime(st, fmt)
-            # assume vendor time is already MX local (Growatt often is local-ish)
-            # treat as MX and format
             local = naive.replace(tzinfo=tz_mx())
             return fmt_mx(local)
         except Exception:
@@ -291,7 +300,6 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     header = values[0]
     idx = header_index_map(header)
 
-    # Case-insensitive / tolerant
     def find_col(*names: str) -> Optional[int]:
         for n in names:
             if n.lower() in idx:
@@ -301,21 +309,20 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     i_pk = find_col("plant_key", "plantkey", "plant key")
     i_site = find_col("siteid", "site_id", "site id")
     i_brand = find_col("brand")
+    i_logger = idx.get("datalogger")
 
     if i_pk is None or i_site is None or i_brand is None:
         raise RuntimeError(f"SNAP missing Plant_Key/SITEID/BRAND columns. Header={header}")
 
-    inverter_cols = []
+    # inverter columns
+    inverter_cols: List[int] = []
     for cand in ("inverter1", "inverter2", "inverter3", "inverter4", "iverter2"):  # tolerate old typo
         if cand in idx:
             inverter_cols.append(idx[cand])
-    # Also: scan for any columns that start with "inverter"
     for k, i in idx.items():
         if k.startswith("inverter") and i not in inverter_cols:
             inverter_cols.append(i)
     inverter_cols = sorted(list(dict.fromkeys(inverter_cols)))
-
-    i_logger = idx.get("datalogger")
 
     out: List[Dict[str, Any]] = []
     for r in values[1:]:
@@ -347,14 +354,6 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
 
 
 def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, Any]]:
-    """
-    Returns map by Plantkey (upper as-is) and also by SiteID.
-    We mainly need:
-    - lat, lon
-    - weather_station (serial)
-    - addr
-    - growatt_siteid (numeric for Huawei fallback station etc.)
-    """
     values = values_get(sheet_id, config_range)
     if not values:
         return {}
@@ -369,7 +368,6 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
         return None
 
     i_pk = find_col("plantkey", "plant_key", "plant key")
-    i_brand = find_col("brand")
     i_lat = find_col("latitude", "lat")
     i_lon = find_col("longtitude", "longitude", "lon")
     i_siteid = find_col("siteid", "site_id", "site id")
@@ -384,10 +382,8 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
         if not pk:
             continue
 
-        brand = str(r[i_brand]).strip().upper() if (i_brand is not None and i_brand < len(r)) else ""
         lat = safe_float(r[i_lat], 0.0) if (i_lat is not None and i_lat < len(r)) else 0.0
         lon = safe_float(r[i_lon], 0.0) if (i_lon is not None and i_lon < len(r)) else 0.0
-
         siteid = str(r[i_siteid]).strip() if (i_siteid is not None and i_siteid < len(r)) else ""
         ws = str(r[i_ws]).strip() if (i_ws is not None and i_ws < len(r)) else ""
         addr = int(safe_float(r[i_addr], 0.0)) if (i_addr is not None and i_addr < len(r)) else 0
@@ -395,7 +391,6 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
 
         out[pk] = {
             "plant_key": pk,
-            "brand": brand,
             "lat": lat,
             "lon": lon,
             "siteid": siteid,
@@ -403,8 +398,6 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
             "addr": addr,
             "growatt_siteid": growatt_siteid,
         }
-
-        # also index by SiteId if present
         if siteid:
             out[f"SITE::{siteid}"] = out[pk]
 
@@ -412,248 +405,54 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
 
 
 # ============================
-# Meteo: cloud + irradiance
+# Meteo cache (interval kWh/m² + cloud 0..1)
 # ============================
 
-OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
-OPEN_METEO_ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
+_METEO_CACHE: Dict[Tuple[str, str, int, int], Tuple[float, float]] = {}
 
 
-def open_meteo_cloud_fraction(lat: float, lon: float, when_utc: dt.datetime) -> float:
+def meteo_for_site(
+    plant_key: str,
+    siteid: str,
+    plant_conf: Dict[str, Any],
+    when_utc: dt.datetime,
+    interval_minutes: int,
+) -> Tuple[float, float]:
     """
-    Gets cloud cover fraction (0..1) for the nearest available hourly point to local time.
-    Uses forecast with timezone=auto and past_days.
+    Returns (irradiance_kwh_m2_interval, cloud_fraction_0_1)
+
+    Weather plant id:
+    - Growatt plants: siteid is numeric => use siteid
+    - Huawei plants: siteid is NE=... => use Config_Plants.Growatt_SiteID (numeric) to query Growatt ENV
     """
-    timeout = float(env("OPEN_METEO_TIMEOUT", "10") or "10")
-    retries = int(env("OPEN_METEO_RETRIES", "3") or "3")
-    backoff = float(env("OPEN_METEO_BACKOFF_SEC", "1.2") or "1.2")
-
-    # Request a window that includes now
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "cloudcover",
-        "timezone": "auto",
-        "past_days": 2,
-        "forecast_days": 2,
-    }
-
-    def compute(js: Dict[str, Any]) -> Optional[float]:
-        hourly = js.get("hourly") or {}
-        times = hourly.get("time") or []
-        clouds = hourly.get("cloudcover") or []
-        if not isinstance(times, list) or not isinstance(clouds, list) or len(times) != len(clouds) or not times:
-            return None
-
-        # Choose nearest hour to "now in local timezone"
-        # We don't know offset; Open-Meteo returns ISO strings in requested timezone.
-        # We'll parse and compare to local now_mx as a decent approximation for Mexico projects.
-        target = now_mx().replace(minute=0, second=0, microsecond=0)
-
-        best_i = None
-        best_dt = None
-        best_diff = None
-
-        for i, t_str in enumerate(times):
-            if not isinstance(t_str, str):
-                continue
-            # "YYYY-MM-DDTHH:MM"
-            try:
-                cand = dt.datetime.fromisoformat(t_str)
-            except Exception:
-                continue
-
-            # treat returned time as local time (naive), attach MX tz for diff
-            cand_local = cand.replace(tzinfo=tz_mx())
-            diff = abs((cand_local - target).total_seconds())
-
-            if best_diff is None or diff < best_diff:
-                best_diff = diff
-                best_i = i
-                best_dt = cand_local
-
-        if best_i is None:
-            return None
-
-        v = safe_float(clouds[best_i], 0.0)
-        frac = max(0.0, min(1.0, v / 100.0))
-        LOG.debug("[OpenMeteo] cloud=%.1f%% (frac=%.3f) near=%s", v, frac, best_dt)
-        return frac
-
-    last_err = None
-    for attempt in range(1, retries + 1):
-        try:
-            r = requests.get(OPEN_METEO_FORECAST, params=params, timeout=timeout)
-            if r.status_code == 200:
-                js = r.json()
-                val = compute(js)
-                if val is not None:
-                    return val
-            last_err = f"http={r.status_code}"
-        except Exception as e:
-            last_err = str(e)
-        time.sleep(backoff * attempt)
-
-    LOG.warning("[OpenMeteo] failed: %s", last_err)
-    return 0.0
-
-
-def openweather_cloud_fraction(lat: float, lon: float) -> Optional[float]:
-    key = env("OPENWEATHER_API_KEY") or env("OPEN_WEATHER_API_KEY")
-    if not key:
-        return None
-    try:
-        # OneCall 3.0 requires a paid plan; use /weather which is widely available
-        r = requests.get(
-            "https://api.openweathermap.org/data/2.5/weather",
-            params={"lat": lat, "lon": lon, "appid": key},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            LOG.warning("[OpenWeather] http=%s", r.status_code)
-            return None
-        js = r.json()
-        clouds = (js.get("clouds") or {}).get("all")
-        v = safe_float(clouds, 0.0)
-        frac = max(0.0, min(1.0, v / 100.0))
-        return frac
-    except Exception as e:
-        LOG.warning("[OpenWeather] error: %s", e)
-        return None
-
-
-# ---- Growatt ENV "radiant" latest ----
-
-class GrowattWebClient:
-    def __init__(self, base: str, username: str, password: str) -> None:
-        self.base = base.rstrip("/")
-        self.username = username
-        self.password = password
-        self.s = requests.Session()
-        self.s.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144 Safari/537.36"
-            ),
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Connection": "keep-alive",
-        })
-
-    def login(self) -> None:
-        r1 = self.s.get(f"{self.base}/login", timeout=30)
-        LOG.debug("[GrowattWeb] GET /login -> %s", r1.status_code)
-        r2 = self.s.post(f"{self.base}/login", data={"account": self.username, "password": self.password}, timeout=30)
-        cookies = self.s.cookies.get_dict()
-        ok = "assToken" in cookies
-        LOG.debug("[GrowattWeb] POST /login -> %s assToken=%s", r2.status_code, ok)
-        if not ok:
-            raise RuntimeError("Growatt login failed (no assToken cookie).")
-
-    def _seed_plant(self, plant_id: str) -> None:
-        self.s.cookies.set("selectedPlantId", str(plant_id))
-
-    def env_page_seed(self, plant_id: str) -> None:
-        self._seed_plant(plant_id)
-        self.s.get(f"{self.base}/device/getEnvPage", timeout=30)
-
-    def get_env_history(self, plant_id: str, datalog_sn: str, addr: int, day_iso: str, start: int) -> Dict[str, Any]:
-        self._seed_plant(plant_id)
-        payload = {
-            "datalogSn": datalog_sn,
-            "addr": str(addr),
-            "startDate": day_iso,
-            "endDate": day_iso,
-            "start": str(start),
-        }
-        r = self.s.post(f"{self.base}/device/getEnvHistory", data=payload, timeout=45)
-        r.raise_for_status()
-        return r.json()
-
-
-_GROWATT_WEB: Optional[GrowattWebClient] = None
-_METEO_CACHE: Dict[str, Tuple[float, float]] = {}  # siteid -> (irr_value, cloud_frac)
-
-
-def get_growatt_web() -> Optional[GrowattWebClient]:
-    global _GROWATT_WEB
-    if _GROWATT_WEB:
-        return _GROWATT_WEB
-
-    base = env("GROWATT_WEB_BASE", "https://server.growatt.com")
-    user = env("GROWATT_USERNAME")
-    pwd = env("GROWATT_PASSWORD")
-    if not user or not pwd:
-        LOG.warning("Missing GROWATT_USERNAME/GROWATT_PASSWORD -> meteo irradiance will be 0")
-        return None
-
-    cli = GrowattWebClient(base, user, pwd)
-    cli.login()
-    _GROWATT_WEB = cli
-    return cli
-
-
-def meteo_for_site(siteid: str, plant_conf: Dict[str, Any]) -> Tuple[float, float]:
-    """
-    Returns (irradiance_value, cloud_fraction_0_1)
-    Irradiance value: latest 'radiant' (W/m²) from Growatt env history for today
-    Cloud: blend OpenMeteo + OpenWeather if available; else OpenMeteo.
-    Cached per site per run.
-    """
-    if siteid in _METEO_CACHE:
-        return _METEO_CACHE[siteid]
-
     lat = safe_float(plant_conf.get("lat"), 0.0)
     lon = safe_float(plant_conf.get("lon"), 0.0)
-
-    # Cloud
-    om = open_meteo_cloud_fraction(lat, lon, now_utc()) if (lat and lon) else 0.0
-    ow = openweather_cloud_fraction(lat, lon) if (lat and lon) else None
-    if ow is not None:
-        cloud = 0.5 * (om + ow)
-        LOG.debug("[CloudBlend] OpenMeteo=%.3f OpenWeather=%.3f -> avg", om, ow)
-    else:
-        cloud = om
-
-    # Irradiance (latest radiant)
-    irr = 0.0
     ws = str(plant_conf.get("weather_station") or "").strip()
     addr = int(safe_float(plant_conf.get("addr"), 0.0))
-    growatt_site = str(plant_conf.get("growatt_siteid") or plant_conf.get("siteid") or siteid).strip()
+    growatt_site = str(plant_conf.get("growatt_siteid") or "").strip()
 
-    if growatt_site.isdigit() and ws:
-        cli = get_growatt_web()
-        if cli:
-            try:
-                cli.env_page_seed(growatt_site)
-                day_iso = now_mx().date().isoformat()
+    weather_plant_id = siteid if looks_like_growatt_siteid(siteid) else growatt_site
+    cache_key = (str(weather_plant_id), str(ws), int(addr), int(interval_minutes))
+    if cache_key in _METEO_CACHE:
+        return _METEO_CACHE[cache_key]
 
-                # Pull a few pages, keep last radiant seen
-                max_pages = env_int("GROWATT_ENV_MAX_PAGES", 6)
-                sleep_s = float(env("GROWATT_ENV_PAGE_SLEEP", "0.10") or "0.10")
-                start = 0
-                last_rad = 0.0
+    # If not enough info => zeros
+    if not weather_plant_id or not looks_like_growatt_siteid(weather_plant_id) or not ws or not addr or not lat or not lon:
+        _METEO_CACHE[cache_key] = (0.0, 0.0)
+        return _METEO_CACHE[cache_key]
 
-                for _ in range(max_pages):
-                    js = cli.get_env_history(growatt_site, ws, addr, day_iso, start)
-                    obj = js.get("obj") or {}
-                    rows = obj.get("datas") or []
-                    have_next = bool(obj.get("haveNext"))
-
-                    for rr in rows:
-                        if isinstance(rr, dict) and "radiant" in rr:
-                            last_rad = safe_float(rr.get("radiant"), last_rad)
-
-                    if not have_next or not rows:
-                        break
-                    start += len(rows)
-                    time.sleep(sleep_s)
-
-                irr = max(0.0, float(last_rad))
-            except Exception as e:
-                LOG.warning("[Meteo] growatt env error site=%s ws=%s addr=%s: %s", growatt_site, ws, addr, e)
-
-    _METEO_CACHE[siteid] = (irr, max(0.0, min(1.0, cloud)))
-    return _METEO_CACHE[siteid]
+    irr, cloud = meteo.get_meteo_snapshot(
+        plant_id_for_weather=str(weather_plant_id),
+        lat=float(lat),
+        lon=float(lon),
+        weather_sn=str(ws),
+        addr=int(addr),
+        when_utc=when_utc,
+        interval_minutes=int(interval_minutes),
+    )
+    # argia_meteo already returns kWh/m2 for interval and cloud fraction
+    _METEO_CACHE[cache_key] = (float(irr), float(cloud))
+    return _METEO_CACHE[cache_key]
 
 
 # ============================
@@ -707,9 +506,9 @@ class GrowattMonitoringClient:
         LOG.info("✅ Login OK (assToken present). Cookies: %s", " | ".join(sorted(list(cookies.keys()))))
 
     def warm_plant_context(self, plant_id: str) -> None:
+        # Warm a bit + set cookies like UI does
         self.get("/device")
         self.get("/device/photovoltaic", params={"plantId": plant_id}, referer=self.BASE + "/device")
-
         self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
         self.s.cookies.set("selPage", "%2Fpanel", domain="server.growatt.com", path="/")
 
@@ -775,8 +574,8 @@ class GrowattMonitoringClient:
         SNAP-aware endpoint probing: accept endpoint only if it yields SNs that match SNAP.
         """
         wanted = {normalize_sn(x) for x in (snap_sns or []) if x}
-        # Warm HTML pages to discover ajax endpoints
-        html_max = self.get("/device/getMAXPage", params={"ttt": str(int(time.time()*1000))}, referer=self.BASE + "/index").text or ""
+
+        html_max = self.get("/device/getMAXPage", params={"ttt": str(int(time.time() * 1000))}, referer=self.BASE + "/index").text or ""
         html_inv = self.get("/device/getInverterPage", params={"plantId": str(plant_id)}, referer=self.BASE + "/device").text or ""
 
         urls = self.discover_ajax_urls(html_max) + self.discover_ajax_urls(html_inv)
@@ -792,7 +591,6 @@ class GrowattMonitoringClient:
             "/device/getDatalogList",
         ]
 
-        # dedup + safe
         seen = set()
         candidates = []
         for u in urls:
@@ -800,7 +598,9 @@ class GrowattMonitoringClient:
                 seen.add(u)
                 candidates.append(u)
         safe_candidates = [u for u in candidates if self._is_safe_endpoint(u)]
-        logging.getLogger("argia.growatt.inverters").info("Found %d safe list candidates for plant %s", len(safe_candidates), plant_id)
+        logging.getLogger("argia.growatt.inverters").info(
+            "Found %d safe list candidates for plant %s", len(safe_candidates), plant_id
+        )
 
         payload_variants = [
             {"plantId": str(plant_id), "currPage": "1", "pageSize": str(page_size), "ind": "1"},
@@ -846,21 +646,22 @@ class GrowattMonitoringClient:
                 best_ep = ep
 
             if hits >= 1:
-                logging.getLogger("argia.growatt.inverters").info("✅ Using endpoint %s (items=%d hits=%d) for plant %s", ep, len(all_items), hits, plant_id)
+                logging.getLogger("argia.growatt.inverters").info(
+                    "✅ Using endpoint %s (items=%d hits=%d) for plant %s", ep, len(all_items), hits, plant_id
+                )
                 return all_items
 
-        logging.getLogger("argia.growatt.inverters").warning("❌ No endpoint matched SNAP SNs for plant %s. Best=%s hits=%s items=%s", plant_id, best_ep, best_hits, len(best_items))
+        logging.getLogger("argia.growatt.inverters").warning(
+            "❌ No endpoint matched SNAP SNs for plant %s. Best=%s hits=%s items=%s",
+            plant_id,
+            best_ep,
+            best_hits,
+            len(best_items),
+        )
         return best_items
 
 
 def growatt_status_1_or_3(item: Dict[str, Any]) -> int:
-    """
-    Map Growatt row to 1 online / 3 offline.
-    Observed fields:
-      - status / deviceStatus / workStatus / connStatus
-      - lost (0/1)
-    """
-    # lost=1 -> offline
     if "lost" in item and safe_float(item.get("lost"), 0) >= 1:
         return 3
 
@@ -868,7 +669,6 @@ def growatt_status_1_or_3(item: Dict[str, Any]) -> int:
         if k in item and item[k] not in (None, "", "null"):
             try:
                 v = int(safe_float(item[k], 0))
-                # if already 1/3 use it; else simple mapping: 1/0
                 if v in (1, 3):
                     return v
                 if v == 0:
@@ -881,7 +681,6 @@ def growatt_status_1_or_3(item: Dict[str, Any]) -> int:
                 if s in ("offline", "disconnected", "lost", "fault"):
                     return 3
 
-    # default online if we have power / etoday
     pac = safe_float(item.get("pac") or item.get("power") or item.get("actPower") or 0, 0.0)
     if pac > 1:
         return 1
@@ -894,22 +693,19 @@ def growatt_extract_etoday(item: Dict[str, Any]) -> float:
             v = safe_float(item.get(k), 0.0)
             if v > 0:
                 return v
-    # sometimes nested
-    for k in ("dataItemMap",):
-        if isinstance(item.get(k), dict):
-            m = item[k]
-            for kk in ("eToday", "day_cap", "daily_cap"):
-                if kk in m:
-                    v = safe_float(m.get(kk), 0.0)
-                    if v > 0:
-                        return v
+    if isinstance(item.get("dataItemMap"), dict):
+        m = item["dataItemMap"]
+        for kk in ("eToday", "day_cap", "daily_cap"):
+            if kk in m:
+                v = safe_float(m.get(kk), 0.0)
+                if v > 0:
+                    return v
     return 0.0
 
 
 def growatt_extract_updatetime_mx(item: Dict[str, Any]) -> str:
     for k in ("updateTime", "lastUpdateTime", "time"):
-        v = item.get(k)
-        parsed = parse_vendor_time_to_mx(v)
+        parsed = parse_vendor_time_to_mx(item.get(k))
         if parsed:
             return parsed
     return fmt_mx(now_mx())
@@ -923,11 +719,11 @@ def growatt_device_type(item: Dict[str, Any]) -> str:
 
 
 # ============================
-# Huawei inverter fetching
+# Huawei (stable: getDevRealKpi by SNS)
 # ============================
 
 class HuaweiClient:
-    def __init__(self, base: str, username: str, password: str, timeout: int = 25):
+    def __init__(self, base: str, username: str, password: str, timeout: int = 30):
         self.base = base.rstrip("/")
         self.username = username
         self.password = password
@@ -936,52 +732,48 @@ class HuaweiClient:
         self.s.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
     def login(self) -> None:
-        r = self.s.post(f"{self.base}/login", json={"userName": self.username, "systemCode": self.password}, timeout=self.timeout)
+        r = self.s.post(
+            f"{self.base}/login",
+            json={"userName": self.username, "systemCode": self.password},
+            timeout=self.timeout,
+        )
         token = r.headers.get("XSRF-TOKEN") or r.cookies.get("XSRF-TOKEN")
         if not token:
             raise RuntimeError("Huawei login failed: missing XSRF-TOKEN")
         self.s.headers.update({"XSRF-TOKEN": token})
         LOG.info("✅ Huawei login OK")
 
-    def get_dev_list(self, station_codes_csv: str) -> List[Dict[str, Any]]:
-        # getDevList returns huge lists; filter later by SN
-        rr = self.s.post(f"{self.base}/getDevList", json={"stationCodes": station_codes_csv}, timeout=60)
-        js = rr.json()
+    def get_dev_real_kpi_by_sns(self, dev_type_id: str, sns: List[str]) -> List[Dict[str, Any]]:
+        sns_clean = [normalize_sn(x) for x in (sns or []) if normalize_sn(x)]
+        if not sns_clean:
+            return []
+        body = {"devTypeId": str(dev_type_id), "sns": ",".join(sns_clean)}
+        r = self.s.post(f"{self.base}/getDevRealKpi", json=body, timeout=60)
+        try:
+            js = r.json()
+        except Exception:
+            raise RuntimeError(f"getDevRealKpi non-JSON response: http={r.status_code} body={r.text[:300]}")
         if not js.get("success"):
-            raise RuntimeError(f"getDevList failed: {js.get('message')}")
+            raise RuntimeError(
+                f"getDevRealKpi failed: http={r.status_code} failCode={js.get('failCode')} message={js.get('message')}"
+            )
         data = js.get("data") or []
         if not isinstance(data, list):
             return []
-        return [x for x in data if isinstance(x, dict)]
-
-    def get_dev_real_kpi(self, dev_ids: List[str]) -> List[Dict[str, Any]]:
-        if not dev_ids:
-            return []
-        # Huawei API accepts list in string? We'll send as list.
-        rr = self.s.post(f"{self.base}/getDevRealKpi", json={"devIds": dev_ids}, timeout=60)
-        js = rr.json()
-        if not js.get("success"):
-            raise RuntimeError(f"getDevRealKpi failed: {js.get('message')}")
-        data = js.get("data") or []
-        if not isinstance(data, list):
-            return []
-        return [x for x in data if isinstance(x, dict)]
+        return [d for d in data if isinstance(d, dict)]
 
 
 def huawei_find_sn_field(dev: Dict[str, Any]) -> str:
-    # devList has a bunch of possible SN keys
-    for k in ("esnCode", "sn", "devSN", "devSn", "serialNum", "serialNo", "devName", "name"):
+    for k in ("sn", "devSn", "deviceSn", "esnCode", "serialNum", "serialNo"):
         if k in dev and dev[k] not in (None, "", "null"):
             sn = normalize_sn(dev[k])
-            # SNs in SNAP look like ES..., GR..., HV..., etc - keep anything non-empty
             if sn:
                 return sn
     return ""
 
 
 def huawei_status_1_or_3(kpi: Dict[str, Any]) -> int:
-    # Try common status fields
-    for k in ("devStatus", "status", "onlineStatus", "runningStatus"):
+    for k in ("devStatus", "status", "onlineStatus", "runningStatus", "workStatus"):
         if k in kpi and kpi[k] not in (None, "", "null"):
             try:
                 v = int(safe_float(kpi[k], 0))
@@ -1000,7 +792,6 @@ def huawei_status_1_or_3(kpi: Dict[str, Any]) -> int:
 
 
 def huawei_extract_etoday(kpi: Dict[str, Any]) -> float:
-    # Often in dataItemMap
     m = kpi.get("dataItemMap") or {}
     if isinstance(m, dict):
         for kk in ("day_cap", "daily_cap", "day_power", "eToday", "todayEnergy"):
@@ -1008,7 +799,6 @@ def huawei_extract_etoday(kpi: Dict[str, Any]) -> float:
                 v = safe_float(m.get(kk), 0.0)
                 if v > 0:
                     return v
-    # fallback direct
     for kk in ("day_cap", "daily_cap", "day_power", "eToday", "todayEnergy"):
         if kk in kpi:
             v = safe_float(kpi.get(kk), 0.0)
@@ -1025,11 +815,16 @@ def huawei_extract_updatetime_mx(kpi: Dict[str, Any]) -> str:
     return fmt_mx(now_mx())
 
 
-def huawei_device_type(kpi: Dict[str, Any]) -> str:
+def huawei_device_type(kpi: Dict[str, Any], dev_type_id: str) -> str:
+    # keep something meaningful; if Huawei returns type name/id use it, else dev_type_id
     for k in ("devTypeId", "deviceType", "typeId", "devTypeName"):
         if k in kpi and kpi[k] not in (None, "", "null"):
             return str(kpi[k]).strip()
-    return "HUAWEI_INV"
+    return str(dev_type_id)
+
+
+def chunked(xs: List[str], n: int) -> List[List[str]]:
+    return [xs[i:i + n] for i in range(0, len(xs), n)]
 
 
 # ============================
@@ -1047,6 +842,9 @@ def main() -> None:
     snap_range = env("SNAP_RANGE", "SNAP!A1:Z1000") or "SNAP!A1:Z1000"
     config_range = env("CONFIG_RANGE", "Config_Plants!A1:Z1000") or "Config_Plants!A1:Z1000"
 
+    interval_min = env_int("INTERVAL_MINUTES", 10)
+    when = now_utc()
+
     ensure_header(sheet_id, unified_tab)
 
     plants_cfg = read_config_plants(sheet_id, config_range)
@@ -1056,18 +854,17 @@ def main() -> None:
         LOG.warning("No SNAP rows found, nothing to do.")
         return
 
-    extracted_at = now_utc().isoformat()
+    extracted_at = when.isoformat()
 
-    # Pre-group SNAP by brand/site
     growatt_snap = [r for r in snap_rows if r["brand"] == "GROWATT"]
     huawei_snap = [r for r in snap_rows if r["brand"] == "HUAWEI"]
 
     out_rows: List[List[Any]] = []
 
-    # --- Growatt inverter data ---
+    # --- Growatt ---
     g_user = env("GROWATT_USERNAME") or env("GROWATT_USER") or ""
     g_pass = env("GROWATT_PASSWORD") or env("GROWATT_PASS") or ""
-    gcli = None
+
     if growatt_snap and g_user and g_pass:
         gcli = GrowattMonitoringClient(GrowattAuth(g_user, g_pass))
         gcli.login()
@@ -1077,16 +874,19 @@ def main() -> None:
 
         for srow in growatt_snap:
             siteid = srow["siteid"]
-            wanted_sns = srow["sns"]
+            plant_key = srow["plant_key"]
+            wanted_sns = [normalize_sn(x) for x in (srow["sns"] or []) if normalize_sn(x)]
 
-            # config lookup by siteid, fallback by plant key
-            conf = plants_cfg.get(f"SITE::{siteid}") or plants_cfg.get(srow["plant_key"]) or {}
-            irr, cloud = meteo_for_site(siteid, conf)
+            if not looks_like_growatt_siteid(siteid):
+                LOG.warning("Growatt row has non-numeric SITEID=%s plant=%s -> skipping inverter fetch", siteid, plant_key)
+                continue
+
+            conf = plants_cfg.get(f"SITE::{siteid}") or plants_cfg.get(plant_key) or {}
+            irr, cloud = meteo_for_site(plant_key, siteid, conf, when_utc=when, interval_minutes=interval_min)
 
             gcli.warm_plant_context(siteid)
             items = gcli.fetch_devices_matching_snap(siteid, wanted_sns, page_size=page_size, max_pages=max_pages)
 
-            # build map of returned SN -> item
             fetched: Dict[str, Dict[str, Any]] = {}
             for it in items:
                 sn = GrowattMonitoringClient._sn_from_item(it)
@@ -1102,8 +902,6 @@ def main() -> None:
 
             for sn in wanted_sns:
                 it = fetched.get(sn, {})
-
-                # If still missing, output row with blanks but keep meteo
                 status = growatt_status_1_or_3(it) if it else 3
                 etoday = growatt_extract_etoday(it) if it else 0.0
                 upd = growatt_extract_updatetime_mx(it) if it else fmt_mx(now_mx())
@@ -1117,67 +915,60 @@ def main() -> None:
                     sn,
                     status,
                     round(float(etoday), 3),
-                    round(float(irr), 3),
-                    round(float(cloud), 3),
+                    round(float(irr), 5),
+                    round(float(cloud), 4),
                 ])
 
-    # --- Huawei inverter data ---
+            time.sleep(0.25)
+    else:
+        if growatt_snap:
+            LOG.warning("Missing Growatt creds; skipping Growatt.")
+        else:
+            LOG.info("No Growatt rows in SNAP.")
+
+    # --- Huawei (SNS-based) ---
     h_user = env("HUAWEI_USERNAME") or ""
     h_pass = env("HUAWEI_PASSWORD") or ""
     h_base = (env("HUAWEI_BASE_URL", "https://la5.fusionsolar.huawei.com/thirdData") or "").rstrip("/")
+    h_devtype = env("HUAWEI_INVERTER_DEVTYPE", "1") or "1"
+
     if huawei_snap and h_user and h_pass:
         hcli = HuaweiClient(h_base, h_user, h_pass)
         hcli.login()
 
-        station_codes = sorted(list({r["siteid"] for r in huawei_snap}))
-        station_csv = ",".join(station_codes)
-        LOG.info("Huawei stations in SNAP: %s", ", ".join(station_codes))
-
-        devs = hcli.get_dev_list(station_csv)
-        # Build SN->devId mapping only for SNAP SNs
-        snap_wanted_sns = set()
-        for r in huawei_snap:
-            for sn in r["sns"]:
-                snap_wanted_sns.add(normalize_sn(sn))
-
-        sn_to_devid: Dict[str, str] = {}
-        for d in devs:
-            sn = huawei_find_sn_field(d)
-            if not sn:
-                continue
-            if sn in snap_wanted_sns:
-                dev_id = str(d.get("devId") or d.get("id") or "").strip()
-                if dev_id:
-                    sn_to_devid[sn] = dev_id
-
-        # Pull KPI for matched devIds
-        dev_ids = list(sn_to_devid.values())
-        kpis = hcli.get_dev_real_kpi(dev_ids) if dev_ids else []
-        # Map devId -> kpi
-        kpi_by_id: Dict[str, Dict[str, Any]] = {}
-        for k in kpis:
-            did = str(k.get("devId") or "").strip()
-            if did:
-                kpi_by_id[did] = k
+        LOG.info("Huawei stations in SNAP: %s", ", ".join(sorted({r["siteid"] for r in huawei_snap})))
 
         for srow in huawei_snap:
             siteid = srow["siteid"]
-            wanted_sns = srow["sns"]
+            plant_key = srow["plant_key"]
+            wanted_sns = [normalize_sn(x) for x in (srow["sns"] or []) if normalize_sn(x)]
 
-            conf = plants_cfg.get(f"SITE::{siteid}") or plants_cfg.get(srow["plant_key"]) or {}
-            irr, cloud = meteo_for_site(siteid, conf)
+            if not looks_like_huawei_station(siteid):
+                LOG.warning("Huawei row has SITEID not starting with NE=: %s plant=%s -> skipping", siteid, plant_key)
+                continue
+
+            conf = plants_cfg.get(f"SITE::{siteid}") or plants_cfg.get(plant_key) or {}
+            irr, cloud = meteo_for_site(plant_key, siteid, conf, when_utc=when, interval_minutes=interval_min)
+
+            fetched: Dict[str, Dict[str, Any]] = {}
+            # Huawei: commonly safe to do ~50 SNS per call (your previous version used 50)
+            for batch in chunked(wanted_sns, 50):
+                items = hcli.get_dev_real_kpi_by_sns(h_devtype, batch)
+                for it in items:
+                    sn = huawei_find_sn_field(it)
+                    if sn:
+                        fetched[sn] = it
+                time.sleep(0.2)
 
             for sn in wanted_sns:
-                dev_id = sn_to_devid.get(sn)
-                kpi = kpi_by_id.get(dev_id, {}) if dev_id else {}
-
-                if not dev_id:
-                    LOG.warning("Huawei station %s: SNAP inverter %s not matched to devId in getDevList.", siteid, sn)
+                kpi = fetched.get(sn, {})
+                if not kpi:
+                    LOG.warning("Huawei station %s: SNAP inverter %s not returned by getDevRealKpi.", siteid, sn)
 
                 status = huawei_status_1_or_3(kpi) if kpi else 1
                 etoday = huawei_extract_etoday(kpi) if kpi else 0.0
                 upd = huawei_extract_updatetime_mx(kpi) if kpi else fmt_mx(now_mx())
-                dtype = huawei_device_type(kpi) if kpi else "HUAWEI_INV"
+                dtype = huawei_device_type(kpi, h_devtype) if kpi else str(h_devtype)
 
                 out_rows.append([
                     extracted_at,
@@ -1187,9 +978,16 @@ def main() -> None:
                     sn,
                     status,
                     round(float(etoday), 3),
-                    round(float(irr), 3),
-                    round(float(cloud), 3),
+                    round(float(irr), 5),
+                    round(float(cloud), 4),
                 ])
+
+            time.sleep(0.2)
+    else:
+        if huawei_snap:
+            LOG.warning("Missing Huawei creds; skipping Huawei.")
+        else:
+            LOG.info("No Huawei rows in SNAP.")
 
     # Write
     values_append(sheet_id, unified_tab, out_rows)

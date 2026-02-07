@@ -63,24 +63,38 @@ def setup_logging() -> None:
 def now_utc() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
+
 def now_utc_iso() -> str:
     return now_utc().isoformat()
+
 
 def normalize_text(x: Any) -> str:
     return "" if x is None else str(x).strip()
 
-def safe_float(x: Any) -> Optional[float]:
+
+def safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
+    """
+    Safe float conversion.
+    If default is provided, returns default on failure.
+    If default is None, returns None on failure.
+    """
     try:
         if x is None:
-            return None
+            return default
         if isinstance(x, str):
-            x = x.strip().replace(",", "")
+            s = x.strip()
+            if s == "":
+                return default
+            s = s.replace(",", "")
+            x = s
         return float(x)
     except Exception:
-        return None
+        return default
+
 
 def qrange(tab: str, a1: str) -> str:
     return f"'{tab}'!{a1}"
+
 
 def pick(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
     for k in keys:
@@ -88,11 +102,14 @@ def pick(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
             return d[k]
     return None
 
+
 def chunked(xs: List[str], n: int) -> List[List[str]]:
-    return [xs[i:i+n] for i in range(0, len(xs), n)]
+    return [xs[i:i + n] for i in range(0, len(xs), n)]
+
 
 def looks_like_growatt_siteid(s: str) -> bool:
     return bool(re.fullmatch(r"\d{6,12}", s or ""))
+
 
 def looks_like_huawei_station(s: str) -> bool:
     return (s or "").startswith("NE=")
@@ -109,8 +126,10 @@ def load_google_creds() -> Credentials:
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     return Credentials.from_service_account_info(info, scopes=scopes)
 
+
 def sheets_service():
     return build("sheets", "v4", credentials=load_google_creds(), cache_discovery=False)
+
 
 def ensure_sheet_exists(sheet_id: str, tab: str) -> None:
     svc = sheets_service()
@@ -123,6 +142,7 @@ def ensure_sheet_exists(sheet_id: str, tab: str) -> None:
         body={"requests": [{"addSheet": {"properties": {"title": tab}}}]},
     ).execute()
     LOG.info("Created missing tab '%s'", tab)
+
 
 def ensure_header(sheet_id: str, tab: str) -> None:
     ensure_sheet_exists(sheet_id, tab)
@@ -151,6 +171,7 @@ def ensure_header(sheet_id: str, tab: str) -> None:
             body={"values": [header]},
         ).execute()
 
+
 def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
     if not rows:
         return
@@ -170,12 +191,8 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
     """
     Returns dict keyed by PlantKey with fields:
       brand, siteid, lat, lon, weather_sn, addr, growatt_siteid_for_weather
-    Supports your described columns:
-      SiteId (may be in N in your sheet),
-      WeatherStation (O),
-      Addr (P),
-      plus Growatt_SiteID column.
-    We'll search by header names, not fixed indexes.
+
+    We search by header names, NOT fixed indexes, so it tolerates your changing columns.
     """
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
@@ -202,9 +219,9 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
     i_site = idx("SITEID", "SITE ID", "SITE_ID")
     i_lat = idx("LATITUDE", "LAT")
     i_lon = idx("LONGTITUDE", "LONGITUDE", "LON")
-    i_ws  = idx("WEATHERSTATION", "WEATHER STATION")
+    i_ws = idx("WEATHERSTATION", "WEATHER STATION")
     i_addr = idx("ADDR", "ADDRESS")
-    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SITeID", "GROWATT_SiteID")
+    i_growatt_site = idx("GROWATT_SITEID", "GROWATT_SITE_ID", "GROWATT_SiteID", "GROWATT_SITeID", "GROWATT_SiteID")
 
     if i_plant is None:
         raise RuntimeError(f"Config_Plants missing PlantKey column. Header={header}")
@@ -219,10 +236,16 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
 
         brand = normalize_text(r[i_brand]) if i_brand is not None and i_brand < len(r) else ""
         siteid = normalize_text(r[i_site]) if i_site is not None and i_site < len(r) else ""
-        lat = safe_float(r[i_lat]) if i_lat is not None and i_lat < len(r) else None
-        lon = safe_float(r[i_lon]) if i_lon is not None and i_lon < len(r) else None
+        lat = safe_float(r[i_lat], None) if i_lat is not None and i_lat < len(r) else None
+        lon = safe_float(r[i_lon], None) if i_lon is not None and i_lon < len(r) else None
         ws = normalize_text(r[i_ws]) if i_ws is not None and i_ws < len(r) else ""
-        addr = int(safe_float(r[i_addr], 0) if i_addr is not None and i_addr < len(r) else 0) if True else 0
+
+        addr_val = safe_float(r[i_addr], 0.0) if i_addr is not None and i_addr < len(r) else 0.0
+        try:
+            addr = int(addr_val or 0)
+        except Exception:
+            addr = 0
+
         growatt_site = normalize_text(r[i_growatt_site]) if i_growatt_site is not None and i_growatt_site < len(r) else ""
 
         out[plant] = {
@@ -243,7 +266,7 @@ def read_config_plants(sheet_id: str, config_range: str) -> Dict[str, Dict[str, 
 def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     """
     Returns list of rows:
-      {plant_key, brand, siteid, inverter_sns[]}
+      {plant_key, brand, siteid, sns[]}
     """
     svc = sheets_service()
     resp = svc.spreadsheets().values().get(
@@ -271,17 +294,22 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
     if i_plant is None or i_site is None or i_brand is None:
         raise RuntimeError(f"SNAP missing Plant_Key/SITEID/Brand columns. Header={header}")
 
-    inv_cols = [i for i, h in enumerate(header) if "INVERTER" in h]  # includes typos too
+    inv_cols = [i for i, h in enumerate(header) if "INVERTER" in h]
 
     out = []
     for r in rows:
-        if len(r) <= max([i_plant, i_site, i_brand] + (inv_cols or [0])):
+        if inv_cols:
+            need = max([i_plant, i_site, i_brand] + inv_cols)
+        else:
+            need = max([i_plant, i_site, i_brand])
+        if len(r) <= need:
             continue
+
         plant = normalize_text(r[i_plant])
         siteid = normalize_text(r[i_site])
         brand = normalize_text(r[i_brand]).upper()
 
-        sns = []
+        sns: List[str] = []
         for j in inv_cols:
             if j < len(r):
                 sn = normalize_text(r[j])
@@ -292,12 +320,7 @@ def read_snap(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
         if not plant or not siteid or not sns:
             continue
 
-        out.append({
-            "plant_key": plant,
-            "brand": brand,
-            "siteid": siteid,
-            "sns": sns,
-        })
+        out.append({"plant_key": plant, "brand": brand, "siteid": siteid, "sns": sns})
 
     return out
 
@@ -344,32 +367,17 @@ def huawei_parse_item(item: Dict[str, Any]) -> Dict[str, Any]:
     status = normalize_text(pick(item, ["devStatus", "status", "workStatus"]))
     update_time = normalize_text(pick(item, ["collectTime", "updateTime", "time", "dataTime"]))
 
-    power = safe_float(pick(m, ["active_power", "activePower", "pac", "power"]))
-    power_w = None
-    if power is not None:
-        power_w = power * 1000.0 if power <= 1000 else power
+    e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy"]), None)
 
-    e_today = safe_float(pick(m, ["day_cap", "daily_cap", "eToday", "todayEnergy"]))
-
-    # Status mapping:
-    # If empty -> assume online (1) unless power/e_today missing; keep conservative:
     st = 1
     if status:
         s = status.lower()
         if s in ("3", "offline", "off", "0", "disconnected"):
             st = 3
 
-    return {
-        "sn": sn,
-        "status_num": st,
-        "update_time": update_time,
-        "e_today": e_today,
-    }
+    return {"sn": sn, "status_num": st, "update_time": update_time, "e_today": e_today}
 
 
-# ----------------------------
-# Growatt parsing helper
-# ----------------------------
 def growatt_status_to_1_3(val: Any) -> int:
     if val is None:
         return 1
@@ -403,7 +411,6 @@ def main() -> None:
         LOG.warning("No SNAP rows found.")
         return
 
-    # Prepare meteo cache per site/plant
     when = now_utc()
     meteo_by_plant: Dict[str, Tuple[float, float]] = {}
 
@@ -417,9 +424,6 @@ def main() -> None:
         ws = conf.get("weather_sn") or ""
         addr = int(conf.get("addr") or 0)
 
-        # determine which growatt plant id to use for weather
-        # - for growatt plants: use numeric siteid if numeric
-        # - for huawei plants: use growatt_siteid_for_weather (Config_Plants)
         weather_plant_id = ""
         if looks_like_growatt_siteid(siteid):
             weather_plant_id = siteid
@@ -479,7 +483,7 @@ def main() -> None:
                 status_raw = pick(it, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus"])
                 update_time = normalize_text(pick(it, ["updateTime", "lastUpdateTime", "time"]))
 
-                etoday = safe_float(pick(it, ["eToday", "EToday", "todayEnergy", "generationToday"]))
+                etoday = safe_float(pick(it, ["eToday", "EToday", "todayEnergy", "generationToday"]), None)
 
                 rows_out.append([
                     extracted_at,
@@ -490,7 +494,7 @@ def main() -> None:
                     growatt_status_to_1_3(status_raw),
                     etoday if etoday is not None else "",
                     irr,
-                    clouds,  # %
+                    clouds,
                 ])
 
             time.sleep(0.6)
@@ -529,10 +533,9 @@ def main() -> None:
                     if not sn:
                         continue
 
-                    update_time = k["update_time"] or ""  # may be empty; still ok
                     rows_out.append([
                         extracted_at,
-                        update_time,
+                        k["update_time"] or "",
                         siteid,
                         str(devtype),
                         sn,
@@ -544,7 +547,6 @@ def main() -> None:
 
                 time.sleep(0.35)
 
-    # Write everything in one append
     append_rows(sheet_id, unified_tab, rows_out)
     LOG.info("✅ Unified sync written rows=%d tab=%s", len(rows_out), unified_tab)
 

@@ -55,7 +55,7 @@ jobs:
           # Meteo tuning
           INTERVAL_MINUTES: "10"
           ARGIA_METEO_MAX_PAGES: "4"
-          ARGIA_METEO_DEBUG: "0"
+          ARGIA_METEO_DEBUG: "1"
 
           LOG_LEVEL: "INFO"
         run: |

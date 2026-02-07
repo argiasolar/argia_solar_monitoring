@@ -42,16 +42,25 @@ jobs:
           CONFIG_RANGE: "Config_Plants!A1:Z1000"
 
           # Growatt Web (inverters + meteo ENV history)
+          # Export both var names to avoid mismatches across modules.
           GROWATT_WEB_BASE: "https://server.growatt.com"
+          GROWATT_SERVER_BASE: "https://server.growatt.com"
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          GROWATT_USER: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASS: ${{ secrets.GROWATT_PASSWORD }}
 
           # Huawei FusionSolar thirdData
           HUAWEI_BASE_URL: "https://la5.fusionsolar.huawei.com/thirdData"
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           HUAWEI_INVERTER_DEVTYPE: "1"
+
+          # Cloud coverage fallback (OpenWeather)
+          # Export both names in case argia_meteo.py expects a different env var.
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          OPEN_WEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+
           # Interval settings
           INTERVAL_MINUTES: "10"
 

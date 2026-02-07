@@ -49,21 +49,17 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
-# Reuse session
 _SESS = requests.Session()
 _SESS.headers.update({"User-Agent": "ARGIA Meteo Bot", "Accept": "application/json"})
 
 
 # ----------------------------
-# Cloud cover: Open-Meteo (primary) -> 0..1
+# Open-Meteo (primary)
 # ----------------------------
 _OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 
 
 def _open_meteo_hourly_cloud_series(lat: float, lon: float) -> Optional[Tuple[List[str], List[float], int]]:
-    """
-    Returns (times_local_iso, cloud_pct, utc_offset_seconds)
-    """
     timeout = _env_int("OPEN_METEO_TIMEOUT", 10)
     params = {
         "latitude": lat,
@@ -101,8 +97,6 @@ def _open_meteo_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.date
                 continue
 
             times, cloud_pct, offset_sec = series
-
-            # Convert target UTC -> local naive using Open-Meteo offset
             target_local = (when_utc + dt.timedelta(seconds=offset_sec)).replace(tzinfo=None)
 
             best_i = 0
@@ -124,19 +118,7 @@ def _open_meteo_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.date
 
             cc_pct = float(cloud_pct[best_i] if best_i < len(cloud_pct) else 0.0)
             cc_frac = max(0.0, min(1.0, cc_pct / 100.0))
-
             _dbg(f"☁️ [OpenMeteo] cloud={cc_pct:.1f}% (frac={cc_frac:.3f}) near={best_dt} offset_sec={offset_sec}")
-
-            # Optional debug window: print surrounding hours
-            w = _env_int("METEO_CLOUD_DEBUG_WINDOW_HOURS", 0)
-            if _dbg_on() and w > 0 and best_dt is not None:
-                print(f"☁️ [OpenMeteo] debug window ±{w}h around {best_dt}", flush=True)
-                for j in range(max(0, best_i - w), min(len(times), best_i + w + 1)):
-                    try:
-                        d = dt.datetime.fromisoformat(times[j])
-                    except Exception:
-                        continue
-                    print(f"   - {d} : {cloud_pct[j]:.1f}%", flush=True)
 
             return float(round(cc_frac, 4))
 
@@ -150,55 +132,30 @@ def _open_meteo_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.date
 
 
 # ----------------------------
-# Cloud cover: OpenWeather fallback -> 0..1
+# OpenWeather fallback (FREE endpoint)
 # ----------------------------
-def _openweather_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
+def _openweather_cloud_fraction_current(lat: float, lon: float) -> Optional[float]:
     key = _env("OPENWEATHER_API_KEY")
     if not key:
         return None
 
     timeout = _env_int("OPENWEATHER_TIMEOUT", 10)
-    url = "https://api.openweathermap.org/data/2.5/onecall"
-    params = {
-        "lat": lat,
-        "lon": lon,
-        "appid": key,
-        "exclude": "minutely,daily,alerts",
-        "units": "metric",
-    }
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {"lat": lat, "lon": lon, "appid": key, "units": "metric"}
 
     try:
         r = _SESS.get(url, params=params, timeout=timeout)
         if r.status_code != 200:
-            _dbg(f"☁️ [OpenWeather] http={r.status_code}")
+            _dbg(f"☁️ [OpenWeather] http={r.status_code} body={r.text[:120]}")
             return None
         js = r.json()
-        hourly = js.get("hourly") or []
-        if not isinstance(hourly, list) or not hourly:
+        clouds = js.get("clouds") or {}
+        cc = clouds.get("all")
+        if cc is None:
             return None
-
-        target_ts = int(when_utc.timestamp())
-        best_cc = None
-        best_abs = None
-        for h in hourly:
-            if not isinstance(h, dict):
-                continue
-            ts = h.get("dt")
-            cc = h.get("clouds")
-            if ts is None or cc is None:
-                continue
-            diff = abs(int(ts) - target_ts)
-            if best_abs is None or diff < best_abs:
-                best_abs = diff
-                best_cc = float(cc)
-
-        if best_cc is None:
-            return None
-
-        cc_frac = max(0.0, min(1.0, best_cc / 100.0))
-        _dbg(f"☁️ [OpenWeather] cloud={best_cc:.1f}% (frac={cc_frac:.3f})")
+        cc_frac = max(0.0, min(1.0, float(cc) / 100.0))
+        _dbg(f"☁️ [OpenWeather] cloud={float(cc):.1f}% (frac={cc_frac:.3f})")
         return float(round(cc_frac, 4))
-
     except Exception as e:
         _dbg(f"☁️ [OpenWeather] error: {e}")
         return None
@@ -207,13 +164,12 @@ def _openweather_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.dat
 def get_cloud_fraction(lat: float, lon: float, when_utc: dt.datetime) -> float:
     """
     Returns cloud cover fraction 0..1.
-    Strategy:
-      - OpenMeteo primary
-      - OpenWeather if available
-      - If both present and differ a lot, use average and log it (prevents false 1.0 spikes)
+    - OpenMeteo primary (time-aligned)
+    - OpenWeather current fallback (cheap + free)
+    - If both exist and differ a lot, average them.
     """
     om = _open_meteo_cloud_fraction_nearest(lat, lon, when_utc)
-    ow = _openweather_cloud_fraction_nearest(lat, lon, when_utc)
+    ow = _openweather_cloud_fraction_current(lat, lon)
 
     if om is None and ow is None:
         return 0.0
@@ -230,7 +186,7 @@ def get_cloud_fraction(lat: float, lon: float, when_utc: dt.datetime) -> float:
 
 
 # ----------------------------
-# Growatt ENV radiant -> interval irradiance (kWh/m² for interval)
+# Growatt ENV radiant -> interval irradiance (kWh/m²)
 # ----------------------------
 class GrowattWebClient:
     def __init__(self, base: str, username: str, password: str) -> None:
@@ -285,7 +241,7 @@ class GrowattWebClient:
 def _calendar_to_dt(cal: Dict[str, Any]) -> Optional[dt.datetime]:
     try:
         y = int(cal["year"])
-        m0 = int(cal["month"])  # 0-based
+        m0 = int(cal["month"])
         d = int(cal.get("dayOfMonth") or cal.get("day"))
         hh = int(cal.get("hourOfDay", 0))
         mm = int(cal.get("minute", 0))
@@ -333,7 +289,6 @@ def _fetch_recent_radiant_wm2(
     start = 0
     pages = 0
     max_pages = _env_int("GROWATT_ENV_MAX_PAGES", 6)
-    page_sleep = _env_float("GROWATT_ENV_PAGE_SLEEP", 0.10)
 
     while pages < max_pages:
         js = cli.get_env_history(plant_id, weather_sn, addr, day_iso, start)
@@ -347,7 +302,7 @@ def _fetch_recent_radiant_wm2(
         if not have_next:
             break
         start += len(rows)
-        time.sleep(page_sleep)
+        time.sleep(0.10)
 
     pts: List[Tuple[dt.datetime, float]] = []
     for r in all_rows:
@@ -363,8 +318,7 @@ def _fetch_recent_radiant_wm2(
 
     pts.sort(key=lambda x: x[0])
 
-    # Growatt timestamps here are local-naive; compare to MX-local naive derived from UTC-6.
-    # (Growatt server is usually aligned to plant local time; your plants are Mexico.)
+    # compare to MX local naive (UTC-6) because your plants are Mexico
     target = (when_utc + dt.timedelta(hours=-6)).replace(tzinfo=None)
     window_sec = max(900, interval_minutes * 60 * 2)
     recent = [(t, r) for (t, r) in pts if abs((t - target).total_seconds()) <= window_sec]

@@ -445,7 +445,7 @@ def main() -> None:
 
             # IMPORTANT: reuse the WORKING discovery logic from argia_growatt_inverters.py
             gcli.warm_plant_context(siteid)
-            items = gcli.fetch_devices_for_plant(siteid, page_size=50, max_pages=5)
+            items = gcli.fetch_devices_for_plant(siteid, wanted_sns, page_size=50, max_pages=5)
 
             fetched: Dict[str, Dict[str, Any]] = {}
             for it in items:

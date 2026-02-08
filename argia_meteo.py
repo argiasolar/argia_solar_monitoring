@@ -91,6 +91,8 @@ def get_meteo_snapshot(
     siteid: str,
     when: dt.datetime,
     interval_min: int,
+    plant_id_for_weather: Optional[str] = None,
+    **_ignored: Any,
 ) -> Tuple[float, float]:
     """
     Expected by argia_sync.py
@@ -98,23 +100,21 @@ def get_meteo_snapshot(
     Returns:
       (irradiance_kwh_m2_for_interval, cloud_fraction)
 
-    Irradiance source:
-      - Growatt weather station (EnvHistory radiant) via argia_weather GrowattWebClient.
-      - For Huawei plants, use fallback Growatt plant/station env vars (same as argia_weather.py).
-
-    Cloud cover:
-      - Reuse argia_weather._avg_cloudcover_7_19_from_open_meteo (fraction 0..1)
-        based on lat/lon from plants_config for that plant_key.
-      - If lat/lon missing, returns 0.0.
+    Supports argia_sync.py passing extra keyword args like plant_id_for_weather.
     """
+
     conf = plants_config.get(plant_key, {}) if isinstance(plants_config, dict) else {}
 
     brand = str(conf.get("brand") or "").strip().upper()
     site_id = str(siteid or conf.get("site_id") or "").strip()
 
-    # Same fallback mechanism as argia_weather.py
     fallback_plant = argia_weather._env("GROWATT_WEATHER_FALLBACK_PLANT_ID", "10069072")
-    irr_plant_id = site_id if (brand == "GROWATT" and site_id) else str(fallback_plant)
+
+    # ✅ if argia_sync provides plant_id_for_weather, it wins
+    if plant_id_for_weather:
+        irr_plant_id = str(plant_id_for_weather).strip()
+    else:
+        irr_plant_id = site_id if (brand == "GROWATT" and site_id) else str(fallback_plant)
 
     prefer_sn: Optional[str] = None
     prefer_addr: Optional[int] = None
@@ -135,7 +135,7 @@ def get_meteo_snapshot(
             prefer_addr=prefer_addr,
         )
 
-    # Cloud cover fraction (0..1), same method you already use daily
+    # Cloud cover fraction (0..1)
     lat = conf.get("lat")
     lon = conf.get("lon")
     cloud_frac = 0.0

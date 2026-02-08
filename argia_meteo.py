@@ -1,359 +1,121 @@
 from __future__ import annotations
 
-import os
-import time
-import math
 import datetime as dt
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 
-import requests
-
-
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    v = os.environ.get(name)
-    return v if v not in (None, "") else default
+import argia_weather  # <-- reuse your proven Growatt logic
 
 
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(str(_env(name, str(default))).strip())
-    except Exception:
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(str(_env(name, str(default))).strip())
-    except Exception:
-        return default
-
-
-def _dbg_on() -> bool:
-    return str(_env("GROWATT_DEBUG", "0")).lower() in ("1", "true", "yes", "on")
-
-
-def _dbg(msg: str) -> None:
-    if _dbg_on():
-        print(msg, flush=True)
-
-
-def _safe_float(x: Any, default: float = 0.0) -> float:
-    try:
-        if x is None:
-            return default
-        v = float(x)
-        if math.isnan(v) or math.isinf(v):
-            return default
-        return v
-    except Exception:
-        return default
-
-
-_SESS = requests.Session()
-_SESS.headers.update({"User-Agent": "ARGIA Meteo Bot", "Accept": "application/json"})
-
-
-# ----------------------------
-# Open-Meteo (primary)
-# ----------------------------
-_OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
-
-
-def _open_meteo_hourly_cloud_series(lat: float, lon: float) -> Optional[Tuple[List[str], List[float], int]]:
-    timeout = _env_int("OPEN_METEO_TIMEOUT", 10)
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "cloudcover",
-        "timezone": "auto",
-        "past_days": 2,
-        "forecast_days": 2,
-    }
-    r = _SESS.get(_OPEN_METEO_FORECAST, params=params, timeout=timeout)
-    if r.status_code != 200:
-        _dbg(f"☁️ [OpenMeteo] http={r.status_code}")
-        return None
-    js = r.json()
-    hourly = js.get("hourly") or {}
-    times = hourly.get("time") or []
-    clouds = hourly.get("cloudcover") or []
-    if not isinstance(times, list) or not isinstance(clouds, list) or len(times) != len(clouds) or not times:
-        return None
-    offset_sec = int(js.get("utc_offset_seconds") or 0)
-    cloud_pct = [_safe_float(c, 0.0) for c in clouds]
-    return times, cloud_pct, offset_sec
-
-
-def _open_meteo_cloud_fraction_nearest(lat: float, lon: float, when_utc: dt.datetime) -> Optional[float]:
-    retries = _env_int("OPEN_METEO_RETRIES", 3)
-    backoff = _env_float("OPEN_METEO_BACKOFF_SEC", 1.2)
-
-    last_err: Optional[Exception] = None
-    for attempt in range(1, retries + 1):
-        try:
-            series = _open_meteo_hourly_cloud_series(lat, lon)
-            if not series:
-                time.sleep(backoff * attempt)
-                continue
-
-            times, cloud_pct, offset_sec = series
-            target_local = (when_utc + dt.timedelta(seconds=offset_sec)).replace(tzinfo=None)
-
-            best_i = 0
-            best_abs = None
-            best_dt = None
-
-            for i, tstr in enumerate(times):
-                if not isinstance(tstr, str):
-                    continue
-                try:
-                    dti_local = dt.datetime.fromisoformat(tstr)
-                except Exception:
-                    continue
-                diff = abs((dti_local - target_local).total_seconds())
-                if best_abs is None or diff < best_abs:
-                    best_abs = diff
-                    best_i = i
-                    best_dt = dti_local
-
-            cc_pct = float(cloud_pct[best_i] if best_i < len(cloud_pct) else 0.0)
-            cc_frac = max(0.0, min(1.0, cc_pct / 100.0))
-            _dbg(f"☁️ [OpenMeteo] cloud={cc_pct:.1f}% (frac={cc_frac:.3f}) near={best_dt} offset_sec={offset_sec}")
-
-            return float(round(cc_frac, 4))
-
-        except Exception as e:
-            last_err = e
-            _dbg(f"☁️ [OpenMeteo] attempt={attempt} error: {e}")
-            time.sleep(backoff * attempt)
-
-    _dbg(f"☁️ [OpenMeteo] error: {last_err}")
-    return None
-
-
-# ----------------------------
-# OpenWeather fallback (FREE endpoint)
-# ----------------------------
-def _openweather_cloud_fraction_current(lat: float, lon: float) -> Optional[float]:
-    key = _env("OPENWEATHER_API_KEY")
-    if not key:
-        return None
-
-    timeout = _env_int("OPENWEATHER_TIMEOUT", 10)
-    url = "https://api.openweathermap.org/data/2.5/weather"
-    params = {"lat": lat, "lon": lon, "appid": key, "units": "metric"}
-
-    try:
-        r = _SESS.get(url, params=params, timeout=timeout)
-        if r.status_code != 200:
-            _dbg(f"☁️ [OpenWeather] http={r.status_code} body={r.text[:120]}")
-            return None
-        js = r.json()
-        clouds = js.get("clouds") or {}
-        cc = clouds.get("all")
-        if cc is None:
-            return None
-        cc_frac = max(0.0, min(1.0, float(cc) / 100.0))
-        _dbg(f"☁️ [OpenWeather] cloud={float(cc):.1f}% (frac={cc_frac:.3f})")
-        return float(round(cc_frac, 4))
-    except Exception as e:
-        _dbg(f"☁️ [OpenWeather] error: {e}")
-        return None
-
-
-def get_cloud_fraction(lat: float, lon: float, when_utc: dt.datetime) -> float:
+def _latest_radiant_wm2_from_history_rows(rows: List[Dict[str, Any]]) -> float:
     """
-    Returns cloud cover fraction 0..1.
-    - OpenMeteo primary (time-aligned)
-    - OpenWeather current fallback (cheap + free)
-    - If both exist and differ a lot, average them.
+    Pick the 'radiant' value from the newest row by calendar timestamp.
+    Uses the SAME calendar parsing helper from argia_weather.py.
     """
-    om = _open_meteo_cloud_fraction_nearest(lat, lon, when_utc)
-    ow = _openweather_cloud_fraction_current(lat, lon)
+    best_ts: Optional[dt.datetime] = None
+    best_rad: float = 0.0
 
-    if om is None and ow is None:
-        return 0.0
-    if om is None:
-        return float(ow or 0.0)
-    if ow is None:
-        return float(om)
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
 
-    if abs(om - ow) >= 0.45:
-        print(f"☁️ [CloudBlend] OpenMeteo={om:.3f} OpenWeather={ow:.3f} -> avg", flush=True)
-        return float(round((om + ow) / 2.0, 4))
+        cal = r.get("calendar") or {}
+        if not isinstance(cal, dict):
+            continue
 
-    return float(om)
+        ts = argia_weather._calendar_to_dt(cal)  # uses your existing 0-based month logic
+        if not ts:
+            continue
 
+        rad = r.get("radiant", None)
+        rad_f = argia_weather._safe_float(rad, 0.0)
+        if rad_f < 0:
+            rad_f = 0.0
 
-# ----------------------------
-# Growatt ENV radiant -> interval irradiance (kWh/m²)
-# ----------------------------
-class GrowattWebClient:
-    def __init__(self, base: str, username: str, password: str) -> None:
-        self.base = base.rstrip("/")
-        self.username = username
-        self.password = password
-        self.s = requests.Session()
-        self.s.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144 Safari/144"
-                ),
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Connection": "keep-alive",
-            }
-        )
+        if best_ts is None or ts > best_ts:
+            best_ts = ts
+            best_rad = rad_f
 
-    def login(self) -> None:
-        r1 = self.s.get(f"{self.base}/login", timeout=30)
-        _dbg(f"🔐 [GrowattWeb] GET /login -> {r1.status_code}")
-        payload = {"account": self.username, "password": self.password}
-        r2 = self.s.post(f"{self.base}/login", data=payload, timeout=30)
-        ok = "assToken" in self.s.cookies.get_dict()
-        _dbg(f"🔐 [GrowattWeb] POST /login -> {r2.status_code} | assToken={ok}")
-        if not ok:
-            raise RuntimeError("Growatt login failed (no assToken cookie).")
-
-    def _seed_plant(self, plant_id: str) -> None:
-        self.s.cookies.set("selectedPlantId", str(plant_id))
-
-    def env_page_seed(self, plant_id: str) -> None:
-        self._seed_plant(plant_id)
-        r = self.s.get(f"{self.base}/device/getEnvPage", timeout=30)
-        _dbg(f"🧭 [GrowattWeb] GET /device/getEnvPage plant={plant_id} -> {r.status_code}")
-
-    def get_env_history(self, plant_id: str, datalog_sn: str, addr: int, day_iso: str, start: int) -> Dict[str, Any]:
-        self._seed_plant(plant_id)
-        url = f"{self.base}/device/getEnvHistory"
-        payload = {
-            "datalogSn": datalog_sn,
-            "addr": str(addr),
-            "startDate": day_iso,
-            "endDate": day_iso,
-            "start": str(start),
-        }
-        r = self.s.post(url, data=payload, timeout=45)
-        r.raise_for_status()
-        return r.json()
+    return best_rad
 
 
-def _calendar_to_dt(cal: Dict[str, Any]) -> Optional[dt.datetime]:
-    try:
-        y = int(cal["year"])
-        m0 = int(cal["month"])
-        d = int(cal.get("dayOfMonth") or cal.get("day"))
-        hh = int(cal.get("hourOfDay", 0))
-        mm = int(cal.get("minute", 0))
-        ss = int(cal.get("second", 0))
-        return dt.datetime(y, m0 + 1, d, hh, mm, ss)
-    except Exception:
-        return None
-
-
-_GROWATT_CLIENT: Optional[GrowattWebClient] = None
-
-
-def _get_growatt_client() -> Optional[GrowattWebClient]:
-    global _GROWATT_CLIENT
-    if _GROWATT_CLIENT is not None:
-        return _GROWATT_CLIENT
-
-    base = _env("GROWATT_WEB_BASE", "https://server.growatt.com")
-    user = _env("GROWATT_USERNAME")
-    pwd = _env("GROWATT_PASSWORD")
-    if not user or not pwd:
-        return None
-
-    cli = GrowattWebClient(base, user, pwd)
-    cli.login()
-    _GROWATT_CLIENT = cli
-    return cli
-
-
-def _fetch_recent_radiant_wm2(
+def get_growatt_irradiance_kwh_m2_10min(
     plant_id: str,
-    weather_sn: str,
-    addr: int,
-    when_utc: dt.datetime,
-    interval_minutes: int,
+    prefer_sn: Optional[str] = None,
+    prefer_addr: Optional[int] = None,
 ) -> float:
-    cli = _get_growatt_client()
+    """
+    10-min irradiation (kWh/m²) using Growatt weather station data,
+    via the SAME working GrowattWebClient flow in argia_weather.py.
+
+    Steps:
+      1) reuse argia_weather._get_growatt_client() (login/cookies)
+      2) reuse argia_weather._get_or_pick_env_device() (sn/addr selection)
+      3) call getEnvHistory for today (single page)
+      4) take latest 'radiant' (W/m²)
+      5) convert to 10-min kWh/m²: W/m² / 6000
+    """
+    cli = argia_weather._get_growatt_client()
     if cli is None:
         return 0.0
 
-    cli.env_page_seed(plant_id)
-    day_iso = when_utc.date().isoformat()
-
-    all_rows: List[Dict[str, Any]] = []
-    start = 0
-    pages = 0
-    max_pages = _env_int("GROWATT_ENV_MAX_PAGES", 6)
-
-    while pages < max_pages:
-        js = cli.get_env_history(plant_id, weather_sn, addr, day_iso, start)
-        pages += 1
-        obj = js.get("obj") or {}
-        rows = obj.get("datas") or []
-        have_next = bool(obj.get("haveNext"))
-        if not rows:
-            break
-        all_rows.extend(rows)
-        if not have_next:
-            break
-        start += len(rows)
-        time.sleep(0.10)
-
-    pts: List[Tuple[dt.datetime, float]] = []
-    for r in all_rows:
-        cal = r.get("calendar") or {}
-        ts = _calendar_to_dt(cal) if isinstance(cal, dict) else None
-        if not ts:
-            continue
-        rad = _safe_float(r.get("radiant"), 0.0)
-        pts.append((ts, max(rad, 0.0)))
-
-    if not pts:
+    picked = argia_weather._get_or_pick_env_device(cli, plant_id, prefer_sn, prefer_addr)
+    if not picked:
         return 0.0
 
-    pts.sort(key=lambda x: x[0])
+    sn, addr = picked
+    day_iso = dt.date.today().isoformat()
 
-    # compare to MX local naive (UTC-6) because your plants are Mexico
-    target = (when_utc + dt.timedelta(hours=-6)).replace(tzinfo=None)
-    window_sec = max(900, interval_minutes * 60 * 2)
-    recent = [(t, r) for (t, r) in pts if abs((t - target).total_seconds()) <= window_sec]
-    use = recent if recent else pts[-2:]
-    if len(use) == 1:
-        return float(use[-1][1])
-    return float(0.5 * (use[-1][1] + use[-2][1]))
+    # One page is enough for "latest reading" (no pagination complications)
+    # If Growatt returns rows out of order, we still choose newest by calendar timestamp.
+    js = cli.get_env_history(plant_id, sn, addr, day_iso, start=0)
+    obj = js.get("obj") or {}
+    rows = obj.get("datas") or []
+    if not isinstance(rows, list) or not rows:
+        return 0.0
+
+    radiant_wm2 = _latest_radiant_wm2_from_history_rows(rows)
+
+    # Convert instantaneous W/m² to 10-min kWh/m²
+    return round(radiant_wm2 / 6000.0, 6)
 
 
-def _radiant_to_interval_kwh_m2(radiant_wm2: float, interval_minutes: int) -> float:
-    hours = float(interval_minutes) / 60.0
-    return round((max(radiant_wm2, 0.0) * hours) / 1000.0, 5)
+def get_meteo_for_plant_10min(p_key: str, plants_config: dict) -> Tuple[float, float]:
+    """
+    Drop-in style helper if you want to keep a similar signature as before.
 
+    Returns: (irradiance_kwh_m2_10min, clouds_fraction)
 
-def get_meteo_snapshot(
-    plant_id_for_weather: str,
-    lat: float,
-    lon: float,
-    weather_sn: str,
-    addr: int,
-    when_utc: dt.datetime,
-    interval_minutes: int = 10,
-) -> Tuple[float, float]:
-    rad = _fetch_recent_radiant_wm2(
-        plant_id=str(plant_id_for_weather),
-        weather_sn=str(weather_sn),
-        addr=int(addr),
-        when_utc=when_utc,
-        interval_minutes=int(interval_minutes),
-    )
-    irr = _radiant_to_interval_kwh_m2(rad, int(interval_minutes))
-    print(
-        f"🌞 [Meteo] plant={plant_id_for_weather} sn={weather_sn} addr={addr} day={when_utc.date().isoformat()} radiant={rad:.1f} W/m²",
-        flush=True,
-    )
+    - Irradiance now comes from Growatt weather station (via argia_weather pipeline).
+    - Cloud cover: keep existing behavior (if you still want it during the day),
+      or return 0.0 if you don't need clouds in 10-min sync.
+    """
+    conf = plants_config.get(p_key, {}) if isinstance(plants_config, dict) else {}
+    brand = str(conf.get("brand") or "").strip().upper()
+    site_id = str(conf.get("site_id") or "").strip()
 
-    cloud_frac = get_cloud_fraction(float(lat), float(lon), when_utc)
-    return irr, float(cloud_frac)
+    fallback_plant = argia_weather._env("GROWATT_WEATHER_FALLBACK_PLANT_ID", "10069072")
+
+    irr_plant_id = site_id if (brand == "GROWATT" and site_id) else str(fallback_plant)
+
+    prefer_sn: Optional[str] = None
+    prefer_addr: Optional[int] = None
+    if irr_plant_id == str(fallback_plant):
+        prefer_sn = argia_weather._env("GROWATT_WEATHER_FALLBACK_DATALOG_SN", "DYD1EZR007")
+        try:
+            prefer_addr = int(argia_weather._env("GROWATT_WEATHER_FALLBACK_ADDR", "32") or "32")
+        except Exception:
+            prefer_addr = None
+
+    irr_10m = 0.0
+    if str(irr_plant_id).isdigit():
+        irr_10m = get_growatt_irradiance_kwh_m2_10min(str(irr_plant_id), prefer_sn, prefer_addr)
+
+    # Optional: keep clouds calculation or set to 0.0 for simplicity
+    lat = conf.get("lat")
+    lon = conf.get("lon")
+    clouds = 0.0
+    if lat and lon:
+        # If you want clouds during the day too, reuse argia_weather's existing Open-Meteo function
+        clouds = argia_weather._avg_cloudcover_7_19_from_open_meteo(float(lat), float(lon), dt.date.today().isoformat()) / 100.0
+
+    return irr_10m, clouds

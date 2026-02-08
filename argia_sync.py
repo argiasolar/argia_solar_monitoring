@@ -8,6 +8,11 @@ ARGIA – Unified Sync (Growatt + Huawei + Meteo) 10-min
 Writes to Google Sheets tab UNIFIED_TAB (default: InverterUnified10m) with columns:
 ExtractedAtUTC | UpdateTime | SiteId | DeviceType | DeviceSN | Status | EToday_kWh | Irradiance_kWh_m2 | Cloud_Coverage
 
+Fix (UpdateTime format + Sheets parsing):
+- UpdateTime is Mexico City local time string formatted as: M/D/YYYY H:MM:SS  (e.g., 2/8/2026 9:58:54)
+- Append uses valueInputOption="USER_ENTERED" so Google Sheets parses UpdateTime as a real datetime.
+- ExtractedAtUTC stays ISO (as-is).
+
 Fix (Growatt):
 - Probe multiple safe list endpoints but SELECT the BEST endpoint based on:
   - How many SNAP SNs are returned as inverters (deviceType==4), and/or
@@ -17,7 +22,6 @@ Fix (Growatt):
 
 Notes:
 - Cloud_Coverage written as 0..1 fraction (your sheet may format it as %).
-- UpdateTime is Mexico City local time string.
 """
 
 from __future__ import annotations
@@ -62,9 +66,14 @@ def now_utc_iso() -> str:
 
 
 def utc_to_mx_str(dt_utc: datetime) -> str:
+    """
+    Return Mexico City local datetime string that Google Sheets will parse reliably when using USER_ENTERED:
+      M/D/YYYY H:MM:SS   e.g. 2/8/2026 9:58:54
+    """
     if dt_utc.tzinfo is None:
         dt_utc = dt_utc.replace(tzinfo=timezone.utc)
-    return dt_utc.astimezone(MX_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    dt = dt_utc.astimezone(MX_TZ)
+    return f"{dt.month}/{dt.day}/{dt.year} {dt.hour}:{dt.minute:02d}:{dt.second:02d}"
 
 
 def now_mx_str() -> str:
@@ -131,22 +140,43 @@ def now_ms() -> int:
 
 
 def parse_update_time_to_mx(val: Any) -> str:
+    """
+    Convert various updateTime formats from providers into MX local string:
+      M/D/YYYY H:MM:SS
+    Supports:
+      - epoch seconds/millis (10-13 digits)
+      - already formatted strings (returned as-is; prefer provider's if it looks usable)
+    """
     s = normalize_text(val)
     if not s:
         return now_mx_str()
 
+    # epoch seconds/millis
     if re.fullmatch(r"\d{10,13}", s):
         try:
             n = int(s)
-            if len(s) == 13:
-                dt_utc = datetime.fromtimestamp(n / 1000.0, tz=timezone.utc)
-            else:
-                dt_utc = datetime.fromtimestamp(n, tz=timezone.utc)
+            dt_utc = datetime.fromtimestamp(n / 1000.0, tz=timezone.utc) if len(s) == 13 else datetime.fromtimestamp(n, tz=timezone.utc)
             return utc_to_mx_str(dt_utc)
         except Exception:
             return now_mx_str()
 
-    # already formatted; assume local-ish
+    # If provider gives ISO-ish "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DDTHH:MM:SS"
+    # we try to parse and reformat; if parsing fails, return as-is.
+    try:
+        s2 = s.replace("T", " ").split(".")[0]
+        # Try common patterns
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+            try:
+                dt_naive = datetime.strptime(s2, fmt)
+                # Treat as UTC if provider is UTC-ish; if it's actually local, this is still better than raw text.
+                dt_utc = dt_naive.replace(tzinfo=timezone.utc)
+                return utc_to_mx_str(dt_utc)
+            except ValueError:
+                pass
+    except Exception:
+        pass
+
+    # already formatted or unknown; return as-is
     return s
 
 
@@ -208,12 +238,16 @@ def ensure_header(sheet_id: str, tab: str) -> None:
 
 
 def append_rows(sheet_id: str, tab: str, rows: List[List[Any]]) -> None:
+    """
+    USER_ENTERED makes Sheets parse UpdateTime (M/D/YYYY H:MM:SS) as a real datetime.
+    ExtractedAtUTC stays as a string ISO (as you requested).
+    """
     if not rows:
         return
     sheets_service().spreadsheets().values().append(
         spreadsheetId=sheet_id,
         range=qrange(tab, "A1"),
-        valueInputOption="RAW",
+        valueInputOption="USER_ENTERED",  # ✅ parse datetimes like user input
         insertDataOption="INSERT_ROWS",
         body={"values": rows},
     ).execute()
@@ -748,7 +782,7 @@ def main() -> None:
         return
 
     when = now_utc()
-    extracted_at = now_utc_iso()
+    extracted_at = now_utc_iso()  # ✅ keep as-is (ISO UTC)
 
     rows_out: List[List[Any]] = []
 
@@ -873,7 +907,7 @@ def main() -> None:
                 if k:
                     rows_out.append([
                         extracted_at,
-                        now_mx_str(),
+                        now_mx_str(),  # ✅ MX local formatted M/D/YYYY H:MM:SS
                         siteid,
                         str(devtype),
                         sn,

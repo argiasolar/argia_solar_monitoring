@@ -840,7 +840,7 @@ def main() -> None:
                     device_type = normalize_text(pick(it, ["deviceType", "deviceTypeNum", "type", "deviceTypeName"])) or "GROWATT_INV"
                     status_raw = pick(it, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus"])
                     etoday = growatt_extract_etoday(it)
-                    upd = parse_update_time_to_mx(pick(it, ["updateTime", "lastUpdateTime", "time"]))
+                    upd = now_mx_str()
                     rows_out.append([
                         extracted_at,
                         upd,

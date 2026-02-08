@@ -84,7 +84,6 @@ def _growatt_interval_irradiance_kwh_m2(
 # ============================
 # PUBLIC API (required by argia_sync.py)
 # ============================
-from __future__ import annotations
 
 import datetime as dt
 from typing import Any, Dict, Optional, Tuple

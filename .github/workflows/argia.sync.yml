@@ -2,10 +2,10 @@ name: Argia Unified Sync (10min)
 
 on:
   workflow_dispatch:
-  schedule:
-    # Every 10 minutes from 06:00–19:59 Mexico City time (UTC-6)
-    - cron: "*/10 12-23 * * *"
-    - cron: "*/10 0-1 * * *"
+  #schedule:
+  #  # Every 10 minutes from 06:00–19:59 Mexico City time (UTC-6)
+  #  - cron: "*/10 12-23 * * *"
+  #  - cron: "*/10 0-1 * * *"
 
 concurrency:
   group: argia-unified-sync-10m

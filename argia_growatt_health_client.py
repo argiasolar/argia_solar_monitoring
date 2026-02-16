@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, re, json, math, logging
+import os
+import re
+import json
+import math
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import requests
 
 LOG = logging.getLogger("argia.growatt.health")
 
+
+# ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
 
 def normalize_text(x: Any) -> str:
     return "" if x is None else str(x).strip()
@@ -18,7 +26,6 @@ def normalize_sn(x: Any) -> str:
 
 
 def safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
-    """Used by growatt_health.py when writing to sheet"""
     try:
         if x is None:
             return default
@@ -47,23 +54,34 @@ class GrowattAuth:
     password: str
 
 
+# ---------------------------------------------------------
+# Client
+# ---------------------------------------------------------
+
 class GrowattMonitoringClient:
     BASE = "https://server.growatt.com"
 
-    def __init__(self, auth: GrowattAuth, timeout: int = 45, debug_dir: str = "out_health"):
+    def __init__(self, auth: GrowattAuth, timeout: int = 45):
         self.auth = auth
         self.timeout = timeout
-        self.debug_dir = debug_dir
+
+        # folder where workflow will upload artifacts
+        self.debug_dir = "out_health"
         os.makedirs(self.debug_dir, exist_ok=True)
 
         self.s = requests.Session()
-        self.s.headers.update({"User-Agent": "Mozilla/5.0"})
+        self.s.headers.update({
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "*/*",
+            "X-Requested-With": "XMLHttpRequest"
+        })
 
     # ------------------------------------------------
     # LOGIN
     # ------------------------------------------------
     def login(self) -> None:
         self.s.get(self.BASE + "/login", timeout=self.timeout)
+
         self.s.post(
             self.BASE + "/login",
             data={"account": self.auth.user, "password": self.auth.password},
@@ -75,11 +93,11 @@ class GrowattMonitoringClient:
 
         LOG.info("✅ Growatt login OK")
 
-        # IMPORTANT — initialize UI session
+        # Important — initialize UI session
         self.s.get(self.BASE + "/index", timeout=self.timeout)
 
     # ------------------------------------------------
-    # SESSION ACTIVATION (critical for realtime data)
+    # SESSION ACTIVATION (critical)
     # ------------------------------------------------
     def warm_plant_context(self, plant_id: str) -> None:
         self.s.get(self.BASE + "/panel", timeout=self.timeout)
@@ -99,6 +117,7 @@ class GrowattMonitoringClient:
             data={"plantId": plant_id, "currPage": "1", "pageSize": "50"},
             timeout=self.timeout,
         )
+
         js = try_parse_json(r.text) or {}
         items = js.get("datas") or js.get("data") or js.get("rows") or []
 
@@ -112,7 +131,7 @@ class GrowattMonitoringClient:
         return out
 
     # ------------------------------------------------
-    # REALTIME DATA
+    # REALTIME DATA (with RAW JSON dump)
     # ------------------------------------------------
     def fetch_health_kpi_for_sn(self, plant_id: str, sn: str, device: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -127,17 +146,30 @@ class GrowattMonitoringClient:
             "/device/getInverterRealTimeData",
             "/device/getInvRealTimeData",
             "/device/getInverterDetailData2",
+            "/device/getInverterDetailData",
         ]
 
         for ep in endpoints:
-            r = self.s.post(self.BASE + ep, data=payload, timeout=self.timeout)
-
             try:
-                js = r.json()
+                r = self.s.post(self.BASE + ep, data=payload, timeout=self.timeout)
+
+                js = try_parse_json(r.text)
+                if not js:
+                    continue
+
+                # 🔥 SAVE RAW JSON FOR ANALYSIS
+                try:
+                    fname = f"{plant_id}__kpi_raw__{sn}__{ep.replace('/','_')}.json"
+                    path = os.path.join(self.debug_dir, fname)
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(js, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+
+                if js and ("data" in js or "datas" in js):
+                    return js.get("data") or js.get("datas")
+
             except Exception:
                 continue
-
-            if js and ("data" in js or "datas" in js):
-                return js.get("data") or js.get("datas")
 
         return {}

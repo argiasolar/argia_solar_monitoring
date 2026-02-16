@@ -2,12 +2,12 @@ name: Argia Growatt Health (30m day)
 
 on:
   workflow_dispatch:
-  schedule:
+  #schedule:
     # Every 30 minutes from 06:00–19:59 Mexico City time
     # Mexico City is UTC-6 in your current setup, so:
     # 06:00–19:59 local => 12:00–01:59 UTC (two ranges)
-    - cron: "*/30 12-23 * * *"
-    - cron: "*/30 0-1 * * *"
+    #- cron: "*/30 12-23 * * *"
+    #- cron: "*/30 0-1 * * *"
 
 concurrency:
   group: argia-growatt-health-30m

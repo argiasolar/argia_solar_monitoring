@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, re, json, time, math, logging
+import os, re, json, math, logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import requests
@@ -15,6 +15,23 @@ def normalize_text(x: Any) -> str:
 
 def normalize_sn(x: Any) -> str:
     return re.sub(r"\s+", "", normalize_text(x)).upper()
+
+
+def safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
+    """Used by growatt_health.py when writing to sheet"""
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str):
+            x = x.replace(",", "").strip()
+            if x == "":
+                return default
+        v = float(x)
+        if math.isnan(v) or math.isinf(v):
+            return default
+        return v
+    except Exception:
+        return default
 
 
 def try_parse_json(text: str) -> Optional[dict]:
@@ -47,7 +64,7 @@ class GrowattMonitoringClient:
     # ------------------------------------------------
     def login(self) -> None:
         self.s.get(self.BASE + "/login", timeout=self.timeout)
-        r = self.s.post(
+        self.s.post(
             self.BASE + "/login",
             data={"account": self.auth.user, "password": self.auth.password},
             timeout=self.timeout,
@@ -58,24 +75,17 @@ class GrowattMonitoringClient:
 
         LOG.info("✅ Growatt login OK")
 
-        # IMPORTANT: open main index page
+        # IMPORTANT — initialize UI session
         self.s.get(self.BASE + "/index", timeout=self.timeout)
 
     # ------------------------------------------------
-    # 🔥 REAL SESSION ACTIVATION (THIS FIXES KPI)
+    # SESSION ACTIVATION (critical for realtime data)
     # ------------------------------------------------
     def warm_plant_context(self, plant_id: str) -> None:
-
-        # open plant list
         self.s.get(self.BASE + "/panel", timeout=self.timeout)
-
-        # select plant (browser does this!)
         self.s.get(self.BASE + f"/panel/getPlantInfo?plantId={plant_id}", timeout=self.timeout)
-
-        # open device page
         self.s.get(self.BASE + f"/device/photovoltaic?plantId={plant_id}", timeout=self.timeout)
 
-        # Growatt requires this cookie
         self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
 
         LOG.info("Plant session activated %s", plant_id)
@@ -127,7 +137,7 @@ class GrowattMonitoringClient:
             except Exception:
                 continue
 
-            if js and "data" in js:
-                return js["data"]
+            if js and ("data" in js or "datas" in js):
+                return js.get("data") or js.get("datas")
 
         return {}

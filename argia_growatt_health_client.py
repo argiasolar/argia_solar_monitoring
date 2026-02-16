@@ -5,9 +5,11 @@ import os
 import re
 import json
 import math
+import time
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+
 import requests
 
 LOG = logging.getLogger("argia.growatt.health")
@@ -48,6 +50,12 @@ def try_parse_json(text: str) -> Optional[dict]:
         return None
 
 
+def _safe_filename(s: str) -> str:
+    s = (s or "").strip()
+    s = re.sub(r"[^\w\-\.]+", "_", s)
+    return s.strip("_")[:180]
+
+
 @dataclass
 class GrowattAuth:
     user: str
@@ -65,16 +73,34 @@ class GrowattMonitoringClient:
         self.auth = auth
         self.timeout = timeout
 
-        # folder where workflow will upload artifacts
         self.debug_dir = "out_health"
         os.makedirs(self.debug_dir, exist_ok=True)
+
+        # Marker file so artifact upload ALWAYS finds something
+        try:
+            with open(os.path.join(self.debug_dir, f"RUN_MARKER_{int(time.time())}.txt"), "w", encoding="utf-8") as f:
+                f.write("run started\n")
+        except Exception:
+            pass
 
         self.s = requests.Session()
         self.s.headers.update({
             "User-Agent": "Mozilla/5.0",
             "Accept": "*/*",
-            "X-Requested-With": "XMLHttpRequest"
+            "X-Requested-With": "XMLHttpRequest",
         })
+
+    def _save_text(self, plant_id: str, sn: str, endpoint: str, text: str) -> None:
+        fn = f"{plant_id}__{sn}__{_safe_filename(endpoint)}.txt"
+        path = os.path.join(self.debug_dir, fn)
+        with open(path, "w", encoding="utf-8", errors="ignore") as f:
+            f.write(text or "")
+
+    def _save_json(self, plant_id: str, sn: str, endpoint: str, obj: Any) -> None:
+        fn = f"{plant_id}__{sn}__{_safe_filename(endpoint)}.json"
+        path = os.path.join(self.debug_dir, fn)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
 
     # ------------------------------------------------
     # LOGIN
@@ -89,57 +115,66 @@ class GrowattMonitoringClient:
         )
 
         if "assToken" not in self.s.cookies.get_dict():
-            raise RuntimeError("Growatt login failed")
+            raise RuntimeError("Growatt login failed (assToken missing)")
 
         LOG.info("✅ Growatt login OK")
 
-        # Important — initialize UI session
+        # Initialize UI session
         self.s.get(self.BASE + "/index", timeout=self.timeout)
 
     # ------------------------------------------------
-    # SESSION ACTIVATION (critical)
+    # SESSION ACTIVATION (critical for KPI endpoints)
     # ------------------------------------------------
     def warm_plant_context(self, plant_id: str) -> None:
+        # Open panel UI, select plant, open device page (browser behavior)
         self.s.get(self.BASE + "/panel", timeout=self.timeout)
         self.s.get(self.BASE + f"/panel/getPlantInfo?plantId={plant_id}", timeout=self.timeout)
         self.s.get(self.BASE + f"/device/photovoltaic?plantId={plant_id}", timeout=self.timeout)
 
-        self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
+        # Some endpoints rely on this cookie
+        try:
+            self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
+            self.s.cookies.set("selPage", "%2Fpanel", domain="server.growatt.com", path="/")
+        except Exception:
+            pass
 
         LOG.info("Plant session activated %s", plant_id)
 
     # ------------------------------------------------
-    # DEVICE LIST
+    # DEVICE LIST (Status + deviceType + datalogSn)
     # ------------------------------------------------
     def fetch_devices_best_for_sns(self, plant_id: str, sns: List[str]) -> Dict[str, Dict[str, Any]]:
         r = self.s.post(
             self.BASE + "/device/getMAXList",
-            data={"plantId": plant_id, "currPage": "1", "pageSize": "50"},
+            data={"plantId": str(plant_id), "currPage": "1", "pageSize": "50"},
             timeout=self.timeout,
+            headers={"Referer": self.BASE + "/device"},
         )
-
         js = try_parse_json(r.text) or {}
         items = js.get("datas") or js.get("data") or js.get("rows") or []
 
-        out = {}
+        sns_set = {normalize_sn(x) for x in sns if x}
+        out: Dict[str, Dict[str, Any]] = {}
         for it in items:
             sn = normalize_sn(it.get("deviceSn") or it.get("sn") or "")
-            if sn in sns:
+            if sn in sns_set:
                 out[sn] = it
 
         LOG.info("Found %d devices in plant %s", len(out), plant_id)
         return out
 
     # ------------------------------------------------
-    # REALTIME DATA (with RAW JSON dump)
+    # REALTIME DATA (ALWAYS writes raw response files)
     # ------------------------------------------------
     def fetch_health_kpi_for_sn(self, plant_id: str, sn: str, device: Dict[str, Any]) -> Dict[str, Any]:
+        plant_id = str(plant_id)
+        sn = normalize_sn(sn)
 
         payload = {
             "plantId": plant_id,
             "deviceSn": sn,
-            "deviceType": device.get("deviceType"),
-            "datalogSn": device.get("datalogSn"),
+            "deviceType": device.get("deviceType") or device.get("type") or device.get("deviceTypeNum"),
+            "datalogSn": device.get("datalogSn") or device.get("collectorSn") or device.get("dataloggerSn"),
         }
 
         endpoints = [
@@ -147,29 +182,58 @@ class GrowattMonitoringClient:
             "/device/getInvRealTimeData",
             "/device/getInverterDetailData2",
             "/device/getInverterDetailData",
+            "/panel/getDeviceData",
+            "/panel/getInverterData",
         ]
+
+        last_json: Optional[dict] = None
 
         for ep in endpoints:
             try:
-                r = self.s.post(self.BASE + ep, data=payload, timeout=self.timeout)
+                r = self.s.post(
+                    self.BASE + ep,
+                    data=payload,
+                    timeout=self.timeout,
+                    headers={"Referer": self.BASE + "/panel"},
+                )
 
-                js = try_parse_json(r.text)
-                if not js:
-                    continue
+                txt = r.text or ""
+                # ALWAYS save raw response (even if it's HTML)
+                self._save_text(plant_id, sn, ep, txt[:20000])
 
-                # 🔥 SAVE RAW JSON FOR ANALYSIS
-                try:
-                    fname = f"{plant_id}__kpi_raw__{sn}__{ep.replace('/','_')}.json"
-                    path = os.path.join(self.debug_dir, fname)
-                    with open(path, "w", encoding="utf-8") as f:
-                        json.dump(js, f, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
+                js = try_parse_json(txt)
+                if js:
+                    last_json = js
+                    # also save JSON
+                    self._save_json(plant_id, sn, ep, js)
 
-                if js and ("data" in js or "datas" in js):
-                    return js.get("data") or js.get("datas")
+                    # Return the typical container if present
+                    if isinstance(js, dict):
+                        if "data" in js and js["data"] is not None:
+                            out = js["data"]
+                            if isinstance(out, dict):
+                                out["_endpoint"] = ep
+                            return out if isinstance(out, dict) else {"_endpoint": ep, "value": out}
+                        if "datas" in js and js["datas"] is not None:
+                            out = js["datas"]
+                            if isinstance(out, dict):
+                                out["_endpoint"] = ep
+                            return out if isinstance(out, dict) else {"_endpoint": ep, "value": out}
 
-            except Exception:
+            except Exception as e:
+                # Save exception info
+                self._save_text(plant_id, sn, ep + "__EXCEPTION", repr(e))
                 continue
+
+        # No structured data. Save a summary file too.
+        summary = {
+            "plantId": plant_id,
+            "sn": sn,
+            "payload": payload,
+            "cookies": self.s.cookies.get_dict(),
+            "last_json_present": bool(last_json),
+            "tried_endpoints": endpoints,
+        }
+        self._save_json(plant_id, sn, "SUMMARY", summary)
 
         return {}

@@ -3,7 +3,7 @@
 
 import os, re, json, time, math, logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -54,6 +54,22 @@ def pick(d: Dict[str, Any], keys: List[str]) -> Optional[Any]:
         if k in d and d[k] not in (None, "", "null"):
             return d[k]
     return None
+
+
+def norm_key(k: str) -> str:
+    """
+    Normalize key names across Growatt JSON variants.
+    Examples:
+      "Vpv1(V)" -> "vpv1"
+      "Vac-RS"  -> "vacrs"
+      "pac(W)"  -> "pac"
+      "Istr_12(A)" -> "istr12"
+    """
+    k = (k or "").strip().lower()
+    # remove units and punctuation
+    k = re.sub(r"\(.*?\)", "", k)
+    k = re.sub(r"[^a-z0-9]+", "", k)
+    return k
 
 
 @dataclass
@@ -121,7 +137,6 @@ class GrowattMonitoringClient:
         LOG.info("✅ Growatt login OK (assToken present).")
 
     def warm_plant_context(self, plant_id: str) -> None:
-        # same warm-up pattern you use elsewhere
         self.get("/device")
         pv = self.get("/device/photovoltaic", params={"plantId": plant_id}, referer=self.BASE + "/device")
         if pv.status_code == 200:
@@ -161,7 +176,7 @@ class GrowattMonitoringClient:
             return False
         if any(bad in ep for bad in self.UNSAFE_CONTAINS):
             return False
-        # allow list OR data-ish reads (health endpoints often not named "*list*")
+        # allow list OR data-ish reads
         if not any(tok in ep for tok in ("list", "data", "detail", "kpi", "real", "status", "info")):
             return False
         return True
@@ -185,11 +200,10 @@ class GrowattMonitoringClient:
                 return [x for x in items if isinstance(x, dict)]
         return []
 
+    # ---------------------------------------------------------
+    # Device list (status) – unchanged
+    # ---------------------------------------------------------
     def fetch_devices_best_for_sns(self, plant_id: str, wanted_sns: List[str], page_size: int = 50, max_pages: int = 6) -> Dict[str, Dict[str, Any]]:
-        """
-        Return best matching row per inverter SN, using the same idea as your unified script:
-        prefer deviceType==4 and/or higher eToday.
-        """
         wanted = {normalize_sn(x) for x in wanted_sns if x}
         html_max = self.get_max_page_html(plant_id)
         html_inv = self.get_inverter_page_html(plant_id)
@@ -205,7 +219,6 @@ class GrowattMonitoringClient:
             "/device/getDatalogList",
         ]
 
-        # dedup + safe-filter
         seen = set()
         candidates = []
         for u in urls:
@@ -222,7 +235,7 @@ class GrowattMonitoringClient:
 
         best_items: List[Dict[str, Any]] = []
         best_ep = ""
-        best_score = (-1, -1, -1, -1)  # (hits_etoday, hits_type4, hits_any, total_items)
+        best_score = (-1, -1, -1, -1)
 
         def device_type_num(it: Dict[str, Any]) -> Optional[int]:
             v = pick(it, ["deviceType", "deviceTypeNum", "type"])
@@ -293,23 +306,19 @@ class GrowattMonitoringClient:
         else:
             LOG.warning("❌ No device list endpoint produced usable rows for plant %s", plant_id)
 
-        # Build best row per SN
         out: Dict[str, Dict[str, Any]] = {}
 
         def better(existing: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, Any]:
-            ex_type = device_type_num(existing)
-            ca_type = device_type_num(cand)
-            ex_is4 = (ex_type == 4)
-            ca_is4 = (ca_type == 4)
+            def dt(it): return pick(it, ["deviceType", "deviceTypeNum", "type"])
+            ex_is4 = safe_float(dt(existing), None) == 4
+            ca_is4 = safe_float(dt(cand), None) == 4
             if ca_is4 and not ex_is4:
                 return cand
             if ex_is4 and not ca_is4:
                 return existing
-            ex_et = extract_etoday(existing) or 0.0
-            ca_et = extract_etoday(cand) or 0.0
-            if ca_et > ex_et:
-                return cand
-            return existing
+            # then prefer higher eToday
+            def et(it): return safe_float(pick(it, ["eToday", "EToday"]), 0.0) or 0.0
+            return cand if et(cand) > et(existing) else existing
 
         for it in best_items:
             sn = normalize_sn(pick(it, ["sn", "deviceSn", "invSn", "serialNum", "serialNo"]) or "")
@@ -321,30 +330,29 @@ class GrowattMonitoringClient:
 
         return out
 
+    # ---------------------------------------------------------
+    # KPI / String data – UPDATED extraction
+    # ---------------------------------------------------------
     def fetch_health_kpi_for_sn(self, plant_id: str, sn: str) -> Dict[str, Any]:
-        """
-        Probe safe endpoints (discovered from HTML) trying to find a JSON blob containing
-        the KPI keys you want (Vpv1/VacRS/Pac/Vstr1/Istr1...).
-        Returns a flat dict of found values; empty dict if not found.
-        """
         sn = normalize_sn(sn)
+
         html_max = self.get_max_page_html(plant_id)
         html_inv = self.get_inverter_page_html(plant_id)
 
         urls = self.discover_ajax_urls(html_max) + self.discover_ajax_urls(html_inv)
-
-        # add a few common read-ish candidates (still safe-filtered)
         urls += [
             "/device/getInverterData",
             "/device/getInverterDetail",
             "/device/getInverterDetailData",
-            "/panel/getDeviceData",
-            "/panel/getDeviceDetail",
+            "/device/getInverterDetailData2",
             "/device/getInverterRealTimeData",
             "/device/getInvRealTimeData",
+            "/panel/getDeviceData",
+            "/panel/getDeviceDetail",
+            "/panel/getInverterData",
+            "/panel/getInverterDetail",
         ]
 
-        # dedup + safe
         seen = set()
         candidates = []
         for u in urls:
@@ -354,36 +362,67 @@ class GrowattMonitoringClient:
             if self._is_safe_endpoint(u):
                 candidates.append(u)
 
-        # payload variants because Growatt endpoints are inconsistent
         payloads = [
             {"sn": sn},
             {"deviceSn": sn},
             {"invSn": sn},
             {"serialNum": sn},
+            {"serialNo": sn},
             {"plantId": str(plant_id), "sn": sn},
             {"plantId": str(plant_id), "deviceSn": sn},
         ]
 
-        wanted_keys = set()
-        base = ["Vpv1", "Ipv1", "VacRS", "VacST", "VacTR", "PacR", "PacS", "PacT", "Pac"]
-        wanted_keys.update(base)
+        # canonical keys we want to output (match growatt_health.py expectations)
+        canonical = ["Vpv1", "Ipv1", "VacRS", "VacST", "VacTR", "PacR", "PacS", "PacT", "Pac"]
         for i in range(1, 17):
-            wanted_keys.add(f"Vstr{i}")
-            wanted_keys.add(f"Istr{i}")
+            canonical.append(f"Vstr{i}")
+            canonical.append(f"Istr{i}")
 
-        def flatten(obj: Any, out: Dict[str, Any]) -> None:
+        # normalized-to-canonical mapping
+        want_map: Dict[str, str] = {norm_key(k): k for k in canonical}
+
+        # Add a few common Growatt synonyms -> canonical
+        want_map.update({
+            "vpv1v": "Vpv1",
+            "ipv1a": "Ipv1",
+            "vacrs": "VacRS",
+            "vacst": "VacST",
+            "vactr": "VacTR",
+            "pacr": "PacR",
+            "pacs": "PacS",
+            "pact": "PacT",
+            "pacw": "Pac",
+            "pac": "Pac",
+        })
+
+        def capture(flat: Dict[str, Any], key: str, val: Any) -> None:
+            nk = norm_key(key)
+            if nk in want_map and want_map[nk] not in flat:
+                flat[want_map[nk]] = val
+
+        def flatten(obj: Any, flat: Dict[str, Any]) -> None:
+            # dict
             if isinstance(obj, dict):
+                # name/value pair patterns
+                # {name:"Vpv1(V)", value:123} OR {key:"vpv1", val:123}
+                if any(k in obj for k in ("name", "key")) and any(k in obj for k in ("value", "val", "data", "v")):
+                    k = obj.get("name", obj.get("key"))
+                    v = obj.get("value", obj.get("val", obj.get("data", obj.get("v"))))
+                    if isinstance(k, str):
+                        capture(flat, k, v)
+
                 for k, v in obj.items():
-                    if k in wanted_keys:
-                        out[k] = v
-                    # common nested containers
+                    if isinstance(k, str):
+                        capture(flat, k, v)
                     if isinstance(v, (dict, list)):
-                        flatten(v, out)
+                        flatten(v, flat)
+
+            # list
             elif isinstance(obj, list):
                 for it in obj:
-                    flatten(it, out)
+                    flatten(it, flat)
 
-        for ep in candidates[:60]:  # cap to avoid runaway
+        for ep in candidates[:80]:
             for p in payloads:
                 js = self._call_json(ep, p)
                 if not js:
@@ -392,12 +431,17 @@ class GrowattMonitoringClient:
                 flat: Dict[str, Any] = {}
                 flatten(js, flat)
 
-                # Accept if we found at least ONE of the key fields
                 if flat:
-                    self._save_debug(plant_id, f"kpi_hit__{sn}__{self._safe_filename(ep)}", json.dumps(js)[:20000], "json")
+                    # save a compact sample so we can inspect shape
+                    self._save_debug(
+                        plant_id,
+                        f"kpi_hit__{sn}__{self._safe_filename(ep)}",
+                        json.dumps(js, ensure_ascii=False)[:20000],
+                        "json",
+                    )
                     flat["_endpoint"] = ep
                     return flat
 
-        # nothing found; save a small hint file for the first plant
-        self._save_debug(plant_id, f"kpi_miss__{sn}", "\n".join(candidates[:60]), "txt")
+        # nothing found: save endpoint list + one sample response (first working json)
+        self._save_debug(plant_id, f"kpi_miss__{sn}", "\n".join(candidates[:80]), "txt")
         return {}

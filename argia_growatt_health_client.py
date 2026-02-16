@@ -46,11 +46,6 @@ def try_parse_json(text: str) -> Optional[dict]:
     except Exception:
         return None
 
-def _safe_filename(s: str) -> str:
-    s = (s or "").strip()
-    s = re.sub(r"[^\w\-\.]+", "_", s)
-    return s.strip("_")[:160]
-
 
 # ---------------------------------------------------------
 # Auth
@@ -78,21 +73,15 @@ class GrowattMonitoringClient:
         "User-Agent": "Mozilla/5.0",
     }
 
-    def __init__(self, auth: GrowattAuth, timeout: int = 45, debug_dir: str = "out_health"):
+    def __init__(self, auth: GrowattAuth, timeout: int = 45):
         self.auth = auth
         self.timeout = timeout
-        self.debug_dir = debug_dir
-        os.makedirs(self.debug_dir, exist_ok=True)
-
-        # always create artifact marker
-        with open(os.path.join(self.debug_dir, f"RUN_MARKER_{int(time.time())}.txt"), "w") as f:
-            f.write("run started")
 
         self.s = requests.Session()
         self.s.headers.update({"User-Agent": "Mozilla/5.0"})
 
     # ------------------------------------------------
-    # Login
+    # LOGIN
     # ------------------------------------------------
     def login(self) -> None:
         self.s.get(self.BASE + "/login", timeout=self.timeout)
@@ -108,25 +97,25 @@ class GrowattMonitoringClient:
 
         LOG.info("✅ Growatt login OK")
 
-        # open UI session
+        # initialize UI session
         self.s.get(self.BASE + "/index", timeout=self.timeout)
 
     # ------------------------------------------------
-    # Plant context
+    # PLANT CONTEXT
     # ------------------------------------------------
     def warm_plant_context(self, plant_id: str) -> None:
         self.s.get(self.BASE + "/panel", timeout=self.timeout)
         self.s.get(self.BASE + f"/panel/getPlantInfo?plantId={plant_id}", timeout=self.timeout)
         self.s.get(self.BASE + f"/device/photovoltaic?plantId={plant_id}", timeout=self.timeout)
 
-        # cookies expected by backend
+        # required cookies
         self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
         self.s.cookies.set("selPage", "%2Fpanel", domain="server.growatt.com", path="/")
 
         LOG.info("Plant session activated %s", plant_id)
 
     # ------------------------------------------------
-    # Device list
+    # DEVICE LIST
     # ------------------------------------------------
     def fetch_devices_best_for_sns(self, plant_id: str, sns: List[str]) -> Dict[str, Dict[str, Any]]:
         r = self.s.post(
@@ -141,6 +130,7 @@ class GrowattMonitoringClient:
 
         out = {}
         sns_set = {normalize_sn(x) for x in sns}
+
         for it in items:
             sn = normalize_sn(it.get("deviceSn") or it.get("sn"))
             if sn in sns_set:
@@ -150,7 +140,7 @@ class GrowattMonitoringClient:
         return out
 
     # ------------------------------------------------
-    # 🔥 Realtime KPI (final working logic)
+    # REALTIME KPI (FINAL WORKING FLOW)
     # ------------------------------------------------
     def fetch_health_kpi_for_sn(self, plant_id: str, sn: str, device: Dict[str, Any]) -> Dict[str, Any]:
         plant_id = str(plant_id)
@@ -159,7 +149,7 @@ class GrowattMonitoringClient:
         device_type = device.get("deviceType")
         datalog_sn = device.get("datalogSn")
 
-        # STEP 1 — select inverter in server session
+        # STEP 1 — select inverter
         try:
             self.s.post(
                 self.BASE + "/device/setDeviceSn",
@@ -168,10 +158,22 @@ class GrowattMonitoringClient:
                 timeout=self.timeout
             )
             LOG.info("Session device set %s", sn)
-        except Exception as e:
-            LOG.warning("Failed to set device session %s : %s", sn, e)
+        except Exception:
+            pass
 
-        # STEP 2 — request realtime data
+        # STEP 2 — activate inverter protocol (CRITICAL)
+        try:
+            self.s.post(
+                self.BASE + "/device/setDeviceType",
+                data={"deviceType": device_type, "sn": sn},
+                headers=self.AJAX_HEADERS,
+                timeout=self.timeout
+            )
+            LOG.info("Device type activated %s type=%s", sn, device_type)
+        except Exception:
+            pass
+
+        # STEP 3 — realtime request
         payload = {
             "plantId": plant_id,
             "deviceSn": sn,

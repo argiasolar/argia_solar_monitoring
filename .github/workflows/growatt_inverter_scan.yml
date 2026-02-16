@@ -1,24 +1,15 @@
-name: ARGIA - Growatt Inverter Scan (manual)
+name: Argia Growatt Scan Inverters (manual)
 
 on:
   workflow_dispatch:
 
 jobs:
-  scan:
+  run:
     runs-on: ubuntu-latest
-
-    env:
-      MODE: scan
-      GROWATT_BASE: https://server.growatt.com
-      GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
-      GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-
-      # ✅ add these
-      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -26,26 +17,30 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
-          pip install requests google-api-python-client google-auth google-auth-httplib2
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run inverter scan
+      - name: Run Growatt inverter scanner
+        env:
+          GROWATT_BASE: "https://server.growatt.com"
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+
+          # <<< PUT YOUR PLANT IDS HERE >>>
+          # Example:
+          # GROWATT_PLANT_IDS: "9275498,9309589,9309575,10078094"
+          GROWATT_PLANT_IDS: "9275498,9309589,9309575,10078094"
+
+          # output folder
+          GROWATT_OUT_DIR: "out"
         run: |
-          python argia_probe.py
+          python argia_growatt_scan_inverters.py
 
-      - name: Sanitize filenames (remove invalid characters)
-        run: |
-          echo "Sanitizing filenames..."
-          find out -type f | while read f; do
-            clean=$(echo "$f" | sed 's/[<>:"|?*\r\n]/_/g')
-            if [ "$f" != "$clean" ]; then
-              mv "$f" "$clean"
-            fi
-          done
-
-      - name: Upload scan results
+      - name: Upload scan artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: growatt-inverter-scan-out
+          name: growatt_scan_out
           path: out
+          if-no-files-found: error

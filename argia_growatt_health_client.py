@@ -14,6 +14,7 @@ import requests
 
 LOG = logging.getLogger("argia.growatt.health")
 
+
 # ---------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------
@@ -54,38 +55,6 @@ def _safe_filename(s: str) -> str:
 def now_ms() -> int:
     return int(time.time() * 1000)
 
-def discover_ajax_urls(html: str) -> List[str]:
-    """
-    Pull URLs from Growatt UI HTML. Often contains the real KPI endpoints.
-    """
-    urls: List[str] = []
-    if not html:
-        return urls
-    # url: '/device/getInverterRealTimeData'
-    for m in re.finditer(r"url\s*:\s*['\"](\/[^'\"]+)['\"]", html):
-        urls.append(m.group(1))
-    # $.post('/panel/getDeviceData', ...)
-    for m in re.finditer(r"\$\.(?:post|get)\(\s*['\"](\/[^'\"]+)['\"]", html):
-        urls.append(m.group(1))
-    seen = set()
-    out = []
-    for u in urls:
-        if u not in seen:
-            seen.add(u)
-            out.append(u)
-    return out
-
-def is_readish_endpoint(u: str) -> bool:
-    u2 = (u or "").lower()
-    if not u2.startswith("/"):
-        return False
-    # avoid obvious dangerous endpoints
-    bad = ("set", "save", "delete", "del", "add", "update")
-    if any(tok in u2 for tok in bad):
-        return False
-    # prefer data/real/detail/list/info
-    ok = ("data", "real", "detail", "kpi", "info", "status", "list")
-    return any(tok in u2 for tok in ok)
 
 # ---------------------------------------------------------
 # Auth
@@ -95,6 +64,7 @@ def is_readish_endpoint(u: str) -> bool:
 class GrowattAuth:
     user: str
     password: str
+
 
 # ---------------------------------------------------------
 # Client
@@ -118,7 +88,7 @@ class GrowattMonitoringClient:
         self.debug_dir = debug_dir
         os.makedirs(self.debug_dir, exist_ok=True)
 
-        # Marker file so artifacts always exist
+        # Marker so artifact always uploads
         try:
             with open(os.path.join(self.debug_dir, f"RUN_MARKER_{int(time.time())}.txt"), "w", encoding="utf-8") as f:
                 f.write("run started\n")
@@ -146,35 +116,39 @@ class GrowattMonitoringClient:
     # ---------------------------
     # low-level http
     # ---------------------------
-    def _post(self, path: str, data: dict) -> Tuple[int, str]:
-        r = self.s.post(self.BASE + path, data=data, headers=self.AJAX_HEADERS, timeout=self.timeout)
+    def _post(self, path: str, data: dict, referer: Optional[str] = None) -> Tuple[int, str]:
+        headers = dict(self.AJAX_HEADERS)
+        if referer:
+            headers["Referer"] = referer
+        r = self.s.post(self.BASE + path, data=data, headers=headers, timeout=self.timeout)
         return r.status_code, (r.text or "")
 
-    def _get(self, path: str, params: dict) -> Tuple[int, str]:
-        r = self.s.get(self.BASE + path, params=params, headers=self.AJAX_HEADERS, timeout=self.timeout)
+    def _get_plain(self, path: str, params: Optional[dict] = None) -> Tuple[int, str]:
+        # plain GET used for UI navigation (HTML pages)
+        r = self.s.get(self.BASE + path, params=params or {}, timeout=self.timeout)
         return r.status_code, (r.text or "")
 
     # ---------------------------
     # login + context
     # ---------------------------
     def login(self) -> None:
-        self.s.get(self.BASE + "/login", timeout=self.timeout)
-        self.s.post(
-            self.BASE + "/login",
-            data={"account": self.auth.user, "password": self.auth.password},
-            timeout=self.timeout,
-        )
+        self._get_plain("/login")
+        sc, txt = self._post("/login", {"account": self.auth.user, "password": self.auth.password}, referer="https://server.growatt.com/login")
+        # cookies after login
         if "assToken" not in self.s.cookies.get_dict():
+            # save response for debugging
+            self._save_text("LOGIN", "LOGIN", "login_failed_response", (txt or "")[:20000])
             raise RuntimeError("Growatt login failed (assToken missing)")
         LOG.info("✅ Growatt login OK")
-        self.s.get(self.BASE + "/index", timeout=self.timeout)
+        self._get_plain("/index")
 
     def warm_plant_context(self, plant_id: str) -> None:
         # mimic browser navigation
-        self.s.get(self.BASE + "/panel", timeout=self.timeout)
-        self.s.get(self.BASE + f"/panel/getPlantInfo?plantId={plant_id}", timeout=self.timeout)
-        self.s.get(self.BASE + f"/device/photovoltaic?plantId={plant_id}", timeout=self.timeout)
+        self._get_plain("/panel")
+        self._get_plain("/panel/getPlantInfo", params={"plantId": str(plant_id)})
+        self._get_plain("/device/photovoltaic", params={"plantId": str(plant_id)})
 
+        # cookies used by Growatt UI
         try:
             self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
             self.s.cookies.set("selPage", "%2Fpanel", domain="server.growatt.com", path="/")
@@ -187,14 +161,16 @@ class GrowattMonitoringClient:
     # device list
     # ---------------------------
     def fetch_devices_best_for_sns(self, plant_id: str, sns: List[str]) -> Dict[str, Dict[str, Any]]:
-        status, txt = self._post(
+        sns_set = {normalize_sn(x) for x in sns if x}
+
+        sc, txt = self._post(
             "/device/getMAXList",
             {"plantId": str(plant_id), "currPage": "1", "pageSize": "50"},
+            referer="https://server.growatt.com/device",
         )
         js = try_parse_json(txt) or {}
         items = js.get("datas") or js.get("data") or js.get("rows") or []
 
-        sns_set = {normalize_sn(x) for x in sns if x}
         out: Dict[str, Dict[str, Any]] = {}
         for it in items:
             sn = normalize_sn(it.get("deviceSn") or it.get("sn") or it.get("invSn") or "")
@@ -205,113 +181,86 @@ class GrowattMonitoringClient:
         return out
 
     # ---------------------------
-    # KPI fetch
+    # KPI fetch (CRITICAL: open inverter detail page first)
     # ---------------------------
     def fetch_health_kpi_for_sn(self, plant_id: str, sn: str, device: Dict[str, Any]) -> Dict[str, Any]:
         plant_id = str(plant_id)
         sn = normalize_sn(sn)
 
-        # Harvest possible identifiers from device row
         device_type = device.get("deviceType") or device.get("deviceTypeNum") or device.get("type")
         datalog_sn = device.get("datalogSn") or device.get("collectorSn") or device.get("dataloggerSn")
         device_id = device.get("deviceId") or device.get("id") or device.get("invId")
 
-        # Pull HTML pages to discover the real endpoints (super important)
-        html_parts: List[str] = []
+        # ----------------------------------------------------
+        # STEP 1 — open inverter pages (THIS UNLOCKS SESSION)
+        # ----------------------------------------------------
         try:
-            r = self.s.get(self.BASE + "/device/getMAXPage", params={"ttt": str(now_ms())}, timeout=self.timeout)
-            html_parts.append(r.text or "")
+            self._get_plain("/device/inverter", params={"plantId": plant_id})
+            # different Growatt builds use different URLs; try both
+            self._get_plain("/device/inverterDetail", params={"sn": sn, "plantId": plant_id})
+            self._get_plain("/device/getInverterPage", params={"plantId": plant_id})
+            LOG.info("Inverter page opened %s", sn)
         except Exception:
             pass
-        try:
-            r = self.s.get(self.BASE + "/device/getInverterPage", params={"plantId": plant_id}, timeout=self.timeout)
-            html_parts.append(r.text or "")
-        except Exception:
-            pass
 
-        discovered: List[str] = []
-        for h in html_parts:
-            discovered.extend(discover_ajax_urls(h))
-        discovered = [u for u in discovered if is_readish_endpoint(u)]
-
-        # Known common endpoints (plus discovered ones)
-        endpoints = []
-        for u in discovered:
-            if u not in endpoints:
-                endpoints.append(u)
-
-        for u in [
-            "/device/getInverterRealTimeData",
-            "/device/getInvRealTimeData",
-            "/device/getInverterDetailData2",
-            "/device/getInverterDetailData",
-            "/panel/getDeviceData",
-            "/panel/getInverterData",
-            "/panel/getDeviceDetail",
-        ]:
-            if u not in endpoints:
-                endpoints.append(u)
-
-        # Payload variants — Growatt differs by endpoint/model
-        payloads: List[dict] = [
+        # ----------------------------------------------------
+        # STEP 2 — POST ONLY (Growatt returns 405 on GET)
+        # ----------------------------------------------------
+        payload_variants: List[dict] = [
             {"plantId": plant_id, "deviceSn": sn, "deviceType": device_type, "datalogSn": datalog_sn},
             {"plantId": plant_id, "sn": sn, "deviceType": device_type, "datalogSn": datalog_sn},
             {"plantId": plant_id, "invSn": sn, "deviceType": device_type, "datalogSn": datalog_sn},
             {"plantId": plant_id, "serialNum": sn, "deviceType": device_type, "datalogSn": datalog_sn},
         ]
         if device_id:
-            payloads.append({"plantId": plant_id, "deviceId": device_id, "deviceType": device_type, "datalogSn": datalog_sn})
-            payloads.append({"deviceId": device_id})
+            payload_variants.append({"plantId": plant_id, "deviceId": device_id, "deviceType": device_type, "datalogSn": datalog_sn})
 
-        # Remove Nones/empties
+        # clean empties
         def clean(d: dict) -> dict:
             return {k: v for k, v in d.items() if v not in (None, "", "null")}
 
-        payloads = [clean(p) for p in payloads]
+        payload_variants = [clean(p) for p in payload_variants]
 
-        # Try endpoints
-        for ep in endpoints[:80]:
-            for p in payloads:
+        endpoints = [
+            "/device/getInverterRealTimeData",
+            "/device/getInvRealTimeData",
+            "/device/getInverterDetailData2",
+            "/device/getInverterDetailData",
+        ]
+
+        for ep in endpoints:
+            for p in payload_variants:
                 try:
-                    sc, txt = self._post(ep, p)
-                    # Always save raw response for diagnosis
+                    sc, txt = self._post(ep, p, referer="https://server.growatt.com/device")
+                    # always save raw response
                     self._save_text(plant_id, sn, f"{ep}__POST__{sc}", (txt or "")[:20000])
 
                     js = try_parse_json(txt)
+                    if js:
+                        self._save_json(plant_id, sn, f"RAW__{ep}__POST__{sc}", js)
+
                     if isinstance(js, dict) and (js.get("data") is not None or js.get("datas") is not None):
                         out = js.get("data") if js.get("data") is not None else js.get("datas")
                         if isinstance(out, dict):
                             out["_endpoint"] = ep
-                        self._save_json(plant_id, sn, f"HIT__{ep}__POST", js)
+                        LOG.info("✅ KPI OK %s via %s", sn, ep)
                         return out if isinstance(out, dict) else {"_endpoint": ep, "value": out}
-
-                    # Try GET as fallback
-                    sc2, txt2 = self._get(ep, p)
-                    self._save_text(plant_id, sn, f"{ep}__GET__{sc2}", (txt2 or "")[:20000])
-
-                    js2 = try_parse_json(txt2)
-                    if isinstance(js2, dict) and (js2.get("data") is not None or js2.get("datas") is not None):
-                        out2 = js2.get("data") if js2.get("data") is not None else js2.get("datas")
-                        if isinstance(out2, dict):
-                            out2["_endpoint"] = ep
-                        self._save_json(plant_id, sn, f"HIT__{ep}__GET", js2)
-                        return out2 if isinstance(out2, dict) else {"_endpoint": ep, "value": out2}
 
                 except Exception as e:
                     self._save_text(plant_id, sn, f"{ep}__EXCEPTION", repr(e))
 
-        # Summary for this inverter
+        # summary for this inverter
         summary = {
             "plantId": plant_id,
             "sn": sn,
-            "device_keys": list(device.keys())[:120],
             "deviceType": device_type,
             "datalogSn": datalog_sn,
             "deviceId": device_id,
-            "tried_endpoints_count": len(endpoints),
-            "tried_payloads_count": len(payloads),
             "cookies": self.s.cookies.get_dict(),
+            "tried_endpoints": endpoints,
+            "payload_variants": payload_variants,
         }
         self._save_json(plant_id, sn, "SUMMARY", summary)
 
+        LOG.warning("No KPI for %s", sn)
         return {}

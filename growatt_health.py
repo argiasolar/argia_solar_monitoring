@@ -1,241 +1,118 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, logging, re, time
+import os, logging, time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from argia_health_sheets import read_table, ensure_header, append_rows
-from argia_growatt_health_client import (
-    GrowattMonitoringClient,
-    GrowattAuth,
-    normalize_sn,
-    normalize_text,
-    safe_float,
-    pick,
-)
+from argia_growatt_health_client import GrowattMonitoringClient, GrowattAuth, normalize_text, normalize_sn
 
 LOG = logging.getLogger("argia.health.growatt")
-
 MX_TZ = ZoneInfo("America/Mexico_City")
 
 
-# =========================================================
-# Helpers
-# =========================================================
-
-def setup_logging() -> None:
-    level = os.getenv("LOG_LEVEL", "INFO").upper().strip()
-    logging.basicConfig(level=level, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+def now_utc_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 
-def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+def now_mx():
+    dt = datetime.now(timezone.utc).astimezone(MX_TZ)
+    return dt.strftime("%m/%d/%Y %H:%M:%S")
 
 
-def now_mx_str() -> str:
-    dt = datetime.now(timezone.utc).replace(microsecond=0).astimezone(MX_TZ)
-    return f"{dt.month}/{dt.day}/{dt.year} {dt.hour}:{dt.minute:02d}:{dt.second:02d}"
-
-
-def looks_like_growatt_siteid(s: str) -> bool:
-    return bool(re.fullmatch(r"\d{6,12}", (s or "").strip()))
-
-
-# =========================================================
-# SNAP READER (FIXED VERSION)
-# =========================================================
-
-def read_snap_growatt(sheet_id: str, snap_range: str) -> List[Dict[str, Any]]:
+# ---------------------------------------------------------
+# SNAP
+# ---------------------------------------------------------
+def read_snap(sheet_id, snap_range):
     values = read_table(sheet_id, snap_range)
-    if not values:
-        return []
-
-    header = [normalize_text(h).upper() for h in values[0]]
+    header = [h.upper() for h in values[0]]
     rows = values[1:]
 
-    def idx(name: str) -> Optional[int]:
-        try:
-            return header.index(name.upper())
-        except ValueError:
-            return None
+    i_site = header.index("SITEID")
+    i_brand = header.index("BRAND")
+    i_plant = header.index("PLANT_KEY")
 
-    # ---- FIX: DO NOT USE "or" because index 0 is valid ----
-    i_plant = idx("PLANT_KEY")
-    if i_plant is None:
-        i_plant = idx("PLANTKEY")
+    inv_cols = [i for i, h in enumerate(header) if "INVERTER" in h]
 
-    i_site = idx("SITEID")
-    i_brand = idx("BRAND")
-
-    if i_plant is None or i_site is None or i_brand is None:
-        raise RuntimeError(f"SNAP missing Plant_Key / SITEID / Brand. Header={header}")
-
-    inv_cols = [i for i, h in enumerate(header) if ("INVERTER" in h) or ("IVERTER" in h)]
-
-    out: List[Dict[str, Any]] = []
-
+    plants = []
     for r in rows:
-        if len(r) <= max([i_plant, i_site, i_brand] + (inv_cols or [0])):
+        if r[i_brand].upper() != "GROWATT":
             continue
-
-        plant = normalize_text(r[i_plant])
-        siteid = normalize_text(r[i_site])
-        brand = normalize_text(r[i_brand]).upper()
-
-        if brand != "GROWATT":
-            continue
-        if not plant or not looks_like_growatt_siteid(siteid):
-            continue
-
-        sns: List[str] = []
-        for j in inv_cols:
-            if j < len(r):
-                sn = normalize_text(r[j])
-                if sn:
-                    sns.append(normalize_sn(sn))
-
-        sns = list(dict.fromkeys([s for s in sns if s]))
+        sns = [normalize_sn(r[i]) for i in inv_cols if i < len(r) and r[i]]
         if sns:
-            out.append({"siteid": siteid, "plant": plant, "sns": sns})
-
-    return out
-
-
-# =========================================================
-# Status + Fault extraction
-# =========================================================
-
-def status_to_text_and_fault(item: Dict[str, Any]) -> (str, str):
-    status = normalize_text(pick(item, ["status", "deviceStatus", "invStatus", "workStatus", "connStatus", "runStatus"])) or ""
-    fault = normalize_text(pick(item, ["faultCode", "fault_code", "faultMsg", "faultMessage", "alarmCode", "alarmMsg"])) or ""
-
-    m = item.get("dataItemMap")
-    if isinstance(m, dict):
-        if not fault:
-            fault = normalize_text(pick(m, ["faultCode", "fault_code", "faultMsg", "alarmCode", "alarmMsg"])) or fault
-        if not status:
-            status = normalize_text(pick(m, ["status", "workStatus", "runStatus"])) or status
-
-    return status, fault
+            plants.append({"siteid": r[i_site], "plant": r[i_plant], "sns": sns})
+    return plants
 
 
-# =========================================================
-# Header definition
-# =========================================================
-
-def build_header() -> List[str]:
-    header = [
-        "ExtractedAtUTC",
-        "Timestamp",
-        "SiteId",
-        "PlantName",
-        "SerialNumber",
-        "Status",
-        "FaultCode",
-        "Vpv1(V)",
-        "Ipv1(A)",
-        "VacRS(V)",
-        "VacST(V)",
-        "VacTR(V)",
-        "PacR(W)",
-        "PacS(W)",
-        "PacT(W)",
-        "Pac(W)",
+# ---------------------------------------------------------
+def header():
+    h = [
+        "ExtractedAtUTC","Timestamp","SiteId","PlantName","SerialNumber","Status","FaultCode",
+        "Vpv1","Ipv1","VacRS","VacST","VacTR","PacR","PacS","PacT","Pac"
     ]
-    for i in range(1, 17):
-        header.append(f"Vstr{i}(V)")
-        header.append(f"Istr{i}(A)")
-    header.append("_SourceEndpoint")
-    return header
+    for i in range(1,17):
+        h += [f"Vstr{i}",f"Istr{i}"]
+    h += ["_endpoint"]
+    return h
 
 
-# =========================================================
-# MAIN
-# =========================================================
+# ---------------------------------------------------------
+def main():
 
-def main() -> None:
-    setup_logging()
+    logging.basicConfig(level="INFO")
 
-    sheet_id = os.getenv("GOOGLE_SHEET_ID", "").strip()
-    if not sheet_id:
-        raise RuntimeError("Missing GOOGLE_SHEET_ID")
+    SHEET = os.environ["GOOGLE_SHEET_ID"]
+    TAB = "PV_Health_Monitoring"
 
-    snap_range = os.getenv("SNAP_RANGE", "SNAP!A1:Z1000").strip()
-    tab = os.getenv("PV_HEALTH_TAB", "PV_Health_Monitoring").strip()
+    ensure_header(SHEET, TAB, header())
 
-    user = (os.getenv("GROWATT_USERNAME") or os.getenv("GROWATT_USER") or "").strip()
-    pwd = (os.getenv("GROWATT_PASSWORD") or os.getenv("GROWATT_PASS") or "").strip()
-    if not user or not pwd:
-        raise RuntimeError("Missing Growatt credentials (GROWATT_USERNAME/GROWATT_PASSWORD).")
+    snap = read_snap(SHEET, "SNAP!A1:Z1000")
 
-    header = build_header()
-    ensure_header(sheet_id, tab, header)
+    cli = GrowattMonitoringClient(
+        GrowattAuth(
+            user=os.environ["GROWATT_USERNAME"],
+            password=os.environ["GROWATT_PASSWORD"],
+        )
+    )
 
-    snap = read_snap_growatt(sheet_id, snap_range)
-    LOG.info("Growatt plants in SNAP: %d", len(snap))
-    if not snap:
-        return
-
-    cli = GrowattMonitoringClient(GrowattAuth(user=user, password=pwd))
     cli.login()
 
-    extracted_at = now_utc_iso()
-    ts = now_mx_str()
-
-    rows_out: List[List[Any]] = []
+    rows = []
 
     for plant in snap:
-        siteid = plant["siteid"]
-        plantname = plant["plant"]
-        sns = plant["sns"]
+        site = plant["siteid"]
+        cli.warm_plant_context(site)
 
-        cli.warm_plant_context(siteid)
+        devices = cli.fetch_devices_best_for_sns(site, plant["sns"])
 
-        items_by_sn = cli.fetch_devices_best_for_sns(siteid, sns, page_size=50, max_pages=6)
+        for sn in plant["sns"]:
+            device = devices.get(sn, {})
+            status = str(device.get("status",""))
 
-        for sn in sns:
-            base_item = items_by_sn.get(sn, {})
-            status, fault = status_to_text_and_fault(base_item)
+            kpi = cli.fetch_health_kpi_for_sn(site, sn, device)
 
-            kpi = cli.fetch_health_kpi_for_sn(siteid, sn)
-
-            def g(key: str) -> Any:
-                v = kpi.get(key)
-                f = safe_float(v, None)
-                return f if f is not None else (normalize_text(v) if v is not None else "")
+            def g(k): return kpi.get(k.lower(),"") if kpi else ""
 
             row = [
-                extracted_at,
-                ts,
-                siteid,
-                plantname,
-                sn,
-                status,
-                fault,
-                g("Vpv1"),
-                g("Ipv1"),
-                g("VacRS"),
-                g("VacST"),
-                g("VacTR"),
-                g("PacR"),
-                g("PacS"),
-                g("PacT"),
-                g("Pac"),
+                now_utc_iso(), now_mx(), site, plant["plant"], sn,
+                status,"",
+                g("vpv1"),g("ipv1"),g("vacrs"),g("vacst"),g("vactr"),
+                g("pacr"),g("pacs"),g("pact"),g("pac"),
             ]
 
-            for i in range(1, 17):
-                row.append(g(f"Vstr{i}"))
-                row.append(g(f"Istr{i}"))
+            for i in range(1,17):
+                row += [g(f"vstr{i}"),g(f"istr{i}")]
 
-            row.append(normalize_text(kpi.get("_endpoint", "")))
-            rows_out.append(row)
+            row += [kpi.get("_endpoint","") if kpi else ""]
 
-        time.sleep(float(os.getenv("GROWATT_SLEEP_SEC", "0.4")))
+            rows.append(row)
 
-    append_rows(sheet_id, tab, rows_out)
-    LOG.info("✅ Wrote %d rows into %s", len(rows_out), tab)
+        time.sleep(0.5)
+
+    append_rows(SHEET, TAB, rows)
+    LOG.info("Wrote %d rows", len(rows))
 
 
 if __name__ == "__main__":

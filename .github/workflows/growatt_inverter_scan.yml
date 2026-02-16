@@ -1,4 +1,4 @@
-name: Argia Growatt Scan Inverters (manual)
+name: Argia Growatt Scan Pages (manual)
 
 on:
   workflow_dispatch:
@@ -22,18 +22,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Growatt inverter scanner
+      - name: Run Growatt page scanner
         env:
           GROWATT_BASE: "https://server.growatt.com"
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
-
-          # <<< PUT YOUR PLANT IDS HERE >>>
-          # Example:
-          # GROWATT_PLANT_IDS: "9275498,9309589,9309575,10078094"
           GROWATT_PLANT_IDS: "9275498,9309589,9309575,10078094"
-
-          # output folder
           GROWATT_OUT_DIR: "out"
         run: |
           python argia_growatt_scan_inverters.py

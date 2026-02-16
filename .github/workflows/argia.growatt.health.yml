@@ -3,9 +3,8 @@ name: Argia Growatt Health (30min)
 on:
   workflow_dispatch:
   schedule:
-    # Mexico City time (UTC-6)
-    # Runs every 30 minutes between 06:00–20:59 local
-    # UTC equivalent: 12:00–02:59
+    # Mexico City time (UTC-6): 06:00–20:59
+    # UTC: 12:00–02:59
     - cron: "*/30 12-23 * * *"
     - cron: "*/30 0-2 * * *"
 
@@ -34,15 +33,12 @@ jobs:
 
       - name: Run Growatt health monitor
         env:
-          # Google Sheets
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
-          # Growatt credentials
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
 
-          # Script configuration
           PV_HEALTH_TAB: "PV_Health_Monitoring"
           SNAP_RANGE: "SNAP!A1:Z1000"
           LOG_LEVEL: "INFO"
@@ -51,7 +47,6 @@ jobs:
         run: |
           python growatt_health.py
 
-      # This uploads Growatt raw responses so we can inspect missing fields
       - name: Upload debug artifacts (out_health)
         if: always()
         uses: actions/upload-artifact@v4

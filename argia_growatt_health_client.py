@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ INVALID_FS_CHARS = r'["<>:|*?\r\n]'
 def safe_filename(name: str) -> str:
     name = re.sub(INVALID_FS_CHARS, "_", name)
     name = name.replace("/", "_").strip("_")
-    return name
+    return name[:190]
 
 
 def normalize_text(x: Any) -> str:
@@ -49,15 +50,15 @@ class GrowattAuth:
 
 
 class GrowattMonitoringClient:
-
     BASE = "https://server.growatt.com"
 
     def __init__(self, auth: GrowattAuth, timeout: int = 45, debug_out_dir: str = "out_health"):
         self.auth = auth
         self.timeout = timeout
         self.debug_out_dir = debug_out_dir
-        self.s = requests.Session()
+        os.makedirs(self.debug_out_dir, exist_ok=True)
 
+        self.s = requests.Session()
         self.s.headers.update({
             "User-Agent": "Mozilla/5.0",
             "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -75,8 +76,16 @@ class GrowattMonitoringClient:
     def _dump_debug(self, name: str, content: str) -> None:
         try:
             fn = safe_filename(name)
-            with open(f"{self.debug_out_dir}/{fn}", "w", encoding="utf-8") as f:
+            with open(os.path.join(self.debug_out_dir, fn), "w", encoding="utf-8", errors="ignore") as f:
                 f.write(content if content else "")
+        except Exception:
+            pass
+
+    def _dump_json(self, name: str, obj: Any) -> None:
+        try:
+            fn = safe_filename(name)
+            with open(os.path.join(self.debug_out_dir, fn), "w", encoding="utf-8") as f:
+                json.dump(obj, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
@@ -93,6 +102,8 @@ class GrowattMonitoringClient:
         if ajax:
             headers["X-Requested-With"] = "XMLHttpRequest"
             headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+            headers["Origin"] = self.BASE
+            headers["Accept"] = "application/json, text/javascript, */*; q=0.01"
 
         return self.s.post(self._url(path), data=data or {}, headers=headers, timeout=self.timeout, allow_redirects=True)
 
@@ -108,43 +119,32 @@ class GrowattMonitoringClient:
 
         cookies = {c.name: c.value for c in self.s.cookies}
         if "JSESSIONID" not in cookies and "assToken" not in cookies:
-            self._dump_debug("LOGIN_FAIL.html", r2.text)
-            raise RuntimeError("Growatt login failed")
+            self._dump_debug("LOGIN_FAIL.html", r2.text or "")
+            raise RuntimeError("Growatt login failed (missing session cookies).")
 
         LOG.info("✅ Growatt login OK")
 
     # ---------------- SESSION ----------------
 
     def activate_plant_session(self, plant_id: str) -> None:
-        pid = str(plant_id)
+        pid = str(plant_id).strip()
         self.get("/device/getEnvPage", params={"plantId": pid})
         self.get("/device/getInverterPage", params={"plantId": pid})
-        self.get("/device/getMAXPage", params={"ttt": str(int(time.time()*1000))})
+        self.get("/device/getMAXPage", params={"ttt": str(int(time.time() * 1000))})
         LOG.info("Plant session activated %s", pid)
 
-    # ---------------- FIXED INVERTER LIST ----------------
+    # ---------------- INVERTER LIST (POST) ----------------
 
     def list_inverters(self, plant_id: str, inv_sn_filter: str = "", curr_page: int = 1) -> List[Dict[str, Any]]:
-        """
-        POST /device/getInverterList2
-        IMPORTANT: MUST BE POST (Growatt rejects GET with 405)
-        """
-
-        pid = str(plant_id)
-
+        pid = str(plant_id).strip()
         r = self.post(
             "/device/getInverterList2",
-            data={
-                "plantId": pid,
-                "invSn": inv_sn_filter,
-                "currPage": str(curr_page),
-            },
+            data={"plantId": pid, "invSn": inv_sn_filter, "currPage": str(curr_page)},
             referer=self._url("/device/getInverterPage?plantId=" + pid),
             ajax=True,
         )
 
         txt = r.text or ""
-
         if r.status_code != 200:
             self._dump_debug(f"{pid}__getInverterList2__POST__{r.status_code}.txt", txt[:200000])
             return []
@@ -157,39 +157,41 @@ class GrowattMonitoringClient:
 
         datas = js.get("datas") or js.get("data") or []
         if not isinstance(datas, list):
+            self._dump_json(f"{pid}__getInverterList2__WRAP.json", js)
             return []
 
-        LOG.info("Found %s devices in plant %s", len(datas), pid)
         return datas
 
-    # ---------------- DEVICE INFO ----------------
+    # ---------------- DEVICE INFO (ALWAYS DUMP JSON) ----------------
 
     def get_device_info(self, plant_id: str, device_type_name: str, sn: str) -> Optional[Dict[str, Any]]:
-        pid = str(plant_id)
+        pid = str(plant_id).strip()
         snn = normalize_sn(sn)
+        dtype = (device_type_name or "tlx").strip()
 
         r = self.post(
             "/panel/getDeviceInfo",
-            data={"plantId": pid, "deviceTypeName": device_type_name or "tlx", "sn": snn},
+            data={"plantId": pid, "deviceTypeName": dtype, "sn": snn},
             referer=self._url("/device/getInverterPage?plantId=" + pid),
             ajax=True,
         )
 
         txt = r.text or ""
-
         if r.status_code != 200:
-            self._dump_debug(f"{pid}__{snn}__getDeviceInfo__{r.status_code}.txt", txt[:200000])
+            self._dump_debug(f"{pid}__{snn}__panel_getDeviceInfo__{r.status_code}.txt", txt[:200000])
             return None
 
+        # Always attempt JSON parse and DUMP it (this is the key change)
         try:
             js = r.json()
         except Exception:
-            self._dump_debug(f"{pid}__{snn}__getDeviceInfo__NOT_JSON.txt", txt[:200000])
+            self._dump_debug(f"{pid}__{snn}__panel_getDeviceInfo__NOT_JSON.txt", txt[:200000])
             return None
+
+        self._dump_json(f"{pid}__{snn}__panel_getDeviceInfo__200.json", js)
 
         obj = js.get("obj") or js.get("data") or js.get("datas")
         if isinstance(obj, dict):
             return obj
 
-        self._dump_debug(f"{pid}__{snn}__getDeviceInfo__EMPTY.json", json.dumps(js, indent=2))
         return None

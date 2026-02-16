@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from __future__ import annotations
 
 import os
@@ -16,8 +18,10 @@ BASE_DEFAULT = "https://server.growatt.com"
 # ---------------- SAFE FILENAMES ----------------
 
 def safe_name(s: str) -> str:
+    s = (s or "").strip()
     s = s.replace("https://server.growatt.com", "")
     s = re.sub(r'[\\/:*?"<>|\r\n]+', "_", s)
+    s = re.sub(r"\s+", "_", s)
     return s.strip("_")[:180]
 
 
@@ -32,7 +36,7 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def die(msg: str, code: int = 1) -> None:
+def die(msg: str) -> None:
     raise SystemExit(f"❌ {msg}")
 
 
@@ -41,7 +45,7 @@ def ensure_dir(path: str) -> None:
 
 
 def write_text(path: str, content: str) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", errors="ignore") as f:
         f.write(content or "")
 
 
@@ -61,6 +65,38 @@ def request_any(session: requests.Session, method: str, url: str, **kwargs) -> T
     return resp.status_code, dict(resp.headers), parsed, text
 
 
+def extract_ajax_paths(html: str) -> List[str]:
+    """
+    Extract likely AJAX endpoints from scripts:
+      url: "/device/xxx"
+      $.post("/device/yyy")
+      fetch("/device/zzz")
+    """
+    html = html or ""
+    hits: List[str] = []
+
+    # url: "/path"
+    for m in re.finditer(r"url\s*:\s*['\"](\/[^'\"]+)['\"]", html):
+        hits.append(m.group(1))
+
+    # $.get/post("/path"
+    for m in re.finditer(r"\$\.(?:get|post)\(\s*['\"](\/[^'\"]+)['\"]", html):
+        hits.append(m.group(1))
+
+    # fetch("/path"
+    for m in re.finditer(r"fetch\(\s*['\"](\/[^'\"]+)['\"]", html):
+        hits.append(m.group(1))
+
+    # de-dup keep order
+    seen = set()
+    out = []
+    for h in hits:
+        if h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out
+
+
 # ---------------- GROWATT CLIENT ----------------
 
 @dataclass
@@ -71,7 +107,13 @@ class GrowattWeb:
 
     def __post_init__(self) -> None:
         self.s = requests.Session()
-        self.s.headers.update({"User-Agent": "Mozilla/5.0"})
+        self.s.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0",
+                "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+                "Connection": "keep-alive",
+            }
+        )
 
     def login(self) -> None:
         request_any(self.s, "GET", f"{self.base}/login", timeout=30)
@@ -82,79 +124,116 @@ class GrowattWeb:
             "Referer": f"{self.base}/login",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
         }
         st, _, _, body = request_any(self.s, "POST", f"{self.base}/login", data=payload, headers=headers, timeout=30)
 
         if "assToken" not in self.s.cookies.get_dict():
-            die("Login failed — assToken missing")
+            snippet = (body or "").strip().replace("\n", " ")[:240]
+            die(f"Login failed (assToken missing). HTTP={st} snippet='{snippet}'")
 
-        log("✅ Login OK")
+        log("✅ Login OK (assToken present).")
+
+        # seed UI
+        request_any(self.s, "GET", f"{self.base}/index", timeout=30)
 
     def seed_plant(self, plant_id: str) -> None:
-        self.s.cookies.set("selectedPlantId", str(plant_id))
+        # cookies Growatt UI expects
+        try:
+            self.s.cookies.set("selectedPlantId", str(plant_id), domain="server.growatt.com", path="/")
+            self.s.cookies.set("selPage", "%2Fdevice", domain="server.growatt.com", path="/")
+        except Exception:
+            # fallback (no domain/path)
+            self.s.cookies.set("selectedPlantId", str(plant_id))
+            self.s.cookies.set("selPage", "%2Fdevice")
 
-    def get_pv_page(self, plant_id: str) -> str:
+    def get_page(self, path: str, plant_id: str, params: Optional[dict] = None, referer: Optional[str] = None) -> Tuple[int, str]:
         self.seed_plant(plant_id)
-        st, _, _, html = request_any(self.s, "GET", f"{self.base}/device/photovoltaic", params={"plantId": plant_id}, timeout=30)
-        log(f"GET PV {plant_id} -> {st}")
-        return html or ""
-
-    def post_form(self, path: str, plant_id: str, data: Dict[str, str]) -> Tuple[int, Any, str]:
-        self.seed_plant(plant_id)
-        headers = {"X-Requested-With": "XMLHttpRequest"}
-        st, _, parsed, raw = request_any(self.s, "POST", f"{self.base}{path}", headers=headers, data=data, timeout=45)
-        return st, parsed, raw
+        headers = {}
+        if referer:
+            headers["Referer"] = referer
+        st, _, _, html = request_any(self.s, "GET", f"{self.base}{path}", params=params or {}, headers=headers, timeout=45)
+        return st, (html or "")
 
 
 # ---------------- MAIN ----------------
 
 def main() -> None:
-    base = env("GROWATT_BASE", BASE_DEFAULT)
+    base = env("GROWATT_BASE", BASE_DEFAULT) or BASE_DEFAULT
     user = env("GROWATT_USERNAME")
     pwd = env("GROWATT_PASSWORD")
-    plant_ids = env("GROWATT_PLANT_IDS")
+    plant_ids_raw = env("GROWATT_PLANT_IDS")
+    out_dir = env("GROWATT_OUT_DIR", "out") or "out"
 
-    if not user or not pwd or not plant_ids:
-        die("Missing env vars")
+    if not user or not pwd:
+        die("Missing GROWATT_USERNAME / GROWATT_PASSWORD")
+    if not plant_ids_raw:
+        die("Missing GROWATT_PLANT_IDS (comma separated), e.g. 9275498,9309589,9309575,10078094")
 
-    plant_ids = [p.strip() for p in plant_ids.split(",") if p.strip()]
-    out_dir = env("GROWATT_OUT_DIR", "out")
+    plant_ids = [p.strip() for p in plant_ids_raw.split(",") if p.strip()]
+    if not plant_ids:
+        die("No plantIds provided")
+
     ensure_dir(out_dir)
 
     cli = GrowattWeb(base=base, username=user, password=pwd)
     cli.login()
 
-    summary = {"plants": []}
+    # artifact marker
+    write_text(os.path.join(out_dir, f"RUN_MARKER_{int(time.time())}.txt"), "scan started\n")
+
+    summary: Dict[str, Any] = {
+        "base": base,
+        "plants": [],
+    }
 
     for plant_id in plant_ids:
-        log(f"Scanning plant {plant_id}")
+        log(f"\n🏭 Plant {plant_id}")
 
-        html = cli.get_pv_page(plant_id)
-        write_text(os.path.join(out_dir, f"{plant_id}__pv.html"), html)
+        plant_block: Dict[str, Any] = {"plant_id": plant_id, "pages": {}, "ajax_paths": {}}
 
-        endpoints = [
-            "/newInvAPI.do?op=getInvList",
-            "/device/getInvList",
-            "/panel/inverter/getInverterList"
-        ]
+        # 1) PV page
+        st, pv_html = cli.get_page("/device/photovoltaic", plant_id, params={"plantId": plant_id}, referer=f"{base}/panel")
+        pv_fn = os.path.join(out_dir, f"{plant_id}__pv.html")
+        write_text(pv_fn, pv_html)
+        plant_block["pages"]["pv"] = {"http": st, "file": pv_fn, "len": len(pv_html)}
+        plant_block["ajax_paths"]["pv"] = extract_ajax_paths(pv_html)
+        write_json(os.path.join(out_dir, f"{plant_id}__pv_ajax_paths.json"), {"paths": plant_block["ajax_paths"]["pv"]})
+        log(f"  PV page: HTTP {st} len={len(pv_html)} paths={len(plant_block['ajax_paths']['pv'])}")
 
-        tries = []
+        # 2) MAX page (this is the one we need for telemetry endpoints)
+        st, max_html = cli.get_page("/device/getMAXPage", plant_id, params={"ttt": str(int(time.time()*1000))}, referer=f"{base}/device/photovoltaic?plantId={plant_id}")
+        max_fn = os.path.join(out_dir, f"{plant_id}__getMAXPage.html")
+        write_text(max_fn, max_html)
+        plant_block["pages"]["getMAXPage"] = {"http": st, "file": max_fn, "len": len(max_html)}
+        plant_block["ajax_paths"]["getMAXPage"] = extract_ajax_paths(max_html)
+        write_json(os.path.join(out_dir, f"{plant_id}__getMAXPage_ajax_paths.json"), {"paths": plant_block["ajax_paths"]["getMAXPage"]})
+        log(f"  getMAXPage: HTTP {st} len={len(max_html)} paths={len(plant_block['ajax_paths']['getMAXPage'])}")
 
-        for ep in endpoints:
-            st, parsed, raw = cli.post_form(ep, plant_id, {"plantId": plant_id})
+        # 3) Inverter page (sometimes contains realtime endpoints)
+        st, inv_html = cli.get_page("/device/getInverterPage", plant_id, params={"plantId": plant_id}, referer=f"{base}/device/photovoltaic?plantId={plant_id}")
+        inv_fn = os.path.join(out_dir, f"{plant_id}__getInverterPage.html")
+        write_text(inv_fn, inv_html)
+        plant_block["pages"]["getInverterPage"] = {"http": st, "file": inv_fn, "len": len(inv_html)}
+        plant_block["ajax_paths"]["getInverterPage"] = extract_ajax_paths(inv_html)
+        write_json(os.path.join(out_dir, f"{plant_id}__getInverterPage_ajax_paths.json"), {"paths": plant_block["ajax_paths"]["getInverterPage"]})
+        log(f"  getInverterPage: HTTP {st} len={len(inv_html)} paths={len(plant_block['ajax_paths']['getInverterPage'])}")
 
-            fname = f"{plant_id}__try__{safe_name(ep)}.json"
-            write_json(os.path.join(out_dir, fname), {"status": st, "parsed": parsed, "raw": raw[:2000]})
+        # Save combined paths for convenience
+        combined = []
+        seen = set()
+        for bucket in ("pv", "getMAXPage", "getInverterPage"):
+            for p in plant_block["ajax_paths"].get(bucket, []):
+                if p not in seen:
+                    seen.add(p)
+                    combined.append(p)
+        plant_block["ajax_paths"]["combined"] = combined
+        write_json(os.path.join(out_dir, f"{plant_id}__ajax_paths_combined.json"), {"paths": combined})
 
-            tries.append({"endpoint": ep, "status": st, "ok_json": isinstance(parsed, (dict, list))})
-
-            time.sleep(0.3)
-
-        summary["plants"].append({"plant_id": plant_id, "tries": tries})
+        summary["plants"].append(plant_block)
 
     write_json(os.path.join(out_dir, "inverter_scan_summary.json"), summary)
-    log("✅ Scan done")
-
+    log(f"\n✅ Done. Output saved to: {out_dir}/ (artifact should upload OK)")
 
 if __name__ == "__main__":
     main()

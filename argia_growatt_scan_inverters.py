@@ -172,7 +172,7 @@ def try_known_inverter_list_endpoints(cli: GrowattWeb, plant_id: str, out_dir: s
     """
     candidates = [
         # most common patterns (different UI versions)
-        ("/newInvAPI.do?op=getInvList", None),  # GET-like in old UI, but we'll try POST too? -> we'll skip, handled separately
+        ("/newInvAPI.do?op=getInvList", None),  # legacy
         ("/newInvAPI.do?op=getInvList", "GET"),
         ("/newInvAPI.do?op=getInvList", "POST"),
         ("/newPlantAPI.do?op=getPlantList", "GET"),
@@ -203,7 +203,10 @@ def try_known_inverter_list_endpoints(cli: GrowattWeb, plant_id: str, out_dir: s
                 "raw_snippet": (raw or "").strip().replace("\n", " ")[:200],
             }
         )
-        write_json(os.path.join(out_dir, f"{plant_id}__try__{path.replace('/','_').replace('?','_')}.json"), {"parsed": parsed, "raw": raw})
+        write_json(
+            os.path.join(out_dir, f"{plant_id}__try__{path.replace('/','_').replace('?','_')}.json"),
+            {"parsed": parsed, "raw": raw},
+        )
         time.sleep(0.2)
 
     # 2) Try POST endpoints with common payloads

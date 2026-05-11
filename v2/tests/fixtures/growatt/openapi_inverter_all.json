@@ -1,0 +1,26 @@
+{
+  "data": {
+    "count": 3,
+    "inverters": [
+      {
+        "device_sn": "BNE7CGV0AB",
+        "device_type": "max",
+        "status": 1,
+        "alias": "Inverter 1"
+      },
+      {
+        "device_sn": "BNE7CGV0CD",
+        "device_type": "max",
+        "status": 1,
+        "alias": "Inverter 2"
+      },
+      {
+        "device_sn": "BNE7CGV0EF",
+        "device_type": "max",
+        "status": 3,
+        "alias": "Inverter 3"
+      }
+    ]
+  },
+  "error_code": 0
+}

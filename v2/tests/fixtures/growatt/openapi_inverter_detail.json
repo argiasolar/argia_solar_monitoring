@@ -1,0 +1,12 @@
+{
+  "data": {
+    "device_sn": "BNE7CGV0AB",
+    "status": 1,
+    "pac": 125.5,
+    "ppv": 130.0,
+    "e_today": 412.5,
+    "e_total": 285420.8,
+    "last_update_time": "2026-04-15 12:30:00"
+  },
+  "error_code": 0
+}

@@ -1,0 +1,40 @@
+{
+  "datas": [
+    {
+      "sn": "BNE7CGV0AB",
+      "deviceType": "4",
+      "deviceTypeName": "MAX",
+      "status": "1",
+      "pac": 125.5,
+      "eToday": 412.5,
+      "eTotal": 285420.8,
+      "updateTime": "2026-04-15 12:30:00",
+      "alias": "Inverter 1"
+    },
+    {
+      "sn": "BNE7CGV0CD",
+      "deviceType": "4",
+      "deviceTypeName": "MAX",
+      "status": "1",
+      "pac": 128.2,
+      "eToday": 419.8,
+      "eTotal": 290100.5,
+      "updateTime": "2026-04-15 12:30:00",
+      "alias": "Inverter 2"
+    },
+    {
+      "sn": "BNE7CGV0EF",
+      "deviceType": "4",
+      "deviceTypeName": "MAX",
+      "status": "3",
+      "pac": 0,
+      "eToday": 105.2,
+      "eTotal": 198400.1,
+      "updateTime": "2026-04-15 09:15:00",
+      "alias": "Inverter 3"
+    }
+  ],
+  "currPage": 1,
+  "pageSize": 50,
+  "totalCount": 3
+}

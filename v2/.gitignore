@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local config
+local_settings.py
+
+# Build artifacts
+build/
+dist/
+*.egg
+
+# Logs
+*.log
+out/
+out_health/

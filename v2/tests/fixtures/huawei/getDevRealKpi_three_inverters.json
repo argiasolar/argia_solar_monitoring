@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "failCode": 0,
+  "data": [
+    {
+      "sn": "ES2470051825",
+      "devStatus": "1",
+      "collectTime": 1744744200000,
+      "dataItemMap": {
+        "active_power": 45.5,
+        "day_cap": 120.5,
+        "month_cap": 3500.0,
+        "total_cap": 50000.0
+      }
+    },
+    {
+      "sn": "GR2499018270",
+      "devStatus": "1",
+      "collectTime": 1744744200000,
+      "dataItemMap": {
+        "active_power": 48.2,
+        "day_cap": 125.8,
+        "month_cap": 3600.0,
+        "total_cap": 51000.0
+      }
+    },
+    {
+      "sn": "GR2499018271",
+      "devStatus": "3",
+      "collectTime": 1744744200000,
+      "dataItemMap": {
+        "active_power": 0.0,
+        "day_cap": 0.0,
+        "month_cap": 100.0,
+        "total_cap": 5000.0
+      }
+    }
+  ]
+}

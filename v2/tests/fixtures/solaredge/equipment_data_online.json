@@ -1,0 +1,62 @@
+{
+  "data": {
+    "count": 5,
+    "telemetries": [
+      {
+        "date": "2026-04-15 00:00:00",
+        "totalActivePower": 0.0,
+        "dcVoltage": 0.0,
+        "groundFaultResistance": null,
+        "powerLimit": 100,
+        "totalEnergy": 285420800.0,
+        "temperature": 18.5,
+        "inverterMode": "SLEEPING",
+        "operationMode": 0
+      },
+      {
+        "date": "2026-04-15 09:00:00",
+        "totalActivePower": 28500.0,
+        "dcVoltage": 720.5,
+        "groundFaultResistance": null,
+        "powerLimit": 100,
+        "totalEnergy": 285523300.0,
+        "temperature": 32.0,
+        "inverterMode": "MPPT",
+        "operationMode": 0
+      },
+      {
+        "date": "2026-04-15 12:00:00",
+        "totalActivePower": 45200.0,
+        "dcVoltage": 752.3,
+        "groundFaultResistance": null,
+        "powerLimit": 100,
+        "totalEnergy": 285620100.0,
+        "temperature": 41.0,
+        "inverterMode": "MPPT",
+        "operationMode": 0
+      },
+      {
+        "date": "2026-04-15 12:15:00",
+        "totalActivePower": 46100.0,
+        "dcVoltage": 754.0,
+        "groundFaultResistance": null,
+        "powerLimit": 100,
+        "totalEnergy": 285631600.0,
+        "temperature": 41.5,
+        "inverterMode": "MPPT",
+        "operationMode": 0
+      },
+      {
+        "date": "2026-04-15 12:30:00",
+        "totalActivePower": 45800.0,
+        "dcVoltage": 753.2,
+        "groundFaultResistance": null,
+        "powerLimit": 100,
+        "totalEnergy": 285643050.0,
+        "temperature": 42.0,
+        "inverterMode": "MPPT",
+        "operationMode": 0
+      }
+    ]
+  }
+}

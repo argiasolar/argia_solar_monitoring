@@ -1,0 +1,17 @@
+{
+  "data": {
+    "country": "Mexico",
+    "city": "Mexico City",
+    "creat_date": "2022-01-15",
+    "plant_id": "9275498",
+    "name": "SAG-MEXICO PPA",
+    "today_energy": 1245.5,
+    "current_power": 348.2,
+    "total_energy": 856420.3,
+    "longitude": "-99.1332",
+    "latitude": "19.4326",
+    "peak_power": 598.0
+  },
+  "error_code": 0,
+  "error_msg": ""
+}

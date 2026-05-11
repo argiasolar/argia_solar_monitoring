@@ -1,0 +1,117 @@
+{
+  "result": 1,
+  "obj": {
+    "haveNext": false,
+    "start": 0,
+    "datas": [
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 7, "minute": 0, "second": 0
+        },
+        "radiant": 50.0,
+        "envTemp": 18.5,
+        "panelTemp": 22.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 8, "minute": 0, "second": 0
+        },
+        "radiant": 250.0,
+        "envTemp": 21.0,
+        "panelTemp": 28.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 9, "minute": 0, "second": 0
+        },
+        "radiant": 500.0,
+        "envTemp": 24.0,
+        "panelTemp": 35.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 10, "minute": 0, "second": 0
+        },
+        "radiant": 750.0,
+        "envTemp": 27.0,
+        "panelTemp": 42.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 11, "minute": 0, "second": 0
+        },
+        "radiant": 900.0,
+        "envTemp": 29.0,
+        "panelTemp": 48.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 12, "minute": 0, "second": 0
+        },
+        "radiant": 1000.0,
+        "envTemp": 30.0,
+        "panelTemp": 51.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 13, "minute": 0, "second": 0
+        },
+        "radiant": 950.0,
+        "envTemp": 31.0,
+        "panelTemp": 52.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 14, "minute": 0, "second": 0
+        },
+        "radiant": 800.0,
+        "envTemp": 30.5,
+        "panelTemp": 50.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 15, "minute": 0, "second": 0
+        },
+        "radiant": 600.0,
+        "envTemp": 28.0,
+        "panelTemp": 42.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 16, "minute": 0, "second": 0
+        },
+        "radiant": 350.0,
+        "envTemp": 25.0,
+        "panelTemp": 32.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 17, "minute": 0, "second": 0
+        },
+        "radiant": 100.0,
+        "envTemp": 22.0,
+        "panelTemp": 25.0
+      },
+      {
+        "calendar": {
+          "year": 2026, "month": 3, "dayOfMonth": 15,
+          "hourOfDay": 18, "minute": 0, "second": 0
+        },
+        "radiant": 20.0,
+        "envTemp": 19.0,
+        "panelTemp": 20.0
+      }
+    ]
+  }
+}

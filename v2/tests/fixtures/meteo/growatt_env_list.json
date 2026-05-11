@@ -1,0 +1,18 @@
+{
+  "result": 1,
+  "datas": [
+    {
+      "datalogSn": "DYD1EZR007",
+      "addr": 32,
+      "deviceType": 8,
+      "alias": "SMS Weather Station 1"
+    },
+    {
+      "datalogSn": "DYD0E8501G",
+      "addr": 1,
+      "deviceType": 8,
+      "alias": "SMS Weather Station 2"
+    }
+  ],
+  "haveNext": false
+}

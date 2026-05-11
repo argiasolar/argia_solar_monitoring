@@ -1,0 +1,13 @@
+{
+  "energy": {
+    "timeUnit": "DAY",
+    "unit": "Wh",
+    "measuredBy": "INVERTER",
+    "values": [
+      {
+        "date": "2026-04-15 00:00:00",
+        "value": 1245500.0
+      }
+    ]
+  }
+}

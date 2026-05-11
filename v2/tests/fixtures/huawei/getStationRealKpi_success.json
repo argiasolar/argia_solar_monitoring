@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "failCode": 0,
+  "data": [
+    {
+      "stationCode": "NE=35314736",
+      "dataItemMap": {
+        "real_health_state": 1,
+        "day_cap": 480.5,
+        "month_cap": 12500.0,
+        "total_cap": 145000.5,
+        "day_income": 1200.0,
+        "total_income": 350000.0
+      }
+    }
+  ]
+}

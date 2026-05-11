@@ -154,6 +154,17 @@ def run_daily(
             real_kwh = client.fetch_day_kwh(plant, date_iso)
             LOG.info("[%s] real_kwh=%s", plant_key, real_kwh)
 
+            # A None return means the vendor responded but couldn't give us
+            # a number (rate-limited, transient outage, plant offline, etc.).
+            # Treat this as a per-plant failure so the run status surfaces it
+            # rather than silently writing an empty row.
+            if real_kwh is None:
+                raise RuntimeError(
+                    f"vendor returned no kWh for {plant_key} on {date_iso} "
+                    f"(check logs above — likely rate limit, transient error, "
+                    f"or plant offline)"
+                )
+
             # Cloud cover (Open-Meteo)
             cloud_pct: Optional[float] = None
             if plant.lat is not None and plant.lon is not None:

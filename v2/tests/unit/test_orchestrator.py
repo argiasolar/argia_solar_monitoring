@@ -347,6 +347,35 @@ class TestRunDaily:
         for c in clients.values():
             assert c.login_calls == 1
 
+    def test_none_real_kwh_counted_as_error(self, two_plant_portfolio):
+        """
+        Regression: previously a vendor returning None silently produced a row
+        with empty real_kwh and OK status. The MEX2 incident (Huawei rate limit
+        returning failCode=407 → real_kwh=None) showed this is wrong. Now: None
+        must be a per-plant failure so it surfaces as PARTIAL status.
+        """
+        sheets = FakeSheets()
+        clients = {
+            "P1": FakeVendorClient(day_kwh=150.0),
+            "P2": FakeVendorClient(day_kwh=None),  # vendor "succeeded" but returned no number
+        }
+
+        result = run_daily(
+            sheets=sheets, portfolio=two_plant_portfolio,
+            date_iso="2026-05-10",
+            client_factory=lambda plants: clients,
+        )
+
+        assert result.status == "PARTIAL"
+        assert result.plants_processed == 1  # only P1
+        assert result.plants_skipped == 1     # P2 failed
+        assert len(result.errors) == 1
+        assert "P2" in result.errors[0]
+        # P2 must NOT have written an empty-real_kwh row
+        plant_keys_in_sheet = {r[1] for r in sheets.tabs[TAB_DAILY]}
+        assert "P2" not in plant_keys_in_sheet
+        assert plant_keys_in_sheet == {"P1"}
+
 
 # ============================================================
 # run_snapshot10m

@@ -47,6 +47,7 @@ jobs:
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
           SOLAREDGE_API_KEY: ${{ secrets.SOLAREDGE_API_KEY }}
+          SOLAREDGE_API_KEY2: ${{ secrets.SOLAREDGE_API_KEY2 }}
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then

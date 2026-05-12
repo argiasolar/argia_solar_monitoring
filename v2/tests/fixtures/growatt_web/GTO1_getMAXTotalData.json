@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "url": "https://server.growatt.com/panel/max/getMAXTotalData?plantId=9309575",
+    "status": 200,
+    "request_body": {}
+  },
+  "response": {
+    "_raw_text": "{\"result\":1,\"obj\":{\"eToday\":\"786.8\",\"eTotal\":\"1504463.9\",\"mTotal\":\"2856977\",\"mUnitText\":\"$\",\"mToday\":\"1494.13\",\"plantId\":\"9309575\"}}"
+  }
+}

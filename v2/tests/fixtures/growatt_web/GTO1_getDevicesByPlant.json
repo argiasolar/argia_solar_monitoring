@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "url": "https://server.growatt.com/panel/getDevicesByPlant?plantId=9309575",
+    "status": 200,
+    "request_body": {}
+  },
+  "response": {
+    "_raw_text": "{\"result\":1,\"obj\":{\"multipleBackflow\":[],\"max\":[[\"JFM7DXN00U\",\"Inversor 2\",\"4\"]],\"env\":[[\"DYD0E8501G_1\",\"ENV_DEVICE\",\"48\"]],\"singleBackflow\":[]}}"
+  }
+}

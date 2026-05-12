@@ -2,3 +2,6 @@ google-auth>=2.27.0
 google-api-python-client>=2.120.0
 google-auth-httplib2>=0.2.0
 requests>=2.31.0
+# Required on Windows for zoneinfo (e.g. "America/Mexico_City").
+# Linux/Mac usually have IANA tz database installed; Windows does not.
+tzdata>=2025.1

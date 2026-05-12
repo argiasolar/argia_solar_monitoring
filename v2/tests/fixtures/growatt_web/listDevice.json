@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "url": "https://server.growatt.com/returnDevice/listDevice?accountName=Argia Solar",
+    "status": 200,
+    "request_body": {}
+  },
+  "response": {
+    "_raw_text": "{\"result\":0,\"msg\":\"\",\"obj\":{}}"
+  }
+}

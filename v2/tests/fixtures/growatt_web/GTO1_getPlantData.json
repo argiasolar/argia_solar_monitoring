@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "url": "https://server.growatt.com/panel/getPlantData?plantId=9309575",
+    "status": 200,
+    "request_body": {}
+  },
+  "response": {
+    "_raw_text": "{\"result\":1,\"obj\":{\"country\":\"Mexico\",\"formulaCo2\":\"0.438\",\"accountName\":\"ARGIA Solar\",\"city\":\"León de los Aldama\",\"timezone\":\"-6\",\"co2\":\"658955.2\",\"gridCompany\":\"\",\"creatDate\":\"2024-10-24\",\"formulaCoal\":\"0.4\",\"gridPort\":\"\",\"gridLfdi\":\"\",\"designCompany\":\"EEETEE\",\"fixedPowerPrice\":\"1.899\",\"id\":\"9309575\",\"lat\":\"21.104318633711\",\"valleyPeriodPrice\":\"1.899\",\"tempType\":\"0\",\"lng\":\"-101.7546741724\",\"tree\":\"82746\",\"peakPeriodPrice\":\"1.899\",\"plantType\":\"0\",\"nominalPower\":\"606000\",\"formulaMoney\":\"1.899\",\"formulaTree\":\"0.055\",\"flatPeriodPrice\":\"1.899\",\"eTotal\":\"1504463.9\",\"protocolId\":\"\",\"plantImg\":\"Taigene.jpg\",\"isShare\":\"false\",\"gridServerUrl\":\"\",\"coal\":\"601785.6\",\"moneyUnit\":\"MXN\",\"plantName\":\"Taigene\",\"moneyUnitText\":\"$\"}}"
+  }
+}

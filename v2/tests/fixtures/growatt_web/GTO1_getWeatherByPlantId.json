@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "url": "https://server.growatt.com/index/getWeatherByPlantId?plantId=9309575",
+    "status": 200,
+    "request_body": {}
+  },
+  "response": {
+    "_raw_text": "{\"result\":0}"
+  }
+}

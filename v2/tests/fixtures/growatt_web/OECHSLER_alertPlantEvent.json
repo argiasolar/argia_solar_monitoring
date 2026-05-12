@@ -1,0 +1,12 @@
+{
+  "_meta": {
+    "url": "https://server.growatt.com/panel/alertPlantEvent?plantId=10593332",
+    "status": 200,
+    "request_body": {}
+  },
+  "response": {
+    "result": 1,
+    "msg": "",
+    "obj": false
+  }
+}

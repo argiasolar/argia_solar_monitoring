@@ -1,101 +1,93 @@
-"""Column schema for Growatt 5-min telemetry tabs.
+"""Column schema for telemetry tabs.
 
-There are two tab shapes:
+Two distinct schemas:
 
-* **Per-plant tab** (``Telemetry_<KEY>``): one row per inverter per 5-min sample.
-  Natural key = (timestamp_utc, inverter_sn). Customers will eventually get
-  scoped access to their plant's tab via Sheets sharing.
+* **``PLANT_SCHEMA``** — wide (142 cols), vendor-shaped. One row per inverter
+  per 5-min sample. Used for ``Telemetry_<KEY>`` per-plant tabs. Customers
+  eventually get scoped access here via Sheets sharing. Each vendor fills in
+  what it has and leaves the rest blank.
 
-* **Argia aggregated tab** (``Telemetry_Argia``): same columns plus ``plant_key``
-  inserted right after the timestamps. Natural key = (timestamp_utc, plant_key,
-  inverter_sn). Used by Argia operations + the future alerting layer.
+* **``ARGIA_SCHEMA``** — narrow (15 cols), cross-vendor common. Used for the
+  single aggregated ``Telemetry_Argia`` tab. This is what Argia ops looks at:
+  power, status, eToday, weather, by vendor/plant/inverter. No wasted columns.
 
-The column list is exhaustive — ~135 columns including per-MPPT voltages,
-per-string voltages, fault codes, and weather. Users will never read these
-raw; they'll read dashboards built on top. The wide rows are for the backend
-and alert rules.
+CHANGING THE SCHEMA: every column rename or insertion is a breaking change.
+Bump ``COLUMN_VERSION`` and document a migration in the runbook before
+touching any column order.
 
-CHANGING THE SCHEMA: every column rename or insertion is a breaking change
-to existing tabs. Bump COLUMN_VERSION and bake a migration plan into Stage 3.x
-docs before touching any column order.
+If you change ``ARGIA_SCHEMA``, the existing tab MUST be manually deleted so
+the new header gets written. The sheets writer refuses to write into a tab
+whose header doesn't match the schema.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple
 
 
-COLUMN_VERSION = 1
+COLUMN_VERSION = 2  # bumped from 1 when ARGIA_SCHEMA changed to narrow common
 
 
 # ============================================================
-# Column-family sizing constants
+# PLANT_SCHEMA column-family sizing constants (unchanged from Stage 3)
 # ============================================================
 
-# Per-MPPT voltage columns (vpv1..vpv16) — Growatt MAX inverters report up to 16
 MPPT_VOLTAGE_COUNT = 16
-
-# Per-MPPT power columns (ppv1..ppv9) — only 9 distinct power channels even
-# though there are 16 voltage channels; the rest aggregate into earlier ones.
 MPPT_POWER_COUNT = 9
-
-# Per-string voltage columns (vString1..vString32)
 STRING_VOLTAGE_COUNT = 32
-
-# Per-string current columns. Growatt populates currentString20..currentString29
-# in practice; 1..19 and 30..32 are always zero on the captured fixtures. We
-# include the 20..29 range so the column is there if/when it appears for other
-# inverter types.
 STRING_CURRENT_LOW = 20
 STRING_CURRENT_HIGH = 29
-
-# Per-MPPT daily/total energy (epv1Today..epv15Today, epv1Total..epv15Total)
 MPPT_EDAY_COUNT = 15
 
 
 # ============================================================
-# Column groups (so the row builder and tests share one definition)
+# Schema dataclass
+# ============================================================
+
+
+@dataclass(frozen=True)
+class TelemetrySchema:
+    """A telemetry tab's column structure."""
+
+    name: str
+    columns: Tuple[str, ...]
+    natural_key_columns: Tuple[int, ...]
+
+    @property
+    def column_count(self) -> int:
+        return len(self.columns)
+
+    @property
+    def header(self) -> List[str]:
+        return list(self.columns)
+
+
+# ============================================================
+# PLANT_SCHEMA — wide, vendor-shaped (UNCHANGED from Stage 3)
 # ============================================================
 
 
 def _identity_cols_plant() -> List[str]:
-    """Identity columns for per-plant tab."""
     return ["timestamp_utc", "timestamp_mx", "inverter_sn", "inverter_label"]
 
 
-def _identity_cols_argia() -> List[str]:
-    """Identity columns for aggregated Argia tab.
-
-    plant_key is inserted between the timestamps and the inverter identity so
-    that filtering or sorting by plant is straightforward.
-    """
-    return [
-        "timestamp_utc",
-        "timestamp_mx",
-        "plant_key",
-        "inverter_sn",
-        "inverter_label",
-    ]
-
-
 # Top-level inverter measurements that appear in every row, in column order.
-# Field names match the Sheets header EXACTLY. The row builder reads the
-# corresponding values from the parsed row (or its raw dict).
+# Field names match the Sheets header EXACTLY.
 TYPED_INVERTER_COLS: Tuple[str, ...] = (
-    "status",               # 1=online, 3=offline (derived from fault codes)
-    "power_w",              # int watts, derived from pac
-    "etoday_kwh",           # eacToday
-    "pac_w",                # pac as float
-    "iac_a",                # iac
-    "pf",                   # power factor
-    "pacr_w", "pacs_w", "pact_w",      # per-phase power
-    "vacr_v", "vacs_v", "vact_v",      # per-phase voltage (line-to-neutral)
-    "vac_rs_v", "vac_st_v", "vac_tr_v",  # line-to-line voltages
-    "fac_hz",               # AC frequency
-    "ppv_w",                # total DC power
-    "epv_total_kwh",        # epvTotal (lifetime DC energy)
-    "temperature_c",        # inverter primary temperature
+    "status",
+    "power_w",
+    "etoday_kwh",
+    "pac_w",
+    "iac_a",
+    "pf",
+    "pacr_w", "pacs_w", "pact_w",
+    "vacr_v", "vacs_v", "vact_v",
+    "vac_rs_v", "vac_st_v", "vac_tr_v",
+    "fac_hz",
+    "ppv_w",
+    "epv_total_kwh",
+    "temperature_c",
     "warn_code",
     "warn_code_1",
     "fault_code_1",
@@ -113,7 +105,7 @@ TYPED_INVERTER_COLS: Tuple[str, ...] = (
     "str_unmatch",
     "str_unblance",
     "str_break",
-    "gfci_ma",              # ground-fault current sensor reading
+    "gfci_ma",
 )
 
 
@@ -145,53 +137,16 @@ def _per_mppt_eday_total_cols() -> List[str]:
 
 
 WEATHER_COLS: Tuple[str, ...] = (
-    "irradiance_wm2",         # latest instantaneous W/m² at this plant's env station
-    "irradiance_kwh_m2_5m",   # 5-min interval kWh/m² (W/m² * 5/60000)
-    "cloud_cover_pct",        # Open-Meteo current/hourly cloud cover
-    "ambient_temp_c",         # env station envTemp (when available)
+    "irradiance_wm2",
+    "irradiance_kwh_m2_5m",
+    "cloud_cover_pct",
+    "ambient_temp_c",
 )
-
-
-# ============================================================
-# Schema dataclass
-# ============================================================
-
-
-@dataclass(frozen=True)
-class TelemetrySchema:
-    """A telemetry tab's column structure."""
-
-    name: str
-    columns: Tuple[str, ...]
-    natural_key_columns: Tuple[int, ...]
-
-    @property
-    def column_count(self) -> int:
-        return len(self.columns)
-
-    @property
-    def header(self) -> List[str]:
-        """The list to pass to ``SheetsClient.ensure_header``."""
-        return list(self.columns)
 
 
 def _build_plant_columns() -> Tuple[str, ...]:
     cols: List[str] = []
     cols.extend(_identity_cols_plant())
-    cols.extend(TYPED_INVERTER_COLS)
-    cols.extend(_per_mppt_voltage_cols())
-    cols.extend(_per_mppt_power_cols())
-    cols.extend(_per_string_voltage_cols())
-    cols.extend(_per_string_current_cols())
-    cols.extend(_per_mppt_eday_today_cols())
-    cols.extend(_per_mppt_eday_total_cols())
-    cols.extend(WEATHER_COLS)
-    return tuple(cols)
-
-
-def _build_argia_columns() -> Tuple[str, ...]:
-    cols: List[str] = []
-    cols.extend(_identity_cols_argia())
     cols.extend(TYPED_INVERTER_COLS)
     cols.extend(_per_mppt_voltage_cols())
     cols.extend(_per_mppt_power_cols())
@@ -210,10 +165,39 @@ PLANT_SCHEMA = TelemetrySchema(
 )
 
 
+# ============================================================
+# ARGIA_SCHEMA — narrow, cross-vendor common (NEW in Stage 4)
+# ============================================================
+
+
+# Columns chosen for: cross-vendor consistency + operational signal at a
+# glance. Anything vendor-specific stays in the per-plant tabs.
+ARGIA_COMMON_COLS: Tuple[str, ...] = (
+    "timestamp_utc",       # 0  — UTC ISO string
+    "timestamp_mx",        # 1  — MX local "YYYY-MM-DD HH:MM:SS"
+    "vendor",              # 2  — GROWATT | HUAWEI | SOLAREDGE | SMA
+    "plant_key",           # 3
+    "inverter_sn",         # 4
+    "inverter_label",      # 5
+    "status",              # 6  — 1=online, 3=offline (normalized across vendors)
+    "power_w",             # 7
+    "etoday_kwh",          # 8
+    "temperature_c",       # 9  — blank for vendors that don't expose it yet
+    "fault_code",          # 10 — vendor-specific format, stored as string
+    "irradiance_wm2",      # 11
+    "irradiance_kwh_m2_5m",  # 12
+    "cloud_cover_pct",     # 13
+    "ambient_temp_c",      # 14 — blank until env-station temp wired in
+)
+
+
 ARGIA_SCHEMA = TelemetrySchema(
     name="argia",
-    columns=_build_argia_columns(),
-    natural_key_columns=(0, 2, 3),  # timestamp_utc, plant_key, inverter_sn
+    columns=ARGIA_COMMON_COLS,
+    # Natural key: (timestamp_utc, plant_key, inverter_sn).
+    # Vendor is NOT in the key — within a single moment, one inverter belongs
+    # to one vendor; including vendor in the key would be redundant.
+    natural_key_columns=(0, 3, 4),
 )
 
 
@@ -223,10 +207,21 @@ ARGIA_SCHEMA = TelemetrySchema(
 
 
 def plant_tab_name(plant_key: str) -> str:
-    """Sheets tab name for a plant's telemetry, e.g. 'Telemetry_GTO1'."""
+    """Sheets tab name for a plant's telemetry, e.g. ``Telemetry_GTO1``."""
     if not plant_key:
         raise ValueError("plant_key cannot be empty")
     return f"Telemetry_{plant_key}"
 
 
 ARGIA_TAB_NAME = "Telemetry_Argia"
+
+
+# ============================================================
+# Vendor labels (used by the row builders for the vendor column)
+# ============================================================
+
+
+VENDOR_GROWATT = "GROWATT"
+VENDOR_HUAWEI = "HUAWEI"
+VENDOR_SOLAREDGE = "SOLAREDGE"
+VENDOR_SMA = "SMA"

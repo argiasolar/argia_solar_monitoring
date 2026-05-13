@@ -1,7 +1,7 @@
-name: v2 Growatt Telemetry 5m
+name: v2 Telemetry 5m (all vendors)
 
-# Manual trigger only for now. Once we have 2-3 days of clean runs, we'll add
-# a cron schedule for 5-min execution during MX daylight hours.
+# Manual trigger only for now. Stage 4 supports Growatt + Huawei;
+# SolarEdge and SMA are planned for later stages and will be added here.
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
         default: true
         type: boolean
       plant_key:
-        description: "Run only this Growatt plant (e.g. GTO1). Empty = all."
+        description: "Run only this plant (any vendor). Empty = all."
         required: false
         default: ""
         type: string
@@ -28,7 +28,7 @@ on:
           - ERROR
 
 concurrency:
-  group: v2-growatt-telemetry-5m
+  group: v2-telemetry-5m
   cancel-in-progress: false
 
 jobs:
@@ -67,13 +67,15 @@ jobs:
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
           echo "Will run with: $ARGS"
 
-      - name: Run growatt_telemetry_5m
+      - name: Run telemetry_5m
         env:
-          # Sheet target
           GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          # Growatt web (used for inverter telemetry AND irradiance)
+          # Growatt (inverter + weather)
           GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
           GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+          # Huawei FusionSolar
+          HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
+          HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
         run: |
-          PYTHONPATH=. python scripts/growatt_telemetry_5m.py ${{ steps.args.outputs.args }}
+          PYTHONPATH=. python scripts/telemetry_5m.py ${{ steps.args.outputs.args }}

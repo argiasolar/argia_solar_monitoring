@@ -1,22 +1,16 @@
-"""Build a wide Sheets row from a Growatt MAXHistoryRow + weather snapshot.
+"""Build Sheets rows from Growatt MAXHistoryRow + weather.
 
 Two builders:
-* ``build_plant_row`` — for ``Telemetry_<KEY>`` tabs (no plant_key column)
-* ``build_argia_row`` — for ``Telemetry_Argia`` (plant_key inserted)
 
-Both reach into ``row.raw`` (the original JSON dict) for everything they need
-rather than depending on the typed dataclass attributes. This means a parser
-field rename or addition won't break this module — the JSON field names from
-Growatt's API are the contract. The parser's column-family accessors are still
-used for the wide groups (per-MPPT, per-string).
+* ``build_plant_row`` — wide row for ``Telemetry_<KEY>`` (142 cols)
+* ``build_common_row`` — narrow cross-vendor row for ``Telemetry_Argia`` (15 cols)
 
-Why the indirection: the typed dataclass has ~30 fields. The wide row has 140+.
-Mapping every column to a dataclass attribute would duplicate the dataclass
-shape into a second source of truth. Reading raw keeps the mapping in one
-place — the JSON contract.
+Both reach into ``row.raw`` for everything they need so the parser's typed
+dataclass shape is not a constraint on this module — the JSON field names
+from Growatt's API are the contract. The parser's column-family accessors
+are still used for the wide groups (per-MPPT, per-string).
 
-Pure functions — no I/O. Hand them a parsed row and weather; they hand back a
-Python list ready for the Sheets append/upsert.
+Pure functions — no I/O.
 """
 
 from __future__ import annotations
@@ -30,13 +24,10 @@ from argia.core.normalize import safe_float, safe_int
 from argia.core.time_utils import MX_TZ, parse_growatt_calendar
 from argia.telemetry.schema import (
     ARGIA_SCHEMA,
-    MPPT_EDAY_COUNT,
-    MPPT_POWER_COUNT,
-    MPPT_VOLTAGE_COUNT,
     PLANT_SCHEMA,
     STRING_CURRENT_HIGH,
     STRING_CURRENT_LOW,
-    STRING_VOLTAGE_COUNT,
+    VENDOR_GROWATT,
 )
 from argia.vendors.growatt_web_parser import (
     per_mppt_eday_today_kwh,
@@ -50,7 +41,7 @@ LOG = logging.getLogger("argia.telemetry.growatt_row")
 
 
 # ============================================================
-# Weather snapshot
+# Weather snapshot (shared across vendors)
 # ============================================================
 
 
@@ -58,8 +49,8 @@ LOG = logging.getLogger("argia.telemetry.growatt_row")
 class WeatherSnapshot:
     """Per-plant weather at a moment in time. Any field may be None.
 
-    All four fields show up as their own columns at the end of every row.
-    None values become empty cells in Sheets.
+    All four fields show up as columns at the end of every row. None values
+    become empty cells in Sheets.
     """
 
     irradiance_wm2: Optional[float] = None
@@ -77,23 +68,19 @@ EMPTY_WEATHER = WeatherSnapshot()
 
 
 def _row_raw(row: Any) -> Dict[str, Any]:
-    """Return the .raw dict from a row, or {} if absent."""
     raw = getattr(row, "raw", None)
     return raw if isinstance(raw, dict) else {}
 
 
 def _gf(raw: Dict[str, Any], key: str) -> Optional[float]:
-    """Get a value from raw as a float (or None)."""
     return safe_float(raw.get(key))
 
 
 def _gi(raw: Dict[str, Any], key: str) -> Optional[int]:
-    """Get a value from raw as an int (or None)."""
     return safe_int(raw.get(key))
 
 
 def _none_to_empty(cells: List[Any]) -> List[Any]:
-    """Replace None with empty string so Sheets renders blank cells."""
     return [c if c is not None else "" for c in cells]
 
 
@@ -102,21 +89,9 @@ def _utc_now() -> dt.datetime:
 
 
 def _timestamps(row: Any) -> tuple:
-    """Pick the row's timestamp, return (utc_iso, mx_str) for the two columns.
-
-    Priority order:
-      1. ``row.timestamp_mx`` (set by parser from the calendar dict — handles
-         Growatt's 0-indexed month bug)
-      2. Parse ``raw['calendar']`` directly as a fallback
-      3. ``row.timestamp_utc``
-      4. Now
-
-    Both columns are derived from the same instant, so they always agree on the
-    moment they describe.
-    """
+    """Pick the row's timestamp, return (utc_iso, mx_str)."""
     raw = _row_raw(row)
 
-    # Priority 1: typed attribute set by parser
     ts_mx = getattr(row, "timestamp_mx", None)
     if isinstance(ts_mx, dt.datetime) and ts_mx.tzinfo is not None:
         ts_utc = ts_mx.astimezone(dt.timezone.utc)
@@ -125,7 +100,6 @@ def _timestamps(row: Any) -> tuple:
             ts_mx.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-    # Priority 2: parse calendar dict directly
     cal = raw.get("calendar")
     if isinstance(cal, dict):
         try:
@@ -139,16 +113,14 @@ def _timestamps(row: Any) -> tuple:
                 ts_mx_parsed.strftime("%Y-%m-%d %H:%M:%S"),
             )
 
-    # Priority 3: timestamp_utc attribute (may exist)
-    ts_utc = getattr(row, "timestamp_utc", None)
-    if isinstance(ts_utc, dt.datetime) and ts_utc.tzinfo is not None:
-        ts_mx_derived = ts_utc.astimezone(MX_TZ)
+    ts_utc_attr = getattr(row, "timestamp_utc", None)
+    if isinstance(ts_utc_attr, dt.datetime) and ts_utc_attr.tzinfo is not None:
+        ts_mx_derived = ts_utc_attr.astimezone(MX_TZ)
         return (
-            ts_utc.isoformat(),
+            ts_utc_attr.isoformat(),
             ts_mx_derived.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-    # Priority 4: now
     ts_utc_now = _utc_now()
     return (
         ts_utc_now.isoformat(),
@@ -157,11 +129,7 @@ def _timestamps(row: Any) -> tuple:
 
 
 def _derive_status(raw: Dict[str, Any]) -> int:
-    """Status code: 1 if no fault, 3 if any fault code is non-zero.
-
-    Mirrors ``build_inverter_snapshot`` in the parser so the snapshot10m tab
-    and the new telemetry tab agree on status for the same data.
-    """
+    """1 if no fault, 3 if any fault code is non-zero."""
     fc1 = _gi(raw, "faultCode1") or 0
     fc2 = _gi(raw, "faultCode2") or 0
     fault_type = _gi(raw, "faultType") or 0
@@ -170,8 +138,26 @@ def _derive_status(raw: Dict[str, Any]) -> int:
     return 1
 
 
+def _format_fault_code(raw: Dict[str, Any]) -> str:
+    """Compact human-readable fault summary for the common row.
+
+    "0" when healthy. "FC1=X,FC2=Y,FT=Z" when anything non-zero (omitting
+    fields that ARE zero, so a single FC1 fault shows as "FC1=1").
+    """
+    fc1 = _gi(raw, "faultCode1") or 0
+    fc2 = _gi(raw, "faultCode2") or 0
+    ft = _gi(raw, "faultType") or 0
+    parts: List[str] = []
+    if fc1:
+        parts.append(f"FC1={fc1}")
+    if fc2:
+        parts.append(f"FC2={fc2}")
+    if ft:
+        parts.append(f"FT={ft}")
+    return ",".join(parts) if parts else "0"
+
+
 def _power_w_int(raw: Dict[str, Any]) -> Optional[int]:
-    """Round pac to an integer watt count for the top-level power_w column."""
     pac = _gf(raw, "pac")
     if pac is None:
         return None
@@ -179,15 +165,12 @@ def _power_w_int(raw: Dict[str, Any]) -> Optional[int]:
 
 
 # ============================================================
-# Column groups (return lists of cell values, length-checked)
+# Column groups for the WIDE plant row
 # ============================================================
 
 
 def _typed_inverter_cells(raw: Dict[str, Any]) -> List[Any]:
-    """The 37 'typed' inverter columns in schema order.
-
-    Length MUST equal ``len(TYPED_INVERTER_COLS)`` — the row builder asserts it.
-    """
+    """37 typed inverter columns in schema order."""
     return [
         _derive_status(raw),
         _power_w_int(raw),
@@ -224,22 +207,15 @@ def _typed_inverter_cells(raw: Dict[str, Any]) -> List[Any]:
 
 
 def _per_mppt_string_cells(row: Any) -> List[Any]:
-    """All per-MPPT and per-string columns in schema order.
-
-    16 + 9 + 32 + 10 + 15 + 15 = 97 cells.
-    """
     cells: List[Any] = []
-    cells.extend(per_mppt_voltages(row))     # 16 (vpv1..16)
-    cells.extend(per_mppt_powers(row))       # 9  (ppv1..9)
-    cells.extend(per_string_voltages(row))   # 32 (vString1..32)
-
-    # Per-string currents 20..29 (the rest are always zero on captured fixtures)
+    cells.extend(per_mppt_voltages(row))
+    cells.extend(per_mppt_powers(row))
+    cells.extend(per_string_voltages(row))
     raw = _row_raw(row)
     for i in range(STRING_CURRENT_LOW, STRING_CURRENT_HIGH + 1):
         cells.append(_gf(raw, f"currentString{i}"))
-
-    cells.extend(per_mppt_eday_today_kwh(row))  # 15 (epv1Today..15Today)
-    cells.extend(per_mppt_eday_total_kwh(row))  # 15 (epv1Total..15Total)
+    cells.extend(per_mppt_eday_today_kwh(row))
+    cells.extend(per_mppt_eday_total_kwh(row))
     return cells
 
 
@@ -263,11 +239,7 @@ def build_plant_row(
     inverter_label: str,
     weather: WeatherSnapshot = EMPTY_WEATHER,
 ) -> List[Any]:
-    """Build a row for a per-plant ``Telemetry_<KEY>`` tab.
-
-    The returned list has length ``PLANT_SCHEMA.column_count``. None values are
-    converted to empty strings so Sheets renders blank cells.
-    """
+    """Wide row for ``Telemetry_<KEY>``. 142 cells."""
     raw = _row_raw(row)
     ts_utc, ts_mx = _timestamps(row)
 
@@ -284,7 +256,6 @@ def build_plant_row(
     cells = _none_to_empty(cells)
 
     if len(cells) != PLANT_SCHEMA.column_count:
-        # Loud failure beats silent column drift
         raise RuntimeError(
             f"plant row length mismatch: built {len(cells)} cells, "
             f"schema expects {PLANT_SCHEMA.column_count}"
@@ -292,37 +263,44 @@ def build_plant_row(
     return cells
 
 
-def build_argia_row(
+def build_common_row(
     row: Any,
     plant_key: str,
     inverter_sn: str,
     inverter_label: str,
     weather: WeatherSnapshot = EMPTY_WEATHER,
 ) -> List[Any]:
-    """Build a row for the aggregated ``Telemetry_Argia`` tab.
+    """Narrow cross-vendor row for ``Telemetry_Argia``. 15 cells.
 
-    Same as ``build_plant_row`` but with ``plant_key`` inserted between the
-    timestamp columns and the inverter identity.
+    Vendor is hard-coded to "GROWATT" since this is the Growatt-specific
+    common-row builder.
     """
     raw = _row_raw(row)
     ts_utc, ts_mx = _timestamps(row)
 
     cells: List[Any] = [
-        ts_utc,
-        ts_mx,
-        plant_key,
-        inverter_sn,
-        inverter_label,
+        ts_utc,                          # 0 timestamp_utc
+        ts_mx,                           # 1 timestamp_mx
+        VENDOR_GROWATT,                  # 2 vendor
+        plant_key,                       # 3 plant_key
+        inverter_sn,                     # 4 inverter_sn
+        inverter_label,                  # 5 inverter_label
+        _derive_status(raw),             # 6 status
+        _power_w_int(raw),               # 7 power_w
+        _gf(raw, "eacToday"),            # 8 etoday_kwh
+        _gf(raw, "temperature"),         # 9 temperature_c
+        _format_fault_code(raw),         # 10 fault_code
+        weather.irradiance_wm2,          # 11
+        weather.irradiance_kwh_m2_5m,    # 12
+        weather.cloud_cover_pct,         # 13
+        weather.ambient_temp_c,          # 14
     ]
-    cells.extend(_typed_inverter_cells(raw))
-    cells.extend(_per_mppt_string_cells(row))
-    cells.extend(_weather_cells(weather))
 
     cells = _none_to_empty(cells)
 
     if len(cells) != ARGIA_SCHEMA.column_count:
         raise RuntimeError(
-            f"argia row length mismatch: built {len(cells)} cells, "
+            f"common row length mismatch: built {len(cells)} cells, "
             f"schema expects {ARGIA_SCHEMA.column_count}"
         )
     return cells

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from argia.telemetry.schema import (
+    ARGIA_COMMON_COLS,
     ARGIA_SCHEMA,
     ARGIA_TAB_NAME,
     COLUMN_VERSION,
@@ -16,21 +17,23 @@ from argia.telemetry.schema import (
     STRING_CURRENT_LOW,
     STRING_VOLTAGE_COUNT,
     TYPED_INVERTER_COLS,
+    VENDOR_GROWATT,
+    VENDOR_HUAWEI,
+    VENDOR_SMA,
+    VENDOR_SOLAREDGE,
     WEATHER_COLS,
     plant_tab_name,
 )
 
 
-# ----------------- column counts -----------------
+# ============================================================
+# PLANT_SCHEMA — wide, vendor-shaped (unchanged from Stage 3)
+# ============================================================
 
 
 def _expected_plant_count() -> int:
-    """Compute the expected plant-tab column count from the constants.
-
-    If this and PLANT_SCHEMA.column_count diverge, someone changed one without
-    the other.
-    """
-    identity = 4  # timestamp_utc, timestamp_mx, inverter_sn, inverter_label
+    """Compute the expected plant-tab column count from the constants."""
+    identity = 4
     typed = len(TYPED_INVERTER_COLS)
     mppt_v = MPPT_VOLTAGE_COUNT
     mppt_p = MPPT_POWER_COUNT
@@ -59,7 +62,6 @@ class TestPlantSchema:
         assert len(cols) == len(set(cols)), "duplicate column names in plant schema"
 
     def test_natural_key_picks_timestamp_and_sn(self):
-        # Columns 0 and 2: timestamp_utc + inverter_sn
         assert PLANT_SCHEMA.natural_key_columns == (0, 2)
         assert PLANT_SCHEMA.columns[0] == "timestamp_utc"
         assert PLANT_SCHEMA.columns[2] == "inverter_sn"
@@ -69,67 +71,89 @@ class TestPlantSchema:
         assert isinstance(h, list)
         assert h == list(PLANT_SCHEMA.columns)
 
-    def test_per_mppt_voltage_cols_are_sequential(self):
-        # vpv1_v..vpv16_v in order
+    def test_per_mppt_voltage_cols_present(self):
         for i in range(1, MPPT_VOLTAGE_COUNT + 1):
             assert f"vpv{i}_v" in PLANT_SCHEMA.columns
 
-    def test_per_string_voltage_cols_are_sequential(self):
+    def test_per_string_voltage_cols_present(self):
         for i in range(1, STRING_VOLTAGE_COUNT + 1):
             assert f"vstring{i}_v" in PLANT_SCHEMA.columns
 
     def test_per_string_current_cols_only_20_to_29(self):
-        # 20..29 present
         for i in range(STRING_CURRENT_LOW, STRING_CURRENT_HIGH + 1):
             assert f"istring{i}_a" in PLANT_SCHEMA.columns
-        # 19 not present
         assert "istring19_a" not in PLANT_SCHEMA.columns
-        # 30 not present
         assert "istring30_a" not in PLANT_SCHEMA.columns
 
     def test_weather_cols_at_end(self):
-        # Last 4 columns should be the weather group, in WEATHER_COLS order
         n = len(WEATHER_COLS)
         assert PLANT_SCHEMA.columns[-n:] == WEATHER_COLS
 
+    def test_total_count_is_142(self):
+        # Regression: ensure the column count hasn't drifted unexpectedly
+        assert PLANT_SCHEMA.column_count == 142
+
+
+# ============================================================
+# ARGIA_SCHEMA — narrow common (NEW Stage 4 shape)
+# ============================================================
+
 
 class TestArgiaSchema:
-    def test_column_count_is_plant_plus_one(self):
-        assert ARGIA_SCHEMA.column_count == PLANT_SCHEMA.column_count + 1
+    def test_argia_schema_uses_common_cols(self):
+        assert ARGIA_SCHEMA.columns == ARGIA_COMMON_COLS
 
-    def test_first_five_cols_include_plant_key(self):
-        assert ARGIA_SCHEMA.columns[:5] == (
+    def test_column_count_is_15(self):
+        assert ARGIA_SCHEMA.column_count == 15
+
+    def test_first_six_cols_are_identity_plus_vendor(self):
+        assert ARGIA_SCHEMA.columns[:6] == (
             "timestamp_utc",
             "timestamp_mx",
+            "vendor",
             "plant_key",
             "inverter_sn",
             "inverter_label",
         )
 
-    def test_natural_key_includes_plant_key(self):
-        # Columns 0, 2, 3: timestamp_utc, plant_key, inverter_sn
-        assert ARGIA_SCHEMA.natural_key_columns == (0, 2, 3)
-        assert ARGIA_SCHEMA.columns[0] == "timestamp_utc"
-        assert ARGIA_SCHEMA.columns[2] == "plant_key"
-        assert ARGIA_SCHEMA.columns[3] == "inverter_sn"
-
     def test_no_duplicate_column_names(self):
         cols = list(ARGIA_SCHEMA.columns)
-        assert len(cols) == len(set(cols)), "duplicate column names in argia schema"
+        assert len(cols) == len(set(cols))
+
+    def test_natural_key_is_timestamp_plant_sn(self):
+        # Columns 0, 3, 4: timestamp_utc, plant_key, inverter_sn
+        # vendor is NOT in the key — within one moment, one inverter has one vendor
+        assert ARGIA_SCHEMA.natural_key_columns == (0, 3, 4)
+        assert ARGIA_SCHEMA.columns[0] == "timestamp_utc"
+        assert ARGIA_SCHEMA.columns[3] == "plant_key"
+        assert ARGIA_SCHEMA.columns[4] == "inverter_sn"
+
+    def test_status_power_etoday_in_order(self):
+        # Must match the column index assumptions in growatt_row.build_common_row
+        # and huawei_row.build_common_row
+        assert ARGIA_SCHEMA.columns[6] == "status"
+        assert ARGIA_SCHEMA.columns[7] == "power_w"
+        assert ARGIA_SCHEMA.columns[8] == "etoday_kwh"
+
+    def test_fault_code_present(self):
+        assert "fault_code" in ARGIA_SCHEMA.columns
+
+    def test_temperature_c_present(self):
+        assert "temperature_c" in ARGIA_SCHEMA.columns
 
     def test_weather_cols_at_end(self):
-        n = len(WEATHER_COLS)
-        assert ARGIA_SCHEMA.columns[-n:] == WEATHER_COLS
-
-    def test_typed_inverter_cols_match_plant_schema(self):
-        # After identity (5 cols for argia, 4 for plant), the typed group should match
-        argia_typed = ARGIA_SCHEMA.columns[5 : 5 + len(TYPED_INVERTER_COLS)]
-        plant_typed = PLANT_SCHEMA.columns[4 : 4 + len(TYPED_INVERTER_COLS)]
-        assert argia_typed == plant_typed
-        assert tuple(plant_typed) == TYPED_INVERTER_COLS
+        # Last 4 columns are the 4 weather fields in canonical order
+        assert ARGIA_SCHEMA.columns[-4:] == (
+            "irradiance_wm2",
+            "irradiance_kwh_m2_5m",
+            "cloud_cover_pct",
+            "ambient_temp_c",
+        )
 
 
-# ----------------- tab naming -----------------
+# ============================================================
+# Tab naming + vendor constants
+# ============================================================
 
 
 class TestPlantTabName:
@@ -137,7 +161,6 @@ class TestPlantTabName:
         assert plant_tab_name("GTO1") == "Telemetry_GTO1"
 
     def test_preserves_case(self):
-        # If portfolio uses lowercase, tab name should too — we don't normalize
         assert plant_tab_name("slp1") == "Telemetry_slp1"
 
     def test_rejects_empty(self):
@@ -150,7 +173,19 @@ class TestArgiaTabName:
         assert ARGIA_TAB_NAME == "Telemetry_Argia"
 
 
+class TestVendorConstants:
+    def test_four_vendors_defined(self):
+        assert VENDOR_GROWATT == "GROWATT"
+        assert VENDOR_HUAWEI == "HUAWEI"
+        assert VENDOR_SOLAREDGE == "SOLAREDGE"
+        assert VENDOR_SMA == "SMA"
+
+    def test_vendor_constants_are_unique(self):
+        vendors = [VENDOR_GROWATT, VENDOR_HUAWEI, VENDOR_SOLAREDGE, VENDOR_SMA]
+        assert len(vendors) == len(set(vendors))
+
+
 class TestVersionConstant:
-    def test_version_is_one(self):
-        # Sanity: changing this constant is intentional; this test reminds us.
-        assert COLUMN_VERSION == 1
+    def test_version_bumped_to_2(self):
+        # Bumped from 1 → 2 when ARGIA_SCHEMA changed from wide to narrow
+        assert COLUMN_VERSION == 2

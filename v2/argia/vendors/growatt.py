@@ -4,7 +4,7 @@ Growatt vendor client.
 Two strategies under one roof:
   - OPEN API   (preferred): official JSON API at openapi.growatt.com
                 requires GROWATT_API_TOKEN
-  - WEB UI     (fallback):  scrapes server.growatt.com
+  - WEB UI     (fallback):  authenticated JSON API at server.growatt.com
                 requires GROWATT_USERNAME + GROWATT_PASSWORD
 
 The orchestrator doesn't know which path is active. Both implement
@@ -12,8 +12,13 @@ VendorClient.fetch_day_kwh / fetch_inverter_snapshots.
 
 Decision rule for each call:
   1. If Open API token is set, try Open API first.
-  2. On 401/403/quota-exceeded, fall back to web UI (if creds available).
+  2. On 401/403/auth failure, fall back to web UI (if creds available).
   3. Web-only mode: skip Open API entirely.
+
+Stage 2 change (2026-05-13): the web UI path no longer scrapes HTML or
+probes multiple unknown endpoints. It uses ``argia.vendors.growatt_web``
+which talks to the documented JSON endpoints we captured in Stage 0 and
+parsed in Stage 1. Same public API, much sturdier internals.
 
 This consolidates 5 v1 files into one:
   argia_growatt.py
@@ -28,46 +33,49 @@ separate concern handled by argia.meteo.growatt_irradiance (stage 4).
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
-import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
 
 from argia.core.config import InverterConfig, PlantConfig
 from argia.core.normalize import normalize_sn, pick, safe_float
-from argia.core.time_utils import now_utc, parse_provider_datetime
+from argia.core.time_utils import MX_TZ, now_utc
 from argia.vendors.base import InverterSnapshot, normalize_status
+from argia.vendors.growatt_web import (
+    GrowattWebClient,
+    GrowattAuthError as WebAuthError,
+    GrowattAPIError as WebAPIError,
+)
+from argia.vendors.growatt_web_parser import (
+    build_inverter_snapshot,
+    extract_latest_row,
+    parse_max_history,
+    parse_max_total_data,
+)
 
 LOG = logging.getLogger("argia.vendors.growatt")
 
 OPEN_API_BASE = "https://openapi.growatt.com"
-WEB_UI_BASE = "https://server.growatt.com"
 DEFAULT_TIMEOUT_SEC = 30
-
-# Endpoints that v1 confirmed safe to call (NEVER call setMax / setTlx / etc.)
-WEB_UI_UNSAFE_PREFIXES = ("/commonDeviceSetC/",)
-WEB_UI_UNSAFE_KEYWORDS = (
-    "setmax", "settlx", "setinverter",
-    "delmax", "deltlx", "delinverter",
-    "delete", "set", "save",
-)
+PER_INVERTER_DELAY_SEC = 0.2  # be polite to Growatt's servers
 
 
 class GrowattAuthError(RuntimeError):
-    pass
+    """Auth failure on either Open API or web UI."""
 
 
 class GrowattAPIError(RuntimeError):
-    pass
+    """Non-auth API failure on either Open API or web UI."""
 
 
 class GrowattClient:
     """
     Dual-strategy Growatt client. Pass at least one of:
       - api_token: Open API token (preferred)
-      - web_username + web_password: web UI scraping creds (fallback)
+      - web_username + web_password: web UI JSON-API creds (fallback)
     """
 
     brand = "GROWATT"
@@ -93,30 +101,36 @@ class GrowattClient:
         self._session = session or requests.Session()
         self._session.headers.update({"User-Agent": "Mozilla/5.0 (Argia_Mont/2.0)"})
 
-        self._web_logged_in = False
+        # Stage 2: lazy-init the web client so web-only constructions work and
+        # API-token-only constructions never even build the web client.
+        self._web_client: Optional[GrowattWebClient] = None
 
     # ===== public VendorClient interface =====
 
     def login(self) -> None:
         """
         Lazy login. Open API doesn't need a session login — just a header on
-        each call. Web UI does. We only authenticate the web session if it's
-        actually going to be used.
+        each call. Web UI does, but the web client handles its own login
+        the first time it's used.
         """
-        # Nothing to do at construction; login_web() is called on demand.
+        # Nothing eager to do. _get_web_client() lazy-logs-in on demand.
 
     def fetch_day_kwh(self, plant: PlantConfig, date_iso: str) -> Optional[float]:
         """
         Total kWh produced by the plant on the local date ``date_iso``.
         Open API first, web UI fallback.
+
+        Returns None on any failure (orchestrator treats None as
+        per-plant error and writes PARTIAL status — see test_orchestrator
+        regression for the MEX2/None contract).
         """
         if self._api_token:
             try:
                 value = self._fetch_day_kwh_open_api(plant, date_iso)
                 if value is not None:
                     return value
-                # Open API returned None (e.g. no data for that day).
-                # Don't fall back — the data just doesn't exist.
+                # Open API returned None (no data for that day). Don't fall
+                # back — the data just doesn't exist.
                 return None
             except GrowattAuthError:
                 LOG.warning(
@@ -140,7 +154,11 @@ class GrowattClient:
         inverters: List[InverterConfig],
     ) -> List[InverterSnapshot]:
         """
-        Live snapshot for the given inverters. Open API first, web UI fallback.
+        Live snapshot for the given inverters.
+        Open API first, web UI fallback.
+
+        Returns [] on any failure (orchestrator treats empty list as a
+        missed snapshot and logs PARTIAL).
         """
         if not inverters:
             return []
@@ -197,9 +215,10 @@ class GrowattClient:
         self, plant: PlantConfig, date_iso: str
     ) -> Optional[float]:
         """
-        Open API returns 'today_energy' for the current day only. For historical
-        days we'd need /v1/plant/energy, but v1 only ever queries today, so we
-        match that behavior and return None for non-today queries.
+        Open API returns 'today_energy' for the current day only. For
+        historical days we'd need /v1/plant/energy, but v1 only ever queries
+        today, so we match that behavior and return None for non-today
+        queries.
         """
         result = self._open_api_get("/v1/plant/data", {"plant_id": plant.site_id})
 
@@ -257,12 +276,14 @@ class GrowattClient:
                 LOG.warning("inverter/data failed for %s: %s", sn, e)
                 continue
 
-            snap = self._parse_open_api_inverter(raw, detail.get("data") or {}, plant.plant_key)
+            snap = self._parse_open_api_inverter(
+                raw, detail.get("data") or {}, plant.plant_key
+            )
             if snap:
                 snapshots.append(snap)
 
             # Be polite to Growatt; v1 does this too
-            time.sleep(0.2)
+            time.sleep(PER_INVERTER_DELAY_SEC)
 
         return snapshots
 
@@ -273,131 +294,95 @@ class GrowattClient:
         plant_key: str,
     ) -> Optional[InverterSnapshot]:
         """Pure function — fully testable from JSON fixtures."""
-        sn = normalize_sn(
-            pick(list_item, ["sn", "device_sn", "deviceSn"])
-        )
+        sn = normalize_sn(pick(list_item, ["sn", "device_sn", "deviceSn"]))
         if not sn:
             return None
 
-        # Open API returns "status" 0/1/3 in list, more detail in data block
-        status_raw = pick(detail_data, ["status", "device_status"]) or pick(
-            list_item, ["status"]
-        )
+        status_raw = pick(
+            list_item, ["status", "device_status", "deviceStatus"]
+        ) or pick(detail_data, ["status", "device_status"])
 
-        # Power: Open API gives W in /data, kW in some fields
-        power_raw = safe_float(
-            pick(detail_data, ["pac", "ppv", "power"])
-        )
-        if power_raw is None:
-            power_w = None
-        elif abs(power_raw) <= 1000:
-            # Heuristic: <=1000 likely kW
-            power_w = power_raw * 1000.0
+        # Detail data is more reliable for energy values; list for status
+        power = safe_float(pick(detail_data, ["pac", "current_power", "currentPower"]))
+        if power is not None and abs(power) <= 1000:
+            # API sometimes returns kW
+            power_w = power * 1000.0
         else:
-            power_w = power_raw
+            power_w = power
 
         etoday = safe_float(
-            pick(detail_data, ["e_today", "eToday", "today_energy"])
+            pick(detail_data, ["e_today", "eToday", "today_energy", "todayEnergy"])
         )
 
-        ts_raw = pick(detail_data, ["last_update_time", "time", "data_log_time"])
-        ts = parse_provider_datetime(ts_raw) or now_utc()
+        # Use a recent UTC timestamp; per-inverter timestamps are unreliable
+        # in Open API responses
+        ts_utc = now_utc()
 
         return InverterSnapshot(
             plant_key=plant_key,
             inverter_sn=sn,
-            timestamp_utc=ts,
+            timestamp_utc=ts_utc,
             status=normalize_status(status_raw),
             power_w=power_w,
             etoday_kwh=etoday,
             raw_status=str(status_raw) if status_raw is not None else "",
         )
 
-    # ===== Web UI implementation (fallback) =====
+    # ===== Web UI implementation (Stage 2: uses GrowattWebClient) =====
 
-    def _ensure_web_logged_in(self) -> None:
-        if self._web_logged_in:
-            return
-        self._web_login()
-
-    def _web_login(self) -> None:
-        """
-        POST credentials to /login. Success means the response sets the
-        ``assToken`` cookie. Tests mock this whole method via the session.
-        """
-        # Prime session with a GET so initial cookies are set
-        self._session.get(f"{WEB_UI_BASE}/login", timeout=self._timeout)
-
-        resp = self._session.post(
-            f"{WEB_UI_BASE}/login",
-            data={"account": self._web_user, "password": self._web_pass},
-            timeout=self._timeout,
-        )
-        cookies = self._session.cookies.get_dict()
-        if "assToken" not in cookies:
-            raise GrowattAuthError(
-                f"Web UI login failed (no assToken cookie). HTTP {resp.status_code}"
+    def _get_web_client(self) -> GrowattWebClient:
+        """Lazy-init the web client. Login is idempotent inside it."""
+        if self._web_client is None:
+            self._web_client = GrowattWebClient(
+                username=self._web_user,
+                password=self._web_pass,
+                session=self._session,
+                timeout_sec=self._timeout,
             )
-        self._web_logged_in = True
-        LOG.info("Growatt web UI login OK")
-
-    def _web_get(
-        self, path: str, params: Optional[Dict[str, Any]] = None
-    ) -> requests.Response:
-        if any(path.startswith(p) for p in WEB_UI_UNSAFE_PREFIXES):
-            raise ValueError(f"Refusing to call unsafe web UI path: {path}")
-        if any(kw in path.lower() for kw in WEB_UI_UNSAFE_KEYWORDS):
-            raise ValueError(f"Refusing to call unsafe web UI path: {path}")
-        return self._session.get(
-            f"{WEB_UI_BASE}{path}", params=params, timeout=self._timeout
-        )
-
-    def _web_post(
-        self, path: str, data: Optional[Dict[str, Any]] = None
-    ) -> requests.Response:
-        if any(path.startswith(p) for p in WEB_UI_UNSAFE_PREFIXES):
-            raise ValueError(f"Refusing to call unsafe web UI path: {path}")
-        if any(kw in path.lower() for kw in WEB_UI_UNSAFE_KEYWORDS):
-            raise ValueError(f"Refusing to call unsafe web UI path: {path}")
-        return self._session.post(
-            f"{WEB_UI_BASE}{path}",
-            data=data or {},
-            headers={"X-Requested-With": "XMLHttpRequest"},
-            timeout=self._timeout,
-        )
+        # GrowattWebClient.login() is idempotent (no-op after first success)
+        self._web_client.login()
+        return self._web_client
 
     def _fetch_day_kwh_web(
         self, plant: PlantConfig, date_iso: str
     ) -> Optional[float]:
         """
-        Scrape the photovoltaic page for ``val_device_plantEToday``. v1 used
-        this exact pattern in argia_growatt_monitoring.parse_plant_etoday_kwh.
-        """
-        self._ensure_web_logged_in()
-        resp = self._web_get(
-            "/device/photovoltaic", params={"plantId": plant.site_id}
-        )
-        if resp.status_code != 200:
-            raise GrowattAPIError(
-                f"photovoltaic page HTTP {resp.status_code} for plant {plant.site_id}"
-            )
-        return self._parse_plant_etoday_html(resp.text)
+        Plant-level eToday via getMAXTotalData.
 
-    @staticmethod
-    def _parse_plant_etoday_html(html: str) -> Optional[float]:
-        """Pure function — fully testable from a captured HTML fixture."""
-        if not html:
+        Stage-2 change: was HTML regex against /device/photovoltaic; now
+        single JSON call returning typed dataclass. The parser handles
+        Growatt's quirk of returning string-coerced floats.
+
+        Note: getMAXTotalData has no date parameter — it's always "today" in
+        plant local time. For non-today dates we return None, matching the
+        Open API behavior. If you ever need historical days, the right
+        endpoint is getMAXDayChart (returns 288 5-min slots that can be
+        summed) — wire that in then.
+        """
+        # Compare against MX-local "today" (Growatt server is on plant TZ)
+        today_local = dt.datetime.now(MX_TZ).strftime("%Y-%m-%d")
+        if date_iso != today_local:
+            LOG.debug(
+                "Growatt web path only returns today's energy; "
+                "asked for %s but local today is %s — skipping",
+                date_iso, today_local,
+            )
             return None
-        # Primary pattern: <span class="val_device_plantEToday">123.4</span>
-        m = re.search(
-            r'class\s*=\s*["\']val_device_plantEToday["\'][^>]*>\s*([0-9.]+)\s*<',
-            html,
-        )
-        if m:
-            return safe_float(m.group(1))
-        # Fallback: any number near the plantEToday label
-        m2 = re.search(r'plantEToday[^0-9]*([0-9]+(?:\.[0-9]+)?)', html)
-        return safe_float(m2.group(1)) if m2 else None
+
+        try:
+            web = self._get_web_client()
+            envelope = web.get_max_total_data(plant.site_id)
+        except WebAuthError as e:
+            LOG.warning("Growatt web auth failed for %s: %s", plant.plant_key, e)
+            return None
+        except WebAPIError as e:
+            LOG.warning("Growatt web API error for %s: %s", plant.plant_key, e)
+            return None
+
+        total = parse_max_total_data(envelope)
+        if total is None:
+            return None
+        return total.e_today_kwh
 
     def _fetch_inverters_web(
         self,
@@ -405,113 +390,67 @@ class GrowattClient:
         inverters: List[InverterConfig],
     ) -> List[InverterSnapshot]:
         """
-        Scrape the inverter list endpoint. v1's argia_growatt_inverters.py
-        does this with endpoint discovery + scoring; v2 uses a single known
-        endpoint with payload variants. If Growatt changes the endpoint, the
-        fix is one constant.
+        Per-inverter snapshots via getMAXHistory.
+
+        Stage-2 change: was multi-endpoint device-list scraping (4 URLs × 2
+        payloads, hoping one worked); now one canonical endpoint per SN,
+        documented and tested. getMAXHistory returns ~150 5-min rows for
+        today; we pick the latest and build a snapshot.
+
+        Cost note: this is N HTTP calls for N inverters with a small delay
+        between them. For TAIGENE (4 inverters) that's ~1.2s. The old
+        device-list approach was 1-8 calls (variants) and returned only one
+        SN per response anyway due to a Growatt-side bug.
         """
-        self._ensure_web_logged_in()
-        wanted = {inv.inverter_sn for inv in inverters}
+        try:
+            web = self._get_web_client()
+        except WebAuthError as e:
+            LOG.warning(
+                "Growatt web auth failed for %s inverters: %s", plant.plant_key, e
+            )
+            return []
 
-        # Warm plant context (some endpoints check this cookie)
-        self._web_get("/device", params={"plantId": plant.site_id})
-        self._session.cookies.set(
-            "selectedPlantId", plant.site_id,
-            domain="server.growatt.com", path="/",
-        )
-
-        items = self._web_fetch_device_list(plant.site_id)
+        today_local = dt.datetime.now(MX_TZ).strftime("%Y-%m-%d")
 
         snapshots: List[InverterSnapshot] = []
-        for raw in items:
-            sn = normalize_sn(pick(raw, ["sn", "deviceSn", "invSn", "serialNum"]))
-            if sn not in wanted:
+        for i, inv in enumerate(inverters):
+            sn = normalize_sn(inv.inverter_sn)
+            if not sn:
                 continue
-            snap = self._parse_web_inverter(raw, plant.plant_key)
-            if snap:
-                snapshots.append(snap)
+
+            try:
+                envelope = web.get_max_history(sn, today_local, start=0)
+            except WebAuthError as e:
+                LOG.warning(
+                    "Growatt web auth lost mid-loop for %s/%s: %s",
+                    plant.plant_key, sn, e,
+                )
+                # If auth fails mid-loop, no point continuing — every call
+                # after this would fail the same way.
+                return snapshots
+            except WebAPIError as e:
+                LOG.warning(
+                    "Growatt web getMAXHistory failed for %s/%s: %s",
+                    plant.plant_key, sn, e,
+                )
+                continue
+
+            rows = parse_max_history(envelope)
+            latest = extract_latest_row(rows)
+            if latest is None:
+                LOG.debug(
+                    "No history rows yet for %s/%s on %s",
+                    plant.plant_key, sn, today_local,
+                )
+                continue
+
+            snap = build_inverter_snapshot(
+                latest, plant_key=plant.plant_key, inverter_sn=sn
+            )
+            snapshots.append(snap)
+
+            # Be polite (last iteration doesn't need a delay)
+            if i < len(inverters) - 1:
+                time.sleep(PER_INVERTER_DELAY_SEC)
+
         return snapshots
-
-    def _web_fetch_device_list(self, plant_id: str) -> List[Dict[str, Any]]:
-        """
-        Try known list endpoints with payload variants. Return first list
-        that has at least one row with an SN-like field.
-        """
-        endpoints = [
-            "/device/getMAXList",
-            "/device/getMaxList",
-            "/device/getInverterList",
-            "/panel/getDeviceList",
-        ]
-        payload_variants = [
-            {"plantId": plant_id, "currPage": "1", "pageSize": "50"},
-            {"plantId": plant_id, "currPage": "1", "pageSize": "50", "ind": "1"},
-        ]
-
-        for endpoint in endpoints:
-            for payload in payload_variants:
-                try:
-                    resp = self._web_post(endpoint, data=payload)
-                except (requests.RequestException, ValueError):
-                    continue
-                if resp.status_code != 200:
-                    continue
-                items = self._extract_items_from_json(resp.text)
-                if items:
-                    return items
-        return []
-
-    @staticmethod
-    def _extract_items_from_json(text: str) -> List[Dict[str, Any]]:
-        """Pure function — fully testable."""
-        import json as _json
-        if not text:
-            return []
-        try:
-            obj = _json.loads(text)
-        except (ValueError, TypeError):
-            return []
-        if not isinstance(obj, dict):
-            return []
-        for key in ("datas", "data", "rows"):
-            value = obj.get(key)
-            if isinstance(value, list):
-                return [x for x in value if isinstance(x, dict)]
-        return []
-
-    @staticmethod
-    def _parse_web_inverter(
-        raw: Dict[str, Any], plant_key: str
-    ) -> Optional[InverterSnapshot]:
-        """Pure function. Web UI returns slightly different field names."""
-        sn = normalize_sn(pick(raw, ["sn", "deviceSn", "invSn", "serialNum"]))
-        if not sn:
-            return None
-
-        status_raw = pick(raw, ["status", "deviceStatus", "invStatus", "workStatus"])
-
-        # Web UI sometimes returns power as kW, sometimes already in W
-        power_raw = safe_float(pick(raw, ["pac", "power", "actPower", "currentPower"]))
-        if power_raw is None:
-            power_w = None
-        elif abs(power_raw) <= 1000:
-            power_w = power_raw * 1000.0
-        else:
-            power_w = power_raw
-
-        etoday = safe_float(
-            pick(raw, ["eToday", "EToday", "todayEnergy", "generationToday"])
-        )
-
-        ts_raw = pick(raw, ["updateTime", "lastUpdateTime", "time"])
-        ts = parse_provider_datetime(ts_raw) or now_utc()
-
-        return InverterSnapshot(
-            plant_key=plant_key,
-            inverter_sn=sn,
-            timestamp_utc=ts,
-            status=normalize_status(status_raw),
-            power_w=power_w,
-            etoday_kwh=etoday,
-            raw_status=str(status_raw) if status_raw is not None else "",
-        )

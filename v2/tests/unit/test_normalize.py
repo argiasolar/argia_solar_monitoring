@@ -11,6 +11,7 @@ from argia.core.normalize import (
     normalize_text,
     pick,
     safe_float,
+    safe_int,
 )
 
 
@@ -63,6 +64,72 @@ class TestSafeFloat:
 
     def test_dict_returns_default(self):
         assert safe_float({"a": 1}, default=-1.0) == -1.0
+
+
+class TestSafeInt:
+    def test_plain_int(self):
+        assert safe_int(42) == 42
+
+    def test_float_truncates(self):
+        # Python int(3.7) is 3 — same here
+        assert safe_int(3.7) == 3
+
+    def test_negative_float_truncates_toward_zero(self):
+        # Python int() truncates toward zero, NOT toward -inf
+        assert safe_int(-3.7) == -3
+
+    def test_string_int(self):
+        assert safe_int("42") == 42
+
+    def test_string_with_decimal(self):
+        assert safe_int("3.7") == 3
+
+    def test_string_with_commas(self):
+        # Growatt eTotal sometimes exported as "1,504,463"
+        assert safe_int("1,234,567") == 1234567
+
+    def test_negative_string(self):
+        assert safe_int("-15") == -15
+
+    def test_none_uses_default(self):
+        assert safe_int(None, default=0) == 0
+
+    def test_none_default_is_none(self):
+        assert safe_int(None) is None
+
+    def test_empty_string(self):
+        assert safe_int("", default=0) == 0
+
+    def test_whitespace_only(self):
+        assert safe_int("   ", default=0) == 0
+
+    def test_garbage_string(self):
+        assert safe_int("not a number") is None
+
+    def test_garbage_string_with_default(self):
+        assert safe_int("garbage", default=-1) == -1
+
+    def test_nan_returns_default(self):
+        assert safe_int(float("nan"), default=0) == 0
+
+    def test_inf_returns_default(self):
+        assert safe_int(float("inf"), default=0) == 0
+
+    def test_neg_inf_returns_default(self):
+        assert safe_int(float("-inf"), default=0) == 0
+
+    def test_list_returns_default(self):
+        assert safe_int([1, 2, 3], default=0) == 0
+
+    def test_dict_returns_default(self):
+        assert safe_int({"a": 1}, default=-1) == -1
+
+    def test_bool_true_is_one(self):
+        # int(True) == 1; same convention here so the behaviour isn't surprising
+        assert safe_int(True) == 1
+
+    def test_bool_false_is_zero(self):
+        assert safe_int(False) == 0
 
 
 class TestNormalizeText:

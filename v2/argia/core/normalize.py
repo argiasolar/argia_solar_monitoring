@@ -45,6 +45,54 @@ def safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """
+    Coerce a value to int, returning ``default`` on any failure.
+
+    Symmetric with ``safe_float``. Handles:
+      - None → default
+      - empty string / whitespace → default
+      - "42" → 42
+      - "1,234" → 1234 (strips commas)
+      - "3.7" → 3 (truncates floats — Python int() semantics)
+      - 3.7  → 3
+      - NaN / inf → default
+      - bool inputs are accepted (True → 1, False → 0) — same as ``int(True)``
+
+    This is intentionally lenient: Growatt and other vendors return
+    integer-shaped fields as strings ("1", "0", "9309575"), and Sheets
+    exports sometimes wrap large integers in commas. Both should parse.
+
+    Examples:
+        >>> safe_int("42")
+        42
+        >>> safe_int("1,234")
+        1234
+        >>> safe_int(3.7)
+        3
+        >>> safe_int(None, default=0)
+        0
+        >>> safe_int("not a number") is None
+        True
+    """
+    if value is None:
+        return default
+    try:
+        if isinstance(value, str):
+            s = value.strip().replace(",", "")
+            if s == "":
+                return default
+            value = s
+        # Go through float first so "3.7" and 3.7 both work, and so
+        # NaN/inf are caught before int() raises a less obvious error.
+        v = float(value)
+        if math.isnan(v) or math.isinf(v):
+            return default
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def normalize_text(value: Any) -> str:
     """
     Convert any value to a stripped string. None becomes "".

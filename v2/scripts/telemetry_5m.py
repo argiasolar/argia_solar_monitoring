@@ -12,25 +12,25 @@ For each active plant in the portfolio:
 Currently handles: GROWATT, HUAWEI. SolarEdge and SMA are planned for
 Stages 5 and 6 — until then their plants are skipped with an info log.
 
+Stage 4.1: Huawei pipeline now uses the rich telemetry parser via
+``fetch_inverter_telemetry`` instead of the sparse 5-field ``fetch_inverter_snapshots``.
+This pulls the full dataItemMap (temperature, per-MPPT, AC three-phase, etc.)
+from the same ``getDevRealKpi`` response we were already getting.
+
 USAGE
     python scripts/telemetry_5m.py
     python scripts/telemetry_5m.py --dry-run
     python scripts/telemetry_5m.py --plant-key GTO1
-    python scripts/telemetry_5m.py --plant-key MEX1 --dry-run
+    python scripts/telemetry_5m.py --plant-key MEX1 --dry-run --log-level DEBUG
+
+DEBUG mode prints the raw Huawei dataItemMap keys so you can see exactly what
+fields the API returns for your hardware.
 
 EXIT CODES
     0  all processed plants succeeded (or no plants in portfolio)
     1  partial — some plants/inverters failed, others succeeded
     2  total failure — no rows written
     3  config error (sheet, credentials, portfolio)
-
-ENV VARS REQUIRED
-    GOOGLE_SHEET_ID_V2     v2 sheet
-    GOOGLE_CREDENTIALS     service account JSON
-    GROWATT_USERNAME       web UI username (needed if any Growatt plant active)
-    GROWATT_PASSWORD       web UI password
-    HUAWEI_USERNAME        FusionSolar API user (needed if any Huawei plant active)
-    HUAWEI_PASSWORD        FusionSolar API password
 """
 
 from __future__ import annotations
@@ -69,16 +69,18 @@ from argia.telemetry.sheets_writer import (
     ensure_telemetry_tab,
     write_telemetry_rows,
 )
-from argia.vendors.base import InverterSnapshot
 from argia.vendors.growatt_web import GrowattWebClient
 from argia.vendors.growatt_web_parser import (
     extract_latest_row,
     parse_max_history,
 )
 from argia.vendors.huawei import HuaweiAPIError, HuaweiAuthError, HuaweiClient
+from argia.vendors.huawei_telemetry import (
+    HuaweiTelemetryRow,
+    fetch_inverter_telemetry,
+)
 
 
-# Per-inverter delay to avoid hammering Growatt's web UI.
 PER_GROWATT_INVERTER_DELAY_SEC = 0.2
 
 
@@ -106,12 +108,6 @@ def _fetch_weather_for_plant(
     cloud_client: Optional[CloudCoverClient],
     log: logging.Logger,
 ) -> WeatherSnapshot:
-    """Build a WeatherSnapshot for one plant.
-
-    Weather failures don't cascade — missing values become None → empty cells.
-    All plants (Growatt or otherwise) read weather from a Growatt ShineMaster,
-    as configured via ``weather_plant_id`` and ``datalogger_sn`` on PlantConfig.
-    """
     irradiance_wm2: Optional[float] = None
     irradiance_kwh_m2_5m: Optional[float] = None
     cloud_pct: Optional[float] = None
@@ -147,12 +143,12 @@ def _fetch_weather_for_plant(
         irradiance_wm2=irradiance_wm2,
         irradiance_kwh_m2_5m=irradiance_kwh_m2_5m,
         cloud_cover_pct=cloud_pct,
-        ambient_temp_c=None,  # not yet wired
+        ambient_temp_c=None,
     )
 
 
 # ============================================================
-# Growatt: process one plant
+# Growatt: process one plant (unchanged from Stage 4)
 # ============================================================
 
 
@@ -166,11 +162,6 @@ def _process_growatt_plant(
     dry_run: bool,
     log: logging.Logger,
 ) -> tuple:
-    """Build + write rows for one Growatt plant.
-
-    Returns (common_rows, errors_count). The common_rows are appended to the
-    global Argia batch at the end of the run.
-    """
     plant_rows: List[list] = []
     common_rows: List[list] = []
     errors = 0
@@ -225,7 +216,7 @@ def _process_growatt_plant(
 
 
 # ============================================================
-# Huawei: process one plant
+# Huawei: process one plant — STAGE 4.1: uses rich telemetry
 # ============================================================
 
 
@@ -238,17 +229,14 @@ def _process_huawei_plant(
     dry_run: bool,
     log: logging.Logger,
 ) -> tuple:
-    """Build + write rows for one Huawei plant.
-
-    Unlike Growatt's per-SN call, Huawei batches up to 50 SNs per call. The
-    existing ``HuaweiClient.fetch_inverter_snapshots`` handles batching itself.
-    """
     common_rows: List[list] = []
     plant_rows: List[list] = []
     errors = 0
 
     try:
-        snapshots = huawei_client.fetch_inverter_snapshots(plant, inverters)
+        telemetry: List[HuaweiTelemetryRow] = fetch_inverter_telemetry(
+            huawei_client, plant, inverters,
+        )
     except (HuaweiAuthError, HuaweiAPIError) as e:
         log.warning("[%s] Huawei fetch failed: %s", plant.plant_key, e)
         return [], 1
@@ -256,22 +244,21 @@ def _process_huawei_plant(
         log.exception("[%s] Huawei fetch crashed: %s", plant.plant_key, e)
         return [], 1
 
-    # Map SN → label so we can attach human labels to each snapshot
     label_by_sn = {inv.inverter_sn: inv.inverter_label for inv in inverters}
 
-    for snap in snapshots:
-        label = label_by_sn.get(snap.inverter_sn, snap.inverter_sn)
+    for tel in telemetry:
+        label = label_by_sn.get(tel.inverter_sn, tel.inverter_sn)
         try:
-            plant_rows.append(huawei_row.build_plant_row(snap, label, weather))
-            common_rows.append(huawei_row.build_common_row(snap, label, weather))
+            plant_rows.append(huawei_row.build_plant_row(tel, label, weather))
+            common_rows.append(huawei_row.build_common_row(tel, label, weather))
         except Exception as e:  # noqa: BLE001
             log.warning(
-                "[%s/%s] row build failed: %s", plant.plant_key, snap.inverter_sn, e,
+                "[%s/%s] row build failed: %s",
+                plant.plant_key, tel.inverter_sn, e,
             )
             errors += 1
 
-    # Note any inverters Huawei didn't return data for
-    returned_sns = {s.inverter_sn for s in snapshots}
+    returned_sns = {t.inverter_sn for t in telemetry}
     for inv in inverters:
         if inv.inverter_sn not in returned_sns:
             log.warning(
@@ -307,16 +294,12 @@ def _process_huawei_plant(
 
 
 def _run_growatt(
-    portfolio: Portfolio,
-    sheets: SheetsClient,
-    date_iso: str,
+    portfolio: Portfolio, sheets: SheetsClient, date_iso: str,
     only_plant: Optional[str],
     irradiance_client: Optional[GrowattIrradianceClient],
     cloud_client: Optional[CloudCoverClient],
-    dry_run: bool,
-    log: logging.Logger,
+    dry_run: bool, log: logging.Logger,
 ) -> tuple:
-    """Process all active Growatt plants. Returns (common_rows, processed, skipped, errors)."""
     plants = portfolio.plants_by_brand("GROWATT")
     if only_plant:
         plants = [p for p in plants if p.plant_key == only_plant]
@@ -371,16 +354,12 @@ def _run_growatt(
 
 
 def _run_huawei(
-    portfolio: Portfolio,
-    sheets: SheetsClient,
-    date_iso: str,
+    portfolio: Portfolio, sheets: SheetsClient, date_iso: str,
     only_plant: Optional[str],
     irradiance_client: Optional[GrowattIrradianceClient],
     cloud_client: Optional[CloudCoverClient],
-    dry_run: bool,
-    log: logging.Logger,
+    dry_run: bool, log: logging.Logger,
 ) -> tuple:
-    """Process all active Huawei plants. Returns (common_rows, processed, skipped, errors)."""
     plants = portfolio.plants_by_brand("HUAWEI")
     if only_plant:
         plants = [p for p in plants if p.plant_key == only_plant]
@@ -480,7 +459,6 @@ def main(argv=None) -> int:
         log.error("Failed to load portfolio: %s", e)
         return 3
 
-    # Build shared clients (weather is shared across vendors)
     g_user = os.environ.get("GROWATT_USERNAME", "").strip()
     g_pass = os.environ.get("GROWATT_PASSWORD", "").strip()
     irradiance_client: Optional[GrowattIrradianceClient] = None
@@ -504,7 +482,6 @@ def main(argv=None) -> int:
     total_skipped = 0
     total_errors = 0
 
-    # ----- Growatt -----
     try:
         common, processed, skipped, errs = _run_growatt(
             portfolio, sheets, date_iso, args.plant_key,
@@ -518,7 +495,6 @@ def main(argv=None) -> int:
         log.exception("Growatt pipeline crashed: %s", e)
         total_errors += 1
 
-    # ----- Huawei -----
     try:
         common, processed, skipped, errs = _run_huawei(
             portfolio, sheets, date_iso, args.plant_key,
@@ -532,8 +508,6 @@ def main(argv=None) -> int:
         log.exception("Huawei pipeline crashed: %s", e)
         total_errors += 1
 
-    # ----- Future: SolarEdge, SMA -----
-    # Stage 5 and 6. For now, plants with those brands get logged as skipped.
     for brand in ("SOLAREDGE", "SMA"):
         unsupported = portfolio.plants_by_brand(brand)
         if args.plant_key:
@@ -545,7 +519,6 @@ def main(argv=None) -> int:
             )
             total_skipped += len(unsupported)
 
-    # ----- Write the aggregated Argia tab in one batch -----
     if all_common:
         try:
             ensure_telemetry_tab(sheets, ARGIA_TAB_NAME, ARGIA_SCHEMA)

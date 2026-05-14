@@ -77,5 +77,8 @@ jobs:
           # Huawei FusionSolar
           HUAWEI_USERNAME: ${{ secrets.HUAWEI_USERNAME }}
           HUAWEI_PASSWORD: ${{ secrets.HUAWEI_PASSWORD }}
+          # SolarEdge
+          SOLAREDGE_API_KEY: ${{ secrets.SOLAREDGE_API_KEY }}
+          SOLAREDGE_API_KEY2: ${{ secrets.SOLAREDGE_API_KEY2 }}
         run: |
           PYTHONPATH=. python scripts/telemetry_5m.py ${{ steps.args.outputs.args }}

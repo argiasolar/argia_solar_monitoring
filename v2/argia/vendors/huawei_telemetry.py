@@ -1,18 +1,19 @@
 """Rich Huawei inverter telemetry.
 
-The existing ``HuaweiClient.fetch_inverter_snapshots`` extracts only 4 fields
-(status, power, eToday, timestamp) from ``getDevRealKpi`` responses. But the
-endpoint actually returns a rich ``dataItemMap`` with ~25+ fields per inverter:
-temperature, per-MPPT voltages and currents, AC three-phase, frequency, power
-factor, MPPT-level day energy, fault codes, and more.
+Stage 4.2 refinements based on what we learned from live daylight data:
 
-This module defines:
+* ``mppt_X_cap`` is **lifetime cumulative energy in Wh per MPPT, not daily**.
+  Live data showed identical values across overnight runs (didn't reset at
+  midnight), and they're an order of magnitude too large to be daily kWh.
+  We rename ``pv_eday_kwh`` → ``pv_etotal_kwh``, divide by 1000 to convert
+  Wh → kWh, and route to the wide schema's ``epv{i}_total_kwh`` columns.
+  Huawei doesn't expose per-MPPT *daily* energy at all, so those columns
+  stay blank.
 
-* ``HuaweiTelemetryRow`` — dataclass holding the full rich snapshot.
-* ``parse_telemetry_item`` — parses one ``getDevRealKpi.data[]`` element into
-  a ``HuaweiTelemetryRow``. Field reads are *defensive*: every numeric field
-  uses ``safe_float`` against multiple candidate keys, so a missing/renamed
-  field becomes None (→ blank cell), not a crash.
+* Add per-phase (line-to-neutral) voltages ``a_u``, ``b_u``, ``c_u``. The
+  Stage 4.1 DEBUG log confirmed Huawei exposes BOTH line-to-line AND
+  line-to-neutral. We were only reading line-to-line. These populate the
+  ``vacr_v``, ``vacs_v``, ``vact_v`` columns that were blank.
 
 The Huawei docs list field names that vary by inverter model (SUN2000-100KTL
 vs SUN2000-330KTL, etc.). The parser tries the canonical names plus common
@@ -37,10 +38,11 @@ from argia.vendors.base import normalize_status
 
 LOG = logging.getLogger("argia.vendors.huawei_telemetry")
 
-# Per-MPPT range Huawei supports. SUN2000 inverters expose up to pv24 in big
-# units; smaller models stop at pv4 or pv8. We try pv1..pv16 to cover most
-# units; the parser just emits None for missing ones.
-MPPT_RANGE = range(1, 17)  # pv1 .. pv16
+# Per-MPPT range we read from each response. SUN2000 inverters expose up to
+# pv36; live data so far shows up to pv16 actively used. Schema width is 16
+# (vpv1_v..vpv16_v). MPPTs 17+ in the API response are ignored for now —
+# documented in the runbook.
+MPPT_RANGE = range(1, 17)
 
 
 @dataclass(frozen=True)
@@ -72,27 +74,36 @@ class HuaweiTelemetryRow:
     efficiency_pct: Optional[float] = None
     elec_freq_hz: Optional[float] = None
 
-    # AC three-phase voltage & current (line-to-line and per-phase)
+    # AC three-phase voltage & current
+    # Line-to-line (between phases)
     ab_u_v: Optional[float] = None
     bc_u_v: Optional[float] = None
     ca_u_v: Optional[float] = None
+    # Line-to-neutral (each phase to ground) — NEW in Stage 4.2
+    a_u_v: Optional[float] = None
+    b_u_v: Optional[float] = None
+    c_u_v: Optional[float] = None
+    # Per-phase currents
     a_i_a: Optional[float] = None
     b_i_a: Optional[float] = None
     c_i_a: Optional[float] = None
 
     # Energy
     etoday_kwh: Optional[float] = None        # day_cap
-    etotal_kwh: Optional[float] = None        # total_cap
+    etotal_kwh: Optional[float] = None        # total_cap (whole inverter)
     mppt_total_kwh: Optional[float] = None    # mppt_total_cap
 
     # DC side
     temperature_c: Optional[float] = None
     mppt_power_w: Optional[float] = None      # mppt_power (kW → W)
 
-    # Per-MPPT — voltage, current, daily energy (up to 16)
+    # Per-MPPT — voltage, current, lifetime energy (up to 16)
     pv_voltages_v: tuple = ()    # (pv1_u, pv2_u, ...)
     pv_currents_a: tuple = ()    # (pv1_i, pv2_i, ...)
-    pv_eday_kwh: tuple = ()      # (mppt_1_cap, mppt_2_cap, ...)
+    # ``mppt_X_cap`` is per-MPPT LIFETIME energy in Wh (not daily). We
+    # convert to kWh on parse. (Renamed from ``pv_eday_kwh`` in Stage 4.2 to
+    # reflect what the data actually represents.)
+    pv_etotal_kwh: tuple = ()    # (mppt_1_cap/1000, mppt_2_cap/1000, ...)
 
     # Raw field map for diagnostics + fallback
     raw_data_item_map: Dict[str, Any] = field(default_factory=dict)
@@ -110,7 +121,7 @@ def _per_mppt(data_map: Dict[str, Any], pattern: List[str]) -> tuple:
     """Read per-MPPT values into a tuple.
 
     ``pattern`` is a list of candidate key formats with ``{i}`` placeholder.
-    For each i in 1..16, try each candidate; first match wins. None for misses.
+    For each i in MPPT_RANGE, try each candidate; first match wins. None for misses.
     """
     out: List[Optional[float]] = []
     for i in MPPT_RANGE:
@@ -119,6 +130,25 @@ def _per_mppt(data_map: Dict[str, Any], pattern: List[str]) -> tuple:
             key = fmt.format(i=i)
             if key in data_map:
                 value = safe_float(data_map[key])
+                break
+        out.append(value)
+    return tuple(out)
+
+
+def _per_mppt_wh_to_kwh(data_map: Dict[str, Any], pattern: List[str]) -> tuple:
+    """Per-MPPT lifetime energy: read raw Wh values, divide by 1000 → kWh.
+
+    Used for ``mppt_X_cap`` which the live API returns in Wh.
+    """
+    out: List[Optional[float]] = []
+    for i in MPPT_RANGE:
+        value: Optional[float] = None
+        for fmt in pattern:
+            key = fmt.format(i=i)
+            if key in data_map:
+                raw = safe_float(data_map[key])
+                if raw is not None:
+                    value = raw / 1000.0
                 break
         out.append(value)
     return tuple(out)
@@ -146,7 +176,6 @@ def parse_telemetry_item(
     if not isinstance(data_map, dict):
         data_map = {}
 
-    # DEBUG: log the field keys so we can see what's actually available
     if LOG.isEnabledFor(logging.DEBUG):
         LOG.debug(
             "huawei dataItemMap for %s has %d fields: %s",
@@ -168,7 +197,7 @@ def parse_telemetry_item(
         inverter_state=safe_int(pick(data_map, ["inverter_state", "inverterState"])),
         run_state=safe_int(pick(data_map, ["run_state", "runState"])),
 
-        # AC
+        # AC output
         power_w=_convert_power_to_watts(
             pick(data_map, ["active_power", "activePower", "pac", "power"])
         ),
@@ -185,10 +214,15 @@ def parse_telemetry_item(
             pick(data_map, ["elec_freq", "elecFreq", "grid_freq", "fac", "frequency"])
         ),
 
-        # AC three-phase
+        # AC three-phase: line-to-line
         ab_u_v=safe_float(pick(data_map, ["ab_u", "abU", "u_ab", "uAB"])),
         bc_u_v=safe_float(pick(data_map, ["bc_u", "bcU", "u_bc", "uBC"])),
         ca_u_v=safe_float(pick(data_map, ["ca_u", "caU", "u_ca", "uCA"])),
+        # AC three-phase: line-to-neutral (NEW in Stage 4.2)
+        a_u_v=safe_float(pick(data_map, ["a_u", "aU", "u_a", "uA"])),
+        b_u_v=safe_float(pick(data_map, ["b_u", "bU", "u_b", "uB"])),
+        c_u_v=safe_float(pick(data_map, ["c_u", "cU", "u_c", "uC"])),
+        # AC three-phase currents
         a_i_a=safe_float(pick(data_map, ["a_i", "aI", "i_a", "iA"])),
         b_i_a=safe_float(pick(data_map, ["b_i", "bI", "i_b", "iB"])),
         c_i_a=safe_float(pick(data_map, ["c_i", "cI", "i_c", "iC"])),
@@ -213,10 +247,11 @@ def parse_telemetry_item(
             pick(data_map, ["mppt_power", "mpptPower"])
         ),
 
-        # Per-MPPT — try multiple naming conventions
+        # Per-MPPT
         pv_voltages_v=_per_mppt(data_map, ["pv{i}_u", "pv{i}U", "u_pv{i}", "uPV{i}"]),
         pv_currents_a=_per_mppt(data_map, ["pv{i}_i", "pv{i}I", "i_pv{i}", "iPV{i}"]),
-        pv_eday_kwh=_per_mppt(data_map, ["mppt_{i}_cap", "mppt{i}Cap"]),
+        # Per-MPPT lifetime energy: Wh → kWh (Stage 4.2 fix)
+        pv_etotal_kwh=_per_mppt_wh_to_kwh(data_map, ["mppt_{i}_cap", "mppt{i}Cap"]),
 
         raw_data_item_map=dict(data_map),
     )
@@ -226,11 +261,7 @@ def parse_telemetry_response(
     response: Dict[str, Any],
     plant_key: str,
 ) -> List[HuaweiTelemetryRow]:
-    """Parse the entire ``getDevRealKpi`` response into rich telemetry rows.
-
-    Returns one row per inverter Huawei returned data for. Returns empty list
-    on ``success: false`` or empty data.
-    """
+    """Parse the entire ``getDevRealKpi`` response into rich telemetry rows."""
     if not isinstance(response, dict):
         return []
     if not response.get("success"):
@@ -247,7 +278,6 @@ def parse_telemetry_response(
 # Fetch helper — uses existing HuaweiClient transport
 # ============================================================
 
-# Batch size matches HuaweiClient's; if you change one, change both.
 _SN_BATCH_SIZE = 50
 _INVERTER_DEV_TYPE_ID = 1
 
@@ -259,16 +289,12 @@ def fetch_inverter_telemetry(
 ) -> List[HuaweiTelemetryRow]:
     """Call ``getDevRealKpi`` via the existing HuaweiClient and parse rich rows.
 
-    This deliberately reuses ``HuaweiClient._post_json`` and ``_ensure_logged_in``
-    instead of duplicating transport / auth logic. The client doesn't need a
-    new public method for one extra parse path.
+    Reuses ``HuaweiClient._post_json`` and ``_ensure_logged_in`` instead of
+    duplicating transport / auth logic. Inverters not returned by Huawei
+    (offline, unknown SN) are omitted — same behavior as the existing
+    ``fetch_inverter_snapshots``.
 
-    Returns one ``HuaweiTelemetryRow`` per inverter the API returned data for.
-    Inverters not returned by Huawei (offline, unknown SN) are simply omitted —
-    same behavior as the existing ``fetch_inverter_snapshots``.
-
-    Raises whatever ``_post_json`` raises (``HuaweiAPIError``,
-    ``HuaweiAuthError`` from login).
+    Raises ``HuaweiAPIError`` on API failure, ``HuaweiAuthError`` on bad login.
     """
     if not inverters:
         return []
@@ -277,7 +303,6 @@ def fetch_inverter_telemetry(
     sns = [inv.inverter_sn for inv in inverters]
     out: List[HuaweiTelemetryRow] = []
 
-    # Local import to avoid a top-of-file circular dependency
     from argia.core.normalize import chunked
     from argia.vendors.huawei import HuaweiAPIError
 

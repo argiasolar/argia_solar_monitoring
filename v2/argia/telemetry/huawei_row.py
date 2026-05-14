@@ -1,16 +1,24 @@
 """Build Sheets rows from Huawei rich telemetry + weather.
 
-Stage 4 used a sparse Huawei row builder driven by ``InverterSnapshot`` (only
-5 fields). Stage 4.1 drives from ``HuaweiTelemetryRow`` which has the full
-~25-field rich snapshot extracted from ``getDevRealKpi``'s ``dataItemMap``.
+Stage 4.1 introduced rich extraction from ``getDevRealKpi``'s ``dataItemMap``
+(temperature, AC three-phase, per-MPPT voltages, frequency, power factor).
 
-The wide plant row now populates far more columns: temperature, AC three-phase,
-frequency, power factor, per-MPPT voltages and currents, MPPT-level day
-energy, total energy, fault state.
+Stage 4.2 fixes two issues that surfaced in live daylight data:
 
-Unknown / missing fields stay blank — every safe_float in the parser handles
-None gracefully. So an inverter model that doesn't expose ``mppt_5_cap`` just
-leaves that cell blank instead of crashing.
+1. **Per-MPPT energy semantics.** Live data showed ``mppt_X_cap`` values were
+   identical across overnight runs — they don't reset at midnight. So
+   ``mppt_X_cap`` is **lifetime cumulative energy in Wh per MPPT**, not daily
+   energy. The parser now converts Wh → kWh and routes the values to the
+   ``epv{i}_total_kwh`` columns. The ``epv{i}_today_kwh`` columns stay blank
+   for Huawei (the API doesn't expose per-MPPT daily energy).
+
+2. **Phase voltages.** Stage 4.1 left ``vacr_v``, ``vacs_v``, ``vact_v`` blank
+   because we assumed Huawei only exposed line-to-line (ab/bc/ca). The DEBUG
+   log showed it ALSO exposes line-to-neutral (a_u, b_u, c_u). Now populated.
+
+Unknown / missing fields still stay blank — every safe_float in the parser
+handles None gracefully. So an inverter model that doesn't expose
+``mppt_5_cap`` just leaves that cell blank instead of crashing.
 
 Pure functions — no I/O.
 """
@@ -75,8 +83,9 @@ def _fault_code_from_telemetry(tel: HuaweiTelemetryRow) -> str:
 
     Huawei doesn't have Growatt-style numeric fault codes. We derive a useful
     string from what's there:
-    - If raw_status is set and not "1" (online), use it
-    - If inverter_state or run_state present, include them
+    - If raw_status is set and not "1" (online), use DS=<value>
+    - If inverter_state is non-zero, include IS=<value>
+    - If run_state is non-zero, include RS=<value>
     - Otherwise "0"
     """
     parts: List[str] = []
@@ -96,19 +105,23 @@ def _fault_code_from_telemetry(tel: HuaweiTelemetryRow) -> str:
 # Each entry maps a wide-schema column name to a getter on HuaweiTelemetryRow.
 # Columns not in this list stay blank (None → "").
 #
-# Notes on the mapping:
-#   - Huawei's ab_u/bc_u/ca_u are line-to-line voltages. They map to the
-#     vac_rs/vac_st/vac_tr columns. The line-to-neutral columns (vacr_v,
-#     vacs_v, vact_v) stay blank because Huawei doesn't expose phase-to-N.
+# Notes on the mapping (Stage 4.2):
+#   - Stage 4.2 ADDS line-to-neutral phase voltages to vacr_v / vacs_v /
+#     vact_v from a_u / b_u / c_u. Line-to-line still maps to vac_rs/st/tr.
+#     The wide schema accommodates both Y (phase-to-N) and Δ (line-to-line).
 #   - Huawei doesn't split active power by phase (no pacr/s/t equivalent).
 #   - The wide schema's iac_a is a single AC current; Huawei reports per-phase
-#     (a_i, b_i, c_i) — too lossy to pick one, so left blank. Could be added
-#     as a derived field later (e.g. mean) if useful.
+#     (a_i, b_i, c_i) — too lossy to pick one, so left blank.
 _TYPED_MAPPING = [
     ("status",                 lambda t: t.status),
     ("power_w",                lambda t: _power_w_int(t.power_w)),
     ("etoday_kwh",             lambda t: t.etoday_kwh),
     ("pac_w",                  lambda t: t.power_w),
+    # Phase-to-neutral (NEW in Stage 4.2)
+    ("vacr_v",                 lambda t: t.a_u_v),
+    ("vacs_v",                 lambda t: t.b_u_v),
+    ("vact_v",                 lambda t: t.c_u_v),
+    # Line-to-line
     ("vac_rs_v",               lambda t: t.ab_u_v),
     ("vac_st_v",               lambda t: t.bc_u_v),
     ("vac_tr_v",               lambda t: t.ca_u_v),
@@ -124,10 +137,8 @@ def _typed_inverter_cells_rich(tel: HuaweiTelemetryRow) -> List[Any]:
     """37 typed inverter columns from rich telemetry. Defaults to None for
     unmapped columns (which become "" via _none_to_empty).
     """
-    # Initialize with None for every column
     cells: List[Any] = [None] * len(TYPED_INVERTER_COLS)
 
-    # Populate the columns we have mappings for
     for col_name, getter in _TYPED_MAPPING:
         try:
             idx = TYPED_INVERTER_COLS.index(col_name)
@@ -143,8 +154,14 @@ def _typed_inverter_cells_rich(tel: HuaweiTelemetryRow) -> List[Any]:
 
 
 def _per_mppt_string_rich_cells(tel: HuaweiTelemetryRow) -> List[Any]:
-    """All per-MPPT and per-string columns (16+9+32+10+15+15 = 97), populated
-    where Huawei's rich response has values."""
+    """All per-MPPT and per-string columns (16+9+32+10+15+15 = 97).
+
+    Stage 4.2 routing changes:
+    - epv{i}_today_kwh columns: now BLANK for Huawei (API doesn't expose
+      per-MPPT daily energy; the values we used to put here were lifetime Wh).
+    - epv{i}_total_kwh columns: now POPULATED from tel.pv_etotal_kwh
+      (mppt_X_cap converted Wh → kWh by the parser).
+    """
     cells: List[Any] = []
 
     # vpv1..vpv16 — Huawei's pv1_u, pv2_u, ...
@@ -153,8 +170,7 @@ def _per_mppt_string_rich_cells(tel: HuaweiTelemetryRow) -> List[Any]:
             tel.pv_voltages_v[i] if i < len(tel.pv_voltages_v) else None
         )
 
-    # ppv1..ppv9 — Huawei doesn't expose per-MPPT power directly. Could derive
-    # from V * I, but skip for now to avoid making things up. Stays blank.
+    # ppv1..ppv9 — Huawei doesn't expose per-MPPT power directly. Stays blank.
     for _ in range(MPPT_POWER_COUNT):
         cells.append(None)
 
@@ -164,20 +180,21 @@ def _per_mppt_string_rich_cells(tel: HuaweiTelemetryRow) -> List[Any]:
 
     # istring20..istring29 — Huawei reports per-MPPT current as pv_i, not per
     # string. The wide schema's istring slot is for Growatt's per-string
-    # current measurement which Huawei doesn't have. Blank.
+    # measurement. Blank.
     for _ in range(STRING_CURRENT_HIGH - STRING_CURRENT_LOW + 1):
         cells.append(None)
 
-    # epv1_today..epv15_today — Huawei's mppt_1_cap, mppt_2_cap, ...
-    for i in range(MPPT_EDAY_COUNT):
-        cells.append(
-            tel.pv_eday_kwh[i] if i < len(tel.pv_eday_kwh) else None
-        )
-
-    # epv1_total..epv15_total — Huawei doesn't break out per-MPPT lifetime
-    # energy. Blank.
+    # epv1_today..epv15_today — Huawei doesn't expose per-MPPT daily energy.
+    # BLANK in Stage 4.2 (was incorrectly filled with lifetime Wh in Stage 4.1).
     for _ in range(MPPT_EDAY_COUNT):
         cells.append(None)
+
+    # epv1_total..epv15_total — Huawei's mppt_X_cap (lifetime Wh → kWh by parser).
+    # NEWLY POPULATED in Stage 4.2.
+    for i in range(MPPT_EDAY_COUNT):
+        cells.append(
+            tel.pv_etotal_kwh[i] if i < len(tel.pv_etotal_kwh) else None
+        )
 
     return cells
 
@@ -234,7 +251,7 @@ def build_common_row(
         tel.status,                            # 6 status
         _power_w_int(tel.power_w),             # 7 power_w
         tel.etoday_kwh,                        # 8 etoday_kwh
-        tel.temperature_c,                     # 9 temperature_c (real now!)
+        tel.temperature_c,                     # 9 temperature_c
         _fault_code_from_telemetry(tel),       # 10 fault_code
         weather.irradiance_wm2,                # 11
         weather.irradiance_kwh_m2_5m,          # 12

@@ -1,0 +1,42 @@
+{
+  "reporters": {
+    "count": 5,
+    "list": [
+      {
+        "name": "Inverter 2",
+        "manufacturer": "SolarEdge",
+        "model": "SE100K-US08IBNZ4",
+        "serialNumber": "7E05721B-10",
+        "kWpDC": null
+      },
+      {
+        "name": "Inverter 4",
+        "manufacturer": "SolarEdge",
+        "model": "SE100K-US08IBNZ4",
+        "serialNumber": "7E0571AA-9E",
+        "kWpDC": null
+      },
+      {
+        "name": "Inverter 1",
+        "manufacturer": "SolarEdge",
+        "model": "SE100K-US08IBNZ4",
+        "serialNumber": "7E0571B7-AB",
+        "kWpDC": null
+      },
+      {
+        "name": "Inverter 5",
+        "manufacturer": "SolarEdge",
+        "model": "SE100K-US08IBNZ4",
+        "serialNumber": "7E050550-D8",
+        "kWpDC": null
+      },
+      {
+        "name": "Inverter 3",
+        "manufacturer": "SolarEdge",
+        "model": "SE100K-US08IBNZ4",
+        "serialNumber": "7E0571A4-98",
+        "kWpDC": null
+      }
+    ]
+  }
+}

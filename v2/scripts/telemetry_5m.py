@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Argia_Mont — unified 5-minute telemetry across all vendors.
 
-Stage 5: SolarEdge pipeline added alongside Growatt and Huawei.
+Stage 6: SMA pipeline added (sandbox-ready).
 
 For each active plant in the portfolio:
 1. Pick the right vendor handler.
@@ -13,18 +13,17 @@ For each active plant in the portfolio:
 Vendors:
 - GROWATT: rich web-UI scraping, ~150 fields per inverter
 - HUAWEI: REST API (getDevRealKpi), ~100 fields per inverter
-- SOLAREDGE: REST API (/equipment/.../data), ~9 fields per inverter
-- SMA: not yet built (Stage 6)
+- SOLAREDGE: REST API (/equipment/.../data), ~30 fields per inverter (Stage 5.1)
+- SMA: OAuth2 + backchannel + Monitoring API, ~10-15 fields (Stage 6)
 
-**SolarEdge rate limit warning:** SolarEdge enforces 300 calls/day per site/api_key.
-At 5-min cadence with multiple inverters per site, this quota will be exhausted
-around mid-morning. The script catches HTTP 429 and skips remaining SolarEdge
-plants for that run — other vendors continue. Quota resets at midnight UTC.
+**Rate limit notes:**
+- SolarEdge: 300 calls/day per site/api_key. Will exhaust mid-morning at 5-min cadence.
+- SMA sandbox: documents say some endpoints are unavailable; 404s logged, run continues.
 
 USAGE
     python scripts/telemetry_5m.py
     python scripts/telemetry_5m.py --dry-run
-    python scripts/telemetry_5m.py --plant-key GTO1
+    python scripts/telemetry_5m.py --plant-key SMA_SANDBOX
     python scripts/telemetry_5m.py --plant-key QRO1 --dry-run --log-level DEBUG
 
 EXIT CODES
@@ -50,14 +49,15 @@ from argia.core.config import (
     load_portfolio,
 )
 from argia.core.sheets import SheetsClient
-from argia.core.time_utils import now_mx
+from argia.core.time_utils import now_mx, now_utc
+from argia.orchestrator import RunResult, TAB_SYNC, new_run_id
 from argia.meteo.growatt_irradiance import (
     GrowattIrradianceClient,
     GrowattWebSession,
     interval_kwh_m2_from_wm2,
 )
 from argia.meteo.open_meteo import CloudCoverClient
-from argia.telemetry import growatt_row, huawei_row, solaredge_row
+from argia.telemetry import growatt_row, huawei_row, sma_row, solaredge_row
 from argia.telemetry.growatt_row import WeatherSnapshot
 from argia.telemetry.schema import (
     ARGIA_SCHEMA,
@@ -79,6 +79,16 @@ from argia.vendors.huawei import HuaweiAPIError, HuaweiAuthError, HuaweiClient
 from argia.vendors.huawei_telemetry import (
     HuaweiTelemetryRow,
     fetch_inverter_telemetry as fetch_huawei_telemetry,
+)
+from argia.vendors.sma import (
+    SMAAPIError,
+    SMAAuthError,
+    SMAClient,
+    SMAConsentError,
+)
+from argia.vendors.sma_telemetry import (
+    SMATelemetryRow,
+    fetch_inverter_telemetry as fetch_sma_telemetry,
 )
 from argia.vendors.solaredge import (
     SolarEdgeAPIError,
@@ -288,7 +298,7 @@ def _process_huawei_plant(
 
 
 # ============================================================
-# SolarEdge: process one plant (NEW in Stage 5)
+# SolarEdge: process one plant (Stage 5)
 # ============================================================
 
 
@@ -338,6 +348,91 @@ def _process_solaredge_plant(
         try:
             plant_rows.append(solaredge_row.build_plant_row(tel, label, weather))
             common_rows.append(solaredge_row.build_common_row(tel, label, weather))
+        except Exception as e:  # noqa: BLE001
+            log.warning("[%s/%s] row build failed: %s",
+                        plant.plant_key, tel.inverter_sn, e)
+            errors += 1
+
+    returned_sns = {t.inverter_sn for t in telemetry}
+    for inv in inverters:
+        if inv.inverter_sn not in returned_sns:
+            log.warning("[%s/%s] no telemetry returned (offline or no data)",
+                        plant.plant_key, inv.inverter_sn)
+
+    if plant_rows:
+        tab = plant_tab_name(plant.plant_key)
+        try:
+            ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)
+            stats = write_telemetry_rows(
+                sheets, tab, PLANT_SCHEMA, plant_rows, dry_run=dry_run,
+            )
+            log.info("[%s] %s: %s", plant.plant_key, tab,
+                     "DRY RUN " + str(stats) if dry_run else stats)
+        except SchemaMismatchError as e:
+            log.error("[%s] %s", plant.plant_key, e)
+            errors += 1
+        except Exception as e:  # noqa: BLE001
+            log.error("[%s] sheet write failed: %s", plant.plant_key, e)
+            errors += 1
+
+    return common_rows, errors
+
+
+# ============================================================
+# SMA: process one plant (NEW in Stage 6)
+# ============================================================
+
+
+class _SMAAuthFailed(Exception):
+    """Token/consent failed for the whole SMA pipeline — skip remaining SMA plants."""
+
+
+def _process_sma_plant(
+    plant: PlantConfig,
+    inverters: List[InverterConfig],
+    sheets: SheetsClient,
+    sma_client: SMAClient,
+    weather: WeatherSnapshot,
+    dry_run: bool,
+    log: logging.Logger,
+) -> tuple:
+    common_rows: List[list] = []
+    plant_rows: List[list] = []
+    errors = 0
+
+    try:
+        telemetry: List[SMATelemetryRow] = fetch_sma_telemetry(
+            sma_client, plant, inverters,
+        )
+    except SMAAuthError as e:
+        log.error("[%s] SMA auth failed: %s — skipping remaining SMA plants",
+                  plant.plant_key, e)
+        raise _SMAAuthFailed() from e
+    except SMAConsentError as e:
+        log.error("[%s] SMA consent failed: %s — skipping remaining SMA plants",
+                  plant.plant_key, e)
+        raise _SMAAuthFailed() from e
+    except SMAAPIError as e:
+        msg = str(e).lower()
+        if "rate-limited" in msg or "429" in msg:
+            log.warning(
+                "[%s] SMA rate-limited — skipping remaining SMA inverters",
+                plant.plant_key,
+            )
+            return [], 1
+        log.warning("[%s] SMA fetch failed: %s", plant.plant_key, e)
+        return [], 1
+    except Exception as e:  # noqa: BLE001
+        log.exception("[%s] SMA fetch crashed: %s", plant.plant_key, e)
+        return [], 1
+
+    label_by_sn = {inv.inverter_sn: inv.inverter_label for inv in inverters}
+
+    for tel in telemetry:
+        label = label_by_sn.get(tel.inverter_sn, tel.inverter_sn)
+        try:
+            plant_rows.append(sma_row.build_plant_row(tel, label, weather))
+            common_rows.append(sma_row.build_common_row(tel, label, weather))
         except Exception as e:  # noqa: BLE001
             log.warning("[%s/%s] row build failed: %s",
                         plant.plant_key, tel.inverter_sn, e)
@@ -496,7 +591,6 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
     total_errors = 0
 
     for plant in plants:
-        # Each plant has its own api_key (named in secret_api_name column)
         secret_name = plant.secret_api_name
         api_key = os.environ.get(secret_name, "").strip() if secret_name else ""
         if not api_key:
@@ -533,7 +627,6 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
             total_errors += errs
             processed += 1
         except _SolarEdgeQuotaExhausted:
-            # Bail out of remaining SolarEdge plants — quota done for the day
             skipped += len(plants) - processed - 1
             break
         except Exception as e:  # noqa: BLE001
@@ -542,6 +635,165 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
             skipped += 1
 
     return all_common, processed, skipped, total_errors
+
+
+def _run_sma(portfolio, sheets, date_iso, only_plant,
+             irradiance_client, cloud_client, dry_run, log) -> tuple:
+    """SMA pipeline.
+
+    Reads SMA_CLIENT_ID, SMA_CLIENT_SECRET, SMA_LOGIN_HINT from env.
+    SMA_ENVIRONMENT defaults to 'sandbox' if unset.
+
+    Currently uses ONE SMAClient for all SMA plants (shared OAuth). In the
+    future, if Argia onboards multiple customer SMA accounts, the
+    secret_*_name columns let each plant point to its own credentials.
+    """
+    plants = portfolio.plants_by_brand("SMA")
+    if only_plant:
+        plants = [p for p in plants if p.plant_key == only_plant]
+    if not plants:
+        return [], 0, 0, 0
+
+    client_id = os.environ.get("SMA_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("SMA_CLIENT_SECRET", "").strip()
+    login_hint = os.environ.get(
+        "SMA_LOGIN_HINT", "apiTestUser@apiSandbox.com",
+    ).strip()
+    environment = os.environ.get("SMA_ENVIRONMENT", "sandbox").strip()
+
+    if not (client_id and client_secret):
+        log.error("SMA_CLIENT_ID/SMA_CLIENT_SECRET not set — skipping %d SMA plant(s)",
+                  len(plants))
+        return [], 0, len(plants), 1
+
+    try:
+        sma_client = SMAClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            login_hint=login_hint,
+            environment=environment,
+        )
+        sma_client.login()
+    except (SMAAuthError, SMAConsentError) as e:
+        log.error("SMA login failed: %s — skipping all SMA plants", e)
+        return [], 0, len(plants), 1
+    except SMAAPIError as e:
+        log.error("SMA login API error: %s — skipping all SMA plants", e)
+        return [], 0, len(plants), 1
+    except Exception as e:  # noqa: BLE001
+        log.exception("SMA client setup crashed: %s", e)
+        return [], 0, len(plants), 1
+
+    log.info("Processing %d SMA plant(s) [env=%s]: %s",
+             len(plants), environment, [p.plant_key for p in plants])
+
+    all_common: List[list] = []
+    processed = 0
+    skipped = 0
+    total_errors = 0
+
+    for plant in plants:
+        inverters = portfolio.inverters_for(plant.plant_key)
+        if not inverters:
+            log.info("[%s] no active inverters — skipping (run "
+                     "sma_discover_plants.py and add SNs to Inverters tab)",
+                     plant.plant_key)
+            skipped += 1
+            continue
+        log.info("[%s] %d active inverter(s): %s",
+                 plant.plant_key, len(inverters), [i.inverter_sn for i in inverters])
+
+        weather = _fetch_weather_for_plant(plant, date_iso, irradiance_client, cloud_client, log)
+        try:
+            common, errs = _process_sma_plant(
+                plant, inverters, sheets, sma_client, weather, dry_run, log,
+            )
+            all_common.extend(common)
+            total_errors += errs
+            processed += 1
+        except _SMAAuthFailed:
+            skipped += len(plants) - processed - 1
+            break
+        except Exception as e:  # noqa: BLE001
+            log.exception("[%s] plant crashed: %s", plant.plant_key, e)
+            total_errors += 1
+            skipped += 1
+
+    return all_common, processed, skipped, total_errors
+
+
+# ============================================================
+# SyncRuns logging (NEW)
+# ============================================================
+
+
+SYNC_RUNS_HEADER = [
+    "run_id",
+    "started_at_utc",
+    "finished_at_utc",
+    "script",
+    "status",
+    "plants_processed",
+    "rows_written",
+    "errors_json",
+]
+
+
+def _finalize_and_log_run(
+    result: RunResult,
+    sheets: SheetsClient,
+    total_processed: int,
+    total_skipped: int,
+    total_errors: int,
+    rows_collected: int,
+    dry_run: bool,
+    log: logging.Logger,
+) -> None:
+    """Stamp final accounting on ``result``, then append a row to ``SyncRuns``.
+
+    Never raises. If the write itself fails (network blip, sheet permissions),
+    we log the error and return — telemetry data is already written by this
+    point, and one missed SyncRuns row must not turn a green run red.
+
+    Status is derived by ``RunResult.finalize()``:
+      - OK       if no errors recorded
+      - PARTIAL  if some plants processed AND some errors
+      - FAILED   if no plants processed AND errors present
+    """
+    result.plants_processed = total_processed
+    result.plants_skipped = total_skipped
+    result.rows_written = rows_collected
+    if total_errors > 0:
+        # The detailed per-plant errors are already in the log; capture a
+        # one-line summary here so an operator can spot a bad run at a glance.
+        result.errors.append(
+            f"{total_errors} non-fatal error(s) during run — see log for details"
+        )
+    result.finalize()
+
+    try:
+        sheets.ensure_tab(TAB_SYNC)
+        sheets.ensure_header(TAB_SYNC, SYNC_RUNS_HEADER)
+    except Exception as e:  # noqa: BLE001
+        log.error("[SyncRuns] could not ensure tab/header: %s", e)
+        return
+
+    row = result.to_sheet_row()
+    if dry_run:
+        log.info("[SyncRuns] DRY RUN — would log: %s", row)
+        return
+
+    try:
+        sheets.append_rows(TAB_SYNC, [row])
+        log.info(
+            "[SyncRuns] logged run %s status=%s processed=%d skipped=%d "
+            "rows=%d errors=%d",
+            result.run_id, result.status,
+            result.plants_processed, result.plants_skipped,
+            result.rows_written, len(result.errors),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.error("[SyncRuns] append failed (telemetry data unaffected): %s", e)
 
 
 # ============================================================
@@ -577,6 +829,16 @@ def main(argv=None) -> int:
     except Exception as e:  # noqa: BLE001
         log.error("Failed to load portfolio: %s", e)
         return 3
+
+    # SyncRuns: start the run-accounting record. We log the row at the end of
+    # main() regardless of outcome (OK/PARTIAL/FAILED) so cron failures become
+    # visible in the sheet instead of just dying silently.
+    run_result = RunResult(
+        run_id=new_run_id(),
+        started_at_utc=now_utc(),
+        script="telemetry_5m",
+    )
+    log.info("Starting run %s", run_result.run_id)
 
     g_user = os.environ.get("GROWATT_USERNAME", "").strip()
     g_pass = os.environ.get("GROWATT_PASSWORD", "").strip()
@@ -629,7 +891,7 @@ def main(argv=None) -> int:
         log.exception("Huawei pipeline crashed: %s", e)
         total_errors += 1
 
-    # ----- SolarEdge (NEW in Stage 5) -----
+    # ----- SolarEdge -----
     try:
         common, processed, skipped, errs = _run_solaredge(
             portfolio, sheets, date_iso, args.plant_key,
@@ -643,14 +905,19 @@ def main(argv=None) -> int:
         log.exception("SolarEdge pipeline crashed: %s", e)
         total_errors += 1
 
-    # ----- SMA (Stage 6) -----
-    sma_plants = portfolio.plants_by_brand("SMA")
-    if args.plant_key:
-        sma_plants = [p for p in sma_plants if p.plant_key == args.plant_key]
-    if sma_plants:
-        log.info("SMA telemetry pipeline not yet built — skipping %d plant(s): %s",
-                 len(sma_plants), [p.plant_key for p in sma_plants])
-        total_skipped += len(sma_plants)
+    # ----- SMA (NEW in Stage 6) -----
+    try:
+        common, processed, skipped, errs = _run_sma(
+            portfolio, sheets, date_iso, args.plant_key,
+            irradiance_client, cloud_client, args.dry_run, log,
+        )
+        all_common.extend(common)
+        total_processed += processed
+        total_skipped += skipped
+        total_errors += errs
+    except Exception as e:  # noqa: BLE001
+        log.exception("SMA pipeline crashed: %s", e)
+        total_errors += 1
 
     # ----- Write the aggregated Argia tab in one batch -----
     if all_common:
@@ -673,6 +940,19 @@ def main(argv=None) -> int:
         "DONE: plants_processed=%d plants_skipped=%d rows_collected=%d errors=%d "
         "dry_run=%s",
         total_processed, total_skipped, len(all_common), total_errors, args.dry_run,
+    )
+
+    # SyncRuns: log this run regardless of outcome. Must happen AFTER all
+    # writes, so the row reflects the actual end-state and rows_written count.
+    _finalize_and_log_run(
+        result=run_result,
+        sheets=sheets,
+        total_processed=total_processed,
+        total_skipped=total_skipped,
+        total_errors=total_errors,
+        rows_collected=len(all_common),
+        dry_run=args.dry_run,
+        log=log,
     )
 
     if total_errors == 0 and len(all_common) > 0:

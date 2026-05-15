@@ -1,10 +1,14 @@
-"""
-Config loader.
+"""Config loader — Stage 7.3.
 
-Reads the v2 ``Plants`` and ``Inverters`` tabs into typed dataclasses.
-v1 packed inverter SNs into columns of the SNAP tab (with header typos like
-``IVERTER2``); v2 normalizes them into their own tab so adding inverter #5
-is just another row.
+Adds two optional Plants columns: ``pr_baseline`` (clean-state PR for
+soiling math) and ``tariff_mxn_per_kwh`` (energy price for dollar
+projections).
+
+Stage 7.3 also adds **load-time validation warnings** when kwp_dc looks
+suspicious — the live data revealed several plants where the field is
+under-set, which produces nonsensical PR values downstream. We don't
+refuse to load — we WARN, because fixing the sheet is independent of
+the pipeline being functional.
 """
 
 from __future__ import annotations
@@ -21,57 +25,68 @@ LOG = logging.getLogger("argia.core.config")
 
 @dataclass(frozen=True)
 class PlantConfig:
-    """One plant in the portfolio."""
-
-    plant_key: str  # e.g. "MEX1", "SLP1"
+    plant_key: str
     customer: str
-    brand: str  # GROWATT | HUAWEI | SOLAREDGE | SMA
-    site_id: str  # vendor-specific identifier
+    brand: str
+    site_id: str
 
-    # Capacity
     kwp_dc: float
     kwp_ac: float
 
-    # Location
     lat: Optional[float]
     lon: Optional[float]
 
-    # Performance targets
-    expected_factor: float  # ratio used to compute Argia-expected production
-    pr_target: float  # target Performance Ratio for alerts
-    installation_date: str  # ISO date string (or "" if unknown)
+    expected_factor: float
+    pr_target: float
+    installation_date: str
 
-    # Secret references — these are env var NAMES, not the secrets themselves.
-    # E.g. secret_api_name="GROWATT_API_TOKEN" tells the loader to read
-    # os.environ["GROWATT_API_TOKEN"].
     secret_api_name: str
     secret_user_name: str
     secret_pass_name: str
 
-    # Weather source: ALL plants (even Huawei) read weather from a Growatt
-    # ShineMaster. ``weather_plant_id`` is the Growatt plant hosting it.
     weather_plant_id: str
-    datalogger_sn: str  # ShineMaster serial number
-    datalogger_addr: int  # Modbus address on the ShineMaster
+    datalogger_sn: str
+    datalogger_addr: int
 
     active: bool
+
+    # Stage 7.1
+    module_count: Optional[int] = None
+    module_wp: Optional[float] = None
+    string_count: Optional[int] = None
+    tilt_deg: Optional[float] = None
+    azimuth_deg: Optional[float] = None
+    system_losses_pct: Optional[float] = None
+    commissioning_date: str = ""
+    notes: str = ""
+
+    # Stage 7.3
+    pr_baseline: Optional[float] = None
+    """Clean-state PR baseline for soiling comparison. Set this manually
+    after observing the plant for ~30 days post-cleaning. Stays None
+    until set; soiling check skips plants without a baseline."""
+
+    tariff_mxn_per_kwh: Optional[float] = None
+    """Energy price for the customer at this site, MXN/kWh. Used to
+    convert PR loss into pesos for cost-benefit decisions."""
 
 
 @dataclass(frozen=True)
 class InverterConfig:
-    """One inverter in a plant."""
-
     plant_key: str
     inverter_sn: str
-    inverter_label: str  # human label, e.g. "Inverter 1"
+    inverter_label: str
     rated_kw: float
     active: bool
+
+    # Stage 7.1
+    mppt_count: Optional[int] = None
+    strings_per_mppt: Optional[int] = None
+    rated_kw_dc: Optional[float] = None
 
 
 @dataclass(frozen=True)
 class Portfolio:
-    """All plants + their inverters, loaded once at start of run."""
-
     plants: Dict[str, PlantConfig] = field(default_factory=dict)
     inverters_by_plant: Dict[str, List[InverterConfig]] = field(default_factory=dict)
 
@@ -88,7 +103,7 @@ class Portfolio:
 
 # ----------------- expected sheet headers -----------------
 
-PLANTS_HEADER = [
+PLANTS_HEADER_V70 = [
     "plant_key", "customer", "brand", "site_id",
     "kwp_dc", "kwp_ac", "lat", "lon",
     "expected_factor", "pr_target", "installation_date",
@@ -97,24 +112,89 @@ PLANTS_HEADER = [
     "active",
 ]
 
-INVERTERS_HEADER = [
-    "plant_key",
-    "inverter_sn",
-    "inverter_label",
-    "rated_kw",
-    "active",
+PLANTS_HEADER_V71 = PLANTS_HEADER_V70 + [
+    "module_count", "module_wp", "string_count",
+    "tilt_deg", "azimuth_deg",
+    "system_losses_pct", "commissioning_date", "notes",
+]
+
+# Stage 7.3 — 2 new columns at end
+PLANTS_HEADER = PLANTS_HEADER_V71 + [
+    "pr_baseline", "tariff_mxn_per_kwh",
+]
+
+INVERTERS_HEADER_V70 = [
+    "plant_key", "inverter_sn", "inverter_label", "rated_kw", "active",
+]
+
+INVERTERS_HEADER = INVERTERS_HEADER_V70 + [
+    "mppt_count", "strings_per_mppt", "rated_kw_dc",
 ]
 
 
 def _truthy(value) -> bool:
-    """Loose truthy parse for sheet values: TRUE/yes/1/y → True."""
     s = normalize_text(value).lower()
     return s in ("true", "yes", "y", "1", "x")
 
 
+def _optional_int(value) -> Optional[int]:
+    f = safe_float(value)
+    if f is None:
+        return None
+    try:
+        return int(f)
+    except (ValueError, TypeError):
+        return None
+
+
+def _optional_float(value) -> Optional[float]:
+    return safe_float(value)
+
+
+# ---------- sanity warnings ----------
+
+
+def _warn_plant_sanity(plant: PlantConfig, log: logging.Logger) -> None:
+    """Best-effort warnings at load time. Pure logging, no raises."""
+    if plant.kwp_dc <= 0 and plant.active:
+        log.warning(
+            "[%s] kwp_dc is 0 or missing on Plants tab — PR will be None",
+            plant.plant_key,
+        )
+    if plant.kwp_ac <= 0 and plant.active:
+        log.warning(
+            "[%s] kwp_ac is 0 or missing on Plants tab — capacity factor will be None",
+            plant.plant_key,
+        )
+    if plant.kwp_dc > 0 and plant.kwp_ac > 0:
+        ratio = plant.kwp_dc / plant.kwp_ac
+        if ratio < 1.0:
+            log.warning(
+                "[%s] kwp_dc (%.1f) < kwp_ac (%.1f). DC nameplate is usually "
+                "1.1-1.3× AC nameplate — kwp_dc likely set to single-inverter "
+                "rating instead of plant total. Expect PR > 1.0.",
+                plant.plant_key, plant.kwp_dc, plant.kwp_ac,
+            )
+    if (
+        plant.module_count is not None and plant.module_wp is not None
+        and plant.module_count > 0 and plant.module_wp > 0
+        and plant.kwp_dc > 0
+    ):
+        derived_kwp = (plant.module_count * plant.module_wp) / 1000.0
+        if abs(derived_kwp - plant.kwp_dc) / plant.kwp_dc > 0.15:
+            log.warning(
+                "[%s] kwp_dc=%.1f disagrees with module_count×module_wp=%.1f "
+                "by >15%%. One of them is wrong.",
+                plant.plant_key, plant.kwp_dc, derived_kwp,
+            )
+
+
 def load_portfolio(sheets: SheetsClient) -> Portfolio:
-    """Read Plants + Inverters tabs and return a Portfolio object."""
-    plants_raw = sheets.read_table("Plants", "A1:Z")
+    """Read Plants + Inverters tabs and return a Portfolio object.
+
+    Stage 7.3: AB column range to fit the 2 new Plants fields. Old
+    sheets with fewer columns still load (missing cells → None)."""
+    plants_raw = sheets.read_table("Plants", "A1:AB")
     inverters_raw = sheets.read_table("Inverters", "A1:Z")
 
     plants: Dict[str, PlantConfig] = {}
@@ -143,15 +223,30 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
                 datalogger_sn=normalize_text(row.get("datalogger_sn")),
                 datalogger_addr=int(safe_float(row.get("datalogger_addr"), 0) or 0),
                 active=_truthy(row.get("active")),
+                # Stage 7.1
+                module_count=_optional_int(row.get("module_count")),
+                module_wp=_optional_float(row.get("module_wp")),
+                string_count=_optional_int(row.get("string_count")),
+                tilt_deg=_optional_float(row.get("tilt_deg")),
+                azimuth_deg=_optional_float(row.get("azimuth_deg")),
+                system_losses_pct=_optional_float(row.get("system_losses_pct")),
+                commissioning_date=normalize_text(row.get("commissioning_date")),
+                notes=normalize_text(row.get("notes")),
+                # Stage 7.3
+                pr_baseline=_optional_float(row.get("pr_baseline")),
+                tariff_mxn_per_kwh=_optional_float(row.get("tariff_mxn_per_kwh")),
             )
         except (ValueError, TypeError) as e:
             LOG.warning("Skipping malformed Plants row %s: %s", plant_key, e)
             continue
 
         if plant_key in plants:
-            LOG.warning("Duplicate plant_key '%s' in Plants tab — keeping first", plant_key)
+            LOG.warning(
+                "Duplicate plant_key '%s' in Plants tab — keeping first", plant_key,
+            )
             continue
         plants[plant_key] = cfg
+        _warn_plant_sanity(cfg, LOG)
 
     inverters_by_plant: Dict[str, List[InverterConfig]] = {}
     for row in inverters_raw:
@@ -162,7 +257,8 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
 
         if plant_key not in plants:
             LOG.warning(
-                "Inverters row references unknown plant_key '%s' — skipping", plant_key
+                "Inverters row references unknown plant_key '%s' — skipping",
+                plant_key,
             )
             continue
 
@@ -172,7 +268,16 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
             inverter_label=normalize_text(row.get("inverter_label")) or sn,
             rated_kw=safe_float(row.get("rated_kw"), 0.0) or 0.0,
             active=_truthy(row.get("active")),
+            mppt_count=_optional_int(row.get("mppt_count")),
+            strings_per_mppt=_optional_int(row.get("strings_per_mppt")),
+            rated_kw_dc=_optional_float(row.get("rated_kw_dc")),
         )
+        if inv.rated_kw <= 0 and inv.active:
+            LOG.warning(
+                "[%s/%s] rated_kw is 0 on Inverters tab — peer ranking "
+                "will not work for this inverter",
+                plant_key, sn,
+            )
         inverters_by_plant.setdefault(plant_key, []).append(inv)
 
     LOG.info(

@@ -1,0 +1,124 @@
+{
+  "plant": {
+    "plantId": "35",
+    "name": "TestPlant3",
+    "timezone": "Europe/Berlin"
+  },
+  "devices": [
+    {
+      "deviceId": "36",
+      "name": "Satellit Sensor",
+      "timezone": "Europe/Berlin",
+      "type": "Sensor technology",
+      "product": "Satellite Sensor",
+      "productId": 200053,
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    },
+    {
+      "deviceId": "37",
+      "name": "MyTestLdm3",
+      "timezone": "Europe/Berlin",
+      "type": "Monitoring and control",
+      "product": "EDMM-10",
+      "productId": 9397,
+      "serial": "234534635780",
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    },
+    {
+      "deviceId": "38",
+      "name": "My Inverter 1",
+      "timezone": "Europe/Berlin",
+      "type": "Solar Inverters",
+      "product": "STP 6000TL-20",
+      "productId": 9099,
+      "serial": "3421113",
+      "vendor": "SMA Solar Technology AG",
+      "generatorPower": 6000.0,
+      "generatorPowerDc": 6000.0,
+      "isActive": true
+    },
+    {
+      "deviceId": "39",
+      "name": "My Inverter 2",
+      "timezone": "Europe/Berlin",
+      "type": "Solar Inverters",
+      "product": "STP 5000TL-20",
+      "productId": 9098,
+      "serial": "9687870",
+      "vendor": "SMA Solar Technology AG",
+      "generatorPower": 5000.0,
+      "generatorPowerDc": 5000.0,
+      "isActive": true
+    },
+    {
+      "deviceId": "40",
+      "name": "My Falcon 3",
+      "timezone": "Europe/Berlin",
+      "type": "Solar Inverters",
+      "product": "SB3.6-1AV-40",
+      "productId": 9320,
+      "serial": "463691",
+      "vendor": "SMA Solar Technology AG",
+      "generatorPower": 3600.0,
+      "generatorPowerDc": 3600.0,
+      "isActive": true
+    },
+    {
+      "deviceId": "41",
+      "name": "My Battery 1",
+      "timezone": "Europe/Berlin",
+      "type": "Battery Inverter",
+      "product": "SBS6.0-10",
+      "productId": 9359,
+      "serial": "4562248",
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    },
+    {
+      "deviceId": "42",
+      "name": "My Energy Meter 1",
+      "timezone": "Europe/Berlin",
+      "type": "Monitoring and control",
+      "product": "Energy Meter",
+      "productId": 9307,
+      "serial": "567811570",
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    },
+    {
+      "deviceId": "43",
+      "name": "My Gas Meter 1",
+      "timezone": "Europe/Berlin",
+      "type": "Monitoring and control",
+      "product": "Energy Meter",
+      "productId": 9307,
+      "serial": "89781200",
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    },
+    {
+      "deviceId": "44",
+      "name": "My Consumer 1",
+      "timezone": "Europe/Berlin",
+      "type": "Monitoring and control",
+      "product": "Remote Socket",
+      "productId": 9111,
+      "serial": "5411674567",
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    },
+    {
+      "deviceId": "45",
+      "name": "My ChargingStation 1",
+      "timezone": "Europe/Berlin",
+      "type": "Solar Inverters",
+      "product": "STP50-41",
+      "productId": 9431,
+      "serial": "1334234537",
+      "vendor": "SMA Solar Technology AG",
+      "isActive": true
+    }
+  ]
+}

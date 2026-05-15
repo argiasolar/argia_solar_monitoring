@@ -7,6 +7,15 @@ correct vendor client with credentials from environment variables.
 This is the ONLY place that touches os.environ for vendor credentials.
 Keeps the secrets-vs-code boundary clean: the Plants sheet says "look up
 env var GROWATT_API_TOKEN", and this module does exactly that.
+
+Stage 6: SMA branch added. SMA needs three values:
+  secret_api_name  → SMA_CLIENT_ID
+  secret_user_name → SMA_CLIENT_SECRET
+  secret_pass_name → SMA_LOGIN_HINT
+plus SMA_ENVIRONMENT (read directly, defaults to 'sandbox').
+
+This re-uses the three secret_* columns the existing Plants schema already
+has, no schema change required.
 """
 
 from __future__ import annotations
@@ -19,6 +28,7 @@ from argia.core.config import PlantConfig
 from argia.vendors.base import VendorClient
 from argia.vendors.growatt import GrowattClient
 from argia.vendors.huawei import HuaweiClient
+from argia.vendors.sma import SMAClient
 from argia.vendors.solaredge import SolarEdgeClient
 
 LOG = logging.getLogger("argia.vendors.factory")
@@ -46,10 +56,7 @@ def build_client_for(plant: PlantConfig) -> VendorClient:
 
     if brand == "GROWATT":
         token = _env(plant.secret_api_name)
-        # We allow Growatt to fall back to web-UI scraping with username+password
-        # if no API token is configured, but at least one path must work.
         if not token:
-            # Look for v1-style env vars as a fallback (web UI scraping path)
             user = os.environ.get("GROWATT_USERNAME", "").strip()
             pwd = os.environ.get("GROWATT_PASSWORD", "").strip()
             if not (user and pwd):
@@ -81,6 +88,24 @@ def build_client_for(plant: PlantConfig) -> VendorClient:
                 f"'{plant.secret_api_name}'. It is unset."
             )
         return SolarEdgeClient(api_key=key)
+
+    if brand == "SMA":
+        client_id = _env(plant.secret_api_name)
+        client_secret = _env(plant.secret_user_name)
+        login_hint = _env(plant.secret_pass_name)
+        environment = os.environ.get("SMA_ENVIRONMENT", "sandbox").strip()
+        if not (client_id and client_secret and login_hint):
+            raise VendorCredentialsMissing(
+                f"SMA plant '{plant.plant_key}' needs env vars "
+                f"'{plant.secret_api_name}', '{plant.secret_user_name}', "
+                f"'{plant.secret_pass_name}'. One or more is unset."
+            )
+        return SMAClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            login_hint=login_hint,
+            environment=environment,
+        )
 
     raise ValueError(f"Unknown brand '{plant.brand}' for plant '{plant.plant_key}'")
 

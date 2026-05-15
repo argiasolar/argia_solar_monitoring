@@ -1,0 +1,13 @@
+{
+  "plant": {
+    "plantId": "79",
+    "name": "TestPlant7",
+    "timezone": "Europe/Berlin"
+  },
+  "device": {
+    "deviceId": "80",
+    "name": "Satellit Sensor",
+    "timezone": "Europe/Berlin"
+  },
+  "sets": []
+}

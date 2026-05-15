@@ -10,6 +10,11 @@ Design choices:
   by Sheets (this was inconsistent in v1).
 - Idempotent ``upsert_rows`` for daily aggregates — no more duplicate rows
   if a cron job re-runs.
+
+Stage 7.3b additions:
+- ``write_cell(tab, row, col, value)`` — single-cell update
+- ``write_row(tab, row, values)`` — overwrite a whole row starting at col A
+- ``delete_row(tab, row)`` — delete a row, shifting subsequent rows up
 """
 
 from __future__ import annotations
@@ -25,6 +30,17 @@ from googleapiclient.discovery import build
 LOG = logging.getLogger("argia.core.sheets")
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+
+def _col_to_a1(col: int) -> str:
+    """1-indexed column number → A1 letter(s). 1→A, 26→Z, 27→AA, 52→AZ, ..."""
+    if col < 1:
+        raise ValueError(f"Column must be >= 1, got {col}")
+    out = ""
+    while col > 0:
+        col, rem = divmod(col - 1, 26)
+        out = chr(65 + rem) + out
+    return out
 
 
 class SheetsClient:
@@ -47,6 +63,10 @@ class SheetsClient:
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         self._svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
+        # Cache tab name → numeric sheetId (GID) for delete_row, which needs
+        # the GID rather than the spreadsheet ID. Populated lazily.
+        self._tab_gid_cache: Dict[str, int] = {}
+
     # ----------------------- low-level helpers -----------------------
 
     @staticmethod
@@ -56,6 +76,19 @@ class SheetsClient:
 
     def _values(self):
         return self._svc.spreadsheets().values()
+
+    def _tab_gid(self, tab: str) -> int:
+        """Look up the numeric sheetId for a tab. Cached after first call."""
+        if tab in self._tab_gid_cache:
+            return self._tab_gid_cache[tab]
+        meta = self._svc.spreadsheets().get(spreadsheetId=self.sheet_id).execute()
+        for s in (meta.get("sheets") or []):
+            props = s.get("properties", {})
+            if props.get("title") == tab:
+                gid = int(props.get("sheetId", 0))
+                self._tab_gid_cache[tab] = gid
+                return gid
+        raise ValueError(f"Tab '{tab}' not found in spreadsheet {self.sheet_id}")
 
     # ----------------------- read -----------------------
 
@@ -111,6 +144,8 @@ class SheetsClient:
             spreadsheetId=self.sheet_id,
             body={"requests": [{"addSheet": {"properties": {"title": tab}}}]},
         ).execute()
+        # Invalidate cache because newly created tab won't be there yet
+        self._tab_gid_cache.pop(tab, None)
         LOG.info("Created tab '%s'", tab)
 
     def ensure_header(self, tab: str, header: List[str]) -> None:
@@ -153,6 +188,103 @@ class SheetsClient:
             body={"values": rows},
         ).execute()
         return len(rows)
+
+    def write_cell(
+        self,
+        tab: str,
+        row: int,
+        col: int,
+        value: Any,
+        value_input_option: str = "RAW",
+    ) -> None:
+        """
+        Write a single cell. Row and col are 1-indexed (row 1 is the header row,
+        column 1 is A).
+
+        Example: ``write_cell("Inverters", 5, 4, 100)`` writes 100 into D5.
+
+        Uses ``RAW`` by default to avoid auto-formatting (e.g. converting "1.0"
+        into a date). Pass ``value_input_option="USER_ENTERED"`` if you want
+        the value parsed.
+
+        Stage 7.3b — added so infer_plant_specs.py and kpi_daily.py can do
+        surgical updates without rewriting whole rows.
+        """
+        if row < 1 or col < 1:
+            raise ValueError(f"row and col must be >= 1 (got row={row}, col={col})")
+        a1 = f"{_col_to_a1(col)}{row}"
+        self._values().update(
+            spreadsheetId=self.sheet_id,
+            range=self._qrange(tab, a1),
+            valueInputOption=value_input_option,
+            body={"values": [[value]]},
+        ).execute()
+
+    def write_row(
+        self,
+        tab: str,
+        row: int,
+        values: List[Any],
+        value_input_option: str = "USER_ENTERED",
+    ) -> None:
+        """
+        Overwrite a whole row starting at column A. Row is 1-indexed.
+
+        Example: ``write_row("KPI_Daily", 5, ["2026-05-14", "QRO1", ...])``
+        writes the list across row 5 starting at A5.
+
+        Cells beyond ``len(values)`` are NOT cleared — this only writes the
+        cells you provide. If you need to clear trailing cells, pass empty
+        strings for them.
+
+        Stage 7.3b — added so kpi_daily.upsert_kpi_rows can update existing
+        rows in place.
+        """
+        if row < 1:
+            raise ValueError(f"row must be >= 1 (got {row})")
+        if not values:
+            return
+        a1 = f"A{row}"
+        self._values().update(
+            spreadsheetId=self.sheet_id,
+            range=self._qrange(tab, a1),
+            valueInputOption=value_input_option,
+            body={"values": [list(values)]},
+        ).execute()
+
+    def delete_row(self, tab: str, row: int) -> None:
+        """
+        Delete a row, shifting subsequent rows up. Row is 1-indexed.
+
+        Example: ``delete_row("KPI_Daily", 5)`` removes row 5; what was row 6
+        becomes row 5.
+
+        Uses batchUpdate's ``deleteDimension``. Needs the numeric sheetId of
+        the tab, not the spreadsheetId — looked up via ``_tab_gid`` and cached.
+
+        WARNING: this is destructive. Callers should delete bottom-up when
+        removing multiple rows to keep indices stable.
+
+        Stage 7.3b — added so kpi_daily.prune_old_rows can actually delete.
+        """
+        if row < 1:
+            raise ValueError(f"row must be >= 1 (got {row})")
+        gid = self._tab_gid(tab)
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=self.sheet_id,
+            body={
+                "requests": [{
+                    "deleteDimension": {
+                        "range": {
+                            "sheetId": gid,
+                            "dimension": "ROWS",
+                            "startIndex": row - 1,  # API is 0-indexed
+                            "endIndex": row,        # exclusive
+                        },
+                    },
+                }],
+            },
+        ).execute()
 
     def upsert_rows(
         self,

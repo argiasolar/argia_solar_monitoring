@@ -1,7 +1,11 @@
 name: v2 Telemetry 5m (all vendors)
 
-# Manual trigger only for now. Stage 4 supports Growatt + Huawei;
-# SolarEdge and SMA are planned for later stages and will be added here.
+# Runs every 5 minutes from 05:00–21:59 Mexico City local time (UTC-6, no DST).
+# That's 11:00–03:59 UTC in cron, split across two ranges because cron can't
+# span midnight UTC.
+#
+# Manual triggers from the Actions tab continue to work and respect the
+# dry_run / plant_key / log_level inputs you set.
 
 on:
   workflow_dispatch:
@@ -26,6 +30,11 @@ on:
           - INFO
           - WARNING
           - ERROR
+  schedule:
+    # Mexico City is UTC-6 year-round (no DST since 2023).
+    # 05:00 MX = 11:00 UTC, 21:59 MX = 03:59 UTC next day.
+    - cron: "*/5 11-23 * * *"   # 05:00–17:59 MX (covers daylight + afternoon)
+    - cron: "*/5 0-3 * * *"     # 18:00–21:59 MX (evening tail)
 
 concurrency:
   group: v2-telemetry-5m
@@ -38,7 +47,6 @@ jobs:
     defaults:
       run:
         working-directory: v2
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -57,14 +65,22 @@ jobs:
         id: args
         run: |
           ARGS=""
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          # Scheduled runs always write real data (never dry-run).
+          # Manual runs respect the dry_run input toggle.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+             [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
           if [ -n "${{ github.event.inputs.plant_key }}" ]; then
             ARGS="$ARGS --plant-key ${{ github.event.inputs.plant_key }}"
           fi
-          ARGS="$ARGS --log-level ${{ github.event.inputs.log_level }}"
+          LOG_LEVEL="${{ github.event.inputs.log_level }}"
+          if [ -z "$LOG_LEVEL" ]; then
+            LOG_LEVEL="INFO"
+          fi
+          ARGS="$ARGS --log-level $LOG_LEVEL"
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+          echo "event=${{ github.event_name }}"
           echo "Will run with: $ARGS"
 
       - name: Run telemetry_5m

@@ -43,6 +43,14 @@ DEFAULT_MAX_GAP_SEC = 7200  # 2 hours — cap gaps to avoid wild extrapolation
 DEFAULT_MAX_PAGES = 6
 DEFAULT_PAGE_SLEEP_SEC = 0.10
 
+# Conservative physical sanity bounds (degC) for env-station temperatures.
+# A reading outside this is treated as a sensor fault and dropped to None, so a
+# single garbage sample (e.g. a 999 sentinel) can never silently distort the
+# PR_STC temperature correction. Ambient air and back-of-module temps at our
+# sites sit comfortably inside this range.
+TEMP_MIN_C = -40.0
+TEMP_MAX_C = 100.0
+
 
 # ============================================================
 # Pure: trapezoidal integration
@@ -136,6 +144,74 @@ def find_latest_radiance_wm2(
     if not points:
         return None
     return max(points, key=lambda p: p[0])[1]
+
+
+def _clean_temp_c(value: Any) -> Optional[float]:
+    """Parse a temperature to float degC, or None if missing/unparseable/out-of-range.
+
+    Sanity bounds reject obvious sensor garbage so one bad sample can never
+    silently distort the PR_STC temperature correction. Note: 0.0 degC is a
+    valid reading (cold dawn), NOT a null sentinel.
+    """
+    t = safe_float(value)
+    if t is None:
+        return None
+    if t != t:  # NaN
+        return None
+    if t < TEMP_MIN_C or t > TEMP_MAX_C:
+        return None
+    return t
+
+
+def extract_env_temp_points(
+    rows: List[Dict[str, Any]],
+    field: str,
+) -> List[Tuple[dt.datetime, float]]:
+    """
+    Pure function. Convert raw Growatt env-history rows into (timestamp, degC)
+    tuples for ONE temperature field, dropping rows with unparseable timestamps
+    or a missing/garbage reading.
+
+    ``field`` is the Growatt JSON key:
+        "envTemp"   -> "Environment Temp (degC)" (ambient air)
+        "panelTemp" -> "Backplane Temp (degC)"   (back-of-module; PR_STC input)
+    """
+    out: List[Tuple[dt.datetime, float]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        cal = row.get("calendar")
+        if not isinstance(cal, dict):
+            continue
+        ts = parse_growatt_calendar(cal)
+        if ts is None:
+            continue
+        t = _clean_temp_c(row.get(field))
+        if t is None:
+            continue
+        out.append((ts, t))
+    return out
+
+
+def find_latest_env_temps(
+    rows: List[Dict[str, Any]],
+) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Pure function. Return the most recent valid (ambient_temp_c, module_temp_c)
+    in the given env-history rows.
+
+        ambient_temp_c <- envTemp   (Environment Temp)
+        module_temp_c  <- panelTemp  (Backplane Temp; PR_STC input)
+
+    Each field is the freshest reading that parses. The two may come from
+    different rows if one sensor briefly drops out, and either may be None.
+    Mirrors ``find_latest_radiance_wm2`` (latest valid reading wins).
+    """
+    amb_points = extract_env_temp_points(rows, "envTemp")
+    mod_points = extract_env_temp_points(rows, "panelTemp")
+    ambient = max(amb_points, key=lambda p: p[0])[1] if amb_points else None
+    module = max(mod_points, key=lambda p: p[0])[1] if mod_points else None
+    return ambient, module
 
 
 def interval_kwh_m2_from_wm2(radiance_wm2: float, interval_min: int) -> float:
@@ -383,3 +459,32 @@ class GrowattIrradianceClient:
         sn, addr = device
         rows = self.fetch_env_history_rows(plant_id, sn, addr, date_iso)
         return find_latest_radiance_wm2(rows)
+
+    def fetch_current_env_temps(
+        self,
+        plant_id: str,
+        date_iso: str,
+        prefer_sn: Optional[str] = None,
+        prefer_addr: Optional[int] = None,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Returns the latest (ambient_temp_c, module_temp_c) on ``date_iso`` for
+        the plant's env station. Mirrors ``fetch_current_irradiance_wm2`` and is
+        likewise uncached — the snapshot path wants fresh values each call.
+
+            ambient_temp_c <- envTemp   (Environment Temp)
+            module_temp_c  <- panelTemp  (Backplane Temp; PR_STC input)
+
+        Returns ``(None, None)`` if the plant has no env device or no rows.
+
+        Note: this issues its own getEnvHistory fetch. Slice 2 (telemetry
+        wiring) can avoid a double fetch by calling ``fetch_env_history_rows``
+        once and passing the rows to both ``find_latest_radiance_wm2`` and
+        ``find_latest_env_temps`` — both are pure.
+        """
+        device = self.get_env_device(plant_id, prefer_sn, prefer_addr)
+        if device is None:
+            return None, None
+        sn, addr = device
+        rows = self.fetch_env_history_rows(plant_id, sn, addr, date_iso)
+        return find_latest_env_temps(rows)

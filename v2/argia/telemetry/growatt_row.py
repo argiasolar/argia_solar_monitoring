@@ -57,6 +57,7 @@ class WeatherSnapshot:
     irradiance_kwh_m2_5m: Optional[float] = None
     cloud_cover_pct: Optional[float] = None
     ambient_temp_c: Optional[float] = None
+    module_temp_c: Optional[float] = None
 
 
 EMPTY_WEATHER = WeatherSnapshot()
@@ -225,6 +226,7 @@ def _weather_cells(weather: WeatherSnapshot) -> List[Any]:
         weather.irradiance_kwh_m2_5m,
         weather.cloud_cover_pct,
         weather.ambient_temp_c,
+        weather.module_temp_c,
     ]
 
 
@@ -294,6 +296,7 @@ def build_common_row(
         weather.irradiance_kwh_m2_5m,    # 12
         weather.cloud_cover_pct,         # 13
         weather.ambient_temp_c,          # 14
+        weather.module_temp_c,           # 15
     ]
 
     cells = _none_to_empty(cells)

@@ -55,6 +55,7 @@ def weather() -> WeatherSnapshot:
         irradiance_kwh_m2_5m=0.068792,
         cloud_cover_pct=18.5,
         ambient_temp_c=29.0,
+        module_temp_c=45.0,
     )
 
 
@@ -176,7 +177,7 @@ class TestBuildCommonRow:
             latest_row, "GTO1", "JFM7DXN00T", "Inverter 1", weather,
         )
         assert len(result) == ARGIA_SCHEMA.column_count
-        assert len(result) == 15
+        assert len(result) == 16
 
     def test_vendor_column_is_growatt(self, latest_row, weather):
         result = build_common_row(
@@ -224,7 +225,7 @@ class TestBuildCommonRow:
         result = build_common_row(
             latest_row, "GTO1", "JFM7DXN00T", "Inverter 1", weather,
         )
-        assert result[-4:] == [825.5, 0.068792, 18.5, 29.0]
+        assert result[-5:] == [825.5, 0.068792, 18.5, 29.0, 45.0]
 
     def test_natural_key_columns_extract_correctly(self, latest_row, weather):
         # Verify the natural key indices line up with the schema's claimed cols

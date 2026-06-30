@@ -2,12 +2,12 @@
 
 Two distinct schemas:
 
-* **``PLANT_SCHEMA``** — wide (142 cols), vendor-shaped. One row per inverter
+* **``PLANT_SCHEMA``** — wide (143 cols), vendor-shaped. One row per inverter
   per 5-min sample. Used for ``Telemetry_<KEY>`` per-plant tabs. Customers
   eventually get scoped access here via Sheets sharing. Each vendor fills in
   what it has and leaves the rest blank.
 
-* **``ARGIA_SCHEMA``** — narrow (15 cols), cross-vendor common. Used for the
+* **``ARGIA_SCHEMA``** — narrow (16 cols), cross-vendor common. Used for the
   single aggregated ``Telemetry_Argia`` tab. This is what Argia ops looks at:
   power, status, eToday, weather, by vendor/plant/inverter. No wasted columns.
 
@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 
-COLUMN_VERSION = 2  # bumped from 1 when ARGIA_SCHEMA changed to narrow common
+COLUMN_VERSION = 3  # bumped to 3 when module_temp_c (Backplane Temp) was appended
 
 
 # ============================================================
@@ -141,6 +141,7 @@ WEATHER_COLS: Tuple[str, ...] = (
     "irradiance_kwh_m2_5m",
     "cloud_cover_pct",
     "ambient_temp_c",
+    "module_temp_c",
 )
 
 
@@ -187,7 +188,8 @@ ARGIA_COMMON_COLS: Tuple[str, ...] = (
     "irradiance_wm2",      # 11
     "irradiance_kwh_m2_5m",  # 12
     "cloud_cover_pct",     # 13
-    "ambient_temp_c",      # 14 — blank until env-station temp wired in
+    "ambient_temp_c",      # 14 — env-station Environment Temp (ambient air)
+    "module_temp_c",       # 15 — env-station Backplane Temp (back-of-module; PR_STC input)
 )
 
 

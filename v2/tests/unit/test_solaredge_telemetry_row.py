@@ -316,7 +316,7 @@ class TestShapeInvariants:
     def test_plant_row_length(self, rich_row):
         result = build_plant_row(rich_row, "Inverter 1")
         assert len(result) == PLANT_SCHEMA.column_count
-        assert len(result) == 142
+        assert len(result) == 143
 
     def test_no_none_values_in_plant_row(self, rich_row):
         result = build_plant_row(rich_row, "Inverter 1")

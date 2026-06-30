@@ -54,6 +54,8 @@ from argia.orchestrator import RunResult, TAB_SYNC, new_run_id
 from argia.meteo.growatt_irradiance import (
     GrowattIrradianceClient,
     GrowattWebSession,
+    find_latest_env_temps,
+    find_latest_radiance_wm2,
     interval_kwh_m2_from_wm2,
 )
 from argia.meteo.open_meteo import CloudCoverClient
@@ -130,6 +132,8 @@ def _fetch_weather_for_plant(
 ) -> WeatherSnapshot:
     irradiance_wm2: Optional[float] = None
     irradiance_kwh_m2_5m: Optional[float] = None
+    ambient_temp_c: Optional[float] = None
+    module_temp_c: Optional[float] = None
     cloud_pct: Optional[float] = None
 
     if (
@@ -138,18 +142,27 @@ def _fetch_weather_for_plant(
         and plant.datalogger_sn
     ):
         try:
-            irradiance_wm2 = irradiance_client.fetch_current_irradiance_wm2(
-                plant_id=plant.weather_plant_id,
-                date_iso=date_iso,
+            # One env-history fetch feeds irradiance AND temperatures — the
+            # readings ride the same ShineMaster record, so we don't pay for
+            # the getEnvHistory call twice.
+            device = irradiance_client.get_env_device(
+                plant.weather_plant_id,
                 prefer_sn=plant.datalogger_sn,
                 prefer_addr=plant.datalogger_addr,
             )
-            if irradiance_wm2 is not None:
-                irradiance_kwh_m2_5m = interval_kwh_m2_from_wm2(
-                    irradiance_wm2, interval_min=5
+            if device is not None:
+                sn, addr = device
+                rows = irradiance_client.fetch_env_history_rows(
+                    plant.weather_plant_id, sn, addr, date_iso
                 )
+                irradiance_wm2 = find_latest_radiance_wm2(rows)
+                ambient_temp_c, module_temp_c = find_latest_env_temps(rows)
+                if irradiance_wm2 is not None:
+                    irradiance_kwh_m2_5m = interval_kwh_m2_from_wm2(
+                        irradiance_wm2, interval_min=5
+                    )
         except Exception as e:  # noqa: BLE001
-            log.warning("[%s] irradiance fetch failed: %s", plant.plant_key, e)
+            log.warning("[%s] weather fetch failed: %s", plant.plant_key, e)
 
     if cloud_client is not None and plant.lat is not None and plant.lon is not None:
         try:
@@ -163,7 +176,8 @@ def _fetch_weather_for_plant(
         irradiance_wm2=irradiance_wm2,
         irradiance_kwh_m2_5m=irradiance_kwh_m2_5m,
         cloud_cover_pct=cloud_pct,
-        ambient_temp_c=None,
+        ambient_temp_c=ambient_temp_c,
+        module_temp_c=module_temp_c,
     )
 
 

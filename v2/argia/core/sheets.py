@@ -167,6 +167,25 @@ class SheetsClient:
         ).execute()
         LOG.info("Wrote header to '%s' (%d cols)", tab, len(header))
 
+    def write_header_row(self, tab: str, header: List[str]) -> None:
+        """
+        Overwrite row 1 with ``header`` unconditionally.
+
+        Unlike ``ensure_header`` (which only writes when row 1 is empty), this
+        replaces an existing header. Used by additive schema migrations that
+        append a trailing column: the new header is identical to the old one
+        plus the new column, so overwriting row 1 only adds the new cell and
+        leaves all existing data rows untouched.
+        """
+        self.ensure_tab(tab)
+        self._values().update(
+            spreadsheetId=self.sheet_id,
+            range=self._qrange(tab, "A1"),
+            valueInputOption="RAW",
+            body={"values": [header]},
+        ).execute()
+        LOG.info("Overwrote header on '%s' (%d cols)", tab, len(header))
+
     def append_rows(
         self,
         tab: str,

@@ -157,7 +157,7 @@ class TestStage41RegressionShape:
     def test_length_matches_plant_schema(self, rich_online):
         result = build_plant_row(rich_online, "Inverter 1")
         assert len(result) == PLANT_SCHEMA.column_count
-        assert len(result) == 142
+        assert len(result) == 143
 
     def test_no_none_values(self, rich_online):
         result = build_plant_row(rich_online, "Inverter 1")
@@ -255,4 +255,4 @@ class TestCommonRowUnchanged:
 
     def test_weather_at_end(self, rich_online, weather):
         result = build_common_row(rich_online, "Inverter 1", weather)
-        assert result[-4:] == [661.0, 0.055083, 2.5, ""]
+        assert result[-5:] == [661.0, 0.055083, 2.5, "", ""]

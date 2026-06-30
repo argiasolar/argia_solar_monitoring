@@ -91,7 +91,7 @@ class TestPlantSchema:
 
     def test_total_count_is_142(self):
         # Regression: ensure the column count hasn't drifted unexpectedly
-        assert PLANT_SCHEMA.column_count == 142
+        assert PLANT_SCHEMA.column_count == 143
 
 
 # ============================================================
@@ -104,7 +104,7 @@ class TestArgiaSchema:
         assert ARGIA_SCHEMA.columns == ARGIA_COMMON_COLS
 
     def test_column_count_is_15(self):
-        assert ARGIA_SCHEMA.column_count == 15
+        assert ARGIA_SCHEMA.column_count == 16
 
     def test_first_six_cols_are_identity_plus_vendor(self):
         assert ARGIA_SCHEMA.columns[:6] == (
@@ -143,11 +143,12 @@ class TestArgiaSchema:
 
     def test_weather_cols_at_end(self):
         # Last 4 columns are the 4 weather fields in canonical order
-        assert ARGIA_SCHEMA.columns[-4:] == (
+        assert ARGIA_SCHEMA.columns[-5:] == (
             "irradiance_wm2",
             "irradiance_kwh_m2_5m",
             "cloud_cover_pct",
             "ambient_temp_c",
+            "module_temp_c",
         )
 
 
@@ -186,6 +187,6 @@ class TestVendorConstants:
 
 
 class TestVersionConstant:
-    def test_version_bumped_to_2(self):
-        # Bumped from 1 → 2 when ARGIA_SCHEMA changed from wide to narrow
-        assert COLUMN_VERSION == 2
+    def test_version_bumped_to_3(self):
+        # Bumped to 3 when module_temp_c (Backplane Temp) was appended
+        assert COLUMN_VERSION == 3

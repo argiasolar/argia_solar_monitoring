@@ -234,7 +234,7 @@ class TestCommonRow:
 
     def test_weather_at_end(self, rich_row, weather):
         result = build_common_row(rich_row, "Inverter 1", weather)
-        assert result[-4:] == [800.0, 0.067, 10.0, ""]
+        assert result[-5:] == [800.0, 0.067, 10.0, "", ""]
 
 
 # ============================================================
@@ -252,7 +252,7 @@ class TestCrossVendor:
         """SMA wide row must match Growatt/Huawei/SolarEdge wide row shape."""
         result = build_plant_row(rich_row, "Inverter 1")
         assert len(result) == PLANT_SCHEMA.column_count
-        assert len(result) == 142
+        assert len(result) == 143
 
     def test_vendor_string_is_sma(self, rich_row, weather):
         result = build_common_row(rich_row, "Inverter 1", weather)

@@ -200,6 +200,7 @@ def build_common_row(
         weather.irradiance_kwh_m2_5m,          # 12
         weather.cloud_cover_pct,               # 13
         weather.ambient_temp_c,                # 14
+        weather.module_temp_c,                 # 15
     ]
 
     cells = _none_to_empty(cells)

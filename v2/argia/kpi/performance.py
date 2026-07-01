@@ -37,12 +37,21 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from argia.kpi.energy import EnergyDay, sum_inverter_energies
 from argia.kpi.irradiance import IrradianceDay, IrradianceSource
 
 LOG = logging.getLogger("argia.kpi.performance")
+
+# Temperature coefficient of Pmax, per degC. Negative: power falls as the
+# module heats up. -0.0035/degC (-0.35%/degC) is a standard crystalline-
+# silicon default. It is a PLACEHOLDER until per-plant module-datasheet
+# coefficients are available (see PlantConfig — no gamma field yet).
+GAMMA_PMAX_DEFAULT = -0.0035
+
+# Standard Test Conditions reference (cell) temperature.
+T_STC_C = 25.0
 
 
 class Confidence(str, Enum):
@@ -90,6 +99,11 @@ class PlantPerformanceDay:
     # Diagnostic note when something interesting happened
     notes: str = ""
 
+    # Temperature-corrected PR (to 25 degC cell). None when no module temp.
+    pr_stc: Optional[float] = None
+    # Daily irradiance-weighted module temperature used for the correction.
+    module_temp_c: Optional[float] = None
+
 
 def _confidence_from_irradiance(ir: IrradianceDay, energy_present: bool) -> Confidence:
     """Map an IrradianceDay + energy presence into a PR confidence flag."""
@@ -121,6 +135,69 @@ def _confidence_from_energy(
     return Confidence.HIGH
 
 
+def irradiance_weighted_module_temp(
+    samples: Iterable[Tuple[Optional[float], Optional[float]]],
+) -> Optional[float]:
+    """Irradiance-weighted mean module temperature for a day.
+
+    Each sample is ``(module_temp_c, irradiance_wm2)``. Samples missing the
+    temperature are skipped. Weighting by irradiance lets midday (high-output)
+    temperatures dominate — matching where the energy is actually produced,
+    which is what the PR_STC correction should reflect.
+
+    Falls back to a simple mean when no positive irradiance weights are
+    present (e.g. temps logged but irradiance missing). Returns None when
+    there are no usable module-temp samples at all.
+    """
+    temps: List[float] = []
+    weight_sum = 0.0
+    weighted_sum = 0.0
+    for temp_c, irr in samples:
+        if temp_c is None:
+            continue
+        temps.append(temp_c)
+        if irr is not None and irr > 0:
+            weight_sum += irr
+            weighted_sum += temp_c * irr
+    if not temps:
+        return None
+    if weight_sum > 0:
+        return round(weighted_sum / weight_sum, 2)
+    return round(sum(temps) / len(temps), 2)
+
+
+def temp_corrected_pr(
+    pr: Optional[float],
+    module_temp_c: Optional[float],
+    gamma_pmax: float = GAMMA_PMAX_DEFAULT,
+    t_ref_c: float = T_STC_C,
+    cell_temp_offset_c: float = 0.0,
+) -> Optional[float]:
+    """Temperature-correct a Performance Ratio to STC (25 degC).
+
+        PR_STC = PR / (1 + gamma_pmax * (T - t_ref_c))
+        T = module_temp_c + cell_temp_offset_c
+
+    With the default ``cell_temp_offset_c=0`` this is the DIRECT method: the
+    measured back-of-module temperature is used as-is, the standard choice when
+    a BOM sensor is present. To switch to the Sandia cell-temp variant later,
+    pass a small offset (a few degC, optionally irradiance-scaled by the
+    caller) — no other code changes needed.
+
+    Since gamma is negative, a hot module (T > 25) yields PR_STC > PR: the
+    correction reports what the plant *would* do at 25 degC, stripping the
+    thermal penalty. Returns None if ``pr`` or ``module_temp_c`` is missing,
+    and guards the (physically impossible) non-positive denominator.
+    """
+    if pr is None or module_temp_c is None:
+        return None
+    t = module_temp_c + cell_temp_offset_c
+    denom = 1.0 + gamma_pmax * (t - t_ref_c)
+    if denom <= 0:
+        return None
+    return round(pr / denom, 4)
+
+
 def compute_plant_pr(
     plant_key: str,
     date_iso: str,
@@ -129,6 +206,9 @@ def compute_plant_pr(
     energy_per_inverter: Dict[str, EnergyDay],
     irradiance: IrradianceDay,
     inverter_count_expected: int = 0,
+    module_temp_c: Optional[float] = None,
+    gamma_pmax: float = GAMMA_PMAX_DEFAULT,
+    cell_temp_offset_c: float = 0.0,
 ) -> PlantPerformanceDay:
     """Combine energy + irradiance into a Performance Ratio + capacity factor.
 
@@ -179,6 +259,14 @@ def compute_plant_pr(
     elif total_energy is None:
         notes.append("PR=None: no inverter energy data reported")
 
+    # PR_STC: temperature-correct the PR to 25 degC using the day's module temp.
+    pr_stc: Optional[float] = temp_corrected_pr(
+        pr, module_temp_c, gamma_pmax=gamma_pmax,
+        cell_temp_offset_c=cell_temp_offset_c,
+    )
+    if pr is not None and pr_stc is None and module_temp_c is None:
+        notes.append("PR_STC=None: no module temperature for the day")
+
     # Capacity factor: needs energy AND kwp_ac
     capacity_factor: Optional[float] = None
     if total_energy is not None and kwp_ac > 0:
@@ -217,6 +305,8 @@ def compute_plant_pr(
         inverters_with_data=inverters_with_data,
         inverters_with_reboot=inverters_with_reboot,
         notes="; ".join(notes),
+        pr_stc=pr_stc,
+        module_temp_c=module_temp_c,
     )
 
 

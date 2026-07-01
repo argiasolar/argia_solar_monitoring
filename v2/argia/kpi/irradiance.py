@@ -58,10 +58,19 @@ class IrradianceDay:
 # At 5-min cadence over a ~13h day = 156 samples max; 10 is a low bar.
 MIN_SHINEMASTER_SAMPLES = 10
 
-# Irradiance values above this are physically impossible — must be a sensor
-# error. We drop them. Theoretical max at Earth's surface is ~1361 W/m² (solar
-# constant); even noon sun pegged at AM1 maxes around 1100 W/m².
-MAX_PLAUSIBLE_WM2 = 1500.0
+# Realistic surface plane-of-array ceiling. Noon sun at AM1 tops out around
+# 1100 W/m²; the solar constant is ~1361. Readings above this are sensor
+# spikes — we CLAMP them to this value rather than drop the sample. Dropping
+# would remove the time point and, given the coarse ShineMaster cadence below,
+# blow a ~2h hole in the daily trapezoidal integral.
+MAX_PLAUSIBLE_WM2 = 1200.0
+
+# The ShineMaster env-history is coarse: distinct irradiance readings land
+# only ~every 2 hours (each repeated a few times seconds apart), NOT every
+# 5 minutes as first assumed. The daily integrator must therefore bridge ~2h
+# gaps between real readings; only a gap beyond this is treated as a genuine
+# data outage (not interpolated).
+SHINEMASTER_MAX_GAP_SEC = 10800  # 3 hours
 
 
 def _dedupe_by_timestamp(
@@ -72,9 +81,10 @@ def _dedupe_by_timestamp(
     deduplicated time series.
 
     Filters out:
-    - None readings
-    - Readings outside [0, MAX_PLAUSIBLE_WM2]
+    - None readings and negatives
     - Duplicate timestamps (keeps the first one encountered after sort)
+    Clamps readings above MAX_PLAUSIBLE_WM2 down to it (sensor spikes) —
+    the time point is kept so the daily integral stays connected.
     """
     if not rows:
         return []
@@ -86,23 +96,26 @@ def _dedupe_by_timestamp(
             v = float(r.irradiance_wm2)
         except (TypeError, ValueError):
             continue
-        if v < 0 or v > MAX_PLAUSIBLE_WM2:
+        if v < 0:
             continue
+        if v > MAX_PLAUSIBLE_WM2:
+            v = MAX_PLAUSIBLE_WM2  # clamp sensor spike; keep the time point
         by_ts.setdefault(r.timestamp_utc, v)
     return sorted(by_ts.items())
 
 
 def _trapezoidal_integrate_wm2_to_kwh_m2(
     points: List[Tuple[dt.datetime, float]],
-    max_gap_sec: int = 3600,
+    max_gap_sec: int = SHINEMASTER_MAX_GAP_SEC,
 ) -> Optional[float]:
     """Trapezoidal integration of W/m² samples → kWh/m² for the day.
 
-    Skips intervals with gaps > max_gap_sec (default 1 hour) so a multi-
-    hour sensor outage doesn't get filled in by linear interpolation —
-    that would lie about a cloudy second half of the day. The default
-    is forgiving of occasional missed 5-min samples (one missed sample
-    leaves a 10-min gap, well under the ceiling).
+    Skips intervals with gaps > max_gap_sec so a genuine multi-hour sensor
+    outage isn't filled in by linear interpolation. The default (3h) bridges
+    the ShineMaster's normal ~2h reading cadence while still catching real
+    outages. (The earlier 1h default assumed dense 5-min sampling that this
+    source does not actually provide, so every real interval was discarded
+    and the daily total collapsed to ~0.)
 
     Math:
       for each consecutive pair (t1, w1), (t2, w2) with dt = t2 - t1 in hours:
@@ -135,7 +148,7 @@ def _trapezoidal_integrate_wm2_to_kwh_m2(
 
 def integrate_irradiance_kwh_m2(
     rows: List[InverterRow],
-    max_gap_sec: int = 3600,
+    max_gap_sec: int = SHINEMASTER_MAX_GAP_SEC,
 ) -> IrradianceDay:
     """ShineMaster path. Returns IrradianceDay or NONE if too few samples."""
     points = _dedupe_by_timestamp(rows)

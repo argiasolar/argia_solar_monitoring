@@ -47,12 +47,15 @@ class TestDedupe:
         assert len(result) == 1
         assert result[0][1] == 500.0
 
-    def test_drops_implausible_high(self):
-        """Sensor errors can return 9999 W/m² — drop them."""
-        rows = [_row(10, MAX_PLAUSIBLE_WM2 + 1), _row(11, 500.0)]
+    def test_clamps_implausible_high(self):
+        """Sensor spikes (e.g. 1420 W/m²) are CLAMPED to MAX_PLAUSIBLE_WM2,
+        not dropped — dropping would remove the time point and blow a hole
+        in the daily integral."""
+        rows = [_row(10, MAX_PLAUSIBLE_WM2 + 220.0), _row(11, 500.0)]
         result = _dedupe_by_timestamp(rows)
-        assert len(result) == 1
-        assert result[0][1] == 500.0
+        assert len(result) == 2  # spike kept, not dropped
+        assert result[0][1] == MAX_PLAUSIBLE_WM2  # clamped
+        assert result[1][1] == 500.0
 
     def test_drops_negative(self):
         rows = [_row(10, -50.0), _row(11, 500.0)]
@@ -115,6 +118,23 @@ class TestTrapezoidal:
         # The gap is skipped entirely; 0 contribution
         assert result == 0.0
 
+    def test_two_hour_gap_bridged_by_default(self):
+        """The ShineMaster reports ~every 2h; the default cap must bridge it."""
+        points = [
+            (dt.datetime(2026, 5, 14, 10, 0, tzinfo=UTC), 400.0),
+            (dt.datetime(2026, 5, 14, 12, 0, tzinfo=UTC), 600.0),
+        ]
+        # (400+600)/2 * 2h / 1000 = 1.0
+        assert _trapezoidal_integrate_wm2_to_kwh_m2(points) == pytest.approx(1.0)
+
+    def test_gap_beyond_three_hours_skipped(self):
+        """A >3h gap is a real outage — not interpolated."""
+        points = [
+            (dt.datetime(2026, 5, 14, 10, 0, tzinfo=UTC), 400.0),
+            (dt.datetime(2026, 5, 14, 14, 0, tzinfo=UTC), 600.0),
+        ]
+        assert _trapezoidal_integrate_wm2_to_kwh_m2(points) == 0.0
+
 
 # ============================================================
 # integrate_irradiance_kwh_m2 (ShineMaster path)
@@ -165,6 +185,33 @@ class TestShineMasterPath:
         # We expect this to return source=NONE because 0 integral is
         # treated as unusable
         assert result.kwh_m2 is None
+
+    def _bursty_day_rows(self):
+        """Mimic the real ShineMaster shape: distinct readings ~2h apart, each
+        repeated a few times a minute apart. This is the pattern that collapsed
+        the old 1h-gap integrator to ~0."""
+        out = []
+        arch = [(6, 30), (8, 300), (10, 650), (12, 950),
+                (14, 780), (16, 380), (18, 40)]
+        for hour, wm2 in arch:
+            for m in range(4):  # 4 readings a minute apart -> distinct timestamps
+                out.append(_row(hour, float(wm2), minute=m))
+        return out
+
+    def test_bursty_shinemaster_day_integrates_realistically(self):
+        """A sunny bursty day must land in the realistic 4-8 kWh/m² band —
+        not collapse to ~0 the way the 1h gap cap did."""
+        result = integrate_irradiance_kwh_m2(self._bursty_day_rows())
+        assert result.source == IrradianceSource.SHINEMASTER
+        assert 4 < result.kwh_m2 < 8
+
+    def test_old_1h_cap_would_collapse_bursty_day(self):
+        """Regression guard: the SAME bursty day under a 1h cap integrates to
+        near-zero (every ~2h interval skipped) — proving the widened bridge is
+        what fixes it."""
+        points = _dedupe_by_timestamp(self._bursty_day_rows())
+        collapsed = _trapezoidal_integrate_wm2_to_kwh_m2(points, max_gap_sec=3600)
+        assert collapsed < 0.5  # vs ~6 kWh/m² with the correct bridge
 
 
 # ============================================================

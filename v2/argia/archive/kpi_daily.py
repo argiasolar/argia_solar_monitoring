@@ -58,8 +58,7 @@ KPI_DAILY_HEADER = [
     "energy_kwh", "irradiance_kwh_m2", "irradiance_source",
     "pr", "pr_confidence", "capacity_factor", "capacity_factor_confidence",
     "inverters_reporting", "inverters_with_reboot",
-    "notes", "written_at_utc",
-    "pr_stc", "module_temp_c",
+    "notes", "written_at_utc", "pr_stc",
 ]
 
 
@@ -84,7 +83,6 @@ class KpiDailyRow:
     notes: str
     written_at_utc: str
     pr_stc: Optional[float] = None
-    module_temp_c: Optional[float] = None
 
 
 # ---------- serialization ----------
@@ -110,7 +108,6 @@ def perf_to_row(
         perf.notes,
         written.isoformat(),
         "" if perf.pr_stc is None else perf.pr_stc,
-        "" if perf.module_temp_c is None else perf.module_temp_c,
     ]
 
 
@@ -143,7 +140,6 @@ def row_to_kpi(row: Dict) -> Optional[KpiDailyRow]:
         notes=normalize_text(row.get("notes")),
         written_at_utc=normalize_text(row.get("written_at_utc")),
         pr_stc=safe_float(row.get("pr_stc")),
-        module_temp_c=safe_float(row.get("module_temp_c")),
     )
 
 
@@ -205,33 +201,36 @@ def rows_for_plant_history(
 
 
 def create_kpi_daily_tab_if_missing(sheets: SheetsClient) -> bool:
-    """Bootstrap the KPI_Daily header. Idempotent, and self-heals the
-    additive schema change: if the tab already carries the previous header
-    (the current one minus the trailing pr_stc/module_temp_c columns), the
-    header row is rewritten to the full current header. Existing data rows
-    keep their values and read back blank in the new trailing columns.
+    """Bootstrap the KPI_Daily header. Idempotent and non-destructive.
 
-    Returns True when the header was written or migrated, False when it was
-    already current or left untouched.
+    The live tab may carry MORE columns than KPI_DAILY_HEADER (extra analytics
+    columns to the right, e.g. specific_yield / availability / expected_kwh).
+    KPI_DAILY_HEADER is the prefix this job owns and writes; anything beyond it
+    is left untouched. Cases:
+      * empty tab            -> write our header.
+      * existing starts with our header (same or richer) -> leave as-is.
+      * existing is an older prefix of our header         -> append our cols.
+      * anything else        -> leave as-is + warn (never clobber).
     """
     sheets.ensure_tab(KPI_DAILY_TAB)
     existing = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ1")
     header = [str(c).strip() for c in (existing[0] if existing else [])]
     while header and not header[-1]:
         header.pop()
+    n = len(KPI_DAILY_HEADER)
     if not header:
         sheets.ensure_header(KPI_DAILY_TAB, KPI_DAILY_HEADER)
         LOG.info("Bootstrapped %s (header only)", KPI_DAILY_TAB)
         return True
-    if header == KPI_DAILY_HEADER:
-        return False
-    if header == KPI_DAILY_HEADER[: len(header)]:
-        # Older header that is a prefix of the current one -> append new cols.
+    if header[:n] == KPI_DAILY_HEADER:
+        return False  # sheet already has all our columns (possibly plus extras)
+    if KPI_DAILY_HEADER[: len(header)] == header:
         sheets.write_header_row(KPI_DAILY_TAB, KPI_DAILY_HEADER)
-        LOG.info("Migrated %s header to %d cols", KPI_DAILY_TAB, len(KPI_DAILY_HEADER))
+        LOG.info("Appended new KPI_Daily columns (now %d)", n)
         return True
     LOG.warning(
-        "%s header is unexpected (%d cols); leaving as-is", KPI_DAILY_TAB, len(header)
+        "%s header diverges from expected (%d cols); leaving as-is",
+        KPI_DAILY_TAB, len(header),
     )
     return False
 
@@ -273,7 +272,7 @@ def upsert_kpi_rows(
 
     # Read existing rows (raw)
     try:
-        existing = sheets.read_range(KPI_DAILY_TAB, "A2:O")
+        existing = sheets.read_range(KPI_DAILY_TAB, "A2:N")
     except Exception as e:
         LOG.warning("Could not read %s for upsert: %s", KPI_DAILY_TAB, e)
         existing = []
@@ -366,7 +365,7 @@ def find_prunable_rows(
     cutoff_iso = cutoff.isoformat()
 
     try:
-        existing = sheets.read_range(KPI_DAILY_TAB, "A2:O")
+        existing = sheets.read_range(KPI_DAILY_TAB, "A2:N")
     except Exception as e:
         LOG.warning("Could not read %s for prune scan: %s", KPI_DAILY_TAB, e)
         return []

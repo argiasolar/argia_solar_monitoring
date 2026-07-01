@@ -1,0 +1,67 @@
+name: v2-migrate module_temp_c (manual)
+
+# One-off, manual-only header migration: appends the `module_temp_c` column to
+# the existing Telemetry_Argia and Telemetry_<KEY> tabs so they match the v3
+# schema. Dry-run by DEFAULT — flip the `apply` toggle ON to actually write.
+#
+# Run order from the Actions tab:
+#   1. Run with apply = false (default). Read the log: every telemetry tab
+#      should say "append ... module_temp_c", with zero "mismatch".
+#   2. Re-run with apply = true to write the headers.
+# After step 2, the scheduled telemetry_5m runs start filling the new columns.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply (write headers). OFF = dry run, reports only."
+        type: boolean
+        required: true
+        default: false
+      log_level:
+        description: "Log level"
+        required: true
+        default: "INFO"
+        type: choice
+        options:
+          - DEBUG
+          - INFO
+          - WARNING
+          - ERROR
+
+concurrency:
+  group: v2-migrate-module-temp
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run migration
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS="--log-level ${{ inputs.log_level }}"
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="$ARGS --apply"
+          fi
+          echo "Running with args: $ARGS"
+          PYTHONPATH=. python scripts/migrate_add_module_temp_col.py $ARGS

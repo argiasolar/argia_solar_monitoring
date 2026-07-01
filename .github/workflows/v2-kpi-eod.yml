@@ -1,0 +1,75 @@
+name: v2-kpi-eod (manual)
+
+# Manual end-of-day KPI run: computes one KPI_Daily row per active plant for a
+# date (energy, irradiance, PR, PR_STC, capacity factor) and upserts them.
+# Dry-run by DEFAULT — the run computes and LOGS everything (incl. PR_STC and
+# module temp) but writes nothing until you turn dry_run OFF.
+#
+# NOTE ON PR_STC: it's only non-blank for dates whose telemetry carries
+# module_temp_c — i.e. from the day the temperature columns started landing
+# onward. Running for an earlier date logs PR_STC=-- (no module temps), which
+# is expected, not a bug.
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date YYYY-MM-DD (MX local). Empty = yesterday."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run (compute + log, no writes to KPI_Daily)."
+        required: true
+        default: true
+        type: boolean
+      log_level:
+        description: "Log level"
+        required: true
+        default: "INFO"
+        type: choice
+        options:
+          - DEBUG
+          - INFO
+          - WARNING
+          - ERROR
+
+concurrency:
+  group: v2-kpi-eod
+  cancel-in-progress: false
+
+jobs:
+  kpi-eod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run kpi_eod
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS="--log-level ${{ inputs.log_level }}"
+          if [ -n "${{ inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ inputs.date }}"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Running with args: $ARGS"
+          PYTHONPATH=. python scripts/kpi_eod.py $ARGS

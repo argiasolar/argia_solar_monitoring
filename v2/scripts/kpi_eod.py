@@ -153,11 +153,13 @@ def main(argv=None) -> int:
         )
         new_rows.append(perf_to_row(perf))
         log.info(
-            "[%s] energy=%s kWh  PR=%s (%s)  CF=%s (%s)",
+            "[%s] energy=%s kWh  PR=%s (%s)  PR_STC=%s  Tmod=%s  CF=%s (%s)",
             plant.plant_key,
             f"{perf.energy_kwh:.1f}" if perf.energy_kwh else "--",
             f"{perf.pr:.3f}" if perf.pr else "--",
             perf.pr_confidence.value,
+            f"{perf.pr_stc:.3f}" if perf.pr_stc else "--",
+            f"{perf.module_temp_c:.1f}" if perf.module_temp_c is not None else "--",
             f"{perf.capacity_factor:.3f}" if perf.capacity_factor else "--",
             perf.capacity_factor_confidence.value,
         )

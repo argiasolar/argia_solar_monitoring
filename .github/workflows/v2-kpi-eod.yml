@@ -1,16 +1,26 @@
-name: v2-kpi-eod (manual)
+name: v2-kpi-eod
 
-# Manual end-of-day KPI run: computes one KPI_Daily row per active plant for a
-# date (energy, irradiance, PR, PR_STC, capacity factor) and upserts them.
-# Dry-run by DEFAULT — the run computes and LOGS everything (incl. PR_STC and
-# module temp) but writes nothing until you turn dry_run OFF.
+# End-of-day KPI run: computes one KPI_Daily row per active plant for a date
+# (energy, irradiance, PR, PR_STC, capacity factor) and upserts them.
+#
+# Two ways to run:
+#   * SCHEDULED (daily 12:00 UTC = 06:00 MX): computes YESTERDAY — a complete
+#     day, after the previous day's telemetry has fully landed (~22:00 MX /
+#     04:00 UTC) — and WRITES to KPI_Daily. This is the normal operating path;
+#     because it always targets a finished day it avoids the partial-day PR skew
+#     you see when running mid-day for today.
+#   * MANUAL (workflow_dispatch): pick any date, dry-run by DEFAULT (computes +
+#     logs incl. PR_STC and module temp, writes nothing until you turn dry_run
+#     OFF).
 #
 # NOTE ON PR_STC: it's only non-blank for dates whose telemetry carries
 # module_temp_c — i.e. from the day the temperature columns started landing
-# onward. Running for an earlier date logs PR_STC=-- (no module temps), which
-# is expected, not a bug.
+# onward. Earlier dates log PR_STC=-- (no module temps), which is expected.
 
 on:
+  schedule:
+    # 12:00 UTC daily = 06:00 America/Mexico_City (UTC-6). Targets yesterday.
+    - cron: "0 12 * * *"
   workflow_dispatch:
     inputs:
       date:
@@ -64,12 +74,18 @@ jobs:
           GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: |
-          ARGS="--log-level ${{ inputs.log_level }}"
-          if [ -n "${{ inputs.date }}" ]; then
-            ARGS="$ARGS --date ${{ inputs.date }}"
-          fi
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Scheduled: yesterday (default date), APPLY (no --dry-run).
+            ARGS="--log-level INFO"
+          else
+            # Manual dispatch: honor the inputs; dry-run by default.
+            ARGS="--log-level ${{ inputs.log_level }}"
+            if [ -n "${{ inputs.date }}" ]; then
+              ARGS="$ARGS --date ${{ inputs.date }}"
+            fi
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              ARGS="$ARGS --dry-run"
+            fi
           fi
           echo "Running with args: $ARGS"
           PYTHONPATH=. python scripts/kpi_eod.py $ARGS

@@ -318,3 +318,28 @@ class TestSanity:
         active = portfolio.active_plants()
         assert len(active) == 1
         assert active[0].plant_key == "A"
+
+
+class TestLoadPortfolioGammaPmax:
+    """gamma_pmax (PR_STC temperature coefficient) parsing."""
+
+    def test_gamma_absent_is_none(self):
+        # Old rows without the column load with gamma_pmax None (pipeline
+        # falls back to its default at use-time).
+        sheets = _mock_sheets([_old_plant_row()], [])
+        plant = load_portfolio(sheets).plants["QRO1"]
+        assert plant.gamma_pmax is None
+
+    def test_gamma_parsed_when_present(self):
+        row = _old_plant_row()
+        row["gamma_pmax"] = "-0.0038"
+        sheets = _mock_sheets([row], [])
+        plant = load_portfolio(sheets).plants["QRO1"]
+        assert plant.gamma_pmax == -0.0038
+
+    def test_gamma_blank_is_none(self):
+        row = _old_plant_row()
+        row["gamma_pmax"] = ""
+        sheets = _mock_sheets([row], [])
+        plant = load_portfolio(sheets).plants["QRO1"]
+        assert plant.gamma_pmax is None

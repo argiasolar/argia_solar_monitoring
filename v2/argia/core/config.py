@@ -67,6 +67,7 @@ class PlantConfig:
     until set; soiling check skips plants without a baseline."""
 
     tariff_mxn_per_kwh: Optional[float] = None
+    gamma_pmax: Optional[float] = None  # Pmax temp coeff /degC; blank -> pipeline default
     """Energy price for the customer at this site, MXN/kWh. Used to
     convert PR loss into pesos for cost-benefit decisions."""
 
@@ -235,6 +236,7 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
                 # Stage 7.3
                 pr_baseline=_optional_float(row.get("pr_baseline")),
                 tariff_mxn_per_kwh=_optional_float(row.get("tariff_mxn_per_kwh")),
+                gamma_pmax=_optional_float(row.get("gamma_pmax")),
             )
         except (ValueError, TypeError) as e:
             LOG.warning("Skipping malformed Plants row %s: %s", plant_key, e)

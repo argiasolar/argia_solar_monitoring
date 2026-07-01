@@ -59,6 +59,7 @@ KPI_DAILY_HEADER = [
     "pr", "pr_confidence", "capacity_factor", "capacity_factor_confidence",
     "inverters_reporting", "inverters_with_reboot",
     "notes", "written_at_utc",
+    "pr_stc", "module_temp_c",
 ]
 
 
@@ -82,6 +83,8 @@ class KpiDailyRow:
     inverters_with_reboot: int
     notes: str
     written_at_utc: str
+    pr_stc: Optional[float] = None
+    module_temp_c: Optional[float] = None
 
 
 # ---------- serialization ----------
@@ -106,6 +109,8 @@ def perf_to_row(
         perf.inverters_with_reboot,
         perf.notes,
         written.isoformat(),
+        "" if perf.pr_stc is None else perf.pr_stc,
+        "" if perf.module_temp_c is None else perf.module_temp_c,
     ]
 
 
@@ -137,6 +142,8 @@ def row_to_kpi(row: Dict) -> Optional[KpiDailyRow]:
         inverters_with_reboot=int(safe_float(row.get("inverters_with_reboot"), 0) or 0),
         notes=normalize_text(row.get("notes")),
         written_at_utc=normalize_text(row.get("written_at_utc")),
+        pr_stc=safe_float(row.get("pr_stc")),
+        module_temp_c=safe_float(row.get("module_temp_c")),
     )
 
 
@@ -146,7 +153,7 @@ def row_to_kpi(row: Dict) -> Optional[KpiDailyRow]:
 def load_kpi_daily(sheets: SheetsClient) -> List[KpiDailyRow]:
     """Read all rows from KPI_Daily. Returns empty list on tab error."""
     try:
-        raw = sheets.read_table(KPI_DAILY_TAB, "A1:M")
+        raw = sheets.read_table(KPI_DAILY_TAB, "A1:O")
     except Exception as e:
         LOG.warning("Could not read %s: %s — returning []", KPI_DAILY_TAB, e)
         return []
@@ -198,14 +205,35 @@ def rows_for_plant_history(
 
 
 def create_kpi_daily_tab_if_missing(sheets: SheetsClient) -> bool:
-    """Bootstrap KPI_Daily tab with header. Idempotent."""
+    """Bootstrap the KPI_Daily header. Idempotent, and self-heals the
+    additive schema change: if the tab already carries the previous header
+    (the current one minus the trailing pr_stc/module_temp_c columns), the
+    header row is rewritten to the full current header. Existing data rows
+    keep their values and read back blank in the new trailing columns.
+
+    Returns True when the header was written or migrated, False when it was
+    already current or left untouched.
+    """
     sheets.ensure_tab(KPI_DAILY_TAB)
-    existing = sheets.read_range(KPI_DAILY_TAB, "A1:M1")
-    if existing and any(str(c).strip() for c in (existing[0] if existing else [])):
+    existing = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ1")
+    header = [str(c).strip() for c in (existing[0] if existing else [])]
+    while header and not header[-1]:
+        header.pop()
+    if not header:
+        sheets.ensure_header(KPI_DAILY_TAB, KPI_DAILY_HEADER)
+        LOG.info("Bootstrapped %s (header only)", KPI_DAILY_TAB)
+        return True
+    if header == KPI_DAILY_HEADER:
         return False
-    sheets.ensure_header(KPI_DAILY_TAB, KPI_DAILY_HEADER)
-    LOG.info("Bootstrapped %s (header only)", KPI_DAILY_TAB)
-    return True
+    if header == KPI_DAILY_HEADER[: len(header)]:
+        # Older header that is a prefix of the current one -> append new cols.
+        sheets.write_header_row(KPI_DAILY_TAB, KPI_DAILY_HEADER)
+        LOG.info("Migrated %s header to %d cols", KPI_DAILY_TAB, len(KPI_DAILY_HEADER))
+        return True
+    LOG.warning(
+        "%s header is unexpected (%d cols); leaving as-is", KPI_DAILY_TAB, len(header)
+    )
+    return False
 
 
 # ---------- upsert ----------
@@ -245,7 +273,7 @@ def upsert_kpi_rows(
 
     # Read existing rows (raw)
     try:
-        existing = sheets.read_range(KPI_DAILY_TAB, "A2:M")
+        existing = sheets.read_range(KPI_DAILY_TAB, "A2:O")
     except Exception as e:
         LOG.warning("Could not read %s for upsert: %s", KPI_DAILY_TAB, e)
         existing = []
@@ -338,7 +366,7 @@ def find_prunable_rows(
     cutoff_iso = cutoff.isoformat()
 
     try:
-        existing = sheets.read_range(KPI_DAILY_TAB, "A2:M")
+        existing = sheets.read_range(KPI_DAILY_TAB, "A2:O")
     except Exception as e:
         LOG.warning("Could not read %s for prune scan: %s", KPI_DAILY_TAB, e)
         return []

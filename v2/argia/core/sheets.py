@@ -186,6 +186,22 @@ class SheetsClient:
         ).execute()
         LOG.info("Overwrote header on '%s' (%d cols)", tab, len(header))
 
+    def write_values(self, tab: str, a1_range: str, values: List[List]) -> None:
+        """Write a 2-D block of values to ``tab!a1_range`` (RAW).
+
+        Generic escape hatch for migrations that need to set specific cells or
+        a column outside the row-oriented append/upsert helpers (e.g. adding
+        and back-filling a single config column). Caller owns the range math.
+        """
+        self.ensure_tab(tab)
+        self._values().update(
+            spreadsheetId=self.sheet_id,
+            range=self._qrange(tab, a1_range),
+            valueInputOption="RAW",
+            body={"values": values},
+        ).execute()
+        LOG.info("Wrote %d row(s) to '%s'!%s", len(values), tab, a1_range)
+
     def append_rows(
         self,
         tab: str,

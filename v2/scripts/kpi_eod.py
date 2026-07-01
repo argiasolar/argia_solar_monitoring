@@ -49,6 +49,10 @@ from argia.kpi import (
     read_day_bundle,
 )
 from argia.kpi.irradiance import daily_irradiance_for_plant
+from argia.kpi.performance import (
+    GAMMA_PMAX_DEFAULT,
+    irradiance_weighted_module_temp,
+)
 
 
 def _setup_logging(level: str) -> None:
@@ -132,12 +136,20 @@ def main(argv=None) -> int:
 
         energy_by_inv = compute_plant_energy(rows)
         irr = daily_irradiance_for_plant(rows, lat=plant.lat, date_iso=date_iso)
+        module_temp = irradiance_weighted_module_temp(
+            (r.module_temp_c, r.irradiance_wm2) for r in rows
+        )
+        gamma = (
+            plant.gamma_pmax if plant.gamma_pmax is not None else GAMMA_PMAX_DEFAULT
+        )
         perf = compute_plant_pr(
             plant_key=plant.plant_key, date_iso=date_iso,
             kwp_dc=plant.kwp_dc, kwp_ac=plant.kwp_ac,
             energy_per_inverter=energy_by_inv,
             irradiance=irr,
             inverter_count_expected=len(portfolio.inverters_for(plant.plant_key)),
+            module_temp_c=module_temp,
+            gamma_pmax=gamma,
         )
         new_rows.append(perf_to_row(perf))
         log.info(

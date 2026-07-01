@@ -54,14 +54,16 @@ def _perf(plant_key="P1", date_iso="2026-05-14", pr=0.80,
 
 
 class TestHeader:
-    def test_header_has_13_cols(self):
-        assert len(KPI_DAILY_HEADER) == 13
+    def test_header_has_15_cols(self):
+        assert len(KPI_DAILY_HEADER) == 15
 
     def test_pinned_column_order(self):
         # Catch reordering bugs that would break existing sheets
         assert KPI_DAILY_HEADER[0] == "date_iso"
         assert KPI_DAILY_HEADER[1] == "plant_key"
-        assert KPI_DAILY_HEADER[-1] == "written_at_utc"
+        assert KPI_DAILY_HEADER[-1] == "module_temp_c"
+        assert KPI_DAILY_HEADER[-2] == "pr_stc"
+        assert KPI_DAILY_HEADER[-3] == "written_at_utc"
 
 
 # ============================================================
@@ -70,9 +72,9 @@ class TestHeader:
 
 
 class TestPerfToRow:
-    def test_row_has_13_cells(self):
+    def test_row_has_15_cells(self):
         row = perf_to_row(_perf())
-        assert len(row) == 13
+        assert len(row) == 15
 
     def test_values_in_header_order(self):
         row = perf_to_row(_perf())
@@ -86,6 +88,19 @@ class TestPerfToRow:
         row = perf_to_row(_perf(pr=None, energy=None))
         assert row[KPI_DAILY_HEADER.index("pr")] == ""
         assert row[KPI_DAILY_HEADER.index("energy_kwh")] == ""
+
+    def test_pr_stc_and_module_temp_serialized(self):
+        perf = _perf()
+        object.__setattr__(perf, "pr_stc", 0.90)
+        object.__setattr__(perf, "module_temp_c", 45.0)
+        row = perf_to_row(perf)
+        assert row[KPI_DAILY_HEADER.index("pr_stc")] == 0.90
+        assert row[KPI_DAILY_HEADER.index("module_temp_c")] == 45.0
+
+    def test_pr_stc_none_becomes_empty(self):
+        row = perf_to_row(_perf())  # pr_stc defaults None
+        assert row[KPI_DAILY_HEADER.index("pr_stc")] == ""
+        assert row[KPI_DAILY_HEADER.index("module_temp_c")] == ""
 
     def test_written_at_uses_passed_time(self):
         when = dt.datetime(2026, 5, 14, 7, 30, tzinfo=UTC)
@@ -196,6 +211,7 @@ class TestUpsert:
         return [
             date_iso, plant, 2400.0, 6.0, "shinemaster",
             pr, "HIGH", 0.25, "HIGH", 1, 0, "", "2026-05-14T07:30:00+00:00",
+            0.88, 45.0,
         ]
 
     def test_empty_input_no_op(self):
@@ -258,7 +274,7 @@ class TestUpsert:
 
     def test_wrong_row_width_raises(self):
         sheets = MagicMock()
-        with pytest.raises(ValueError, match="13"):
+        with pytest.raises(ValueError, match="15"):
             upsert_kpi_rows(sheets, [["only", "two"]])
 
 

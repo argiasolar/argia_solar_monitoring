@@ -1,0 +1,72 @@
+name: v2-migrate gamma_pmax (manual)
+
+# One-off, manual-only migration: seeds a per-plant `gamma_pmax` column on the
+# Plants tab (default -0.0035, standard c-Si) so PR_STC has a per-plant
+# temperature coefficient you can later tune from each site's module datasheet.
+# Dry-run by DEFAULT — flip `apply` ON to write. Never overwrites existing
+# values; only fills blanks.
+#
+#   1. Run with apply = false. Confirm it reports the header add + the plant
+#      rows it would fill.
+#   2. Re-run with apply = true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply (write). OFF = dry run, reports only."
+        type: boolean
+        required: true
+        default: false
+      default_gamma:
+        description: "Default gamma_pmax to seed (per degC)."
+        required: true
+        default: "-0.0035"
+        type: string
+      log_level:
+        description: "Log level"
+        required: true
+        default: "INFO"
+        type: choice
+        options:
+          - DEBUG
+          - INFO
+          - WARNING
+          - ERROR
+
+concurrency:
+  group: v2-migrate-gamma-pmax
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run migration
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS="--log-level ${{ inputs.log_level }} --default ${{ inputs.default_gamma }}"
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="$ARGS --apply"
+          fi
+          echo "Running with args: $ARGS"
+          PYTHONPATH=. python scripts/migrate_add_gamma_pmax_col.py $ARGS

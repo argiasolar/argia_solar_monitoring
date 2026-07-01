@@ -77,12 +77,14 @@ def _make_cells(
     irradiance_kwh_m2_5m="0.07",
     cloud_cover_pct="15",
     ambient_temp_c="",
+    module_temp_c="",
 ):
-    """Build a 15-cell raw sheet row in Telemetry_Argia order."""
+    """Build a 16-cell raw sheet row in Telemetry_Argia order."""
     return [
         timestamp, timestamp_mx, vendor, plant_key, inverter_sn, inverter_label,
         status, power_w, etoday_kwh, temperature_c, fault_code,
         irradiance_wm2, irradiance_kwh_m2_5m, cloud_cover_pct, ambient_temp_c,
+        module_temp_c,
     ]
 
 
@@ -103,7 +105,7 @@ class TestParseRows:
                   "inverter_sn", "inverter_label", "status", "power_w",
                   "etoday_kwh", "temperature_c", "fault_code",
                   "irradiance_wm2", "irradiance_kwh_m2_5m",
-                  "cloud_cover_pct", "ambient_temp_c"]
+                  "cloud_cover_pct", "ambient_temp_c", "module_temp_c"]
         rows = parse_rows([header, _make_cells()])
         assert len(rows) == 1
 
@@ -122,11 +124,29 @@ class TestParseRows:
     def test_handles_short_row(self):
         """Trailing-empty cells often get dropped by sheets — must tolerate."""
         cells = _make_cells()
-        short = cells[:11]  # cut off irradiance + cloud + ambient
+        short = cells[:11]  # cut off irradiance + cloud + ambient + module
         rows = parse_rows([short])
         assert len(rows) == 1
         assert rows[0].irradiance_wm2 is None
         assert rows[0].cloud_cover_pct is None
+        assert rows[0].module_temp_c is None
+
+    def test_module_temp_c_parsed(self):
+        """Backplane Temp (PR_STC input) is read from the new last column."""
+        rows = parse_rows([_make_cells(module_temp_c="45.2")])
+        assert rows[0].module_temp_c == 45.2
+
+    def test_module_temp_c_blank_is_none(self):
+        rows = parse_rows([_make_cells(module_temp_c="")])
+        assert rows[0].module_temp_c is None
+
+    def test_pre_migration_row_without_module_col(self):
+        """A 15-cell row (written before the migration) still parses; module None."""
+        cells = _make_cells()[:15]  # drop the module_temp_c cell
+        rows = parse_rows([cells])
+        assert len(rows) == 1
+        assert rows[0].ambient_temp_c is None  # was "" in fixture
+        assert rows[0].module_temp_c is None
 
     def test_status_default_when_missing(self):
         """Garbage status defaults to 1 (online), not 3."""
@@ -306,4 +326,4 @@ class TestReadDayBundle:
     def test_reads_correct_tab(self):
         sheets = self._sheets_with([])
         read_day_bundle(sheets, "2026-05-14")
-        sheets.read_range.assert_called_once_with(ARGIA_TAB_NAME, "A1:O")
+        sheets.read_range.assert_called_once_with(ARGIA_TAB_NAME, "A1:P")

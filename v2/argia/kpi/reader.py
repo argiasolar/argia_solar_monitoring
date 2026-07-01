@@ -46,6 +46,7 @@ COL_IRRADIANCE_WM2 = 11
 COL_IRRADIANCE_KWH_M2_5M = 12
 COL_CLOUD_COVER_PCT = 13
 COL_AMBIENT_TEMP_C = 14
+COL_MODULE_TEMP_C = 15
 
 ARGIA_TAB_NAME = "Telemetry_Argia"
 
@@ -73,6 +74,7 @@ class InverterRow:
     irradiance_kwh_m2_5m: Optional[float]  # pre-computed Δkwh over 5 min
     cloud_cover_pct: Optional[float]
     ambient_temp_c: Optional[float]
+    module_temp_c: Optional[float] = None  # env-station Backplane Temp; PR_STC input
 
 
 @dataclass(frozen=True)
@@ -183,8 +185,8 @@ def _row_from_cells(cells: List) -> Optional[InverterRow]:
     are missing — those rows are unusable for KPI.
     """
     # Pad short rows so indexing doesn't crash on tail-empty cells
-    if len(cells) < 15:
-        cells = list(cells) + [""] * (15 - len(cells))
+    if len(cells) < 16:
+        cells = list(cells) + [""] * (16 - len(cells))
 
     ts = _parse_timestamp(cells[COL_TIMESTAMP_UTC])
     plant_key = normalize_text(cells[COL_PLANT_KEY])
@@ -207,6 +209,7 @@ def _row_from_cells(cells: List) -> Optional[InverterRow]:
         irradiance_kwh_m2_5m=safe_float(cells[COL_IRRADIANCE_KWH_M2_5M]),
         cloud_cover_pct=safe_float(cells[COL_CLOUD_COVER_PCT]),
         ambient_temp_c=safe_float(cells[COL_AMBIENT_TEMP_C]),
+        module_temp_c=safe_float(cells[COL_MODULE_TEMP_C]),
     )
 
 
@@ -286,7 +289,7 @@ def read_day_bundle(
     read from an archive tab for past dates.
     """
     try:
-        raw_rows = sheets.read_range(tab_name, "A1:O")
+        raw_rows = sheets.read_range(tab_name, "A1:P")
     except Exception as e:
         LOG.warning("Could not read %s: %s — returning empty DayBundle", tab_name, e)
         return DayBundle(date_iso=date_iso)

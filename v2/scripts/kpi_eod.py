@@ -31,13 +31,15 @@ import datetime as dt
 import logging
 import os
 import sys
-from typing import List
+from typing import Dict, List, Tuple
 
 from argia.archive.kpi_daily import (
     HOT_WINDOW_DAYS,
+    classify_coverage,
     create_kpi_daily_tab_if_missing,
     perf_to_row,
     prune_old_rows,
+    stamp_data_class,
     upsert_kpi_rows,
 )
 from argia.core.config import load_portfolio
@@ -123,6 +125,7 @@ def main(argv=None) -> int:
     bundle = read_day_bundle(sheets, date_iso)
 
     new_rows: List = []
+    coverage: Dict[Tuple[str, str], str] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -133,6 +136,13 @@ def main(argv=None) -> int:
             plants_without += 1
             continue
         plants_with_data += 1
+
+        # rows are time-sorted ascending, so the last one is the day's newest
+        # sample. Coverage keys off it: EToday is cumulative, so a late sample
+        # means the daily MAX is trustworthy.
+        coverage[(date_iso, plant.plant_key)] = classify_coverage(
+            rows[-1].timestamp_utc
+        )
 
         energy_by_inv = compute_plant_energy(rows)
         irr = daily_irradiance_for_plant(rows, lat=plant.lat, date_iso=date_iso)
@@ -170,6 +180,15 @@ def main(argv=None) -> int:
         log.info("KPI_Daily upsert: %s", stats)
     else:
         log.warning("No KPI rows to write")
+
+    # Stamp coverage (data_class) so the reconcile can distinguish an
+    # undercounted day (last sample too early) from a real disagreement.
+    if coverage:
+        log.info("Coverage: %s",
+                 {pk: cls for (_, pk), cls in coverage.items()})
+        stamped = stamp_data_class(sheets, coverage, dry_run=args.dry_run)
+        log.info("Stamped %d data_class cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
 
     # Prune (optional)
     if args.prune or args.prune_apply:

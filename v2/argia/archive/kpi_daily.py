@@ -42,9 +42,10 @@ from typing import Dict, List, Optional, Tuple
 
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
-from argia.core.time_utils import UTC
+from argia.core.time_utils import UTC, utc_to_mx
 from argia.kpi.irradiance import IrradianceSource
 from argia.kpi.performance import Confidence, PlantPerformanceDay
+from argia.kpi.reconcile import date_key
 
 LOG = logging.getLogger("argia.archive.kpi_daily")
 
@@ -52,6 +53,27 @@ KPI_DAILY_TAB = "KPI_Daily"
 
 HOT_WINDOW_DAYS = 14
 """How many days to keep in the live KPI_Daily tab."""
+
+# ---------- coverage / data_class ----------
+#
+# KPI_Daily.energy_kwh is MAX(EToday) per inverter, summed. EToday is cumulative
+# and monotonic within a day, so the daily total is correct *only if a sample
+# landed after production ended*. On GitHub Actions the scheduler drops runs, so
+# some days' last sample lands early afternoon and the total silently undercounts
+# (e.g. 2026-06-30 last sample 13:18 -> ~35% low across the whole fleet). We stamp
+# each row's coverage so the reconcile can tell "v2 undercounted" apart from
+# "v2 disagrees". On the Pi (reliable cadence) days will almost always be 'full'.
+
+DATA_CLASS_FULL = "full"
+DATA_CLASS_PARTIAL = "partial"
+DATA_CLASS_NO_DATA = "no_data"
+
+DATA_COVERAGE_CUTOFF_HOUR = 18
+"""A plant's last MX-local sample must be at/after this hour for the day to count
+as 'full'. Conservative on purpose: a false 'partial' just drops a good day from
+the reconcile; a false 'full' would let an undercounted day pass as a match."""
+
+DATA_CLASS_COL_NAME = "data_class"
 
 KPI_DAILY_HEADER = [
     "date_iso", "plant_key",
@@ -344,6 +366,100 @@ def upsert_kpi_rows(
         "unchanged": unchanged,
         "failed": failed,
     }
+
+
+# ---------- coverage stamping ----------
+
+
+def classify_coverage(
+    last_sample_utc: Optional[dt.datetime],
+    cutoff_hour: int = DATA_COVERAGE_CUTOFF_HOUR,
+) -> str:
+    """Classify a plant-day's telemetry coverage from its LAST sample time.
+
+    ``last_sample_utc`` is the newest telemetry timestamp for the plant that day
+    (aware UTC). Because EToday is cumulative and monotonic within a day, the
+    daily MAX(EToday) is only trustworthy if a sample landed late enough:
+
+        None                         -> "no_data"
+        last MX-local hour >= cutoff -> "full"
+        otherwise                    -> "partial"
+
+    Pure function — no I/O.
+    """
+    if last_sample_utc is None:
+        return DATA_CLASS_NO_DATA
+    mx = utc_to_mx(last_sample_utc)
+    return DATA_CLASS_FULL if mx.hour >= cutoff_hour else DATA_CLASS_PARTIAL
+
+
+def stamp_data_class(
+    sheets: SheetsClient,
+    stamps: Dict[Tuple[str, str], str],
+    dry_run: bool = False,
+) -> int:
+    """Write ``data_class`` for the given (date_iso, plant_key) rows.
+
+    Surgical: reads KPI_Daily once, finds the ``data_class`` column BY NAME, maps
+    each (date, plant) to its sheet row, and writes only that one cell per row.
+    Touches nothing else — safe regardless of what owns neighbouring columns.
+
+    Dates are normalized with ``date_key`` on both sides because KPI_Daily stores
+    ``date_iso`` as a real date (read back as a serial), so a naive string compare
+    would never match. Returns the number of cells written (0 in dry-run, or if
+    the column/rows aren't found).
+    """
+    if not stamps:
+        return 0
+    try:
+        data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("stamp_data_class: could not read %s: %s", KPI_DAILY_TAB, e)
+        return 0
+    if not data:
+        return 0
+
+    header = [normalize_text(h) for h in data[0]]
+    if DATA_CLASS_COL_NAME not in header:
+        LOG.warning(
+            "stamp_data_class: KPI_Daily has no '%s' column; skipping",
+            DATA_CLASS_COL_NAME,
+        )
+        return 0
+    dc_col = header.index(DATA_CLASS_COL_NAME)   # 0-based
+    di_col = header.index("date_iso")
+    pk_col = header.index("plant_key")
+
+    # (canonical_date, PLANT) -> 1-based sheet row number
+    key_to_row: Dict[Tuple[str, str], int] = {}
+    for i, row in enumerate(data[1:], start=2):  # data row 1 == sheet row 2
+        if di_col >= len(row) or pk_col >= len(row):
+            continue
+        d = date_key(row[di_col])
+        pk = normalize_text(row[pk_col]).upper()
+        if not d or not pk:
+            continue
+        key_to_row[(d, pk)] = i
+
+    written = 0
+    for (date_iso, plant_key), value in stamps.items():
+        d = date_key(date_iso)
+        pk = normalize_text(plant_key).upper()
+        row_num = key_to_row.get((d, pk))
+        if row_num is None:
+            LOG.warning(
+                "stamp_data_class: no KPI_Daily row for (%s, %s) — skipping",
+                date_iso, plant_key,
+            )
+            continue
+        if dry_run:
+            LOG.info("[DRY RUN] would stamp %s row %d data_class=%s",
+                     plant_key, row_num, value)
+            written += 1
+            continue
+        sheets.write_cell(KPI_DAILY_TAB, row_num, dc_col + 1, value)  # col is 1-based
+        written += 1
+    return written
 
 
 # ---------- pruning ----------

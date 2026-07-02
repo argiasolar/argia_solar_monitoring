@@ -43,8 +43,14 @@ from argia.core.normalize import normalize_text, safe_float
 BUCKET_OK = "OK"                    # energy agrees within tolerance
 BUCKET_ENERGY = "ENERGY-MISMATCH"   # energy differs > tolerance  -> collection problem (GATE FAIL)
 BUCKET_PR = "PR-DIVERGENCE"         # energy agrees but PR differs -> config/irradiance (EXPECTED)
+BUCKET_PARTIAL_V2 = "PARTIAL-V2"    # v2 day flagged incomplete (data_class=partial) -> not comparable
 BUCKET_MISSING_V1 = "MISSING-V1"    # v2 has the day, v1 does not
 BUCKET_MISSING_V2 = "MISSING-V2"    # v1 has the day, v2 does not
+
+# v2 KPI_Daily.data_class value that means the day undercounted (last sample too
+# early). Such a day can't fairly be compared, so it gets its own bucket and does
+# NOT fail the energy gate.
+DATA_CLASS_PARTIAL = "partial"
 
 # Google Sheets / Excel serial-date epoch. Serial 0 == 1899-12-30.
 _SHEETS_EPOCH = dt.date(1899, 12, 30)
@@ -178,12 +184,14 @@ def classify(v1_energy: Optional[float],
              v1_pr: Optional[float],
              v2_pr: Optional[float],
              pr_delta_pct: Optional[float],
-             tolerance_pct: float) -> tuple[str, bool, str]:
+             tolerance_pct: float,
+             v2_partial: bool = False) -> tuple[str, bool, str]:
     """Return ``(bucket, within_energy_tolerance, note)``.
 
     The GATE is energy only. PR divergence never fails the gate — it's
     expected once v2's corrected config kicks in — but it's reported so a
-    real config bug isn't hidden.
+    real config bug isn't hidden. A day v2 flagged incomplete (``v2_partial``)
+    lands in its own bucket and never fails the gate.
     """
     if v1_energy is None and v2_energy is None:
         return BUCKET_MISSING_V2, False, "no data on either side"
@@ -191,6 +199,15 @@ def classify(v1_energy: Optional[float],
         return BUCKET_MISSING_V1, False, "v2 has this day, v1 does not"
     if v2_energy is None:
         return BUCKET_MISSING_V2, False, "v1 has this day, v2 does not"
+
+    # v2's day is flagged incomplete (last sample too early -> MAX(EToday)
+    # undercounts). Not fairly comparable: report the delta for context but do
+    # NOT fail the energy gate on it.
+    if v2_partial:
+        note = "v2 day incomplete (data_class=partial)"
+        if energy_delta_pct is not None:
+            note += f"; energy {energy_delta_pct:+.1f}%"
+        return BUCKET_PARTIAL_V2, False, note
 
     # Both energies present.
     if v1_energy == 0 and v2_energy == 0:
@@ -240,6 +257,7 @@ def index_v2(kpi_rows: List[Dict[str, Any]]) -> Dict[tuple, Dict[str, Any]]:
             "energy_kwh": safe_float(r.get("energy_kwh")),
             "irr": safe_float(r.get("irradiance_kwh_m2")),
             "pr": safe_float(r.get("pr")),
+            "data_class": normalize_text(r.get("data_class")).lower(),
         }
     return out
 
@@ -306,13 +324,15 @@ def build_reconcile(v1_rows: List[Dict[str, Any]],
         v2_irr = b.get("irr")
         v1_kwp = a.get("kwp")
         v2_pr = b.get("pr")
+        v2_partial = b.get("data_class") == DATA_CLASS_PARTIAL
         v1_pr = derive_pr(v1_e, v1_kwp, v1_irr)
 
         e_delta = pct_diff(v1_e, v2_e)
         pr_delta = pct_diff(v1_pr, v2_pr)
 
         bucket, within, note = classify(
-            v1_e, v2_e, e_delta, v1_pr, v2_pr, pr_delta, tolerance_pct
+            v1_e, v2_e, e_delta, v1_pr, v2_pr, pr_delta, tolerance_pct,
+            v2_partial=v2_partial,
         )
 
         rows.append(ReconcileRow(
@@ -339,7 +359,7 @@ def build_reconcile(v1_rows: List[Dict[str, Any]],
 def summarize(rows: List[ReconcileRow]) -> Dict[str, int]:
     """Count rows per bucket. Handy for the CLI summary + exit code."""
     counts: Dict[str, int] = {
-        BUCKET_OK: 0, BUCKET_ENERGY: 0, BUCKET_PR: 0,
+        BUCKET_OK: 0, BUCKET_ENERGY: 0, BUCKET_PR: 0, BUCKET_PARTIAL_V2: 0,
         BUCKET_MISSING_V1: 0, BUCKET_MISSING_V2: 0,
     }
     for r in rows:

@@ -50,6 +50,7 @@ from argia.kpi.reconcile import (
     BUCKET_MISSING_V1,
     BUCKET_MISSING_V2,
     BUCKET_OK,
+    BUCKET_PARTIAL_V2,
     BUCKET_PR,
     ReconcileRow,
     build_reconcile,
@@ -204,6 +205,7 @@ def main(argv=None) -> int:
     print(f"Summary (tolerance {args.tolerance:g}% on daily energy):")
     print(f"  OK              {counts[BUCKET_OK]}")
     print(f"  PR-DIVERGENCE   {counts[BUCKET_PR]}   (energy matched; config/irradiance)")
+    print(f"  PARTIAL-V2      {counts[BUCKET_PARTIAL_V2]}   (v2 day incomplete — not compared)")
     print(f"  ENERGY-MISMATCH {counts[BUCKET_ENERGY]}   (collection gap — investigate)")
     print(f"  MISSING-V1      {counts[BUCKET_MISSING_V1]}")
     print(f"  MISSING-V2      {counts[BUCKET_MISSING_V2]}")

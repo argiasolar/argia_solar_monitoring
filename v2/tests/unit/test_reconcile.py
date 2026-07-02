@@ -18,6 +18,7 @@ from argia.kpi.reconcile import (
     BUCKET_MISSING_V1,
     BUCKET_MISSING_V2,
     BUCKET_OK,
+    BUCKET_PARTIAL_V2,
     BUCKET_PR,
     build_reconcile,
     classify,
@@ -197,9 +198,9 @@ class TestBuildReconcile:
         return {"Plant_Key": plant, "Date": date, "Real_kWh": kwh,
                 "Irradiance_kWh_m2": irr, "Size_kWp_DC": kwp}
 
-    def _v2(self, plant, date, kwh, irr, pr):
+    def _v2(self, plant, date, kwh, irr, pr, data_class=""):
         return {"plant_key": plant, "date_iso": date, "energy_kwh": kwh,
-                "irradiance_kwh_m2": irr, "pr": pr}
+                "irradiance_kwh_m2": irr, "pr": pr, "data_class": data_class}
 
     def test_basic_match(self):
         v1 = [self._v1("SLP1", "2026-06-30", 565.0, 4.86, 189.2)]
@@ -285,6 +286,30 @@ class TestBuildReconcile:
         assert counts[BUCKET_OK] == 1
         assert counts[BUCKET_ENERGY] == 1
 
+    def test_partial_v2_day_is_not_energy_mismatch(self):
+        # v2 flagged the day incomplete: a big energy shortfall must NOT read as
+        # ENERGY-MISMATCH — it's the June-30 undercount case.
+        v1 = [self._v1("GTO1", "2026-06-30", 3295.9, 6.0, 605.9)]
+        v2 = [self._v2("GTO1", "2026-06-30", 1953.6, 3.49, 0.685, data_class="partial")]
+        r = build_reconcile(v1, v2, self.ACTIVE, tolerance_pct=2.0)[0]
+        assert r.bucket == BUCKET_PARTIAL_V2
+        assert r.within_tolerance is False        # not a validated match
+        assert "-40" in r.note or "incomplete" in r.note
+
+    def test_partial_v2_even_when_energy_happens_to_match(self):
+        # An incomplete day isn't trustworthy even if the numbers coincide.
+        v1 = [self._v1("SLP1", "2026-06-30", 565.0, 4.86, 189.2)]
+        v2 = [self._v2("SLP1", "2026-06-30", 565.0, 4.86, 0.61, data_class="partial")]
+        r = build_reconcile(v1, v2, self.ACTIVE, tolerance_pct=2.0)[0]
+        assert r.bucket == BUCKET_PARTIAL_V2
+
+    def test_full_data_class_reconciles_normally(self):
+        # data_class=full behaves exactly like an unstamped good day.
+        v1 = [self._v1("SLP1", "2026-06-30", 565.0, 4.86, 189.2)]
+        v2 = [self._v2("SLP1", "2026-06-30", 565.0, 4.86, 0.6144, data_class="full")]
+        r = build_reconcile(v1, v2, self.ACTIVE, tolerance_pct=2.0)[0]
+        assert r.bucket == BUCKET_OK
+
 
 # --------------------------------------------------------------------------
 # Read-only CLI smoke test — proves the script never writes.
@@ -327,9 +352,9 @@ class TestCliReadOnly:
         return {"Plant_Key": p, "Date": d, "Real_kWh": kwh,
                 "Irradiance_kWh_m2": irr, "Size_kWp_DC": kwp}
 
-    def _v2(self, p, d, kwh, irr, pr):
+    def _v2(self, p, d, kwh, irr, pr, data_class=""):
         return {"plant_key": p, "date_iso": d, "energy_kwh": kwh,
-                "irradiance_kwh_m2": irr, "pr": pr}
+                "irradiance_kwh_m2": irr, "pr": pr, "data_class": data_class}
 
     def test_never_writes_and_exit_zero_on_match(self):
         v1 = [self._v1("SLP1", "2026-06-30", 565.0, 4.86, 189.2)]
@@ -352,3 +377,12 @@ class TestCliReadOnly:
         v2 = []  # v2 has nothing for the window
         code, _ = self._run(v1, v2, ["--start", "2026-06-30", "--end", "2026-06-30"])
         assert code == 2
+
+    def test_partial_v2_day_does_not_fail_exit(self):
+        # Big energy shortfall but v2 flagged the day partial -> exit 0, no writes.
+        v1 = [self._v1("SLP1", "2026-06-30", 900.0, 4.86, 189.2)]
+        v2 = [self._v2("SLP1", "2026-06-30", 565.0, 4.86, 0.61, data_class="partial")]
+        code, client = self._run(v1, v2, ["--start", "2026-06-30", "--end", "2026-06-30"])
+        assert code == 0
+        for m in _WRITE_METHODS:
+            getattr(client, m).assert_not_called()

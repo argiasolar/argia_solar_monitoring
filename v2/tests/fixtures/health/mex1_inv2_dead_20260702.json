@@ -1,0 +1,13 @@
+{
+  "description": "MEX1 Inverter 2 dead: reports ONLINE but 0 W while its two siblings produce ~79 kW. Real data from the 2026-07-02 11:00:30 MX telemetry sample. This is the case a status-only offline check would miss and inverter_relative must catch. All three MEX1 inverters are 150 kW (homogeneous), so normalization does not change the verdict.",
+  "plant_key": "MEX1",
+  "timestamp_mx": "2026-07-02 11:00:30",
+  "expected_breaches": {
+    "ES2470051826": "CRITICAL"
+  },
+  "readings": [
+    {"plant_key": "MEX1", "inverter_sn": "ES2470051825", "label": "Inverter 1", "status": 1, "power_w": 79099.0, "rated_kw": 150.0},
+    {"plant_key": "MEX1", "inverter_sn": "ES2470051826", "label": "Inverter 2", "status": 1, "power_w": 0.0, "rated_kw": 150.0},
+    {"plant_key": "MEX1", "inverter_sn": "GR2489022511", "label": "Inverter 3", "status": 1, "power_w": 78306.0, "rated_kw": 150.0}
+  ]
+}

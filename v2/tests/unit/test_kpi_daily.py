@@ -273,6 +273,49 @@ class TestUpsert:
         with pytest.raises(ValueError, match="14"):
             upsert_kpi_rows(sheets, [["only", "two"]])
 
+    # --- regression: date_iso stored as a serial must still match (no dup) ---
+
+    @staticmethod
+    def _serial(iso: str) -> int:
+        import datetime as _dt
+        y, m, d = (int(x) for x in iso.split("-"))
+        return (_dt.date(y, m, d) - _dt.date(1899, 12, 30)).days
+
+    def test_matches_existing_serial_date_updates_not_duplicates(self):
+        # Existing row has date_iso as a SERIAL (the state after a prior
+        # USER_ENTERED update). New row carries the ISO string. They must match
+        # -> update in place, NOT append a second row for the same day.
+        sheets = MagicMock()
+        existing = self._row_cells(pr=0.75)
+        existing[0] = self._serial("2026-05-14")          # date as serial
+        sheets.read_range.return_value = [existing]
+        result = upsert_kpi_rows(sheets, [self._row_cells(pr=0.80)])
+        assert result["inserted"] == 0
+        assert result["updated"] == 1
+        sheets.append_rows.assert_not_called()            # the important guard
+        sheets.write_row.assert_called_once()
+
+    def test_matches_existing_serial_date_via_datetime_object(self):
+        # read_range can also hand back a datetime for a date cell.
+        import datetime as _dt
+        sheets = MagicMock()
+        existing = self._row_cells(pr=0.75)
+        existing[0] = _dt.datetime(2026, 5, 14)
+        sheets.read_range.return_value = [existing]
+        result = upsert_kpi_rows(sheets, [self._row_cells(pr=0.80)])
+        assert result["inserted"] == 0
+        assert result["updated"] == 1
+        sheets.append_rows.assert_not_called()
+
+    def test_plant_key_case_and_space_still_matches(self):
+        sheets = MagicMock()
+        existing = self._row_cells(plant=" p1 ")
+        sheets.read_range.return_value = [existing]
+        result = upsert_kpi_rows(sheets, [self._row_cells(plant="P1", pr=0.80)])
+        assert result["inserted"] == 0
+        assert result["updated"] == 1
+        sheets.append_rows.assert_not_called()
+
 
 # ============================================================
 # Pruning

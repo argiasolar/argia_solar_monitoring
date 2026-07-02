@@ -260,6 +260,17 @@ def create_kpi_daily_tab_if_missing(sheets: SheetsClient) -> bool:
 # ---------- upsert ----------
 
 
+def _kpi_key(date_cell, plant_cell) -> Tuple[str, str]:
+    """Normalized natural key (date_iso, plant_key) for upsert matching.
+
+    ``date_iso`` in the sheet may be TEXT ('2026-06-30', from a RAW insert) or a
+    date SERIAL (after a USER_ENTERED update reparsed it). A naive ``str()`` key
+    matches the first re-run but not the second, silently appending a duplicate.
+    Normalizing both sides with ``date_key`` makes matching type-agnostic.
+    """
+    return (date_key(date_cell), normalize_text(plant_cell).upper())
+
+
 def upsert_kpi_rows(
     sheets: SheetsClient,
     new_rows: List[List],
@@ -289,8 +300,8 @@ def upsert_kpi_rows(
                 f"expected {len(KPI_DAILY_HEADER)}"
             )
 
-    # Build key map from new rows
-    new_by_key = {(str(r[0]), str(r[1])): r for r in new_rows}
+    # Build key map from new rows (type-agnostic on date_iso)
+    new_by_key = {_kpi_key(r[0], r[1]): r for r in new_rows}
 
     # Read existing rows (raw)
     try:
@@ -306,7 +317,7 @@ def upsert_kpi_rows(
     for i, row in enumerate(existing):
         if len(row) < 2:
             continue
-        key = (str(row[0]).strip(), str(row[1]).strip())
+        key = _kpi_key(row[0], row[1])
         if not key[0] or not key[1]:
             continue
         if key in new_by_key:
@@ -324,7 +335,7 @@ def upsert_kpi_rows(
                 keys_seen.add(key)
 
     # Inserts = new_rows whose key wasn't found in existing
-    inserts = [r for r in new_rows if (str(r[0]), str(r[1])) not in keys_seen]
+    inserts = [r for r in new_rows if _kpi_key(r[0], r[1]) not in keys_seen]
 
     if dry_run:
         LOG.info(

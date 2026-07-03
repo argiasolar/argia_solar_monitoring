@@ -1,0 +1,72 @@
+name: v2-alerts-daily
+
+# Daily alert evaluation (plan #5). Runs AFTER v2-kpi-eod (which stamps the
+# aggregates this job reads: energy, specific_yield, expected_kwh, data_class).
+#
+# Evaluates yesterday's full-day data through three detectors:
+#   inverter_relative  — inverter daily energy vs plant-peer MEDIAN
+#   plant_twin_yield   — specific yield vs regional twin (SLP pair, MEX pair)
+#   energy_daily_pct   — plant energy vs expected_kwh
+# then reconciles against the Alerts ledger: new breach -> OPEN row,
+# ongoing -> last_seen refresh (no duplicate), cleared -> RESOLVED.
+#
+# Two ways to run:
+#   * SCHEDULED (daily 12:30 UTC = 06:30 MX, 30 min after kpi-eod): evaluates
+#     YESTERDAY and WRITES transitions to the Alerts tab.
+#   * MANUAL (workflow_dispatch): pick any date, dry-run by DEFAULT (evaluates
+#     + logs candidates and transitions, writes nothing until dry_run is OFF).
+
+on:
+  schedule:
+    # 12:30 UTC daily = 06:30 America/Mexico_City. Targets yesterday.
+    - cron: "30 12 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date YYYY-MM-DD (MX local). Empty = yesterday."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run (evaluate + log, write nothing)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Evaluate alerts
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ inputs.date }}"
+          fi
+          # Scheduled runs pass no inputs -> writes. Manual defaults to dry-run.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" != "false" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Running with args: ${ARGS:-<scheduled, yesterday, live>}"
+          PYTHONPATH=. python scripts/alerts_daily.py $ARGS

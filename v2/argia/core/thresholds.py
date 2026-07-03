@@ -81,6 +81,7 @@ KNOWN_METRICS: FrozenSet[str] = frozenset({
     "plant_offline",          # whole plant dark
     "pr_daily",               # end-of-day Performance Ratio
     "energy_daily_pct",       # end-of-day kWh vs expected (0-1)
+    "plant_twin_yield",       # specific yield vs regional twin (0-1 ratio)
     # Data-quality / pipeline health
     "data_stale",             # no rows arrived for X minutes during daylight
 })

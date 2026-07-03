@@ -1,0 +1,59 @@
+name: v2-alerts-snapshot
+
+# Acute (per-snapshot) alerts: fault tokens, extreme temperature, dark plant,
+# fresh data gaps — conditions trustworthy from a single sample. Runs every
+# 30 minutes during MX daylight, shortly behind telemetry collection.
+#
+# This tier only OPENS/TOUCHES alerts; the DAILY run (v2-alerts-daily) is the
+# single owner of resolution — one-way acute + daily arbitration means an
+# alert can never flap open/resolved between snapshots.
+#
+# Outside daylight the script no-ops instantly. Manual dispatch dry-runs by
+# default.
+
+on:
+  schedule:
+    # Every 30 min, 13:00-01:59 UTC = 07:00-19:59 MX (UTC-6).
+    - cron: "*/30 13-23 * * *"
+    - cron: "*/30 0-1 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (evaluate + log, write nothing)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  acute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Evaluate acute alerts
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" != "false" ]; then
+            ARGS="--dry-run"
+          fi
+          echo "Running with args: ${ARGS:-<scheduled, live>}"
+          PYTHONPATH=. python scripts/alerts_snapshot.py $ARGS

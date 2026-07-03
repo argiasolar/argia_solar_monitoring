@@ -46,6 +46,8 @@ LOG = logging.getLogger("argia.alerts.engine")
 ENGINE_METRICS = frozenset({
     "data_stale",
     "inverter_fault",
+    "inverter_temp_high",
+    "plant_offline",
     "string_fault",
     "inverter_relative",
     "energy_daily_pct",
@@ -94,6 +96,20 @@ def candidate_from_fault_breach(b) -> Candidate:
         value=float(b.samples_faulted),
         threshold=None,
         message=b.message,
+    )
+
+
+def candidate_from_acute_breach(b) -> Candidate:
+    """Map an acute.AcuteBreach to a Candidate. Keys are IDENTICAL to the
+    daily tier's for the same condition, so daily resolution applies."""
+    if b.inverter_sn:
+        key = make_inverter_alert_key(b.plant_key, b.inverter_sn, b.metric)
+    else:
+        key = make_plant_alert_key(b.plant_key, b.metric)
+    return Candidate(
+        alert_key=key, plant_key=b.plant_key, inverter_sn=b.inverter_sn,
+        metric=b.metric, severity=b.severity.value,
+        value=b.value, threshold=None, message=b.message,
     )
 
 
@@ -172,6 +188,7 @@ def reconcile_alerts(
     ledger: AlertsLedger,
     candidates: List[Candidate],
     now_utc: dt.datetime,
+    resolve_missing: bool = True,
 ) -> ReconcileResult:
     """Diff today's candidates against the ledger; apply transitions.
 
@@ -180,7 +197,11 @@ def reconcile_alerts(
     - candidate whose alert_key already has an OPEN/SILENCED record -> touch it
       (last_seen/value/message refresh; severity updated if escalated)
     - OPEN/SILENCED record for an ENGINE metric whose key is NOT in today's
-      candidates -> RESOLVE it
+      candidates -> RESOLVE it, but ONLY when ``resolve_missing`` is True.
+      The ACUTE (per-snapshot) tier runs with ``resolve_missing=False``: a
+      fault seen at 10:00 must not flap to RESOLVED at 10:05 because one
+      snapshot lacked the token — the DAILY run is the single owner of
+      resolution, arbitrating on full-day aggregates.
     - records with other metrics, or already RESOLVED -> untouched
     - duplicate candidates for one key: keep the worst (CRITICAL > WARNING)
 
@@ -215,7 +236,7 @@ def reconcile_alerts(
                                threshold=cand.threshold)
             records[i] = new
             touched.append(new)
-        elif rec.metric in ENGINE_METRICS:
+        elif resolve_missing and rec.metric in ENGINE_METRICS:
             new = resolve_alert(rec, now_utc)
             records[i] = new
             resolved.append(new)

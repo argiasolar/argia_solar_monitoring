@@ -50,6 +50,7 @@ from argia.analytics.inverter_health import (
     InverterReading,
     evaluate_inverter_relative,
 )
+from argia.analytics.acute import TEMP_CRIT_C, TEMP_WARN_C
 from argia.analytics.data_health import evaluate_data_stale
 from argia.analytics.vendor_flags import (
     STRING_BASELINE_DAYS,
@@ -174,6 +175,8 @@ def build_candidates(
     string_day: Optional[List] = None,
     string_baseline: Optional[List] = None,
     stale_breaches: Optional[List] = None,
+    temp_candidates: Optional[List[Candidate]] = None,
+    offline_candidates: Optional[List[Candidate]] = None,
 ) -> List[Candidate]:
     """Run the detector layers; map breaches to engine candidates."""
     cands: List[Candidate] = []
@@ -189,6 +192,9 @@ def build_candidates(
 
     for b in (stale_breaches or []):
         cands.append(candidate_from_stale_breach(b))
+
+    cands.extend(temp_candidates or [])
+    cands.extend(offline_candidates or [])
 
     full = {pk: v for pk, v in kpi_by_plant.items()
             if v.get("data_class") == DATA_CLASS_FULL}
@@ -206,6 +212,56 @@ def build_candidates(
         cands.append(candidate_from_expected_breach(b))
 
     return cands
+
+
+def daily_temp_candidates(bundle, portfolio) -> List[Candidate]:
+    """Daily owner of inverter_temp_high: fires on the day's MAX temperature,
+    so an acute-opened alert resolves once a full day stays below WARN."""
+    from argia.core.alerts_state import make_inverter_alert_key
+    out: List[Candidate] = []
+    for plant in portfolio.active_plants():
+        peak: Dict[str, float] = {}
+        for r in bundle.rows_for_plant(plant.plant_key):
+            if r.temperature_c is not None:
+                sn = str(r.inverter_sn).strip()
+                peak[sn] = max(peak.get(sn, -999.0), float(r.temperature_c))
+        for sn, t in sorted(peak.items()):
+            if t < TEMP_WARN_C:
+                continue
+            crit = t >= TEMP_CRIT_C
+            out.append(Candidate(
+                alert_key=make_inverter_alert_key(plant.plant_key, sn,
+                                                  "inverter_temp_high"),
+                plant_key=plant.plant_key, inverter_sn=sn,
+                metric="inverter_temp_high",
+                severity="CRITICAL" if crit else "WARNING",
+                value=round(t, 1), threshold=TEMP_CRIT_C if crit else TEMP_WARN_C,
+                message=(f"{plant.plant_key} {sn}: day-peak temperature "
+                         f"{t:.1f} degC [{'CRITICAL' if crit else 'WARNING'}]"),
+            ))
+    return out
+
+
+def daily_offline_candidates(readings: List[InverterReading]) -> List[Candidate]:
+    """Daily owner of plant_offline: a plant that HAD telemetry but produced
+    0 kWh across all inverters for the whole day."""
+    from argia.core.alerts_state import make_plant_alert_key
+    from collections import defaultdict
+    tot: Dict[str, float] = defaultdict(float)
+    n: Dict[str, int] = defaultdict(int)
+    for r in readings:
+        tot[r.plant_key] += r.value
+        n[r.plant_key] += 1
+    out: List[Candidate] = []
+    for pk in sorted(tot):
+        if n[pk] and tot[pk] <= 0:
+            out.append(Candidate(
+                alert_key=make_plant_alert_key(pk, "plant_offline"),
+                plant_key=pk, inverter_sn="", metric="plant_offline",
+                severity="CRITICAL", value=0.0, threshold=None,
+                message=f"{pk}: 0 kWh across all inverters for the day [CRITICAL]",
+            ))
+    return out
 
 
 def main(argv=None) -> int:
@@ -283,8 +339,11 @@ def main(argv=None) -> int:
     log.info("Evaluating %s: %d inverter readings, %d KPI plant rows",
              date_iso, len(readings), len(kpi))
 
-    candidates = build_candidates(readings, kpi, fault_samples,
-                                  string_day, string_baseline, stale)
+    candidates = build_candidates(
+        readings, kpi, fault_samples, string_day, string_baseline, stale,
+        temp_candidates=daily_temp_candidates(bundle, portfolio),
+        offline_candidates=daily_offline_candidates(readings),
+    )
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
     if not candidates:

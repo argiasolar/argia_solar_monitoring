@@ -34,11 +34,14 @@ import sys
 from typing import Dict, List, Tuple
 
 from argia.archive.kpi_daily import (
+    CLOUD_COVERAGE_COL_NAME,
     HOT_WINDOW_DAYS,
     classify_coverage,
     create_kpi_daily_tab_if_missing,
+    mean_cloud_cover,
     perf_to_row,
     prune_old_rows,
+    stamp_column,
     stamp_data_class,
     upsert_kpi_rows,
 )
@@ -126,6 +129,7 @@ def main(argv=None) -> int:
 
     new_rows: List = []
     coverage: Dict[Tuple[str, str], str] = {}
+    cloud_stamps: Dict[Tuple[str, str], float] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -143,6 +147,14 @@ def main(argv=None) -> int:
         coverage[(date_iso, plant.plant_key)] = classify_coverage(
             rows[-1].timestamp_utc
         )
+
+        # Daylight-mean cloud cover for the day (same 0-1 scale as v1's
+        # Cloud_Coverage). None (no usable samples) -> no stamp for this plant.
+        cc = mean_cloud_cover(
+            [(r.timestamp_utc, r.cloud_cover_pct) for r in rows]
+        )
+        if cc is not None:
+            cloud_stamps[(date_iso, plant.plant_key)] = cc
 
         energy_by_inv = compute_plant_energy(rows)
         irr = daily_irradiance_for_plant(rows, lat=plant.lat, date_iso=date_iso)
@@ -188,6 +200,15 @@ def main(argv=None) -> int:
                  {pk: cls for (_, pk), cls in coverage.items()})
         stamped = stamp_data_class(sheets, coverage, dry_run=args.dry_run)
         log.info("Stamped %d data_class cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp daylight-mean cloud cover (feeds DailyData_v2's Cloud_Coverage).
+    if cloud_stamps:
+        log.info("Cloud cover: %s",
+                 {pk: v for (_, pk), v in cloud_stamps.items()})
+        stamped = stamp_column(sheets, CLOUD_COVERAGE_COL_NAME, cloud_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d cloud_coverage_pct cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Prune (optional)

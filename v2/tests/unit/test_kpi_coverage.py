@@ -12,7 +12,9 @@ from argia.archive.kpi_daily import (
     DATA_COVERAGE_CUTOFF_HOUR,
     KPI_DAILY_TAB,
     classify_coverage,
+    mean_cloud_cover,
     normalize_kpi_date_iso,
+    stamp_column,
     stamp_data_class,
 )
 from argia.core.sheets import SheetsClient
@@ -120,6 +122,75 @@ class TestStampDataClass:
         n = stamp_data_class(c, {})
         assert n == 0
         c.read_range.assert_not_called()
+
+
+# --------------------------------------------------------------------------
+class TestMeanCloudCover:
+    def test_simple_daylight_mean(self):
+        s = [(_mx_to_utc(2026, 7, 1, 10, 0), 0.4),
+             (_mx_to_utc(2026, 7, 1, 14, 0), 0.6)]
+        assert mean_cloud_cover(s) == 0.5
+
+    def test_night_samples_excluded(self):
+        # June-30 real case: stray 00:40 rows must not skew the mean.
+        s = [(_mx_to_utc(2026, 6, 30, 0, 40), 1.0),
+             (_mx_to_utc(2026, 6, 30, 12, 0), 0.3)]
+        assert mean_cloud_cover(s) == 0.3
+
+    def test_boundaries(self):
+        # 06:00 counts, 20:00 does not.
+        s = [(_mx_to_utc(2026, 7, 1, 6, 0), 0.2),
+             (_mx_to_utc(2026, 7, 1, 20, 0), 1.0)]
+        assert mean_cloud_cover(s) == 0.2
+
+    def test_none_values_ignored(self):
+        s = [(_mx_to_utc(2026, 7, 1, 10, 0), None),
+             (_mx_to_utc(2026, 7, 1, 11, 0), 0.8)]
+        assert mean_cloud_cover(s) == 0.8
+
+    def test_no_usable_samples_returns_none(self):
+        assert mean_cloud_cover([]) is None
+        assert mean_cloud_cover([(_mx_to_utc(2026, 7, 1, 2, 0), 0.5)]) is None
+        assert mean_cloud_cover([(_mx_to_utc(2026, 7, 1, 10, 0), None)]) is None
+
+    def test_rounding(self):
+        s = [(_mx_to_utc(2026, 7, 1, 10, 0), 1/3),
+             (_mx_to_utc(2026, 7, 1, 11, 0), 1/3)]
+        assert mean_cloud_cover(s) == 0.3333
+
+
+# --------------------------------------------------------------------------
+class TestStampColumnGeneric:
+    HEADER = ["date_iso", "plant_key", "energy_kwh", "data_class",
+              "cloud_coverage_pct"]
+
+    def _client(self):
+        c = MagicMock(spec=SheetsClient)
+        c.read_range.return_value = [
+            self.HEADER,
+            [_serial(dt.date(2026, 7, 1)), "SLP1", 698.9, "full", ""],  # row 2
+        ]
+        return c
+
+    def test_stamps_named_column_by_position(self):
+        c = self._client()
+        n = stamp_column(c, "cloud_coverage_pct",
+                         {("2026-07-01", "SLP1"): 0.42})
+        assert n == 1
+        # cloud_coverage_pct is 0-based index 4 -> 1-based col 5
+        c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 5, 0.42)
+
+    def test_unknown_column_is_noop(self):
+        c = self._client()
+        n = stamp_column(c, "no_such_col", {("2026-07-01", "SLP1"): 1})
+        assert n == 0
+        c.write_cell.assert_not_called()
+
+    def test_data_class_wrapper_still_works_via_generic(self):
+        c = self._client()
+        n = stamp_data_class(c, {("2026-07-01", "SLP1"): "partial"})
+        assert n == 1
+        c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 4, "partial")
 
 
 # --------------------------------------------------------------------------

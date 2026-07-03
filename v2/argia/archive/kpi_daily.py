@@ -411,40 +411,43 @@ def classify_coverage(
     return DATA_CLASS_FULL if mx.hour >= cutoff_hour else DATA_CLASS_PARTIAL
 
 
-def stamp_data_class(
+def stamp_column(
     sheets: SheetsClient,
-    stamps: Dict[Tuple[str, str], str],
+    col_name: str,
+    stamps: Dict[Tuple[str, str], object],
     dry_run: bool = False,
 ) -> int:
-    """Write ``data_class`` for the given (date_iso, plant_key) rows.
+    """Write one named column's cells for the given (date_iso, plant_key) rows.
 
-    Surgical: reads KPI_Daily once, finds the ``data_class`` column BY NAME, maps
-    each (date, plant) to its sheet row, and writes only that one cell per row.
+    Surgical: reads KPI_Daily once, finds ``col_name`` BY NAME, maps each
+    (date, plant) to its sheet row, and writes only that one cell per row.
     Touches nothing else — safe regardless of what owns neighbouring columns.
+    Shared by data_class / cloud_coverage_pct / expected_kwh / availability.
 
     Dates are normalized with ``date_key`` on both sides because KPI_Daily stores
     ``date_iso`` as a real date (read back as a serial), so a naive string compare
-    would never match. Returns the number of cells written (0 in dry-run, or if
-    the column/rows aren't found).
+    would never match. Returns the number of cells written (counted but not
+    written in dry-run; 0 if the column/rows aren't found).
     """
     if not stamps:
         return 0
     try:
         data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
     except Exception as e:  # noqa: BLE001
-        LOG.warning("stamp_data_class: could not read %s: %s", KPI_DAILY_TAB, e)
+        LOG.warning("stamp_column(%s): could not read %s: %s",
+                    col_name, KPI_DAILY_TAB, e)
         return 0
     if not data:
         return 0
 
     header = [normalize_text(h) for h in data[0]]
-    if DATA_CLASS_COL_NAME not in header:
+    if col_name not in header:
         LOG.warning(
-            "stamp_data_class: KPI_Daily has no '%s' column; skipping",
-            DATA_CLASS_COL_NAME,
+            "stamp_column: KPI_Daily has no '%s' column; skipping",
+            col_name,
         )
         return 0
-    dc_col = header.index(DATA_CLASS_COL_NAME)   # 0-based
+    target_col = header.index(col_name)          # 0-based
     di_col = header.index("date_iso")
     pk_col = header.index("plant_key")
 
@@ -466,18 +469,73 @@ def stamp_data_class(
         row_num = key_to_row.get((d, pk))
         if row_num is None:
             LOG.warning(
-                "stamp_data_class: no KPI_Daily row for (%s, %s) — skipping",
-                date_iso, plant_key,
+                "stamp_column(%s): no KPI_Daily row for (%s, %s) — skipping",
+                col_name, date_iso, plant_key,
             )
             continue
         if dry_run:
-            LOG.info("[DRY RUN] would stamp %s row %d data_class=%s",
-                     plant_key, row_num, value)
+            LOG.info("[DRY RUN] would stamp %s row %d %s=%s",
+                     plant_key, row_num, col_name, value)
             written += 1
             continue
-        sheets.write_cell(KPI_DAILY_TAB, row_num, dc_col + 1, value)  # col is 1-based
+        sheets.write_cell(KPI_DAILY_TAB, row_num, target_col + 1, value)  # 1-based col
         written += 1
     return written
+
+
+def stamp_data_class(
+    sheets: SheetsClient,
+    stamps: Dict[Tuple[str, str], str],
+    dry_run: bool = False,
+) -> int:
+    """Write ``data_class`` for the given (date_iso, plant_key) rows.
+
+    Thin wrapper over :func:`stamp_column` kept for a stable name at the
+    call sites and in tests.
+    """
+    return stamp_column(sheets, DATA_CLASS_COL_NAME, stamps, dry_run=dry_run)
+
+
+# ---------- cloud coverage ----------
+
+CLOUD_COVERAGE_COL_NAME = "cloud_coverage_pct"
+
+# Daylight window (MX local hours, inclusive start / exclusive end) used when
+# averaging cloud cover. Cloud samples outside production hours say nothing
+# about production conditions, and June-30-style stray night rows (00:40)
+# would otherwise skew the mean.
+CLOUD_DAYLIGHT_START_HOUR = 6
+CLOUD_DAYLIGHT_END_HOUR = 20
+
+
+def mean_cloud_cover(
+    samples: List[Tuple[dt.datetime, Optional[float]]],
+) -> Optional[float]:
+    """Daylight-window mean of cloud-cover samples for one plant-day.
+
+    ``samples`` is [(timestamp_utc, cloud_cover_pct), ...] straight from the
+    telemetry rows; values stay in telemetry's native scale, which is PERCENT
+    (0-100). NOTE: v1's DailyData.Cloud_Coverage is a FRACTION (0-1), so any
+    consumer that must match v1 semantics (e.g. the DailyData_v2 QUERY at the
+    Stage 5 repoint) divides this column by 100. Verified on real days:
+    v2 62.5 / 100 = 0.625 vs v1 0.623 (SLP1 2026-06-30).
+
+    Rules:
+    - Only samples whose MX-local hour is in [06:00, 20:00) count.
+    - ``None`` values are ignored.
+    - No usable samples -> ``None`` (leave the cell alone rather than fake a 0).
+    Pure function — no I/O.
+    """
+    vals = []
+    for ts, cloud in samples:
+        if cloud is None or ts is None:
+            continue
+        mx = utc_to_mx(ts)
+        if CLOUD_DAYLIGHT_START_HOUR <= mx.hour < CLOUD_DAYLIGHT_END_HOUR:
+            vals.append(float(cloud))
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 4)
 
 
 def normalize_kpi_date_iso(sheets: SheetsClient, dry_run: bool = True) -> Dict[str, int]:

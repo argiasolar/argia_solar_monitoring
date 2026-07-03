@@ -113,6 +113,17 @@ def _severity_for(ratio: float, warn_below: float, crit_below: float) -> Optiona
     return None
 
 
+def _median(sorted_vals):
+    """Median of a pre-sorted list. Empty -> 0.0."""
+    n = len(sorted_vals)
+    if n == 0:
+        return 0.0
+    mid = n // 2
+    if n % 2:
+        return float(sorted_vals[mid])
+    return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+
+
 def evaluate_inverter_relative(
     readings: List[InverterReading],
     warn_below: float = DEFAULT_WARN_BELOW,
@@ -163,7 +174,6 @@ def evaluate_inverter_relative(
             spec = {r.inverter_sn: r.value for r in plant_readings}
 
         raw_total = sum(r.value for r in plant_readings)     # floor gate (raw)
-        spec_total = sum(spec.values())                      # ratio (specific)
 
         for r in plant_readings:
             # Floor gate on RAW peer production — "are the peers actually
@@ -172,11 +182,17 @@ def evaluate_inverter_relative(
             if raw_peer_mean <= min_peer_floor:
                 continue  # peers not producing enough to judge fairly
 
-            # Ratio in specific (per-kW) space when normalized, else raw.
-            spec_peer_mean = (spec_total - spec[r.inverter_sn]) / (n - 1)
-            if spec_peer_mean <= 0:
+            # Ratio against the peer MEDIAN in specific (per-kW) space when
+            # normalized, else raw. Median, not mean, on purpose: with a dead
+            # sibling in the plant, the leave-one-out MEAN is dragged down and
+            # masks a merely-lagging unit (real case, GTO1 2026-06-28: peers
+            # {829, 0, 773} -> mean 534 makes 462 look like a healthy 87%;
+            # median 773 correctly reads it as 60% -> CRITICAL).
+            peers = sorted(v for sn, v in spec.items() if sn != r.inverter_sn)
+            spec_peer_ref = _median(peers)
+            if spec_peer_ref <= 0:
                 continue
-            ratio = spec[r.inverter_sn] / spec_peer_mean
+            ratio = spec[r.inverter_sn] / spec_peer_ref
             peer_mean = raw_peer_mean  # reported in raw units for readability
 
             sev = _severity_for(ratio, warn_below, crit_below)

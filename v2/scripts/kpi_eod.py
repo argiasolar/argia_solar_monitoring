@@ -36,9 +36,11 @@ from typing import Dict, List, Tuple
 from argia.archive.kpi_daily import (
     AVAILABILITY_COL_NAME,
     CLOUD_COVERAGE_COL_NAME,
+    SPECIFIC_YIELD_COL_NAME,
     EXPECTED_KWH_COL_NAME,
     compute_availability,
     compute_expected_kwh,
+    compute_specific_yield,
     HOT_WINDOW_DAYS,
     classify_coverage,
     create_kpi_daily_tab_if_missing,
@@ -136,6 +138,7 @@ def main(argv=None) -> int:
     cloud_stamps: Dict[Tuple[str, str], float] = {}
     expected_stamps: Dict[Tuple[str, str], float] = {}
     avail_stamps: Dict[Tuple[str, str], float] = {}
+    sy_stamps: Dict[Tuple[str, str], float] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -195,6 +198,11 @@ def main(argv=None) -> int:
         )
         if av is not None:
             avail_stamps[(date_iso, plant.plant_key)] = av
+
+        # Specific yield (kWh/kWp) — feeds the plant-vs-twin indicator.
+        sy = compute_specific_yield(perf.energy_kwh, plant.kwp_dc)
+        if sy is not None:
+            sy_stamps[(date_iso, plant.plant_key)] = sy
         log.info(
             "[%s] energy=%s kWh  PR=%s (%s)  PR_STC=%s  Tmod=%s  CF=%s (%s)",
             plant.plant_key,
@@ -239,6 +247,15 @@ def main(argv=None) -> int:
         stamped = stamp_column(sheets, EXPECTED_KWH_COL_NAME, expected_stamps,
                                dry_run=args.dry_run)
         log.info("Stamped %d expected_kwh cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp specific yield (kWh/kWp).
+    if sy_stamps:
+        log.info("Specific yield: %s",
+                 {pk: v for (_, pk), v in sy_stamps.items()})
+        stamped = stamp_column(sheets, SPECIFIC_YIELD_COL_NAME, sy_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d specific_yield cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Stamp availability (fraction of daylight slots online, vs config).

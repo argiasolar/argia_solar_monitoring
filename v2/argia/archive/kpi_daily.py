@@ -569,6 +569,28 @@ def compute_expected_kwh(
     return round(kwp_dc * irradiance_kwh_m2 * expected_factor, 2)
 
 
+# ---------- specific yield ----------
+
+SPECIFIC_YIELD_COL_NAME = "specific_yield"
+
+
+def compute_specific_yield(
+    energy_kwh: Optional[float],
+    kwp_dc: Optional[float],
+) -> Optional[float]:
+    """Daily specific yield: ``energy_kwh / kwp_dc`` (kWh per installed kWp).
+
+    The size-fair comparison number — it's what the plant-vs-twin indicator
+    consumes. Missing or non-positive inputs -> ``None`` (never a fake 0).
+    Pure function — no I/O.
+    """
+    if energy_kwh is None or energy_kwh < 0:
+        return None
+    if not kwp_dc or kwp_dc <= 0:
+        return None
+    return round(energy_kwh / kwp_dc, 4)
+
+
 # ---------- availability ----------
 
 AVAILABILITY_COL_NAME = "availability"

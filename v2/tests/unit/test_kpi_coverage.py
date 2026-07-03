@@ -14,6 +14,7 @@ from argia.archive.kpi_daily import (
     classify_coverage,
     compute_availability,
     compute_expected_kwh,
+    compute_specific_yield,
     mean_cloud_cover,
     normalize_kpi_date_iso,
     stamp_column,
@@ -285,6 +286,22 @@ class TestComputeAvailability:
     def test_sn_whitespace_normalized(self):
         s = [self._s(10, 0, "INV1 ", 1)]
         assert compute_availability(s, [" INV1"]) == 1.0
+
+
+# --------------------------------------------------------------------------
+class TestComputeSpecificYield:
+    def test_real_slp1_day(self):
+        # SLP1 2026-07-01: 698.9 kWh / 189.2 kWp = 3.6939 kWh/kWp.
+        assert compute_specific_yield(698.9, 189.2) == 3.694
+
+    def test_zero_energy_is_valid_zero_yield(self):
+        assert compute_specific_yield(0.0, 189.2) == 0.0
+
+    def test_missing_inputs_none(self):
+        assert compute_specific_yield(None, 189.2) is None
+        assert compute_specific_yield(100.0, None) is None
+        assert compute_specific_yield(100.0, 0) is None
+        assert compute_specific_yield(-1.0, 189.2) is None
 
 
 # --------------------------------------------------------------------------

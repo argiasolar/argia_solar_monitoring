@@ -195,7 +195,7 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
 
     Stage 7.3: AB column range to fit the 2 new Plants fields. Old
     sheets with fewer columns still load (missing cells → None)."""
-    plants_raw = sheets.read_table("Plants", "A1:AB")
+    plants_raw = sheets.read_table("Plants", "A1:AZ")  # AZ: headroom — pr_baseline sits at AJ, past the old AB cutoff
     inverters_raw = sheets.read_table("Inverters", "A1:Z")
 
     plants: Dict[str, PlantConfig] = {}

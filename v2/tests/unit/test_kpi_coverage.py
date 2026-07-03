@@ -16,6 +16,7 @@ from argia.archive.kpi_daily import (
     compute_expected_kwh,
     compute_production_pct,
     compute_soiling_loss_pct,
+    gated_production_pct,
     compute_specific_yield,
     mean_cloud_cover,
     normalize_kpi_date_iso,
@@ -323,6 +324,25 @@ class TestComputeProductionPct:
         assert compute_production_pct(-1.0, 1000.0) is None
 
 
+class TestGatedProductionPct:
+    def test_plausible_day_passes_through(self):
+        assert gated_production_pct(3732.0, 4978.0, 0.5623) == 0.7497
+
+    def test_implausible_pr_clears_cell(self):
+        # Real July-1: SLP2 pr=1.2312 stamped 164% — gate returns "" so a
+        # re-run CLEARS the inflated value instead of leaving it.
+        assert gated_production_pct(1199.7, 730.83, 1.2312) == ""
+        assert gated_production_pct(698.9, 495.47, 1.0579) == ""
+
+    def test_boundary_1_05_still_plausible(self):
+        assert gated_production_pct(1050.0, 1000.0, 1.05) == 1.05
+
+    def test_missing_pr_does_not_gate(self):
+        # No PR (irradiance missing) -> compute returns None; the gate
+        # itself must not invent a "" clear.
+        assert gated_production_pct(500.0, None, None) is None
+
+
 class TestComputeSoilingLossPct:
     def test_typical_drift(self):
         # SLP1 baseline 0.82, today 0.75 -> 8.5% soiling estimate.
@@ -332,8 +352,11 @@ class TestComputeSoilingLossPct:
         assert compute_soiling_loss_pct(0.85, 0.82) == 0.0
 
     def test_implausible_pr_none(self):
-        # Sparse-irradiance artifact (PR 1.23 seen on real days) -> None.
+        # Sparse-irradiance artifact (PR 1.23 seen on real July-1) -> None.
+        # Threshold is PR_PLAUSIBLE_MAX (1.05): a fake-good PR of 1.06 vs a
+        # 0.92 baseline would otherwise stamp a fake "0% soiling".
         assert compute_soiling_loss_pct(1.23, 0.82) is None
+        assert compute_soiling_loss_pct(1.06, 0.92) is None
         assert compute_soiling_loss_pct(0.0, 0.82) is None
 
     def test_missing_baseline_none(self):

@@ -595,6 +595,28 @@ def compute_specific_yield(
 
 PRODUCTION_PCT_COL_NAME = "production_pct"
 
+PR_PLAUSIBLE_MAX = 1.05
+"""A daily PR above this is physically impossible — the irradiance input is
+undercounting (sparse ShineMaster days). On such days ``expected_kwh`` is
+understated, so production_pct would be inflated garbage (real July-1 case:
+164%) and soiling would read a fake 0. Both metrics blank instead."""
+
+
+def gated_production_pct(
+    energy_kwh: Optional[float],
+    expected_kwh: Optional[float],
+    pr: Optional[float],
+):
+    """Stamp value for production_pct with the PR plausibility gate.
+
+    Returns a float to stamp, ``""`` to CLEAR the cell (PR implausible ->
+    any previously stamped inflated value self-heals on re-run), or ``None``
+    for no stamp at all (inputs missing).
+    """
+    if pr is not None and pr > PR_PLAUSIBLE_MAX:
+        return ""
+    return compute_production_pct(energy_kwh, expected_kwh)
+
 
 def compute_production_pct(
     energy_kwh: Optional[float],
@@ -632,11 +654,12 @@ def compute_soiling_loss_pct(
     Values are a DRIFT ESTIMATE, not a measurement — everything that
     lowers PR (degradation, curtailment, a sick inverter) shows up here
     too; the layered alerts name those explicitly when present.
-    Missing pr or baseline, or an implausible pr (> 1.2, sparse-irradiance
-    artifact) -> ``None``.
+    Missing pr or baseline, or an implausible pr (> PR_PLAUSIBLE_MAX,
+    sparse-irradiance artifact — expected is understated on such days, so a
+    soiling of 0 would be fake) -> ``None``.
     Pure function — no I/O. Fraction, 4 dp.
     """
-    if pr is None or pr <= 0 or pr > 1.2:
+    if pr is None or pr <= 0 or pr > PR_PLAUSIBLE_MAX:
         return None
     if not pr_baseline or pr_baseline <= 0:
         return None

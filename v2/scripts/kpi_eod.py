@@ -43,6 +43,7 @@ from argia.archive.kpi_daily import (
     compute_availability,
     compute_expected_kwh,
     compute_production_pct,
+    gated_production_pct,
     compute_soiling_loss_pct,
     compute_specific_yield,
     HOT_WINDOW_DAYS,
@@ -214,8 +215,8 @@ def main(argv=None) -> int:
         # a partial day undercounts both energy and PR, and a stamped lie
         # is worse than a blank (data_class explains the blank).
         if coverage.get((date_iso, plant.plant_key)) == "full":
-            pp = compute_production_pct(perf.energy_kwh, exp)
-            if pp is not None:
+            pp = gated_production_pct(perf.energy_kwh, exp, perf.pr)
+            if pp is not None:   # "" is a valid stamp: clears inflated cells
                 prod_stamps[(date_iso, plant.plant_key)] = pp
             sl = compute_soiling_loss_pct(perf.pr, plant.pr_baseline)
             if sl is not None:

@@ -14,6 +14,8 @@ from argia.archive.kpi_daily import (
     classify_coverage,
     compute_availability,
     compute_expected_kwh,
+    compute_production_pct,
+    compute_soiling_loss_pct,
     compute_specific_yield,
     mean_cloud_cover,
     normalize_kpi_date_iso,
@@ -302,6 +304,41 @@ class TestComputeSpecificYield:
         assert compute_specific_yield(100.0, None) is None
         assert compute_specific_yield(100.0, 0) is None
         assert compute_specific_yield(-1.0, 189.2) is None
+
+
+# --------------------------------------------------------------------------
+class TestComputeProductionPct:
+    def test_real_july2_values_match_alert_ratios(self):
+        # Must equal what energy_daily_pct alerts computed for the same day.
+        assert compute_production_pct(3732.0, 4978.0) == 0.7497   # GTO1
+        assert compute_production_pct(2964.0, 3809.0) == 0.7782   # NL1
+
+    def test_over_100_pct_allowed(self):
+        assert compute_production_pct(1100.0, 1000.0) == 1.1
+
+    def test_missing_or_zero_inputs_none(self):
+        assert compute_production_pct(None, 1000.0) is None
+        assert compute_production_pct(500.0, None) is None
+        assert compute_production_pct(500.0, 0) is None
+        assert compute_production_pct(-1.0, 1000.0) is None
+
+
+class TestComputeSoilingLossPct:
+    def test_typical_drift(self):
+        # SLP1 baseline 0.82, today 0.75 -> 8.5% soiling estimate.
+        assert compute_soiling_loss_pct(0.75, 0.82) == 0.0854
+
+    def test_cleaner_than_baseline_is_zero_not_negative(self):
+        assert compute_soiling_loss_pct(0.85, 0.82) == 0.0
+
+    def test_implausible_pr_none(self):
+        # Sparse-irradiance artifact (PR 1.23 seen on real days) -> None.
+        assert compute_soiling_loss_pct(1.23, 0.82) is None
+        assert compute_soiling_loss_pct(0.0, 0.82) is None
+
+    def test_missing_baseline_none(self):
+        assert compute_soiling_loss_pct(0.75, None) is None
+        assert compute_soiling_loss_pct(0.75, 0) is None
 
 
 # --------------------------------------------------------------------------

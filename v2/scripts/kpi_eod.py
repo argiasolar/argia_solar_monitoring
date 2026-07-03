@@ -38,8 +38,12 @@ from argia.archive.kpi_daily import (
     CLOUD_COVERAGE_COL_NAME,
     SPECIFIC_YIELD_COL_NAME,
     EXPECTED_KWH_COL_NAME,
+    PRODUCTION_PCT_COL_NAME,
+    SOILING_LOSS_COL_NAME,
     compute_availability,
     compute_expected_kwh,
+    compute_production_pct,
+    compute_soiling_loss_pct,
     compute_specific_yield,
     HOT_WINDOW_DAYS,
     classify_coverage,
@@ -139,6 +143,8 @@ def main(argv=None) -> int:
     expected_stamps: Dict[Tuple[str, str], float] = {}
     avail_stamps: Dict[Tuple[str, str], float] = {}
     sy_stamps: Dict[Tuple[str, str], float] = {}
+    prod_stamps: Dict[Tuple[str, str], float] = {}
+    soil_stamps: Dict[Tuple[str, str], float] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -203,6 +209,17 @@ def main(argv=None) -> int:
         sy = compute_specific_yield(perf.energy_kwh, plant.kwp_dc)
         if sy is not None:
             sy_stamps[(date_iso, plant.plant_key)] = sy
+
+        # production_pct and soiling_loss_pct only make sense on FULL days:
+        # a partial day undercounts both energy and PR, and a stamped lie
+        # is worse than a blank (data_class explains the blank).
+        if coverage.get((date_iso, plant.plant_key)) == "full":
+            pp = compute_production_pct(perf.energy_kwh, exp)
+            if pp is not None:
+                prod_stamps[(date_iso, plant.plant_key)] = pp
+            sl = compute_soiling_loss_pct(perf.pr, plant.pr_baseline)
+            if sl is not None:
+                soil_stamps[(date_iso, plant.plant_key)] = sl
         log.info(
             "[%s] energy=%s kWh  PR=%s (%s)  PR_STC=%s  Tmod=%s  CF=%s (%s)",
             plant.plant_key,
@@ -256,6 +273,24 @@ def main(argv=None) -> int:
         stamped = stamp_column(sheets, SPECIFIC_YIELD_COL_NAME, sy_stamps,
                                dry_run=args.dry_run)
         log.info("Stamped %d specific_yield cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp production_pct (real vs expected) — full days only.
+    if prod_stamps:
+        log.info("Production pct: %s",
+                 {pk: v for (_, pk), v in prod_stamps.items()})
+        stamped = stamp_column(sheets, PRODUCTION_PCT_COL_NAME, prod_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d production_pct cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp soiling_loss_pct (PR drift vs clean baseline) — full days only.
+    if soil_stamps:
+        log.info("Soiling loss pct: %s",
+                 {pk: v for (_, pk), v in soil_stamps.items()})
+        stamped = stamp_column(sheets, SOILING_LOSS_COL_NAME, soil_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d soiling_loss_pct cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Stamp availability (fraction of daylight slots online, vs config).

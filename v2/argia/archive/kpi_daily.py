@@ -591,6 +591,58 @@ def compute_specific_yield(
     return round(energy_kwh / kwp_dc, 4)
 
 
+# ---------- production vs expected ----------
+
+PRODUCTION_PCT_COL_NAME = "production_pct"
+
+
+def compute_production_pct(
+    energy_kwh: Optional[float],
+    expected_kwh: Optional[float],
+) -> Optional[float]:
+    """Real production as a fraction of expected: ``energy / expected``.
+
+    The most readable plant-performance number (the 72%/111% badges of the
+    old daily report). Stored as a fraction (0.75), 4 dp — format the
+    column as % in the sheet if preferred. Missing/non-positive expected,
+    or missing energy -> ``None`` (never a fake value).
+    Pure function — no I/O.
+    """
+    if energy_kwh is None or energy_kwh < 0:
+        return None
+    if not expected_kwh or expected_kwh <= 0:
+        return None
+    return round(energy_kwh / expected_kwh, 4)
+
+
+# ---------- soiling loss ----------
+
+SOILING_LOSS_COL_NAME = "soiling_loss_pct"
+
+
+def compute_soiling_loss_pct(
+    pr: Optional[float],
+    pr_baseline: Optional[float],
+) -> Optional[float]:
+    """Estimated soiling loss: ``max(0, 1 - pr / pr_baseline)``.
+
+    ``pr_baseline`` is the plant's own clean-state PR (Plants tab; derived
+    as the P95 of 12 months of v1 daily PR). Today's PR at or above the
+    baseline reads as 0 (cleaner than clean is not negative soiling).
+    Values are a DRIFT ESTIMATE, not a measurement — everything that
+    lowers PR (degradation, curtailment, a sick inverter) shows up here
+    too; the layered alerts name those explicitly when present.
+    Missing pr or baseline, or an implausible pr (> 1.2, sparse-irradiance
+    artifact) -> ``None``.
+    Pure function — no I/O. Fraction, 4 dp.
+    """
+    if pr is None or pr <= 0 or pr > 1.2:
+        return None
+    if not pr_baseline or pr_baseline <= 0:
+        return None
+    return round(max(0.0, 1.0 - pr / pr_baseline), 4)
+
+
 # ---------- availability ----------
 
 AVAILABILITY_COL_NAME = "availability"

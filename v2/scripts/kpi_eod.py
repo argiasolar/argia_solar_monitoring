@@ -45,6 +45,7 @@ from argia.archive.kpi_daily import (
     compute_expected_kwh,
     compute_production_pct,
     gated_production_pct,
+    production_statement,
     compute_soiling_loss_pct,
     compute_specific_yield,
     HOT_WINDOW_DAYS,

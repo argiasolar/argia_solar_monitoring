@@ -321,6 +321,35 @@ class SheetsClient:
             },
         ).execute()
 
+    def delete_row_range(self, tab: str, start_row: int, end_row: int) -> None:
+        """
+        Delete rows ``start_row..end_row`` INCLUSIVE (1-indexed) in one call.
+
+        The monthly archive prunes a whole month of telemetry — thousands of
+        contiguous rows. Per-row deletion would be thousands of API calls;
+        a single ``deleteDimension`` over the block is one.
+
+        WARNING: destructive. Caller must have verified the block bounds.
+        """
+        if start_row < 1 or end_row < start_row:
+            raise ValueError(f"bad row range {start_row}..{end_row}")
+        gid = self._tab_gid(tab)
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=self.sheet_id,
+            body={
+                "requests": [{
+                    "deleteDimension": {
+                        "range": {
+                            "sheetId": gid,
+                            "dimension": "ROWS",
+                            "startIndex": start_row - 1,  # API is 0-indexed
+                            "endIndex": end_row,          # exclusive
+                        },
+                    },
+                }],
+            },
+        ).execute()
+
     def upsert_rows(
         self,
         tab: str,

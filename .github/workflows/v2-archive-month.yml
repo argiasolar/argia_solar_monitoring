@@ -1,0 +1,86 @@
+name: v2-archive-month
+
+# Monthly archive (plan #8): copy last month's rows into
+# Argia_Mont_Archive_YYYY_MM in the shared Drive folder, verify counts, then
+# prune the archived TELEMETRY rows from the live sheet. Copy -> verify ->
+# prune is a hard invariant; verification failure aborts before any delete.
+#
+# Two ways to run:
+#   * SCHEDULED (2nd of each month, 09:00 UTC = 03:00 MX): archives the
+#     PREVIOUS month with --apply. Day 2 so the 1st's EOD jobs are done.
+#   * MANUAL: pick a month; DRY RUN by default (reports counts, writes and
+#     deletes nothing). Also offers a preflight-only mode to verify Drive
+#     permissions before the first real run.
+#
+# Requires secrets: GOOGLE_SHEET_ID_V2, GOOGLE_CREDENTIALS,
+# GOOGLE_ARCHIVE_FOLDER_ID (a Drive folder shared with the service account
+# as Editor — run preflight to verify).
+
+on:
+  schedule:
+    - cron: "0 9 2 * *"
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "Month YYYY-MM. Empty = previous month."
+        required: false
+        default: ""
+        type: string
+      apply:
+        description: "Actually archive + prune (unchecked = dry run)"
+        required: false
+        default: false
+        type: boolean
+      preflight_only:
+        description: "Only run the Drive-permission preflight"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Drive preflight
+        working-directory: ./v2
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_ARCHIVE_FOLDER_ID: ${{ secrets.GOOGLE_ARCHIVE_FOLDER_ID }}
+        run: |
+          PYTHONPATH=. python scripts/archive_preflight.py
+
+      - name: Archive month
+        if: ${{ inputs.preflight_only != true }}
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_ARCHIVE_FOLDER_ID: ${{ secrets.GOOGLE_ARCHIVE_FOLDER_ID }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.month }}" ]; then
+            ARGS="$ARGS --month ${{ inputs.month }}"
+          fi
+          # Scheduled runs apply; manual runs need apply=true.
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="$ARGS --apply"
+          fi
+          echo "Running with args: ${ARGS:-<dry-run, previous month>}"
+          PYTHONPATH=. python scripts/archive_month.py $ARGS

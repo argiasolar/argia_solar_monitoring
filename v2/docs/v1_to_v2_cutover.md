@@ -69,8 +69,14 @@ named cause.
 Resolve what the reconcile surfaces: **GTO1 kwp (605.9 in v1 vs 818.33 in v2)**,
 any other kWp/tariff gaps, and `pr_baseline` (unset — needs ~30 days
 observation). This is where v2 *surpasses* v1 rather than just differing.
-**Gate:** no implausible-PR flags on full days; every config value verified
-against the physical plant, guarded by a regression test.
+Scope note: **PR > 1.0 on the ShineMaster plants (SLP1/SLP2/NL1/GTO1) is NOT a
+config bug** and must not be chased with config here — it is the sparse-irradiance
+cadence artifact fixed at **Stage 4** (see there). Stage 2 owns kwp/tariff truth
+on plants whose irradiance is already trustworthy (the cloud-model plants, or any
+plant once it is on the Pi).
+**Gate:** config-driven PR flags resolved (kwp/tariff), every config value
+verified against the physical plant and guarded by a regression test; a residual
+ShineMaster PR > 1.0 is *expected* until Stage 4 and does not block this gate.
 
 ### Stage 3 — Make v2 autonomous on GitHub
 Schedule the remaining rollups (10-min snapshot + daily production — both are
@@ -83,8 +89,28 @@ completeness not age, dry-run default). Still feeds nothing financial.
 v2 becomes the one poller. **This is where the token-collision risk permanently
 ends** — one login, one poll, no two collectors sharing a credential. v2 keeps
 writing only `Argia_Mont_v2`; it still does **not** write ARGIA_Solar.
-**Gate:** v2-on-Pi runs clean for several days; SyncRuns shows no auth/401
-storms; `KPI_Daily` keeps filling.
+
+**This stage also fixes ShineMaster irradiance (root cause verified 2026-07-02).**
+v2's daily irradiance is a trapezoidal integral of one instantaneous
+`getWeatherByPlantId` reading captured per poll. On GitHub (~1 poll/hr, drops
+runs) that is ~7 snapshots/day with the first landing mid-morning — so the ramp
+before the first sample is missing and the sparse midday points integrate low and
+*unstable* (SLP1 1-Jul: v2 3.49 vs v1 4.75 kWh/m²; GTO1 produced 1.33 **and** 3.61
+on two re-runs of the *same* day). The integrator math is correct — it is starved
+of samples. v1 already proves the Pi resolves this: same account, same feed, but
+polled ~every 10 min → ~78 samples/day → an accurate integral. The cloud-model
+plants (MEX1/MEX2) already match v1 within ~4%, which is the control that isolates
+the cause. Energy is immune because `EToday` is cumulative; irradiance is not.
+**Requirement (no irradiance code change):** on the Pi, poll the weather feed at
+~10-min cadence from dawn — do **not** inherit GitHub's hourly schedule for
+weather. Density is purely a function of poll frequency.
+
+**Gate:** v2-on-Pi runs clean for several days; SyncRuns shows no auth/401 storms;
+`KPI_Daily` keeps filling; **and** on clear, full-coverage overlap days, ShineMaster
+daily irradiance for SLP1/SLP2/NL1/GTO1 lands within ~5% of v1's `DailyData`
+(no PR > 1.0). **Verify** by re-running the reconcile / the v1-vs-v2 daily-irradiance
+comparison over post-cutover overlap — `PR-DIVERGENCE` on the ShineMaster plants
+should collapse toward `OK`.
 **Reversible:** misbehaves → re-enable v1 collector, disable v2, back to Stage 0.
 
 ### Stage 5 — Cut consumption over (the actual cutover)

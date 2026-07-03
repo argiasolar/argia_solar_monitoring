@@ -361,7 +361,14 @@ def upsert_kpi_rows(
     # Then appends
     if inserts:
         try:
-            sheets.append_rows(KPI_DAILY_TAB, inserts, value_input_option="RAW")
+            # USER_ENTERED (not RAW) so date_iso is parsed to a real date, exactly
+            # like the update path (write_row) does. A RAW insert stored date_iso
+            # as TEXT while updates stored it as a date, leaving the column mixed —
+            # which breaks the downstream QUERY(IMPORTRANGE) in ARGIA_Solar (QUERY
+            # infers one type per column and nulls the minority, dropping the
+            # text-date rows from DailyData_v2 / Reconcile). written_at_utc's ISO
+            # string is not date-parsed by Sheets, so it stays text as before.
+            sheets.append_rows(KPI_DAILY_TAB, inserts, value_input_option="USER_ENTERED")
         except Exception as e:
             LOG.error("Failed to append %d rows to %s: %s",
                       len(inserts), KPI_DAILY_TAB, e)
@@ -471,6 +478,63 @@ def stamp_data_class(
         sheets.write_cell(KPI_DAILY_TAB, row_num, dc_col + 1, value)  # col is 1-based
         written += 1
     return written
+
+
+def normalize_kpi_date_iso(sheets: SheetsClient, dry_run: bool = True) -> Dict[str, int]:
+    """One-time repair: rewrite any TEXT ``date_iso`` cell as a real date.
+
+    Old RAW inserts stored ``date_iso`` as text while updates stored it as a real
+    date, leaving the column mixed. The downstream ``QUERY(IMPORTRANGE(...))`` in
+    ARGIA_Solar infers one type per column and nulls the minority, so the text
+    rows silently drop out of DailyData_v2 / Reconcile until reformatted by hand.
+    This converts the text cells to real dates so the whole column is uniform.
+
+    ``read_range`` returns a real-date cell as a serial (number) and a text-date
+    cell as a string, so a string value is the signal that a cell needs fixing.
+    Only ``date_iso`` cells are touched — nothing else. Dry-run by default.
+    Returns counts: scanned / text_dates / fixed.
+    """
+    result = {"scanned": 0, "text_dates": 0, "fixed": 0}
+    try:
+        data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("normalize_kpi_date_iso: could not read %s: %s", KPI_DAILY_TAB, e)
+        return result
+    if not data:
+        return result
+    header = [normalize_text(h) for h in data[0]]
+    if "date_iso" not in header:
+        LOG.warning("normalize_kpi_date_iso: no date_iso column; nothing to do")
+        return result
+    di = header.index("date_iso")
+
+    for i, row in enumerate(data[1:], start=2):  # data row 1 == sheet row 2
+        if di >= len(row):
+            continue
+        cell = row[di]
+        if cell is None or cell == "":
+            continue
+        result["scanned"] += 1
+        if not isinstance(cell, str):
+            continue  # already a real date (serial number)
+        result["text_dates"] += 1
+        canon = date_key(cell)  # -> "YYYY-MM-DD" (or "" if unparseable)
+        if not canon:
+            LOG.warning("normalize_kpi_date_iso: row %d unparseable date %r — skipping",
+                        i, cell)
+            continue
+        if dry_run:
+            LOG.info("[DRY RUN] row %d: would convert text %r -> date %s", i, cell, canon)
+            result["fixed"] += 1
+            continue
+        sheets.write_cell(KPI_DAILY_TAB, i, di + 1, canon,
+                          value_input_option="USER_ENTERED")
+        result["fixed"] += 1
+
+    LOG.info("normalize_kpi_date_iso: scanned=%d text_dates=%d fixed=%d%s",
+             result["scanned"], result["text_dates"], result["fixed"],
+             " (dry-run)" if dry_run else "")
+    return result
 
 
 # ---------- pruning ----------

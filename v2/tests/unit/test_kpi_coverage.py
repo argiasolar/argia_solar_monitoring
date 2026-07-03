@@ -12,6 +12,7 @@ from argia.archive.kpi_daily import (
     DATA_COVERAGE_CUTOFF_HOUR,
     KPI_DAILY_TAB,
     classify_coverage,
+    normalize_kpi_date_iso,
     stamp_data_class,
 )
 from argia.core.sheets import SheetsClient
@@ -119,3 +120,75 @@ class TestStampDataClass:
         n = stamp_data_class(c, {})
         assert n == 0
         c.read_range.assert_not_called()
+
+
+# --------------------------------------------------------------------------
+class TestNormalizeDateIso:
+    def _client(self, rows):
+        c = MagicMock(spec=SheetsClient)
+        c.read_range.return_value = rows
+        return c
+
+    # date_iso at col A; a real-date row reads back as a serial (number), a
+    # text-date row reads back as a string.
+    def _rows(self):
+        return [
+            ["date_iso", "plant_key", "energy_kwh"],
+            [_serial(dt.date(2026, 6, 30)), "SLP1", 565.2],   # real date -> skip
+            ["2026-07-02", "SLP1", 500.0],                    # TEXT -> fix (row 3)
+            ["2026-07-02", "SLP2", 900.0],                    # TEXT -> fix (row 4)
+        ]
+
+    def test_converts_only_text_dates(self):
+        c = self._client(self._rows())
+        r = normalize_kpi_date_iso(c, dry_run=False)
+        assert r == {"scanned": 3, "text_dates": 2, "fixed": 2}
+        # two writes, both USER_ENTERED, into column A (col 1), rows 3 and 4
+        assert c.write_cell.call_count == 2
+        for call in c.write_cell.call_args_list:
+            args, kwargs = call
+            assert args[0] == KPI_DAILY_TAB
+            assert args[2] == 1  # column A
+            assert kwargs.get("value_input_option") == "USER_ENTERED"
+        written_rows = {call.args[1] for call in c.write_cell.call_args_list}
+        assert written_rows == {3, 4}
+
+    def test_writes_canonical_iso_date(self):
+        c = self._client([
+            ["date_iso", "plant_key"],
+            ["7/2/2026", "SLP1"],   # US-format text -> canonicalized
+        ])
+        normalize_kpi_date_iso(c, dry_run=False)
+        args, _ = c.write_cell.call_args
+        assert args[3] == "2026-07-02"
+
+    def test_dry_run_writes_nothing(self):
+        c = self._client(self._rows())
+        r = normalize_kpi_date_iso(c, dry_run=True)
+        assert r["fixed"] == 2          # counted as would-fix
+        c.write_cell.assert_not_called()
+
+    def test_all_real_dates_is_noop(self):
+        c = self._client([
+            ["date_iso", "plant_key"],
+            [_serial(dt.date(2026, 6, 30)), "SLP1"],
+            [_serial(dt.date(2026, 7, 1)), "SLP2"],
+        ])
+        r = normalize_kpi_date_iso(c, dry_run=False)
+        assert r == {"scanned": 2, "text_dates": 0, "fixed": 2 - 2}
+        c.write_cell.assert_not_called()
+
+    def test_unparseable_text_is_skipped(self):
+        c = self._client([
+            ["date_iso", "plant_key"],
+            ["not-a-date", "SLP1"],
+        ])
+        r = normalize_kpi_date_iso(c, dry_run=False)
+        assert r["text_dates"] == 1 and r["fixed"] == 0
+        c.write_cell.assert_not_called()
+
+    def test_missing_column_is_noop(self):
+        c = self._client([["plant_key", "energy_kwh"], ["SLP1", 1.0]])
+        r = normalize_kpi_date_iso(c, dry_run=False)
+        assert r["fixed"] == 0
+        c.write_cell.assert_not_called()

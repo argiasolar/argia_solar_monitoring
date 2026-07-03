@@ -224,6 +224,16 @@ class TestUpsert:
         assert result["updated"] == 0
         sheets.append_rows.assert_called_once()
 
+    def test_insert_uses_user_entered_so_date_iso_is_a_real_date(self):
+        # Regression: RAW inserts stored date_iso as text, leaving the column
+        # mixed and breaking the downstream QUERY(IMPORTRANGE). Inserts must use
+        # USER_ENTERED so Sheets parses date_iso to a real date.
+        sheets = MagicMock()
+        sheets.read_range.return_value = []
+        upsert_kpi_rows(sheets, [self._row_cells()])
+        _, kwargs = sheets.append_rows.call_args
+        assert kwargs.get("value_input_option") == "USER_ENTERED"
+
     def test_updates_existing_row(self):
         sheets = MagicMock()
         sheets.read_range.return_value = [

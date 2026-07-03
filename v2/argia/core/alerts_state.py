@@ -73,6 +73,7 @@ ALERTS_HEADER = [
     "metric", "severity", "state",
     "opened_utc", "last_seen_utc", "resolved_utc",
     "value", "threshold", "message", "channels_sent",
+    "explanation",
 ]
 
 
@@ -97,6 +98,7 @@ class AlertRecord:
     threshold: Optional[float]
     message: str
     channels_sent: str      # comma-separated, e.g. "sheet,email"
+    explanation: str = ""   # plain-language meaning + what to check
 
     def is_open(self) -> bool:
         return self.state == AlertState.OPEN
@@ -207,7 +209,7 @@ def load_alerts_ledger(sheets: SheetsClient) -> AlertsLedger:
     """Read the Alerts tab. Returns an empty ledger if the tab doesn't
     exist or has no rows — that's the first-run state and not an error."""
     try:
-        rows = sheets.read_table("Alerts", "A1:N")
+        rows = sheets.read_table("Alerts", "A1:O")
     except Exception as e:
         LOG.warning(
             "Could not read Alerts tab (%s). Returning empty ledger.", e,
@@ -236,6 +238,7 @@ def load_alerts_ledger(sheets: SheetsClient) -> AlertsLedger:
             threshold=safe_float(row.get("threshold")),
             message=normalize_text(row.get("message")),
             channels_sent=normalize_text(row.get("channels_sent")),
+            explanation=normalize_text(row.get("explanation")),
         ))
 
     LOG.info(
@@ -264,6 +267,7 @@ def open_alert(
     value: Optional[float],
     threshold: Optional[float],
     message: str,
+    explanation: str = "",
 ) -> AlertRecord:
     """Build a brand-new OPEN alert record."""
     ts = _iso(now_utc)
@@ -282,6 +286,7 @@ def open_alert(
         threshold=threshold,
         message=message,
         channels_sent="",
+        explanation=explanation,
     )
 
 
@@ -368,6 +373,7 @@ def record_to_row(record: AlertRecord) -> List:
         "" if record.threshold is None else record.threshold,
         record.message,
         record.channels_sent,
+        record.explanation,
     ]
 
 
@@ -386,8 +392,17 @@ def create_alerts_tab_if_missing(sheets: SheetsClient) -> bool:
 
     Returns True if it created the tab, False if already present."""
     sheets.ensure_tab("Alerts")
-    existing = sheets.read_range("Alerts", "A1:N1")
-    if existing and any(str(c).strip() for c in (existing[0] if existing else [])):
+    existing = sheets.read_range("Alerts", "A1:O1")
+    hdr = [str(c).strip() for c in (existing[0] if existing else [])]
+    if hdr and any(hdr):
+        if len([h for h in hdr if h]) < len(ALERTS_HEADER):
+            # schema grew (e.g. the 'explanation' column) — extend the
+            # header in place; existing rows keep working, new writes fill
+            # the new column(s).
+            sheets.write_header_row("Alerts", ALERTS_HEADER)
+            LOG.info("Alerts header extended to %d columns",
+                     len(ALERTS_HEADER))
+            return False
         LOG.info("Alerts tab already has a header — leaving alone")
         return False
     sheets.ensure_header("Alerts", ALERTS_HEADER)

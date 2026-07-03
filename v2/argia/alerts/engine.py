@@ -27,6 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from argia.alerts.explanations import explain
 from argia.core.alerts_state import (
     AlertRecord,
     AlertsLedger,
@@ -230,10 +231,15 @@ def reconcile_alerts(
             new = touch_alert(rec, now_utc, value=cand.value,
                               message=cand.message)
             if cand.severity != new.severity:
-                # escalation/de-escalation: reflect current severity in place
+                # escalation/de-escalation: reflect current severity in
+                # place, and refresh the explanation (its urgency prefix
+                # depends on severity)
                 from dataclasses import replace as _replace
                 new = _replace(new, severity=cand.severity,
-                               threshold=cand.threshold)
+                               threshold=cand.threshold,
+                               explanation=explain(cand.metric,
+                                                   cand.severity,
+                                                   cand.value))
             records[i] = new
             touched.append(new)
         elif resolve_missing and rec.metric in ENGINE_METRICS:
@@ -258,6 +264,7 @@ def reconcile_alerts(
             value=cand.value,
             threshold=cand.threshold,
             message=cand.message,
+            explanation=explain(cand.metric, cand.severity, cand.value),
         )
         seq += 1
         records.append(rec)

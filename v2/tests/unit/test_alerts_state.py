@@ -62,8 +62,8 @@ def _open_record(now=None, **overrides):
 
 
 class TestHeader:
-    def test_header_has_14_cols(self):
-        assert len(ALERTS_HEADER) == 14
+    def test_header_has_15_cols(self):
+        assert len(ALERTS_HEADER) == 15
 
     def test_header_columns(self):
         # If you change the order, the migration matters — pin it.
@@ -72,6 +72,7 @@ class TestHeader:
             "metric", "severity", "state",
             "opened_utc", "last_seen_utc", "resolved_utc",
             "value", "threshold", "message", "channels_sent",
+            "explanation",
         ]
 
 
@@ -348,10 +349,10 @@ class TestAlertsLedger:
 
 
 class TestRecordToRow:
-    def test_row_has_14_cols(self):
+    def test_row_has_15_cols(self):
         rec = _open_record()
         row = record_to_row(rec)
-        assert len(row) == 14
+        assert len(row) == 15
 
     def test_columns_in_header_order(self):
         rec = _open_record(value=0.6, threshold=0.75)

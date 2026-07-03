@@ -34,6 +34,25 @@ columns wide; 500 rows keeps each request payload well under API limits."""
 CELL_BUDGET_WARN = 8_000_000
 """Warn when the projected archive size approaches the 10M-cell limit."""
 
+# Columns that are real datetimes in the live sheet. Read as
+# UNFORMATTED_VALUE they come back as serial numbers; written RAW they'd
+# display as 46174.12... unless the archive re-applies a date format.
+# (timestamp_utc / *_utc columns are TEXT at the source and copy verbatim.)
+DATETIME_FORMATS = {
+    "date_iso": "yyyy-mm-dd",
+    "timestamp_mx": "yyyy-mm-dd hh:mm:ss",
+}
+
+
+def datetime_format_columns(header: List[str]) -> List[Tuple[int, str]]:
+    """(1-based column, pattern) for every datetime column in ``header``."""
+    out: List[Tuple[int, str]] = []
+    for i, h in enumerate(header, start=1):
+        pattern = DATETIME_FORMATS.get(str(h).strip())
+        if pattern:
+            out.append((i, pattern))
+    return out
+
 
 def month_title(month: str) -> str:
     y, m = (int(x) for x in month.split("-"))

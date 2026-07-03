@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from argia.archive.monthly import (
     MonthBlock,
     chunk_rows,
+    datetime_format_columns,
     locate_month_block,
     month_title,
     previous_month,
@@ -162,3 +163,69 @@ class TestDeleteRowRange:
         c.sheet_id = "SID"; c._svc = MagicMock(); c._tab_gid = lambda t: 1
         with pytest.raises(ValueError):
             c.delete_row_range("T", 10, 5)
+
+
+class TestDatetimeFormatColumns:
+    def test_kpi_header_maps_date_iso(self):
+        cols = datetime_format_columns(["date_iso", "plant_key", "energy_kwh"])
+        assert cols == [(1, "yyyy-mm-dd")]
+
+    def test_telemetry_header_maps_timestamp_mx_only(self):
+        # timestamp_utc is TEXT at the source — must NOT be reformatted.
+        cols = datetime_format_columns(
+            ["timestamp_utc", "timestamp_mx", "vendor"])
+        assert cols == [(2, "yyyy-mm-dd hh:mm:ss")]
+
+    def test_no_datetime_columns(self):
+        assert datetime_format_columns(["alert_id", "opened_utc"]) == []
+
+
+class TestFormattingRequestShapes:
+    def _client(self):
+        from argia.core.sheets import SheetsClient
+        c = SheetsClient.__new__(SheetsClient)
+        c.sheet_id = "SID"
+        c._svc = MagicMock()
+        c._tab_gid = lambda tab: 42
+        return c
+
+    def test_format_datetime_column(self):
+        c = self._client()
+        c.format_datetime_column("KPI_Daily", 1, "yyyy-mm-dd")
+        body = c._svc.spreadsheets().batchUpdate.call_args.kwargs["body"]
+        req = body["requests"][0]["repeatCell"]
+        assert req["range"] == {"sheetId": 42, "startRowIndex": 1,
+                                "startColumnIndex": 0, "endColumnIndex": 1}
+        nf = req["cell"]["userEnteredFormat"]["numberFormat"]
+        assert nf == {"type": "DATE_TIME", "pattern": "yyyy-mm-dd"}
+
+    def test_freeze_and_bold_header(self):
+        c = self._client()
+        c.freeze_and_bold_header("T")
+        body = c._svc.spreadsheets().batchUpdate.call_args.kwargs["body"]
+        kinds = [list(r)[0] for r in body["requests"]]
+        assert kinds == ["updateSheetProperties", "repeatCell"]
+        props = body["requests"][0]["updateSheetProperties"]["properties"]
+        assert props["gridProperties"] == {"frozenRowCount": 1}
+
+    def test_delete_tab_refuses_last_tab(self):
+        c = self._client()
+        c._svc.spreadsheets().get().execute.return_value = {
+            "sheets": [{"properties": {"sheetId": 42}}]}
+        assert c.delete_tab_if_exists("Sheet1") is False
+        c._svc.spreadsheets().batchUpdate.assert_not_called()
+
+    def test_delete_tab_deletes_when_others_exist(self):
+        c = self._client()
+        c._svc.spreadsheets().get().execute.return_value = {
+            "sheets": [{"properties": {"sheetId": 42}},
+                       {"properties": {"sheetId": 7}}]}
+        assert c.delete_tab_if_exists("Sheet1") is True
+        body = c._svc.spreadsheets().batchUpdate.call_args.kwargs["body"]
+        assert body["requests"][0]["deleteSheet"]["sheetId"] == 42
+
+    def test_delete_tab_absent_is_noop(self):
+        c = self._client()
+        def boom(tab): raise KeyError(tab)
+        c._tab_gid = boom
+        assert c.delete_tab_if_exists("Sheet1") is False

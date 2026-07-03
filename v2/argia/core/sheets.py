@@ -350,6 +350,66 @@ class SheetsClient:
             },
         ).execute()
 
+    def format_datetime_column(self, tab: str, col: int,
+                               pattern: str = "yyyy-mm-dd hh:mm:ss") -> None:
+        """Apply a date/datetime number format to one column (1-indexed),
+        rows 2..end. A datetime cell read as UNFORMATTED_VALUE and written
+        back RAW is a bare serial number — this makes it display as a date
+        again."""
+        gid = self._tab_gid(tab)
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=self.sheet_id,
+            body={"requests": [{
+                "repeatCell": {
+                    "range": {"sheetId": gid, "startRowIndex": 1,
+                              "startColumnIndex": col - 1,
+                              "endColumnIndex": col},
+                    "cell": {"userEnteredFormat": {
+                        "numberFormat": {"type": "DATE_TIME",
+                                         "pattern": pattern}}},
+                    "fields": "userEnteredFormat.numberFormat",
+                },
+            }]},
+        ).execute()
+
+    def freeze_and_bold_header(self, tab: str) -> None:
+        """Freeze row 1 and make it bold — the standard tab header look."""
+        gid = self._tab_gid(tab)
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=self.sheet_id,
+            body={"requests": [
+                {"updateSheetProperties": {
+                    "properties": {"sheetId": gid,
+                                   "gridProperties": {"frozenRowCount": 1}},
+                    "fields": "gridProperties.frozenRowCount"}},
+                {"repeatCell": {
+                    "range": {"sheetId": gid, "startRowIndex": 0,
+                              "endRowIndex": 1},
+                    "cell": {"userEnteredFormat": {
+                        "textFormat": {"bold": True}}},
+                    "fields": "userEnteredFormat.textFormat.bold"}},
+            ]},
+        ).execute()
+
+    def delete_tab_if_exists(self, tab: str) -> bool:
+        """Delete a tab by name if present (e.g. the default 'Sheet1' left
+        behind when a spreadsheet is created). Returns True if deleted.
+        Refuses to delete the only remaining tab (API would reject it)."""
+        try:
+            gid = self._tab_gid(tab)
+        except Exception:  # noqa: BLE001 — tab absent
+            return False
+        meta = self._svc.spreadsheets().get(
+            spreadsheetId=self.sheet_id, fields="sheets(properties(sheetId))"
+        ).execute()
+        if len(meta.get("sheets", [])) <= 1:
+            return False
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=self.sheet_id,
+            body={"requests": [{"deleteSheet": {"sheetId": gid}}]},
+        ).execute()
+        return True
+
     def upsert_rows(
         self,
         tab: str,

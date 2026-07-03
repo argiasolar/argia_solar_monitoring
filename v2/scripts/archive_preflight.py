@@ -74,9 +74,17 @@ def main() -> int:
         log.info("PASS [4/4] create+trash in folder works (test file "
                  "trashed)")
     except Exception as e:  # noqa: BLE001
+        quota = "storageQuotaExceeded" in str(e)
         log.error(
             "FAIL [4/4] could not create a spreadsheet in the folder: %s\n"
-            "  Remedy: the share must be EDITOR (not Viewer).", e)
+            "  Remedy: %s", e,
+            ("service accounts have ZERO Drive storage quota, and files in a\n"
+             "  My-Drive folder are owned by their creator. Use a SHARED DRIVE\n"
+             "  instead: create one (left sidebar -> Shared drives), add the\n"
+             "  service account as Content manager, and point\n"
+             "  GOOGLE_ARCHIVE_FOLDER_ID at it."
+             if quota else
+             "the share must grant write access (Editor / Content manager)."))
         return 1
 
     log.info("\nAll preflight checks passed — the monthly archive can run.")

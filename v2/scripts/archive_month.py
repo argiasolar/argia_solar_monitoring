@@ -39,6 +39,7 @@ from argia.archive.monthly import (
     CELL_BUDGET_WARN,
     MonthBlock,
     chunk_rows,
+    datetime_format_columns,
     locate_month_block,
     month_title,
     previous_month,
@@ -187,8 +188,21 @@ def main(argv=None) -> int:
         log.info(msg)
         if ok:
             verified.append(x)
+            # presentation: header + datetime display (idempotent, so a
+            # re-run also repairs an earlier archive created without it)
+            try:
+                archive.freeze_and_bold_header(b.tab)
+                for col, pattern in datetime_format_columns(b.header):
+                    archive.format_datetime_column(b.tab, col, pattern)
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s: formatting failed (data unaffected): %s",
+                            b.tab, e)
         else:
             failures += 1
+
+    # drop the default empty tab left by spreadsheet creation
+    if archive.delete_tab_if_exists("Sheet1"):
+        log.info("Removed default 'Sheet1' from the archive")
 
     if failures:
         log.error("%d tab(s) failed verification — NOTHING pruned (exit 1)",

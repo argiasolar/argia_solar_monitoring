@@ -40,6 +40,8 @@ from argia.alerts.engine import (
     Candidate,
     candidate_from_expected_breach,
     candidate_from_fault_breach,
+    candidate_from_stale_breach,
+    candidate_from_string_breach,
     candidate_from_relative_breach,
     candidate_from_twin_breach,
     reconcile_alerts,
@@ -48,7 +50,12 @@ from argia.analytics.inverter_health import (
     InverterReading,
     evaluate_inverter_relative,
 )
-from argia.analytics.vendor_flags import evaluate_inverter_faults
+from argia.analytics.data_health import evaluate_data_stale
+from argia.analytics.vendor_flags import (
+    STRING_BASELINE_DAYS,
+    evaluate_inverter_faults,
+    evaluate_string_new_bits,
+)
 from argia.analytics.perf_indicators import (
     evaluate_energy_vs_expected,
     evaluate_plant_twins,
@@ -107,10 +114,66 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
     return out
 
 
+def _read_string_samples(sheets, portfolio, date_iso: str):
+    """Read str_break/str_unmatch/str_unblance from the deep per-plant tabs.
+
+    Returns (day_samples, baseline_samples) shaped for
+    ``evaluate_string_new_bits``. Plants without a deep tab, or whose tab
+    lacks the string columns (non-Growatt schemas leave them blank), simply
+    contribute nothing — string alerting degrades gracefully per plant.
+    """
+    import datetime as _dt
+    y, m, d = (int(x) for x in date_iso.split("-"))
+    day0 = _dt.date(y, m, d)
+    base_start = (day0 - _dt.timedelta(days=STRING_BASELINE_DAYS)).isoformat()
+    cols = ("str_break", "str_unmatch", "str_unblance")
+    day_s, base_s = [], []
+    for plant in portfolio.active_plants():
+        tab = f"Telemetry_{plant.plant_key}"
+        try:
+            data = sheets.read_range(tab, "A1:ZZ")
+        except Exception as e:  # noqa: BLE001
+            log.info("string flags: no deep tab for %s (%s) — skipped",
+                     plant.plant_key, e)
+            continue
+        if not data:
+            continue
+        header = [normalize_text(h) for h in data[0]]
+        if not all(c in header for c in cols) or "timestamp_utc" not in header:
+            continue
+        ic = {c: header.index(c) for c in cols}
+        iu = header.index("timestamp_utc")
+        isn = header.index("inverter_sn")
+        imx = header.index("timestamp_mx") if "timestamp_mx" in header else None
+        for row in data[1:]:
+            if iu >= len(row) or isn >= len(row):
+                continue
+            mx_day = str(row[imx])[:10] if imx is not None else ""
+            if not (base_start <= mx_day <= date_iso):
+                continue
+            try:
+                ts = _dt.datetime.fromisoformat(
+                    str(row[iu]).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+            except ValueError:
+                continue
+            vals = {c: (row[ic[c]] if ic[c] < len(row) else None) for c in cols}
+            entry = (ts, plant.plant_key, str(row[isn]), vals)
+            if mx_day == date_iso:
+                day_s.append(entry)
+            else:
+                base_s.append(entry)
+    return day_s, base_s
+
+
 def build_candidates(
     per_inverter_kwh: List[InverterReading],
     kpi_by_plant: Dict[str, Dict],
     fault_samples: Optional[List] = None,
+    string_day: Optional[List] = None,
+    string_baseline: Optional[List] = None,
+    stale_breaches: Optional[List] = None,
 ) -> List[Candidate]:
     """Run the detector layers; map breaches to engine candidates."""
     cands: List[Candidate] = []
@@ -120,6 +183,12 @@ def build_candidates(
 
     for b in evaluate_inverter_faults(fault_samples or []):
         cands.append(candidate_from_fault_breach(b))
+
+    for b in evaluate_string_new_bits(string_day or [], string_baseline or []):
+        cands.append(candidate_from_string_breach(b))
+
+    for b in (stale_breaches or []):
+        cands.append(candidate_from_stale_breach(b))
 
     full = {pk: v for pk, v in kpi_by_plant.items()
             if v.get("data_class") == DATA_CLASS_FULL}
@@ -198,12 +267,24 @@ def main(argv=None) -> int:
                 (r.timestamp_utc, plant.plant_key, r.inverter_sn, r.fault_code)
             )
 
+    # --- data staleness: bundle timestamps per plant (zero rows = breach) ---
+    ts_by_plant = {p.plant_key: [r.timestamp_utc
+                                 for r in bundle.rows_for_plant(p.plant_key)]
+                   for p in portfolio.active_plants()}
+    stale = evaluate_data_stale(
+        ts_by_plant, [p.plant_key for p in portfolio.active_plants()], date_iso)
+
+    # --- string flags: deep per-plant tabs, day vs trailing baseline ---
+    string_day, string_baseline = _read_string_samples(
+        sheets, portfolio, date_iso)
+
     # --- plant-level aggregates from KPI_Daily (stamped by kpi_eod) ---
     kpi = _read_kpi_day(sheets, date_iso)
     log.info("Evaluating %s: %d inverter readings, %d KPI plant rows",
              date_iso, len(readings), len(kpi))
 
-    candidates = build_candidates(readings, kpi, fault_samples)
+    candidates = build_candidates(readings, kpi, fault_samples,
+                                  string_day, string_baseline, stale)
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
     if not candidates:

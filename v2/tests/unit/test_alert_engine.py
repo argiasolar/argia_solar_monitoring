@@ -88,12 +88,11 @@ class TestReconcileLifecycle:
         assert day2.records[0].threshold == 0.70
 
     def test_foreign_metric_rows_left_alone(self):
-        # A manual/other-engine OPEN row must never be auto-resolved.
+        # A manual/other-engine OPEN row (metric NOT in ENGINE_METRICS, e.g.
+        # pr_daily) must never be auto-resolved when absent from candidates.
         day1 = reconcile_alerts(
-            _ledger(), [_cand(key="slp1:plant:data_stale", plant="SLP1",
-                              sn="", metric="data_stale", sev="WARNING")], NOW)
-        # data_stale is NOT in ENGINE_METRICS... but it was opened above by us.
-        # Simulate it as pre-existing, then run with no candidates:
+            _ledger(), [_cand(key="slp1:plant:pr_daily", plant="SLP1",
+                              sn="", metric="pr_daily", sev="WARNING")], NOW)
         day2 = reconcile_alerts(_ledger(day1.records), [], LATER)
         assert not day2.resolved                           # untouched
         assert day2.records[0].state is AlertState.OPEN

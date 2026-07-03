@@ -126,3 +126,102 @@ def evaluate_inverter_faults(
             ),
         ))
     return breaches
+
+
+# ---------- string flags: new-bit change detection ----------
+#
+# str_break / str_unmatch are BITMASKS and, verified on real data
+# (2026-07-03), they are dominated by CHRONIC artifacts: healthy inverters
+# carry the same bits every day since records began (GTO1 JFM7DXN00T
+# break:15 daily; NL1 JGMAE65009 break:13 daily) while producing within 1%
+# of peers. Alerting on "non-zero" would create 8 permanent false alarms.
+# What IS signal: a NEW bit appearing vs the inverter's own trailing
+# baseline — the currently-faulting GTO1 JFM7DXN013 grew unmatch:10,11 on
+# 2026-06-01 and break:4 on 2026-06-02, weeks before its FT=302 fault.
+
+STRING_BASELINE_DAYS = 14
+"""Trailing window that defines an inverter's chronic-bit baseline."""
+
+MIN_BIT_SAMPLES = 2
+"""A new bit must appear in at least this many daylight samples to fire."""
+
+_STRING_COLS = ("str_break", "str_unmatch", "str_unblance")
+
+
+def _bits(value) -> frozenset:
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return frozenset()
+    if v <= 0:
+        return frozenset()
+    return frozenset(i for i in range(32) if v >> i & 1)
+
+
+@dataclass(frozen=True)
+class StringBitBreach:
+    """An inverter reporting string-flag bits it never reported before."""
+
+    plant_key: str
+    inverter_sn: str
+    new_bits: str          # e.g. "unmatch:10, unmatch:11"
+    severity: Severity
+    message: str
+
+
+def evaluate_string_new_bits(
+    day_samples: List[Tuple[dt.datetime, str, str, Dict[str, object]]],
+    baseline_samples: List[Tuple[dt.datetime, str, str, Dict[str, object]]],
+    min_samples: int = MIN_BIT_SAMPLES,
+) -> List[StringBitBreach]:
+    """Flag string-diagnostic bits present today but absent from the
+    inverter's own trailing baseline.
+
+    Samples are ``(timestamp_utc, plant_key, inverter_sn, cols)`` where
+    ``cols`` maps str_break/str_unmatch/str_unblance to their raw values.
+    Day samples are daylight-filtered; the baseline is NOT (a chronic bit is
+    chronic whenever it appears). A new bit needs ``min_samples`` daylight
+    occurrences today so a single glitchy read cannot fire. Severity is
+    WARNING: it names a lead to inspect; actual production loss is the
+    production detectors' job.
+
+    Pure function — no I/O.
+    """
+    # bit -> count for today (daylight only)
+    day_counts: Dict[Tuple[str, str], Counter] = defaultdict(Counter)
+    for ts, plant_key, sn, cols in day_samples:
+        if ts is None:
+            continue
+        mx = utc_to_mx(ts)
+        if not (CLOUD_DAYLIGHT_START_HOUR <= mx.hour < CLOUD_DAYLIGHT_END_HOUR):
+            continue
+        key = (str(plant_key).strip(), str(sn).strip())
+        for col in _STRING_COLS:
+            for b in _bits(cols.get(col)):
+                day_counts[key][f"{col[4:]}:{b}"] += 1
+
+    baseline: Dict[Tuple[str, str], set] = defaultdict(set)
+    for _ts, plant_key, sn, cols in baseline_samples:
+        key = (str(plant_key).strip(), str(sn).strip())
+        for col in _STRING_COLS:
+            baseline[key] |= {f"{col[4:]}:{b}" for b in _bits(cols.get(col))}
+
+    breaches: List[StringBitBreach] = []
+    for key, counts in sorted(day_counts.items()):
+        new = sorted(b for b, n in counts.items()
+                     if n >= min_samples and b not in baseline[key])
+        if not new:
+            continue
+        plant_key, sn = key
+        bits_txt = ", ".join(new)
+        breaches.append(StringBitBreach(
+            plant_key=plant_key,
+            inverter_sn=sn,
+            new_bits=bits_txt,
+            severity=Severity.WARNING,
+            message=(
+                f"{plant_key} {sn}: NEW string-diagnostic bit(s) [{bits_txt}] "
+                f"not seen in prior {STRING_BASELINE_DAYS} days [WARNING]"
+            ),
+        ))
+    return breaches

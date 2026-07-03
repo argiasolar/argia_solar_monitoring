@@ -110,6 +110,29 @@ class TestEvaluateAcute:
             "mex1:plant:plant_offline"
 
 
+class TestAbsentPlantGap:
+    def test_absent_plant_fires_when_tail_span_known(self):
+        samples = [_s(10, "A", plant="GTO1")]      # MEX1 absent
+        b = [x for x in evaluate_acute(samples, PLANTS, NOW,
+                                       absent_gap_hours=4.0)
+             if x.metric == "data_stale"]
+        assert len(b) == 1 and b[0].plant_key == "MEX1"
+        assert b[0].value == 4.0
+
+    def test_absent_plant_silent_without_span(self):
+        # Full-day callers / short tails: conservative, daily owns it.
+        samples = [_s(10, "A", plant="GTO1")]
+        assert all(x.plant_key != "MEX1"
+                   for x in evaluate_acute(samples, PLANTS, NOW))
+
+    def test_short_span_does_not_fire(self):
+        samples = [_s(10, "A", plant="GTO1")]
+        b = [x for x in evaluate_acute(samples, PLANTS, NOW,
+                                       absent_gap_hours=1.0)
+             if x.plant_key == "MEX1"]
+        assert b == []
+
+
 class TestTwoTierResolution:
     def _acute_cand(self):
         return Candidate(alert_key="gto1:inv:a:inverter_fault",

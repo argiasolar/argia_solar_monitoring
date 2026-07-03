@@ -50,8 +50,8 @@ from argia.core.alerts_state import (
 )
 from argia.core.config import load_portfolio
 from argia.core.sheets import SheetsClient
+from argia.core.normalize import normalize_text, safe_float
 from argia.core.time_utils import UTC, now_mx
-from argia.kpi import read_day_bundle
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +59,68 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("argia.alerts_snapshot")
+
+TAIL_ROWS = 600
+"""How many trailing telemetry rows to read. The tab is append-ordered, so
+the tail IS the newest data. 600 rows spans ~2 days at today's GitHub
+cadence and ~4-5 h at the Pi's future 10-min cadence — far more than the
+45-min freshness window and the 2 h acute-gap check need. Reading the tail
+instead of the whole tab (13k+ rows, growing daily) cuts the per-run
+payload ~20x, and the ratio improves as the tab grows."""
+
+TELEMETRY_TAB = "Telemetry_Argia"
+
+
+def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
+    """Read only the tail of Telemetry_Argia and parse the acute fields.
+
+    Two cheap reads: column A for the used-row count, then the last
+    ``tail_rows`` data rows. Fields resolved BY HEADER NAME, so column
+    reordering can't silently break parsing.
+    Returns (samples, tail_span_hours): samples shaped for
+    ``evaluate_acute``; tail_span_hours = coverage of the tail, used to
+    report plants entirely absent from it.
+    """
+    header = [normalize_text(h) for h in
+              (sheets.read_range(TELEMETRY_TAB, "A1:ZZ1") or [[]])[0]]
+    need = ("timestamp_utc", "plant_key", "inverter_sn", "power_w",
+            "temperature_c", "status", "fault_code")
+    if not all(n in header for n in need):
+        raise RuntimeError(f"{TELEMETRY_TAB} missing columns for acute parse")
+    idx = {n: header.index(n) for n in need}
+    end_col_i = max(idx.values())
+    end_col = chr(ord("A") + end_col_i) if end_col_i < 26 else "A" + chr(ord("A") + end_col_i - 26)
+
+    n_rows = len(sheets.read_range(TELEMETRY_TAB, "A:A"))
+    start = max(2, n_rows - tail_rows + 1)
+    data = sheets.read_range(TELEMETRY_TAB, f"A{start}:{end_col}{n_rows}")
+
+    samples = []
+    for row in data:
+        def cell(name):
+            i = idx[name]
+            return row[i] if i < len(row) else None
+        try:
+            ts = dt.datetime.fromisoformat(
+                str(cell("timestamp_utc")).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        st = cell("status")
+        samples.append((
+            ts, str(cell("plant_key") or ""), str(cell("inverter_sn") or ""),
+            safe_float(cell("power_w")), safe_float(cell("temperature_c")),
+            int(st) if isinstance(st, (int, float)) else None,
+            cell("fault_code"),
+        ))
+    span_h = 0.0
+    if samples:
+        stamps = [s[0] for s in samples]
+        span_h = (max(stamps) - min(stamps)).total_seconds() / 3600.0
+    log.info("tail read: rows %d-%d of %d, %d parsed, span %.1f h",
+             start, n_rows, n_rows, len(samples), span_h)
+    return samples, span_h
 
 
 def main(argv=None) -> int:
@@ -83,20 +145,15 @@ def main(argv=None) -> int:
         log.error("bootstrap failed: %s", e)
         return 3
 
-    # Today's rows carry every "latest sample"; the evaluator freshness-
-    # filters internally.
-    bundle = read_day_bundle(sheets, mx.date().isoformat())
-    samples = []
-    for plant in portfolio.active_plants():
-        for r in bundle.rows_for_plant(plant.plant_key):
-            samples.append((r.timestamp_utc, plant.plant_key, r.inverter_sn,
-                            r.power_w, r.temperature_c, r.status,
-                            r.fault_code))
-    log.info("acute evaluation at %s MX over %d sample(s)", mx, len(samples))
+    # Only the TAIL of telemetry — the acute tier needs the latest samples,
+    # not the day. The evaluator freshness-filters internally.
+    samples, span_h = _read_recent_samples(sheets)
+    log.info("acute evaluation at %s MX over %d tail sample(s)", mx, len(samples))
 
     now_utc = dt.datetime.now(UTC)
     breaches = evaluate_acute(
-        samples, [p.plant_key for p in portfolio.active_plants()], now_utc)
+        samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
+        absent_gap_hours=span_h if span_h >= 2.0 else None)
     candidates = [candidate_from_acute_breach(b) for b in breaches]
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)

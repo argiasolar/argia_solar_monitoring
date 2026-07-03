@@ -86,6 +86,7 @@ def evaluate_acute(
     now_utc: dt.datetime,
     fresh_window_min: int = FRESH_WINDOW_MIN,
     stale_min: int = ACUTE_STALE_MIN,
+    absent_gap_hours: Optional[float] = None,
 ) -> List[AcuteBreach]:
     """Evaluate the acute conditions against the newest samples.
 
@@ -152,7 +153,19 @@ def evaluate_acute(
     for plant in sorted(active_plants):
         newest = newest_by_plant.get(plant)
         if newest is None:
-            continue  # no rows at all in the tail: daily data_stale owns it
+            # Absent from the tail entirely. When the caller reads only a
+            # TAIL of telemetry (and tells us its span), absence means the
+            # plant has been silent for AT LEAST that long -> fire. Without
+            # a span (full-day callers, short tails) stay conservative and
+            # leave it to the daily data_stale.
+            if absent_gap_hours is not None and absent_gap_hours * 60 > stale_min:
+                breaches.append(AcuteBreach(
+                    metric="data_stale", plant_key=plant, inverter_sn="",
+                    severity=Severity.WARNING, value=round(absent_gap_hours, 1),
+                    message=(f"{plant}: no telemetry in the last "
+                             f">= {absent_gap_hours:.1f} h [WARNING]"),
+                ))
+            continue
         age_min = (now_utc - newest).total_seconds() / 60.0
         if age_min > stale_min:
             breaches.append(AcuteBreach(

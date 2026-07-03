@@ -166,10 +166,19 @@ def main(argv=None) -> int:
         if not rows:
             continue
         n_rows += len(rows)
-        for sn, kwh in compute_plant_energy(rows).items():
+        # compute_plant_energy returns sn -> EnergyDay (an object); the
+        # detector wants the day's kWh as a plain float. energy_kwh is
+        # None when the day had too little data for that inverter — skip
+        # those rather than feeding the detector a fake 0 (an inverter
+        # with NO data is a data-quality problem, not "producing zero").
+        for sn, eday in compute_plant_energy(rows).items():
+            if eday.energy_kwh is None:
+                log.info("[%s] %s: no computable energy for %s — skipped",
+                         plant.plant_key, sn, date_iso)
+                continue
             readings.append(InverterReading(
                 plant_key=plant.plant_key, inverter_sn=sn,
-                value=kwh, rated_kw=rated.get(sn),
+                value=eday.energy_kwh, rated_kw=rated.get(sn),
             ))
     if not readings:
         log.warning("no telemetry for %s — nothing evaluated", date_iso)

@@ -139,3 +139,44 @@ class TestCandidateMappers:
         assert c.metric == "energy_daily_pct"
         assert c.alert_key == "gto1:plant:energy_daily_pct"
         assert c.value == 0.389
+
+
+class TestScriptLoadingPath:
+    """Regression for the 2026-07-03 dry-run crash: compute_plant_energy
+    returns sn -> EnergyDay OBJECTS, not floats. This test drives the
+    script's actual telemetry->readings->candidates path end to end so a
+    type mismatch there can never ship silently again."""
+
+    @staticmethod
+    def _row(hour, etoday_kwh, sn, plant="GTO1", status=1):
+        from argia.kpi.reader import InverterRow
+        return InverterRow(
+            timestamp_utc=dt.datetime(2026, 7, 2, hour, 0, tzinfo=UTC),
+            plant_key=plant, inverter_sn=sn, inverter_label="",
+            vendor="", status=status,
+            power_w=None, etoday_kwh=etoday_kwh, temperature_c=None,
+            fault_code="", irradiance_wm2=None, irradiance_kwh_m2_5m=None,
+            cloud_cover_pct=None, ambient_temp_c=None,
+        )
+
+    def test_energyday_objects_flow_into_candidates(self):
+        from argia.kpi.energy import compute_plant_energy
+        from scripts.alerts_daily import build_candidates
+        from argia.analytics.inverter_health import InverterReading
+
+        # Healthy INV1/INV2, dead INV3 — through the REAL energy pipeline.
+        rows = []
+        for sn, final in (("INV1", 800.0), ("INV2", 780.0), ("INV3", 0.0)):
+            rows += [self._row(8, final * 0.2, sn),
+                     self._row(12, final * 0.7, sn),
+                     self._row(18, final, sn)]
+        readings = []
+        for sn, eday in compute_plant_energy(rows).items():
+            assert not isinstance(eday, float)          # it IS an object
+            if eday.energy_kwh is None:
+                continue
+            readings.append(InverterReading("GTO1", sn,
+                                            eday.energy_kwh, 150.0))
+        cands = build_candidates(readings, {})          # no plant rows needed
+        crit = [c for c in cands if c.severity == "CRITICAL"]
+        assert len(crit) == 1 and crit[0].inverter_sn == "INV3"

@@ -666,6 +666,62 @@ def compute_soiling_loss_pct(
     return round(max(0.0, 1.0 - pr / pr_baseline), 4)
 
 
+# ---------- plain-language day statement ----------
+
+STATUS_NOTE_COL_NAME = "status_note"
+
+
+def production_statement(
+    production_pct,          # float, "" (gated), or None
+    pr: Optional[float],
+    availability: Optional[float],
+    soiling_loss_pct: Optional[float],
+    data_class: Optional[str],
+) -> Optional[str]:
+    """One human sentence summarizing the plant-day.
+
+    Combines the signals because no single column tells the story (real
+    case: MEX1 reads 98% of plan while carrying a CRITICAL lagging
+    inverter — the soft expected_factor absorbs a sick unit). Honesty
+    rules come first: a partial day or an implausible sun measurement
+    beats any percentage.
+
+    Returns None when there is nothing meaningful to say (no stamp).
+    Pure function — no I/O.
+    """
+    if data_class and str(data_class).lower() != DATA_CLASS_FULL:
+        return "Partial data day — daily figures not comparable."
+    if (pr is not None and pr > PR_PLAUSIBLE_MAX) or production_pct == "":
+        return ("Sun measurement unreliable today — % of plan not "
+                "computed (improves after the Pi migration).")
+    if production_pct is None:
+        return None
+
+    pct = float(production_pct)
+    if pct >= 1.05:
+        head = f"Above plan ({pct:.0%} of expected)"
+    elif pct >= 0.95:
+        head = f"On plan ({pct:.0%} of expected)"
+    elif pct >= 0.85:
+        head = f"Slightly below plan ({pct:.0%})"
+    elif pct >= 0.70:
+        head = f"Below plan ({pct:.0%})"
+    else:
+        head = f"Well below plan ({pct:.0%})"
+
+    tails = []
+    low_avail = availability is not None and availability < 0.98
+    if low_avail:
+        tails.append(f"inverter availability {availability:.0%} — see Alerts")
+    # The drift estimate can't distinguish dirt from a sick inverter; when
+    # availability already explains the shortfall, naming "soiling" would
+    # over-claim (real case: GTO1's 38% drift = two faulted units, not dirt).
+    if (soiling_loss_pct is not None and soiling_loss_pct >= 0.05
+            and not low_avail):
+        tails.append(f"est. soiling/drift loss {soiling_loss_pct:.0%}")
+    return head + (" — " + "; ".join(tails) if tails else ".")
+
+
 # ---------- availability ----------
 
 AVAILABILITY_COL_NAME = "availability"

@@ -40,6 +40,7 @@ from argia.archive.kpi_daily import (
     EXPECTED_KWH_COL_NAME,
     PRODUCTION_PCT_COL_NAME,
     SOILING_LOSS_COL_NAME,
+    STATUS_NOTE_COL_NAME,
     compute_availability,
     compute_expected_kwh,
     compute_production_pct,
@@ -146,6 +147,7 @@ def main(argv=None) -> int:
     sy_stamps: Dict[Tuple[str, str], float] = {}
     prod_stamps: Dict[Tuple[str, str], float] = {}
     soil_stamps: Dict[Tuple[str, str], float] = {}
+    note_stamps: Dict[Tuple[str, str], str] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -221,6 +223,16 @@ def main(argv=None) -> int:
             sl = compute_soiling_loss_pct(perf.pr, plant.pr_baseline)
             if sl is not None:
                 soil_stamps[(date_iso, plant.plant_key)] = sl
+        else:
+            pp, sl = None, None
+
+        # Plain-language day statement (uses the values just computed;
+        # partial days get their own honest sentence).
+        note = production_statement(
+            pp, perf.pr, av, sl,
+            coverage.get((date_iso, plant.plant_key)))
+        if note is not None:
+            note_stamps[(date_iso, plant.plant_key)] = note
         log.info(
             "[%s] energy=%s kWh  PR=%s (%s)  PR_STC=%s  Tmod=%s  CF=%s (%s)",
             plant.plant_key,
@@ -292,6 +304,13 @@ def main(argv=None) -> int:
         stamped = stamp_column(sheets, SOILING_LOSS_COL_NAME, soil_stamps,
                                dry_run=args.dry_run)
         log.info("Stamped %d soiling_loss_pct cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp the plain-language day statement.
+    if note_stamps:
+        stamped = stamp_column(sheets, STATUS_NOTE_COL_NAME, note_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d status_note cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Stamp availability (fraction of daylight slots online, vs config).

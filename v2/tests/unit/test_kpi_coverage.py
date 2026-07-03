@@ -17,6 +17,7 @@ from argia.archive.kpi_daily import (
     compute_production_pct,
     compute_soiling_loss_pct,
     gated_production_pct,
+    production_statement,
     compute_specific_yield,
     mean_cloud_cover,
     normalize_kpi_date_iso,
@@ -341,6 +342,52 @@ class TestGatedProductionPct:
         # No PR (irradiance missing) -> compute returns None; the gate
         # itself must not invent a "" clear.
         assert gated_production_pct(500.0, None, None) is None
+
+
+class TestProductionStatement:
+    def test_partial_day_wins_over_everything(self):
+        n = production_statement(1.5, 1.3, 0.5, 0.4, "partial")
+        assert n == "Partial data day — daily figures not comparable."
+
+    def test_implausible_sun_measurement(self):
+        n = production_statement("", 1.23, 1.0, None, "full")
+        assert n.startswith("Sun measurement unreliable")
+        # gate can arrive via pr even if pct slipped through
+        assert production_statement(1.64, 1.23, 1.0, None, "full") == n
+
+    def test_on_plan_clean_day(self):
+        assert production_statement(0.985, 0.74, 1.0, 0.01, "full") ==             "On plan (98% of expected)."
+
+    def test_below_plan_low_availability_suppresses_soiling_claim(self):
+        # Real GTO1 July-2: 75% of plan, availability 78%. The 39% drift is
+        # the two faulted units, NOT dirt — the note must not say "soiling"
+        # when availability already explains the shortfall.
+        n = production_statement(0.7497, 0.5623, 0.7833, 0.389, "full")
+        assert n.startswith("Below plan (75%)")
+        assert "availability 78%" in n and "see Alerts" in n
+        assert "soiling" not in n
+
+    def test_below_plan_full_availability_names_drift(self):
+        # Real NL1 July-2: no inverter faults -> drift IS the lead.
+        n = production_statement(0.7783, 0.5837, 1.0, 0.41, "full")
+        assert n.startswith("Below plan (78%)")
+        assert "soiling/drift loss 41%" in n
+
+    def test_bands(self):
+        assert production_statement(1.13, 0.85, 1.0, 0.0, "full").startswith("Above plan")
+        assert production_statement(0.90, 0.80, 1.0, 0.0, "full").startswith("Slightly below")
+        assert production_statement(0.55, 0.40, 1.0, 0.0, "full").startswith("Well below")
+
+    def test_small_soiling_not_mentioned(self):
+        n = production_statement(1.03, 0.82, 1.0, 0.013, "full")
+        assert "soiling" not in n
+
+    def test_soiling_wording_is_drift_qualified(self):
+        n = production_statement(0.90, 0.75, 1.0, 0.09, "full")
+        assert "soiling/drift" in n
+
+    def test_no_pct_no_note(self):
+        assert production_statement(None, 0.8, 1.0, None, "full") is None
 
 
 class TestComputeSoilingLossPct:

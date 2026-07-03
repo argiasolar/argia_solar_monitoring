@@ -44,6 +44,7 @@ LOG = logging.getLogger("argia.alerts.engine")
 # when absent from today's candidates — anything else in the ledger (manual
 # rows, future engines) is left strictly alone.
 ENGINE_METRICS = frozenset({
+    "inverter_fault",
     "inverter_relative",
     "energy_daily_pct",
     "plant_twin_yield",
@@ -75,6 +76,21 @@ def candidate_from_relative_breach(b) -> Candidate:
         severity=b.severity.value,
         value=round(b.ratio, 3),
         threshold=b.threshold,
+        message=b.message,
+    )
+
+
+def candidate_from_fault_breach(b) -> Candidate:
+    """Map a vendor_flags.FaultBreach to a Candidate."""
+    return Candidate(
+        alert_key=make_inverter_alert_key(b.plant_key, b.inverter_sn,
+                                          "inverter_fault"),
+        plant_key=b.plant_key,
+        inverter_sn=b.inverter_sn,
+        metric="inverter_fault",
+        severity=b.severity.value,
+        value=float(b.samples_faulted),
+        threshold=None,
         message=b.message,
     )
 

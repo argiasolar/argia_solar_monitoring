@@ -76,6 +76,7 @@ KNOWN_METRICS: FrozenSet[str] = frozenset({
     # Inverter-level
     "inverter_offline",       # individual inverter dark
     "inverter_relative",      # inverter producing < X% of peer mean
+    "inverter_fault",         # vendor fault codes reported (FT/FC non-zero)
     "inverter_temp_high",     # inverter internal temperature
     # Plant-level
     "plant_offline",          # whole plant dark

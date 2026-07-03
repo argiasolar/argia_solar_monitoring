@@ -39,6 +39,7 @@ from typing import Dict, List, Optional
 from argia.alerts.engine import (
     Candidate,
     candidate_from_expected_breach,
+    candidate_from_fault_breach,
     candidate_from_relative_breach,
     candidate_from_twin_breach,
     reconcile_alerts,
@@ -47,6 +48,7 @@ from argia.analytics.inverter_health import (
     InverterReading,
     evaluate_inverter_relative,
 )
+from argia.analytics.vendor_flags import evaluate_inverter_faults
 from argia.analytics.perf_indicators import (
     evaluate_energy_vs_expected,
     evaluate_plant_twins,
@@ -108,12 +110,16 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
 def build_candidates(
     per_inverter_kwh: List[InverterReading],
     kpi_by_plant: Dict[str, Dict],
+    fault_samples: Optional[List] = None,
 ) -> List[Candidate]:
-    """Run the three detector layers; map breaches to engine candidates."""
+    """Run the detector layers; map breaches to engine candidates."""
     cands: List[Candidate] = []
 
     for b in evaluate_inverter_relative(per_inverter_kwh):
         cands.append(candidate_from_relative_breach(b))
+
+    for b in evaluate_inverter_faults(fault_samples or []):
+        cands.append(candidate_from_fault_breach(b))
 
     full = {pk: v for pk, v in kpi_by_plant.items()
             if v.get("data_class") == DATA_CLASS_FULL}
@@ -184,12 +190,20 @@ def main(argv=None) -> int:
         log.warning("no telemetry for %s — nothing evaluated", date_iso)
         return 2
 
+    # --- vendor fault codes: same bundle rows, zero extra reads ---
+    fault_samples = []
+    for plant in portfolio.active_plants():
+        for r in bundle.rows_for_plant(plant.plant_key):
+            fault_samples.append(
+                (r.timestamp_utc, plant.plant_key, r.inverter_sn, r.fault_code)
+            )
+
     # --- plant-level aggregates from KPI_Daily (stamped by kpi_eod) ---
     kpi = _read_kpi_day(sheets, date_iso)
     log.info("Evaluating %s: %d inverter readings, %d KPI plant rows",
              date_iso, len(readings), len(kpi))
 
-    candidates = build_candidates(readings, kpi)
+    candidates = build_candidates(readings, kpi, fault_samples)
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
     if not candidates:

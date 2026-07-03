@@ -12,6 +12,7 @@ from argia.archive.kpi_daily import (
     DATA_COVERAGE_CUTOFF_HOUR,
     KPI_DAILY_TAB,
     classify_coverage,
+    compute_availability,
     compute_expected_kwh,
     mean_cloud_cover,
     normalize_kpi_date_iso,
@@ -219,6 +220,71 @@ class TestComputeExpectedKwh:
     def test_rounded_to_2dp(self):
         v = compute_expected_kwh(100.0, 3.333, 0.73)
         assert v == round(100.0 * 3.333 * 0.73, 2)
+
+
+# --------------------------------------------------------------------------
+class TestComputeAvailability:
+    SNS = ["INV1", "INV2", "INV3"]
+
+    def _s(self, h, m, sn, status=1):
+        return (_mx_to_utc(2026, 7, 1, h, m), sn, status)
+
+    def test_all_online_all_slots(self):
+        s = [self._s(10, 0, sn) for sn in self.SNS] + \
+            [self._s(11, 0, sn) for sn in self.SNS]
+        assert compute_availability(s, self.SNS) == 1.0
+
+    def test_dead_inverter_missing_rows_drags_average(self):
+        # INV3 never reports at all -> 2 of 3 fully available = 0.6667.
+        s = [self._s(10, 0, "INV1"), self._s(10, 0, "INV2"),
+             self._s(11, 0, "INV1"), self._s(11, 0, "INV2")]
+        assert compute_availability(s, self.SNS) == 0.6667
+
+    def test_status_3_counts_unavailable(self):
+        # GTO1-style FAULT: row present but status=3.
+        s = [self._s(10, 0, "INV1", 1), self._s(10, 0, "INV2", 3)]
+        assert compute_availability(s, ["INV1", "INV2"]) == 0.5
+
+    def test_online_but_zero_power_is_still_available(self):
+        # Semantics: availability is uptime; 0W-online is #4's problem.
+        s = [self._s(10, 0, "INV1", 1)]  # status carries no power info here
+        assert compute_availability(s, ["INV1"]) == 1.0
+
+    def test_partial_day_recovery(self):
+        # INV2 offline in the morning slot, online in the afternoon: 0.5;
+        # INV1 online both: 1.0 -> plant 0.75.
+        s = [self._s(9, 0, "INV1", 1), self._s(9, 0, "INV2", 3),
+             self._s(15, 0, "INV1", 1), self._s(15, 0, "INV2", 1)]
+        assert compute_availability(s, ["INV1", "INV2"]) == 0.75
+
+    def test_night_slots_excluded(self):
+        s = [(_mx_to_utc(2026, 6, 30, 0, 40), "INV1", 1),
+             self._s(12, 0, "INV1", 1)]
+        assert compute_availability(s, ["INV1"]) == 1.0
+
+    def test_same_poll_minutes_apart_is_one_slot(self):
+        # Regression for the real GTO1 artifact: one poll's device timestamps
+        # spread 10:55:35 -> 10:59:35. Gap-clustering must keep them ONE slot,
+        # so both inverters are fully available (minute-keying faked 0.5).
+        a = (_mx_to_utc(2026, 7, 2, 10, 55).replace(second=35), "INV1", 1)
+        b = (_mx_to_utc(2026, 7, 2, 10, 59).replace(second=35), "INV2", 1)
+        assert compute_availability([a, b], ["INV1", "INV2"]) == 1.0
+
+    def test_gap_larger_than_threshold_starts_new_slot(self):
+        # Two polls 60 min apart: INV2 only in the first -> 0.5 for INV2.
+        s = [self._s(10, 0, "INV1", 1), self._s(10, 0, "INV2", 1),
+             self._s(11, 0, "INV1", 1)]
+        assert compute_availability(s, ["INV1", "INV2"]) == 0.75
+
+    def test_no_slots_or_no_expected_returns_none(self):
+        assert compute_availability([], ["INV1"]) is None
+        assert compute_availability([self._s(10, 0, "INV1")], []) is None
+        night = [(_mx_to_utc(2026, 7, 1, 2, 0), "INV1", 1)]
+        assert compute_availability(night, ["INV1"]) is None
+
+    def test_sn_whitespace_normalized(self):
+        s = [self._s(10, 0, "INV1 ", 1)]
+        assert compute_availability(s, [" INV1"]) == 1.0
 
 
 # --------------------------------------------------------------------------

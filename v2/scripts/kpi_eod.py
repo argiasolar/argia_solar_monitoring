@@ -34,8 +34,10 @@ import sys
 from typing import Dict, List, Tuple
 
 from argia.archive.kpi_daily import (
+    AVAILABILITY_COL_NAME,
     CLOUD_COVERAGE_COL_NAME,
     EXPECTED_KWH_COL_NAME,
+    compute_availability,
     compute_expected_kwh,
     HOT_WINDOW_DAYS,
     classify_coverage,
@@ -133,6 +135,7 @@ def main(argv=None) -> int:
     coverage: Dict[Tuple[str, str], str] = {}
     cloud_stamps: Dict[Tuple[str, str], float] = {}
     expected_stamps: Dict[Tuple[str, str], float] = {}
+    avail_stamps: Dict[Tuple[str, str], float] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -184,6 +187,14 @@ def main(argv=None) -> int:
         )
         if exp is not None:
             expected_stamps[(date_iso, plant.plant_key)] = exp
+
+        # Availability vs CONFIGURED inverters (uptime, not performance).
+        av = compute_availability(
+            [(r.timestamp_utc, r.inverter_sn, r.status) for r in rows],
+            [inv.inverter_sn for inv in portfolio.inverters_for(plant.plant_key)],
+        )
+        if av is not None:
+            avail_stamps[(date_iso, plant.plant_key)] = av
         log.info(
             "[%s] energy=%s kWh  PR=%s (%s)  PR_STC=%s  Tmod=%s  CF=%s (%s)",
             plant.plant_key,
@@ -228,6 +239,15 @@ def main(argv=None) -> int:
         stamped = stamp_column(sheets, EXPECTED_KWH_COL_NAME, expected_stamps,
                                dry_run=args.dry_run)
         log.info("Stamped %d expected_kwh cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp availability (fraction of daylight slots online, vs config).
+    if avail_stamps:
+        log.info("Availability: %s",
+                 {pk: v for (_, pk), v in avail_stamps.items()})
+        stamped = stamp_column(sheets, AVAILABILITY_COL_NAME, avail_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d availability cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Prune (optional)

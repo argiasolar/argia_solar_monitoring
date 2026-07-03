@@ -569,6 +569,80 @@ def compute_expected_kwh(
     return round(kwp_dc * irradiance_kwh_m2 * expected_factor, 2)
 
 
+# ---------- availability ----------
+
+AVAILABILITY_COL_NAME = "availability"
+
+SLOT_GAP_SEC = 300
+"""Two samples further apart than this start a new poll-slot. Within one poll,
+device-reported timestamps can spread several minutes (verified: one GTO1 poll
+spans 10:55:35 -> 10:59:35), so calendar-minute keying fragments a single poll
+into many slots and fakes low availability. Gap-clustering is robust for both
+GitHub's sparse cadence and the Pi's future ~10-min cadence."""
+
+
+def compute_availability(
+    samples: List[Tuple[dt.datetime, str, Optional[int]]],
+    expected_sns: List[str],
+    slot_gap_sec: int = SLOT_GAP_SEC,
+) -> Optional[float]:
+    """Plant-day availability: mean over configured inverters of the fraction
+    of daylight poll-slots in which the inverter reported status=1 (online).
+
+    ``samples`` is [(timestamp_utc, inverter_sn, status), ...] from telemetry.
+    ``expected_sns`` is the CONFIGURED inverter list (Inverters tab) — judging
+    against config is deliberate: an inverter that dies and stops reporting
+    entirely must drag availability down, not silently drop out of the mean.
+
+    Slotting: daylight samples (06:00–19:59 MX) are sorted by time and
+    clustered — a gap > ``slot_gap_sec`` starts a new slot — so one poll whose
+    per-device timestamps spread a few minutes still counts as ONE slot.
+
+    Semantics, on purpose:
+    - status=1 in a slot -> available in that slot. status=3, or no row at all
+      in that slot -> unavailable.
+    - Online-but-0W counts as AVAILABLE: availability measures communication /
+      uptime; underproduction is the performance indicators' job (plan #4).
+    - No daylight slots, or no expected inverters -> ``None`` (unknowable, not 0).
+
+    Pure function — no I/O. Returned value is a 0-1 fraction, 4 dp.
+    """
+    expected = [str(s).strip() for s in expected_sns if str(s).strip()]
+    if not expected:
+        return None
+
+    daylight = []
+    for ts, sn, status in samples:
+        if ts is None:
+            continue
+        mx = utc_to_mx(ts)
+        if CLOUD_DAYLIGHT_START_HOUR <= mx.hour < CLOUD_DAYLIGHT_END_HOUR:
+            daylight.append((ts, str(sn).strip(), status))
+    if not daylight:
+        return None
+
+    daylight.sort(key=lambda x: x[0])
+    n_slots = 0
+    online: Dict[str, int] = {}
+    slot_online: set = set()
+    prev_ts = None
+    for ts, sn, status in daylight:
+        if prev_ts is None or (ts - prev_ts).total_seconds() > slot_gap_sec:
+            # close previous slot, open a new one
+            for s in slot_online:
+                online[s] = online.get(s, 0) + 1
+            slot_online = set()
+            n_slots += 1
+        prev_ts = ts
+        if status == 1:
+            slot_online.add(sn)
+    for s in slot_online:  # close the last slot
+        online[s] = online.get(s, 0) + 1
+
+    frac = sum(online.get(sn, 0) / n_slots for sn in expected) / len(expected)
+    return round(frac, 4)
+
+
 def normalize_kpi_date_iso(sheets: SheetsClient, dry_run: bool = True) -> Dict[str, int]:
     """One-time repair: rewrite any TEXT ``date_iso`` cell as a real date.
 

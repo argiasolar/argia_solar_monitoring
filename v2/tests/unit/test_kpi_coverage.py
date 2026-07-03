@@ -12,6 +12,7 @@ from argia.archive.kpi_daily import (
     DATA_COVERAGE_CUTOFF_HOUR,
     KPI_DAILY_TAB,
     classify_coverage,
+    compute_expected_kwh,
     mean_cloud_cover,
     normalize_kpi_date_iso,
     stamp_column,
@@ -191,6 +192,33 @@ class TestStampColumnGeneric:
         n = stamp_data_class(c, {("2026-07-01", "SLP1"): "partial"})
         assert n == 1
         c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 4, "partial")
+
+
+# --------------------------------------------------------------------------
+class TestComputeExpectedKwh:
+    def test_matches_v1_theoretical_exactly(self):
+        # v1 SLP1 2024-03-01: 189.2 kWp x 6.01 kWh/m2 x 0.73 = 830.08 (stored
+        # Theoretical_kWh 830.0771...). Same formula, same result.
+        assert compute_expected_kwh(189.2, 6.01, 0.73) == 830.08
+
+    def test_nl1_uses_bifacial_factor(self):
+        # NL1 expected_factor 0.78 (bifacial premium), 617.4 kWp, 7.0 kWh/m2.
+        assert compute_expected_kwh(617.4, 7.0, 0.78) == 3371.0
+
+    def test_missing_inputs_return_none(self):
+        assert compute_expected_kwh(None, 6.0, 0.73) is None
+        assert compute_expected_kwh(189.2, None, 0.73) is None
+        assert compute_expected_kwh(189.2, 6.0, None) is None
+
+    def test_nonpositive_inputs_return_none(self):
+        assert compute_expected_kwh(0, 6.0, 0.73) is None
+        assert compute_expected_kwh(189.2, 0, 0.73) is None
+        assert compute_expected_kwh(189.2, -1.0, 0.73) is None
+        assert compute_expected_kwh(189.2, 6.0, 0) is None
+
+    def test_rounded_to_2dp(self):
+        v = compute_expected_kwh(100.0, 3.333, 0.73)
+        assert v == round(100.0 * 3.333 * 0.73, 2)
 
 
 # --------------------------------------------------------------------------

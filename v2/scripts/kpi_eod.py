@@ -35,6 +35,8 @@ from typing import Dict, List, Tuple
 
 from argia.archive.kpi_daily import (
     CLOUD_COVERAGE_COL_NAME,
+    EXPECTED_KWH_COL_NAME,
+    compute_expected_kwh,
     HOT_WINDOW_DAYS,
     classify_coverage,
     create_kpi_daily_tab_if_missing,
@@ -130,6 +132,7 @@ def main(argv=None) -> int:
     new_rows: List = []
     coverage: Dict[Tuple[str, str], str] = {}
     cloud_stamps: Dict[Tuple[str, str], float] = {}
+    expected_stamps: Dict[Tuple[str, str], float] = {}
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -174,6 +177,13 @@ def main(argv=None) -> int:
             gamma_pmax=gamma,
         )
         new_rows.append(perf_to_row(perf))
+
+        # Expected energy for the day (v1 Theoretical_kWh semantics).
+        exp = compute_expected_kwh(
+            plant.kwp_dc, irr.kwh_m2, plant.expected_factor
+        )
+        if exp is not None:
+            expected_stamps[(date_iso, plant.plant_key)] = exp
         log.info(
             "[%s] energy=%s kWh  PR=%s (%s)  PR_STC=%s  Tmod=%s  CF=%s (%s)",
             plant.plant_key,
@@ -209,6 +219,15 @@ def main(argv=None) -> int:
         stamped = stamp_column(sheets, CLOUD_COVERAGE_COL_NAME, cloud_stamps,
                                dry_run=args.dry_run)
         log.info("Stamped %d cloud_coverage_pct cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp expected_kwh (kwp x irradiance x expected_factor).
+    if expected_stamps:
+        log.info("Expected kWh: %s",
+                 {pk: v for (_, pk), v in expected_stamps.items()})
+        stamped = stamp_column(sheets, EXPECTED_KWH_COL_NAME, expected_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d expected_kwh cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Prune (optional)

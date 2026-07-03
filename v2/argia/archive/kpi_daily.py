@@ -538,6 +538,37 @@ def mean_cloud_cover(
     return round(sum(vals) / len(vals), 4)
 
 
+# ---------- expected energy ----------
+
+EXPECTED_KWH_COL_NAME = "expected_kwh"
+
+
+def compute_expected_kwh(
+    kwp_dc: Optional[float],
+    irradiance_kwh_m2: Optional[float],
+    expected_factor: Optional[float],
+) -> Optional[float]:
+    """Expected daily energy: ``kwp_dc × irradiance × expected_factor``.
+
+    Same formula and semantics as v1's Theoretical_kWh (verified: SLP1
+    2024-03-01 = 189.2 × 6.01 × 0.73 = 830.08, matching v1's stored value),
+    using ``expected_factor`` from the Plants tab — NOT ``pr_target``, which is
+    the aspirational drift/soiling reference, not the realistic daily
+    expectation. Any missing/non-positive input -> ``None`` (never fake a 0:
+    a 0 would read as "expected nothing", which is very different from
+    "couldn't compute").
+
+    Pure function — no I/O.
+    """
+    if not kwp_dc or kwp_dc <= 0:
+        return None
+    if irradiance_kwh_m2 is None or irradiance_kwh_m2 <= 0:
+        return None
+    if not expected_factor or expected_factor <= 0:
+        return None
+    return round(kwp_dc * irradiance_kwh_m2 * expected_factor, 2)
+
+
 def normalize_kpi_date_iso(sheets: SheetsClient, dry_run: bool = True) -> Dict[str, int]:
     """One-time repair: rewrite any TEXT ``date_iso`` cell as a real date.
 

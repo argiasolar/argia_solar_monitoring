@@ -262,3 +262,64 @@ def test_carryover_strip_shares_rule_with_kpi_energy():
     implementation allowed to drift."""
     from argia.kpi.energy import find_carryover_cut as kpi_cut
     assert D.find_carryover_cut is kpi_cut
+
+
+# --- regression: live-day theoretical fallback (trapezoid irradiance) --------
+
+def test_trapezoid_constant_irradiance_integrates_exactly():
+    """Two samples 1h apart at a constant 1000 W/m2 = 1.0 kWh/m2."""
+    s = [mk(dt.datetime(2026, 7, 2, 10, 0), "GTO1", "A", 10, irr_wm2=1000),
+         mk(dt.datetime(2026, 7, 2, 11, 0), "GTO1", "A", 20, irr_wm2=1000)]
+    b = D.daylight_buckets(DAY)
+    out = D.irradiance_by_bucket(s, b, dt.timedelta(minutes=60))
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert out[dt.datetime(2026, 7, 2, 10, 0)] == pytest.approx(1.0)
+
+
+def test_trapezoid_splits_across_bucket_edge():
+    """A segment spanning 09:30-10:30 lands half in each bucket."""
+    s = [mk(dt.datetime(2026, 7, 2, 9, 30), "GTO1", "A", 10, irr_wm2=1000),
+         mk(dt.datetime(2026, 7, 2, 10, 30), "GTO1", "A", 20, irr_wm2=1000)]
+    b = D.daylight_buckets(DAY)
+    out = D.irradiance_by_bucket(s, b, dt.timedelta(minutes=60))
+    assert out[dt.datetime(2026, 7, 2, 9, 0)] == pytest.approx(0.5)
+    assert out[dt.datetime(2026, 7, 2, 10, 0)] == pytest.approx(0.5)
+
+
+def test_trapezoid_caps_long_gaps():
+    """A 6h gap contributes only its first IRR_MAX_GAP_H hours — the sky
+    state across a long silence is unknown, not free energy."""
+    s = [mk(dt.datetime(2026, 7, 2, 8, 0), "GTO1", "A", 10, irr_wm2=1000),
+         mk(dt.datetime(2026, 7, 2, 14, 0), "GTO1", "A", 20, irr_wm2=1000)]
+    b = D.daylight_buckets(DAY)
+    out = D.irradiance_by_bucket(s, b, dt.timedelta(minutes=60))
+    assert sum(out.values()) == pytest.approx(D.IRR_MAX_GAP_H * 1.0)
+
+
+def test_regression_sparse_polls_do_not_collapse_fallback_theoretical():
+    """The Jul 4 incident: ~90-min polling made the old fallback (sum of
+    5-min deltas) report theoretical ~3x BELOW actual production. With the
+    trapezoid the same sparse day integrates the full sun window."""
+    times = [dt.datetime(2026, 7, 2, 8, 0), dt.datetime(2026, 7, 2, 9, 30),
+             dt.datetime(2026, 7, 2, 11, 0), dt.datetime(2026, 7, 2, 12, 30),
+             dt.datetime(2026, 7, 2, 14, 0)]
+    samples = [mk(t, "GTO1", "A", 50 * i, irr_wm2=800, irr5m=0.066)
+               for i, t in enumerate(times)]
+    res = D.build(DAY, plant_map(), samples, active_inverters={"GTO1": {"A"}})
+    theo = sum(r["theoretical_kwh"] for r in res.plant_rows)
+    # old behavior: 818.33 * (5 * 0.066) * 0.75 = 202 kWh
+    # trapezoid: 818.33 * (6h * 0.8) * 0.75 = 2946 kWh
+    assert theo == pytest.approx(818.33 * 4.8 * 0.75, rel=0.01)
+
+
+def test_anchored_day_still_sums_exactly_to_kpi_with_trapezoid_shape():
+    ts1 = dt.datetime(2026, 7, 2, 10, 5)
+    ts2 = dt.datetime(2026, 7, 2, 13, 5)
+    samples = [
+        mk(ts1, "GTO1", "A", 100, irr_wm2=700), mk(ts2, "GTO1", "A", 300, irr_wm2=900),
+        mk(dt.datetime(2026, 7, 2, 9, 5), "GTO1", "A", 40, irr_wm2=400),
+    ]
+    res = D.build(DAY, plant_map(), samples, active_inverters={"GTO1": {"A"}},
+                  daily_expected={"GTO1": 4978.0})
+    total = sum(r["theoretical_kwh"] for r in res.plant_rows)
+    assert total == pytest.approx(4978.0, abs=0.05)

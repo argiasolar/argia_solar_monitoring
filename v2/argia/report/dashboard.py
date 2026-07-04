@@ -45,19 +45,23 @@ from typing import Iterable, Sequence
 BUCKET_MINUTES = 60          # 60 now; drop to 30/15/5 when telemetry densifies
 DAY_START_H = 6              # first bucket of the daylight window (local)
 DAY_END_H = 20               # exclusive
-UNDERPERF_FRAC = 0.85        # inverter < 85% of peer median => underperforming
-                             # (matches Thresholds inverter_relative WARNING)
 DAYLIGHT_WM2 = 50.0          # avg irradiance above this => sun is up
-ZERO_KWH = 0.05              # below this an inverter counts as "producing nothing"
 
-# Status vocabulary (Looker-friendly, stable strings)
-ONLINE = "ONLINE"
-UNDERPERFORMING = "UNDERPERFORMING"
-FAULT = "FAULT"
-DERATED = "DERATED"
-OFFLINE = "OFFLINE"            # daylight, expected to produce, but dark/zero
-IDLE_NIGHT = "IDLE_NIGHT"      # dark because the sun is down (not an alert)
-NO_DATA = "NO_DATA"           # no sample and we cannot tell if sun is up
+# Status classification is DELEGATED to the shared module — one state
+# machine for every consumer (see argia/analytics/status.py). Vocabulary
+# constants are re-exported here so existing imports keep working.
+from argia.analytics.status import (  # noqa: E402
+    DERATED,
+    FAULT,
+    IDLE_NIGHT,
+    NO_DATA,
+    OFFLINE,
+    ONLINE,
+    UNDERPERFORMING,
+    ZERO_KWH,
+    InverterBucket,
+    classify_plant_bucket,
+)
 
 
 # --- small helpers ---------------------------------------------------------
@@ -113,7 +117,7 @@ class Sample:
     inverter_sn: str
     inverter_label: str
     status: float | None
-    fault_code: float | None
+    fault_code: str | None      # normalized summary, e.g. "0" or "FT=302"
     power_w: float | None
     etoday_kwh: float | None
     temperature_c: float | None
@@ -123,64 +127,6 @@ class Sample:
     ambient_temp_c: float | None
     module_temp_c: float | None
     derating_mode: float | None = None   # absent in the unified feed
-
-
-# --- status state machine --------------------------------------------------
-
-def is_real_fault(status: float | None,
-                  fault_code: float | None,
-                  excluded_tokens: frozenset = frozenset()) -> bool:
-    """True if the sample represents a genuine fault.
-
-    Growatt status==3 is fault/standby. A nonzero fault_code is a fault unless
-    it is a vendor "state" token we deliberately exclude (e.g. Huawei state
-    tokens, which caused a real false-positive across the MEX units).
-    """
-    if status is not None and int(status) == 3:
-        return True
-    fc = _num(fault_code)
-    if fc is not None and fc != 0 and int(fc) not in excluded_tokens:
-        return True
-    return False
-
-
-def inverter_status(*, reported: bool, energy_kwh: float, sun_up: bool,
-                    status: float | None, fault_code: float | None,
-                    derating_mode: float | None, peer_median: float | None,
-                    excluded_tokens: frozenset = frozenset()) -> tuple[str, str]:
-    """Return (status, short_reason) for one inverter in one bucket.
-
-    Priority order (first match wins):
-      FAULT -> OFFLINE(zero in daylight) -> DERATED -> UNDERPERFORMING ->
-      IDLE_NIGHT -> NO_DATA -> ONLINE
-    """
-    if not reported:
-        if sun_up:
-            return OFFLINE, "no telemetry during daylight"
-        return NO_DATA if peer_median is None else IDLE_NIGHT, "no telemetry (sun down)"
-
-    if is_real_fault(status, fault_code, excluded_tokens):
-        return FAULT, "vendor fault state"
-
-    if not sun_up:
-        return IDLE_NIGHT, "sun down"
-
-    # Sun is up and the inverter reported.
-    if energy_kwh <= ZERO_KWH:
-        # Dark while peers produce -> this is the bug the old dash missed.
-        if peer_median and peer_median > ZERO_KWH:
-            return OFFLINE, "0 kWh while peers producing"
-        return IDLE_NIGHT, "0 kWh (no plant production this bucket)"
-
-    dm = _num(derating_mode)
-    if dm is not None and dm != 0:
-        return DERATED, "derating active"
-
-    if peer_median and peer_median > ZERO_KWH and energy_kwh < UNDERPERF_FRAC * peer_median:
-        pct = round(100 * energy_kwh / peer_median)
-        return UNDERPERFORMING, f"{pct}% of peer median"
-
-    return ONLINE, ""
 
 
 # --- bucketing -------------------------------------------------------------
@@ -224,13 +170,17 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
           inverter_labels: dict[tuple[str, str], str] | None = None,
           active_inverters: dict[str, set[str]] | None = None,
           daily_expected: dict[str, float] | None = None,
-          excluded_tokens: frozenset = frozenset(),
+          inverter_ratings: dict[tuple[str, str], float] | None = None,
           minutes: int = BUCKET_MINUTES) -> BuildResult:
     """Build both fact tables for a single day.
 
     active_inverters: plant_key -> set of inverter_sn expected to be live today
     (from the Inverters config). Inverters seen in telemetry are unioned in, so
     a newly-added inverter appears even before the config is updated.
+
+    inverter_ratings: (plant_key, inverter_sn) -> rated_kw. When every
+    inverter of a plant has a rating, peer comparison is per-kW so a smaller
+    unit is not falsely flagged (GTO1 MWKNE9500D: 60 kW among 124 kW peers).
 
     daily_expected: plant_key -> KPI_Daily.expected_kwh for `day`. When given,
     the per-bucket theoretical is that daily value distributed across buckets by
@@ -241,6 +191,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
     inverter_labels = inverter_labels or {}
     active_inverters = active_inverters or {}
     daily_expected = daily_expected or {}
+    inverter_ratings = inverter_ratings or {}
     samples = [s for s in samples if s.ts.date() == day]
 
     # index samples by (plant, inverter_sn)
@@ -293,7 +244,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
             amb_temp = _avg([s.ambient_temp_c for s in in_bucket])
             sun_up = (irr_wm2 or 0.0) > DAYLIGHT_WM2
 
-            # first pass: per-inverter energy, to compute the peer median
+            # first pass: per-inverter energy for this bucket
             energies: dict[str, tuple[float, bool, Sample | None]] = {}
             for sn in inv_sns:
                 sl = by_inv.get((pk, sn), [])
@@ -301,8 +252,22 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 energies[sn] = (e, reported, last_in_bucket(sl, b_start, b_end))
             producing = [e for (e, rep, _) in energies.values() if rep and e > ZERO_KWH]
             peer_median = statistics.median(producing) if producing else None
-            if not sun_up and (irr_wm2 or 0.0) == 0.0 and not producing:
-                sun_up = False
+
+            # shared status classification — the ONLY status authority
+            buckets_in = [
+                InverterBucket(
+                    inverter_sn=sn,
+                    energy_kwh=energies[sn][0],
+                    reported=energies[sn][1],
+                    status_flag=(energies[sn][2].status if energies[sn][2] else None),
+                    fault_code=(energies[sn][2].fault_code if energies[sn][2] else None),
+                    derating_mode=(energies[sn][2].derating_mode if energies[sn][2] else None),
+                    rated_kw=inverter_ratings.get((pk, sn)),
+                )
+                for sn in sorted(inv_sns)
+            ]
+            statuses = classify_plant_bucket(buckets_in, plant_key=pk,
+                                             sun_up=sun_up)
 
             plant_total = 0.0
             reporting = 0
@@ -320,15 +285,9 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 e, reported, last = energies[sn]
                 plant_total += e
                 reporting += 1 if reported else 0
-                st = last.status if last else None
-                fc = last.fault_code if last else None
-                dm = last.derating_mode if last else None
                 temp = last.temperature_c if last else None
                 power = last.power_w if last else None
-                status, reason = inverter_status(
-                    reported=reported, energy_kwh=e, sun_up=sun_up,
-                    status=st, fault_code=fc, derating_mode=dm,
-                    peer_median=peer_median, excluded_tokens=excluded_tokens)
+                status, reason = statuses[sn]
                 if status == FAULT:
                     faulted += 1
                 res.inverter_rows.append({
@@ -431,6 +390,17 @@ def parse_active_inverters(rows: list[dict]) -> dict[str, set]:
     return out
 
 
+def parse_inverter_ratings(rows: list[dict]) -> dict[tuple, float]:
+    """(plant_key, inverter_sn) -> rated_kw, for per-kW peer fairness."""
+    out: dict[tuple, float] = {}
+    for r in rows:
+        pk, sn = r.get("plant_key"), r.get("inverter_sn")
+        kw = _num(r.get("rated_kw"))
+        if pk and sn and kw and kw > 0:
+            out[(pk, sn)] = kw
+    return out
+
+
 def parse_samples(rows: list[dict]) -> list["Sample"]:
     out = []
     for r in rows:
@@ -440,7 +410,7 @@ def parse_samples(rows: list[dict]) -> list["Sample"]:
         out.append(Sample(
             ts=ts, plant_key=r["plant_key"], inverter_sn=r["inverter_sn"],
             inverter_label=r.get("inverter_label") or r["inverter_sn"],
-            status=_num(r.get("status")), fault_code=_num(r.get("fault_code")),
+            status=_num(r.get("status")), fault_code=r.get("fault_code"),
             power_w=_num(r.get("power_w")), etoday_kwh=_num(r.get("etoday_kwh")),
             temperature_c=_num(r.get("temperature_c")),
             irradiance_wm2=_num(r.get("irradiance_wm2")),

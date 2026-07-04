@@ -6,7 +6,7 @@ from argia.report import dashboard as D
 from argia.report.dashboard import Plant, Sample
 
 
-def mk(ts, pk, sn, etoday, *, status=1, fault=0, power=1000, irr_wm2=800,
+def mk(ts, pk, sn, etoday, *, status=1, fault="0", power=1000, irr_wm2=800,
        irr5m=0.066, cloud=10, mtemp=45, atemp=30, label=None, derate=None):
     return Sample(
         ts=ts, plant_key=pk, inverter_sn=sn, inverter_label=label or sn,
@@ -72,78 +72,72 @@ def test_bucket_energy_gap_rolls_into_next_bucket():
     assert rep11 and e11 == pytest.approx(160.0)
 
 
-# --- fault detection -------------------------------------------------------
+# --- status is DELEGATED to the shared classifier ---------------------------
+# Unit tests for the state machine itself live in tests/unit/test_status.py.
+# Here we assert the delegation contract: the dashboard consumes THE shared
+# module, not a private copy that could drift (the 2026-07-03 lesson).
 
-def test_status_3_is_fault():
-    assert D.is_real_fault(3, 0) is True
-
-
-def test_nonzero_fault_code_is_fault():
-    assert D.is_real_fault(1, 302) is True
-
-
-def test_excluded_huawei_token_is_not_fault():
-    assert D.is_real_fault(1, 40000, excluded_tokens=frozenset({40000})) is False
-
-
-def test_zero_fault_code_normal_status_is_not_fault():
-    assert D.is_real_fault(1, 0) is False
+def test_status_vocabulary_is_the_shared_modules():
+    from argia.analytics import status as shared
+    assert D.ONLINE is shared.ONLINE
+    assert D.FAULT is shared.FAULT
+    assert D.classify_plant_bucket is shared.classify_plant_bucket
+    assert D.InverterBucket is shared.InverterBucket
 
 
-# --- status state machine --------------------------------------------------
-
-def base_kw(**kw):
-    d = dict(reported=True, energy_kwh=50.0, sun_up=True, status=1, fault_code=0,
-             derating_mode=0, peer_median=50.0)
-    d.update(kw)
-    return d
-
-
-def test_healthy_inverter_is_online():
-    assert D.inverter_status(**base_kw())[0] == D.ONLINE
-
-
-def test_regression_online_while_zero_is_offline_not_online():
-    """SAG-Mexico case: vendor says status=1 but inverter produced 0 while peers
-    produced. The old dashboard showed ONLINE; correct answer is OFFLINE."""
-    st, reason = D.inverter_status(**base_kw(energy_kwh=0.0, status=1, peer_median=120.0))
-    assert st == D.OFFLINE
-    assert "peers" in reason
+def test_build_uses_string_fault_codes_from_unified_feed():
+    """Regression: Telemetry_Argia.fault_code is a STRING ("FT=302"); the old
+    numeric coercion silently disabled vendor-fault detection."""
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    prev = dt.datetime(2026, 7, 2, 9, 5)
+    samples = [
+        mk(ts, "GTO1", "A", 140), mk(prev, "GTO1", "A", 40),
+        mk(ts, "GTO1", "B", 90, fault="FT=302"), mk(prev, "GTO1", "B", 35, fault="FT=302"),
+    ]
+    res = D.build(DAY, plant_map(), samples, active_inverters={"GTO1": {"A", "B"}})
+    b10 = dt.datetime(2026, 7, 2, 10, 0)
+    rows = {r["inverter_sn"]: r for r in res.inverter_rows if r["bucket_ts"] == b10}
+    assert rows["B"]["status"] == D.FAULT
+    assert "FT=302" in rows["B"]["status_reason"]
+    assert rows["A"]["status"] == D.ONLINE
 
 
-def test_zero_with_no_plant_production_is_idle_not_offline():
-    st, _ = D.inverter_status(**base_kw(energy_kwh=0.0, peer_median=None, sun_up=True))
-    assert st == D.IDLE_NIGHT  # cloudy dead-calm bucket, nobody producing
+def test_build_huawei_state_tokens_do_not_fault():
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    prev = dt.datetime(2026, 7, 2, 9, 5)
+    samples = [
+        mk(ts, "GTO1", "A", 140, fault="IS=512,RS=1"),
+        mk(prev, "GTO1", "A", 40, fault="IS=512,RS=1"),
+        mk(ts, "GTO1", "B", 130, fault="IS=512,RS=1"),
+        mk(prev, "GTO1", "B", 35, fault="IS=512,RS=1"),
+    ]
+    res = D.build(DAY, plant_map(), samples, active_inverters={"GTO1": {"A", "B"}})
+    assert all(r["status"] != D.FAULT for r in res.inverter_rows)
 
 
-def test_underperforming_below_85pct_of_peer_median():
-    st, reason = D.inverter_status(**base_kw(energy_kwh=50.0, peer_median=100.0))
-    assert st == D.UNDERPERFORMING and "50%" in reason
-
-
-def test_not_underperforming_at_90pct():
-    st, _ = D.inverter_status(**base_kw(energy_kwh=90.0, peer_median=100.0))
-    assert st == D.ONLINE
-
-
-def test_fault_beats_underperformance():
-    st, _ = D.inverter_status(**base_kw(energy_kwh=1.0, status=3, peer_median=100.0))
-    assert st == D.FAULT
-
-
-def test_no_report_in_daylight_is_offline():
-    st, _ = D.inverter_status(**base_kw(reported=False, sun_up=True))
-    assert st == D.OFFLINE
-
-
-def test_no_report_at_night_is_not_alarmed():
-    st, _ = D.inverter_status(**base_kw(reported=False, sun_up=False, peer_median=0.0))
-    assert st == D.IDLE_NIGHT
-
-
-def test_derated_when_flag_set():
-    st, _ = D.inverter_status(**base_kw(derating_mode=1))
-    assert st == D.DERATED
+def test_build_per_kw_ratings_prevent_small_inverter_false_positive():
+    """GTO1 MWKNE9500D regression: 60 kW unit among 124 kW peers must not be
+    flagged when its per-kW output matches the plant."""
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    prev = dt.datetime(2026, 7, 2, 9, 5)
+    samples = [
+        mk(ts, "GTO1", "BIG1", 124), mk(prev, "GTO1", "BIG1", 0),
+        mk(ts, "GTO1", "BIG2", 124), mk(prev, "GTO1", "BIG2", 0),
+        mk(ts, "GTO1", "SMALL", 60), mk(prev, "GTO1", "SMALL", 0),
+    ]
+    ratings = {("GTO1", "BIG1"): 124.0, ("GTO1", "BIG2"): 124.0,
+               ("GTO1", "SMALL"): 60.0}
+    res = D.build(DAY, plant_map(), samples,
+                  active_inverters={"GTO1": {"BIG1", "BIG2", "SMALL"}},
+                  inverter_ratings=ratings)
+    b10 = dt.datetime(2026, 7, 2, 10, 0)
+    rows = {r["inverter_sn"]: r for r in res.inverter_rows if r["bucket_ts"] == b10}
+    assert rows["SMALL"]["status"] == D.ONLINE
+    # without ratings the same data DOES flag it — proving ratings matter
+    res2 = D.build(DAY, plant_map(), samples,
+                   active_inverters={"GTO1": {"BIG1", "BIG2", "SMALL"}})
+    rows2 = {r["inverter_sn"]: r for r in res2.inverter_rows if r["bucket_ts"] == b10}
+    assert rows2["SMALL"]["status"] == D.UNDERPERFORMING
 
 
 # --- theoretical ties to KPI_Daily -----------------------------------------
@@ -218,7 +212,7 @@ def test_peer_median_not_mean_avoids_dead_peer_masking():
     samples = [
         mk(ts, "GTO1", "A", 140), mk(prev, "GTO1", "A", 40),   # +100
         mk(ts, "GTO1", "B", 140), mk(prev, "GTO1", "B", 40),   # +100
-        mk(ts, "GTO1", "D", 0, status=3, fault=302), mk(prev, "GTO1", "D", 0, status=3, fault=302),  # dead
+        mk(ts, "GTO1", "D", 0, status=3, fault="FT=302"), mk(prev, "GTO1", "D", 0, status=3, fault="FT=302"),  # dead
         mk(ts, "GTO1", "C", 95),  mk(prev, "GTO1", "C", 40),   # +55
     ]
     res = D.build(DAY, plant_map(), samples,

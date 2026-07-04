@@ -102,12 +102,13 @@ def window_days(today: dt.date, window: int) -> list[dt.date]:
     return [today - dt.timedelta(days=i) for i in range(window - 1, -1, -1)]
 
 
-def build_window(days, plants, samples, active, kpi_by_day):
+def build_window(days, plants, samples, active, kpi_by_day, ratings=None):
     inv_rows: list[dict] = []
     plant_rows: list[dict] = []
     for day in days:
         res = D.build(day, plants, samples, active_inverters=active,
-                      daily_expected=kpi_by_day.get(day, {}))
+                      daily_expected=kpi_by_day.get(day, {}),
+                      inverter_ratings=ratings)
         inv_rows.extend(res.inverter_rows)
         plant_rows.extend(res.plant_rows)
     return inv_rows, plant_rows
@@ -146,7 +147,9 @@ def run(client: SheetsClient, *, window: int, apply: bool,
           f"({'APPLY' if apply else 'dry-run'})")
 
     plants = D.parse_plants(client.read_table("Plants", "A1:AJ"))
-    active = D.parse_active_inverters(client.read_table("Inverters", "A1:L"))
+    inverter_rows = client.read_table("Inverters", "A1:L")
+    active = D.parse_active_inverters(inverter_rows)
+    ratings = D.parse_inverter_ratings(inverter_rows)
     kpi_by_day = kpi_expected_map(client.read_table("KPI_Daily", "A1:V"))
 
     tele = client.read_table("Telemetry_Argia", "A1:Z")
@@ -156,7 +159,8 @@ def run(client: SheetsClient, *, window: int, apply: bool,
     print(f"Inputs: {len(plants)} plants, {len(samples)} telemetry samples, "
           f"KPI days available: {len(kpi_by_day)}")
 
-    inv_rows, plant_rows = build_window(days, plants, samples, active, kpi_by_day)
+    inv_rows, plant_rows = build_window(days, plants, samples, active,
+                                        kpi_by_day, ratings)
 
     print(f"{'date':10s} {'plant':6s} {'kwh':>9s} {'theoretical':>11s} {'kpi_exp':>9s}")
     for day in days:

@@ -1,0 +1,69 @@
+name: v2 Dashboard update
+
+# Rebuilds Dashboard_Inverter / Dashboard_Plant from live telemetry.
+# Every 30 min during daylight (buckets are 60-min, so 30-min cadence means
+# at most half a bucket of lag). Scheduled runs always write; manual runs
+# respect the dry_run toggle — same convention as v2-telemetry-5m.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (compute but do not write to sheet)"
+        required: true
+        default: true
+        type: boolean
+      window:
+        description: "Rolling window of days to rebuild"
+        required: false
+        default: "7"
+        type: string
+  schedule:
+    # Mexico City is UTC-6 year-round (no DST since 2023).
+    # 06:00-20:59 MX = 12:00-02:59 UTC, split because cron can't span midnight.
+    - cron: "5,35 12-23 * * *"   # 06:05-17:35 MX
+    - cron: "5,35 0-2 * * *"     # 18:05-20:35 MX
+
+concurrency:
+  group: v2-dashboard
+  cancel-in-progress: false
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build CLI args
+        id: args
+        run: |
+          ARGS="--window ${{ github.event.inputs.window || '7' }}"
+          # Scheduled runs always write. Manual runs respect dry_run.
+          if [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            ARGS="$ARGS --apply"
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+          echo "Will run with: $ARGS"
+
+      - name: Run dashboard update
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          PYTHONPATH=. python scripts/dashboard_update.py ${{ steps.args.outputs.args }}

@@ -11,7 +11,9 @@ name: v2-report-daily
 #   * SCHEDULED (02:45 UTC = 20:45 MX the previous UTC day): kpi_eod for
 #     today (MX) live, then report for today, uploaded.
 #   * MANUAL: pick a date; DRY RUN by default (renders, uploads nothing).
-#     Dry runs skip the kpi_eod step — they report whatever is stamped.
+#     Dry runs never write ANYTHING — including KPIs — so they report
+#     whatever is already stamped. A manual LIVE run behaves exactly like
+#     the schedule: stamp the date first, then report it.
 
 on:
   schedule:
@@ -52,16 +54,20 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: Stamp today's KPIs (scheduled runs only)
-        if: ${{ github.event_name == 'schedule' }}
+      - name: Stamp KPIs for the report date (live runs only)
+        if: ${{ github.event_name == 'schedule' || inputs.dry_run == false }}
         working-directory: ./v2
         env:
           GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: |
-          TODAY_MX=$(TZ=America/Mexico_City date +%F)
-          echo "kpi_eod for $TODAY_MX (evening stamp)"
-          PYTHONPATH=. python scripts/kpi_eod.py --date "$TODAY_MX"
+          if [ -n "${{ inputs.date }}" ]; then
+            D="${{ inputs.date }}"
+          else
+            D=$(TZ=America/Mexico_City date +%F)
+          fi
+          echo "kpi_eod for $D (pre-report stamp)"
+          PYTHONPATH=. python scripts/kpi_eod.py --date "$D"
 
       - name: Render and upload report
         working-directory: ./v2

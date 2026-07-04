@@ -21,6 +21,7 @@ SCRIPTS = [
     "scripts.alerts_snapshot",
     "scripts.archive_month",
     "scripts.archive_preflight",
+    "scripts.report_daily",
 ]
 
 

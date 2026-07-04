@@ -1,0 +1,81 @@
+name: v2-report-daily
+
+# Evening daily report (report family, part 1): stamp TODAY's KPIs (by
+# 20:45 MX the last telemetry of the day has arrived, so data_class=full),
+# render the daily performance report, print it to PDF with headless
+# Chromium, and upload PDF+HTML into Reports/ inside the ARGIA archive
+# Shared Drive. E-mail is deliberately NOT part of this job yet — it comes
+# once the whole report family exists.
+#
+# Two ways to run:
+#   * SCHEDULED (02:45 UTC = 20:45 MX the previous UTC day): kpi_eod for
+#     today (MX) live, then report for today, uploaded.
+#   * MANUAL: pick a date; DRY RUN by default (renders, uploads nothing).
+#     Dry runs skip the kpi_eod step — they report whatever is stamped.
+
+on:
+  schedule:
+    - cron: "45 2 * * *"    # 20:45 America/Mexico_City
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date YYYY-MM-DD (MX). Empty = today."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run (render + log, upload nothing)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Stamp today's KPIs (scheduled runs only)
+        if: ${{ github.event_name == 'schedule' }}
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          TODAY_MX=$(TZ=America/Mexico_City date +%F)
+          echo "kpi_eod for $TODAY_MX (evening stamp)"
+          PYTHONPATH=. python scripts/kpi_eod.py --date "$TODAY_MX"
+
+      - name: Render and upload report
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_ARCHIVE_FOLDER_ID: ${{ secrets.GOOGLE_ARCHIVE_FOLDER_ID }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ inputs.date }}"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" != "false" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Running with args: ${ARGS:-<scheduled, today, live>}"
+          PYTHONPATH=. python scripts/report_daily.py $ARGS

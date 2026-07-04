@@ -87,6 +87,61 @@ class DriveClient:
                  title, f["id"], folder_id)
         return f["id"]
 
+    def ensure_folder(self, parent_id: str, name: str) -> str:
+        """Find-or-create a subfolder inside parent_id; returns its id."""
+        q = (f"name = '{name}' and '{parent_id}' in parents and "
+             f"mimeType = 'application/vnd.google-apps.folder' "
+             f"and trashed = false")
+        resp = self._svc.files().list(
+            q=q, fields="files(id)", pageSize=1,
+            supportsAllDrives=True, includeItemsFromAllDrives=True,
+        ).execute()
+        files = resp.get("files", [])
+        if files:
+            return files[0]["id"]
+        meta = {"name": name,
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": [parent_id]}
+        f = self._svc.files().create(body=meta, fields="id",
+                                     supportsAllDrives=True).execute()
+        LOG.info("Created folder '%s' (%s) in %s", name, f["id"], parent_id)
+        return f["id"]
+
+    def find_file(self, folder_id: str, name: str):
+        """Id of any (non-trashed) file named name in the folder."""
+        q = (f"name = '{name}' and '{folder_id}' in parents "
+             f"and trashed = false")
+        resp = self._svc.files().list(
+            q=q, fields="files(id)", pageSize=1,
+            supportsAllDrives=True, includeItemsFromAllDrives=True,
+        ).execute()
+        files = resp.get("files", [])
+        return files[0]["id"] if files else None
+
+    def upload_file(self, folder_id: str, name: str, local_path: str,
+                    mime_type: str) -> str:
+        """Upload a local file into the folder. Idempotent by name: an
+        existing file's CONTENT is updated in place (same file id, no
+        '(1)' duplicates), otherwise a new file is created."""
+        from googleapiclient.http import MediaFileUpload
+        media = MediaFileUpload(local_path, mimetype=mime_type,
+                                resumable=False)
+        existing = self.find_file(folder_id, name)
+        if existing:
+            self._svc.files().update(
+                fileId=existing, media_body=media,
+                supportsAllDrives=True).execute()
+            LOG.info("Updated '%s' (%s) in folder %s",
+                     name, existing, folder_id)
+            return existing
+        meta = {"name": name, "parents": [folder_id]}
+        f = self._svc.files().create(
+            body=meta, media_body=media, fields="id",
+            supportsAllDrives=True).execute()
+        LOG.info("Uploaded '%s' (%s) to folder %s",
+                 name, f["id"], folder_id)
+        return f["id"]
+
     def trash_file(self, file_id: str) -> None:
         """Move a file to trash (used by the preflight's create/cleanup test)."""
         self._svc.files().update(

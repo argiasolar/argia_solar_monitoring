@@ -67,3 +67,18 @@ jobs:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: |
           PYTHONPATH=. python scripts/dashboard_update.py ${{ steps.args.outputs.args }}
+
+      - name: Publish HTML dashboard
+        # Renders from the freshly written Dashboard tabs. Uploads only on
+        # live runs; skips gracefully until GCS_DASHBOARD_BUCKET is set.
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GCS_DASHBOARD_BUCKET: ${{ secrets.GCS_DASHBOARD_BUCKET }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            PYTHONPATH=. python scripts/dashboard_html_publish.py --apply
+          else
+            PYTHONPATH=. python scripts/dashboard_html_publish.py
+          fi

@@ -244,3 +244,27 @@ def test_anchored_theoretical_sums_exactly_to_kpi_daily():
                   daily_expected={"GTO1": 4978.0})
     total = sum(r["theoretical_kwh"] for r in res.plant_rows if r["plant_key"] == "GTO1")
     assert total == pytest.approx(4978.0, abs=0.05)
+
+
+# --- regression: 2026-07-03 midnight carryover (shared rule with kpi_eod) ---
+
+def test_carryover_row_does_not_zero_the_inverters_day():
+    """Real incident 2026-07-03: SLP1 JNM7DY306G polled at 00:04 still carried
+    Jul 2's etoday (502.4). The cumulative-diff baseline then exceeded every
+    later sample, zeroing the inverter's whole day in the dashboard. With the
+    shared carryover strip, the day totals its true production."""
+    def s(hh, mm, e):
+        return mk(dt.datetime(2026, 7, 2, hh, mm), "GTO1", "X", e)
+    samples = [s(0, 4, 502.4), s(6, 48, 0.1), s(8, 58, 11.8), s(10, 36, 59.9),
+               s(11, 56, 146.0), s(13, 40, 278.2), s(17, 41, 422.5),
+               s(19, 16, 434.9)]
+    res = D.build(DAY, plant_map(), samples, active_inverters={"GTO1": {"X"}})
+    day_total = sum(r["total_kwh"] for r in res.plant_rows)
+    assert day_total == pytest.approx(434.9)   # was ~0 before the fix
+
+
+def test_carryover_strip_shares_rule_with_kpi_energy():
+    """Dashboard must use the SAME carryover function as kpi_eod — no second
+    implementation allowed to drift."""
+    from argia.kpi.energy import find_carryover_cut as kpi_cut
+    assert D.find_carryover_cut is kpi_cut

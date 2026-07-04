@@ -159,8 +159,12 @@ class TestDiscrepancy:
         assert e.discrepancy_pct == 0.0
 
     def test_discrepancy_computed_on_reboot(self):
-        """After reboot at 14:00 with max=150, last=120, discrepancy is 20%."""
-        rows = [_row(10, 150.0), _row(14, 0.0), _row(17, 120.0)]
+        """After reboot at 14:00 MX with max=150, last=120, discrepancy is 20%.
+
+        Hours are UTC; 16/20/23 UTC = 10:00/14:00/17:00 MX — mid-day, so the
+        pre-dawn carryover strip (see test_kpi_energy_carryover) stays out of
+        the way and this exercises the genuine-reboot path."""
+        rows = [_row(16, 150.0), _row(20, 0.0), _row(23, 120.0)]
         e = compute_inverter_energy(rows)
         assert e.discrepancy_pct is not None
         assert 19.5 < e.discrepancy_pct < 20.5

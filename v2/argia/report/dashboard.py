@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import datetime as dt
 import statistics
+
+from argia.kpi.energy import find_carryover_cut
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
@@ -248,8 +250,14 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
         by_inv.setdefault((s.plant_key, s.inverter_sn), []).append(s)
         seen_inv.setdefault(s.plant_key, set()).add(s.inverter_sn)
         inverter_labels.setdefault((s.plant_key, s.inverter_sn), s.inverter_label)
-    for lst in by_inv.values():
-        lst.sort(key=lambda s: s.ts)
+    for key in list(by_inv):
+        lst = sorted(by_inv[key], key=lambda s: s.ts)
+        # Strip leading midnight-carryover rows (same rule as kpi_eod, via the
+        # shared helper): a stale etoday from YESTERDAY would otherwise become
+        # the cumulative-diff baseline and zero this inverter's whole day.
+        cut = find_carryover_cut([s.etoday_kwh for s in lst],
+                                 [s.ts.hour for s in lst])
+        by_inv[key] = lst[cut:]
 
     res = BuildResult()
     buckets = daylight_buckets(day, minutes)

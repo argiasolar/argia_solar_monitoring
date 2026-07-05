@@ -251,3 +251,24 @@ class TestFeatureRegressions20260705:
 
     def test_expected_card_label_shows_cutoff_on_live_day(self):
         assert "Expected \\u00b7 to " in H._TEMPLATE or "Expected · to " in H._TEMPLATE
+
+
+class TestIssuesAndAvailability20260705:
+    def test_availability_counts_only_producing_buckets(self):
+        """Real incident 2026-07-05: a fleet-wide 07:00 telemetry gap made
+        every plant read exactly 80% (4/5 buckets). A bucket with no
+        production recorded is a data gap, not plant unavailability."""
+        port = H._TEMPLATE.split("function drawPortfolio")[1]
+        assert "producing buckets only" in port
+        assert "(r.total_kwh || 0) <= 0) return;" in port
+        # the old theo-inclusive filter must be gone from availability
+        assert "(r.theoretical_kwh || 0) <= 0) return;" not in port
+
+    def test_portfolio_surfaces_issues_not_just_faults(self):
+        """MEX1 Inverter 2 OFFLINE and GTO1 Inverter 5 UNDERPERFORMING were
+        invisible on the overview because only FAULT was counted."""
+        assert "ISSUE_STATUSES" in H._TEMPLATE
+        for st in ("FAULT", "OFFLINE", "DERATED", "UNDERPERFORMING"):
+            assert st + ": 1" in H._TEMPLATE
+        assert "Inverters with issues" in H._TEMPLATE
+        assert ">Issues</th>" in H._TEMPLATE

@@ -147,7 +147,7 @@ _TEMPLATE = """<!DOCTYPE html>
       <div class="val" id="cExp">–</div></div>
     <div class="card"><div class="lbl">Production vs expected</div>
       <div class="val" id="cPct">–</div></div>
-    <div class="card"><div class="lbl">Inverters faulted</div>
+    <div class="card"><div class="lbl">Inverters with issues</div>
       <div class="val" id="cFault">–</div></div>
   </div>
 
@@ -200,6 +200,9 @@ _TEMPLATE = """<!DOCTYPE html>
   var SERIES = ['#0F6E56','#5DCAA5','#3B6D11','#97C459','#085041','#1D9E75',
                 '#639922','#9FE1CB'];
   var ALL = '__ALL__';
+  // statuses that count as "needing attention" on the cards / Issues column
+  var ISSUE_STATUSES = { FAULT: 1, OFFLINE: 1, DERATED: 1,
+                         UNDERPERFORMING: 1 };
   var plantSel = document.getElementById('plantSel');
   var daySel = document.getElementById('daySel');
   var chart = null;
@@ -357,9 +360,11 @@ _TEMPLATE = """<!DOCTYPE html>
       ntot = Math.max(ntot, r.inverters_total || 0);
     });
     var pct = theo > 0 ? prod / theo * 100 : null;
-    setCards(prod, theo, pct, faulted, ntot);
-
     var invs = aggInverters(irows);
+    var issues = invs.filter(function (a) {
+      return ISSUE_STATUSES[a.status]; }).length;
+    setCards(prod, theo, pct, issues, ntot);
+
     var maxTemp = null;
     invs.forEach(function (a) {
       if (a.temp !== null)
@@ -452,29 +457,46 @@ _TEMPLATE = """<!DOCTYPE html>
         faulted = Math.max(faulted, r.inverters_faulted || 0);
         ntot = Math.max(ntot, r.inverters_total || 0);
         kwp = Math.max(kwp, r.kwp_dc || 0);
-        if ((r.total_kwh || 0) > 0 || (r.theoretical_kwh || 0) > 0) {
+        // Availability counts only PRODUCING buckets: an inverter silent
+        // while its plant produces is unavailable; a bucket where nothing
+        // was recorded (dawn, fleet-wide telemetry gap) is a data gap, not
+        // plant unavailability, and must not tank the number.
+        if ((r.total_kwh || 0) > 0) {
           rep += r.inverters_reporting || 0;
           tot += r.inverters_total || 0;
         }
       });
       var t = null;
+      var worst = {};
       irows.forEach(function (r) {
         if (r.temperature_c !== null && r.temperature_c !== undefined)
           t = Math.max(t === null ? -1e9 : t, r.temperature_c);
+        var rank = { FAULT: 5, OFFLINE: 4, DERATED: 3, UNDERPERFORMING: 2,
+                     ONLINE: 1, IDLE_NIGHT: 0, NO_DATA: 0 }[r.status] || 0;
+        var w = worst[r.inverter_sn];
+        if (!w || rank > w.rank) worst[r.inverter_sn] =
+          { rank: rank, status: r.status };
+      });
+      var issues = 0, hardIssues = 0;
+      Object.keys(worst).forEach(function (sn) {
+        if (ISSUE_STATUSES[worst[sn].status]) issues += 1;
+        if (worst[sn].status === 'FAULT' || worst[sn].status === 'OFFLINE')
+          hardIssues += 1;
       });
       return { pk: pk, customer: DATA.customers[pk] || pk, prod: prod,
                theo: theo, pct: theo > 0 ? prod / theo * 100 : null,
                faulted: faulted, ntot: ntot, temp: t, kwp: kwp,
+               issues: issues, hardIssues: hardIssues,
                avail: tot > 0 ? rep / tot * 100 : null,
                prows: prows };
     });
 
-    var prod = 0, theo = 0, faulted = 0, ntot = 0;
+    var prod = 0, theo = 0, issues = 0, ntot = 0;
     perPlant.forEach(function (p) {
-      prod += p.prod; theo += p.theo; faulted += p.faulted; ntot += p.ntot;
+      prod += p.prod; theo += p.theo; issues += p.issues; ntot += p.ntot;
     });
     var pct = theo > 0 ? prod / theo * 100 : null;
-    setCards(prod, theo, pct, faulted, ntot);
+    setCards(prod, theo, pct, issues, ntot);
 
     // Fleet availability: reporting/expected inverters over DAYLIGHT buckets
     // (bucket-level ratio; KPI_Daily's gap-clustered availability remains
@@ -482,7 +504,7 @@ _TEMPLATE = """<!DOCTYPE html>
     var repSum = 0, totSum = 0;
     perPlant.forEach(function (p) {
       p.prows.forEach(function (r) {
-        if ((r.total_kwh || 0) <= 0 && (r.theoretical_kwh || 0) <= 0) return;
+        if ((r.total_kwh || 0) <= 0) return;   // producing buckets only
         repSum += r.inverters_reporting || 0;
         totSum += r.inverters_total || 0;
       });
@@ -511,7 +533,7 @@ _TEMPLATE = """<!DOCTYPE html>
       '<tr><th>Plant</th><th class="num">kWh</th>' +
       '<th class="num">Expected</th><th class="num">%</th>' +
       '<th class="num">Availability</th>' +
-      '<th class="num">Faulted</th><th class="num">Max \u00b0C</th></tr>';
+      '<th class="num">Issues</th><th class="num">Max \u00b0C</th></tr>';
     var body = document.getElementById('tblBody');
     body.innerHTML = '';
     perPlant.forEach(function (p) {
@@ -529,7 +551,10 @@ _TEMPLATE = """<!DOCTYPE html>
         '<td class="num" style="color:' + aCol2 + '">' +
         (p.avail === null ? '\u2013'
           : (Math.round(p.avail * 10) / 10) + '%') + '</td>' +
-        '<td class="num">' + (p.faulted ? p.faulted : '\u2013') + '</td>' +
+        '<td class="num" style="font-weight:600;color:' +
+        (p.issues === 0 ? '#6b6a64'
+          : p.hardIssues > 0 ? '#a32d2d' : '#854f0b') + '">' +
+        (p.issues ? p.issues : '\u2013') + '</td>' +
         '<td class="num">' + (p.temp === null ? '\u2013' : fmt(p.temp, 0)) + '</td>';
       body.appendChild(tr);
     });

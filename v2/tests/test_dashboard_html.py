@@ -284,3 +284,21 @@ class TestIssuesAndAvailability20260705:
         today falls back to its newest day instead of an empty page."""
         assert "daySel.value = days.indexOf(todayIso) >= 0" in H._TEMPLATE
         assert "todayIso : maxDay" in H._TEMPLATE
+
+
+class TestLossAndInverterAvailability20260705:
+    def test_loss_fields_embedded(self):
+        assert "est_loss_kwh" in H.INVERTER_FIELDS
+        assert "tariff_mxn_per_kwh" in H.PLANT_FIELDS
+
+    def test_plant_table_has_avail_and_loss_columns(self):
+        plant = H._TEMPLATE.split("function drawPlant")[1].split(
+            "function drawPortfolio")[0]
+        assert '>Avail</th>' in plant and '>Loss</th>' in plant
+        assert "AVAIL_OK_SET" in H._TEMPLATE   # same rule as portfolio
+
+    def test_loss_shows_kwh_until_tariff_set(self):
+        """tariff_mxn_per_kwh is still EMPTY in Plants — the page must
+        degrade to kWh with a hint, never invent pesos."""
+        assert "set tariff_mxn_per_kwh for MXN" in H._TEMPLATE
+        assert "tariffs incomplete" in H._TEMPLATE

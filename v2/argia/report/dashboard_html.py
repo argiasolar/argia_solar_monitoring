@@ -22,12 +22,14 @@ from typing import List
 # explicit. Adding a field to the page starts here.
 PLANT_FIELDS = [
     "date_mx", "hour_label", "plant_key", "customer", "kwp_dc",
+    "tariff_mxn_per_kwh",
     "total_kwh", "theoretical_kwh", "cloud_cover_pct",
     "inverters_total", "inverters_reporting", "inverters_faulted",
 ]
 INVERTER_FIELDS = [
     "date_mx", "hour_label", "plant_key", "inverter_sn", "inverter_label",
     "energy_kwh", "temperature_c", "status", "status_reason",
+    "est_loss_kwh",
 ]
 
 STATUS_COLORS = {
@@ -149,6 +151,8 @@ _TEMPLATE = """<!DOCTYPE html>
       <div class="val" id="cPct">–</div></div>
     <div class="card"><div class="lbl">Inverters with issues</div>
       <div class="val" id="cFault">–</div></div>
+    <div class="card"><div class="lbl" id="cLossLbl">Est. loss (unavailability)</div>
+      <div class="val" id="cLoss">–</div></div>
   </div>
 
   <div class="row">
@@ -262,6 +266,13 @@ _TEMPLATE = """<!DOCTYPE html>
   var todayIso = mxTodayIso();
   daySel.value = days.indexOf(todayIso) >= 0 ? todayIso : maxDay;
 
+  function lossText(kwh, tariff) {
+    if (!kwh || kwh < 0.5) return '\u2013';
+    if (tariff) return '$' + fmt(kwh * tariff) + ' <small>MXN \u00b7 ' +
+      fmt(kwh) + ' kWh</small>';
+    return fmt(kwh) + ' <small>kWh (set tariff_mxn_per_kwh for MXN)</small>';
+  }
+
   function fmt(n, dec) {
     if (n === null || n === undefined || isNaN(n)) return '\u2013';
     return Number(n).toLocaleString('en-US',
@@ -327,13 +338,21 @@ _TEMPLATE = """<!DOCTYPE html>
     chart2 = new Chart(document.getElementById('chart2'), chartDefaults(cfg));
   }
 
-  function aggInverters(irows) {
+  var AVAIL_OK_SET = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
+
+  function aggInverters(irows, producingHours) {
     var agg = {};
     irows.forEach(function (r) {
       var a = agg[r.inverter_sn] || (agg[r.inverter_sn] = {
         sn: r.inverter_sn, label: r.inverter_label || r.inverter_sn,
-        kwh: 0, temp: null, status: 'NO_DATA', reason: '', rank: -1 });
+        kwh: 0, temp: null, status: 'NO_DATA', reason: '', rank: -1,
+        loss: 0, availOk: 0, availN: 0 });
       a.kwh += r.energy_kwh || 0;
+      a.loss += r.est_loss_kwh || 0;
+      if (producingHours && producingHours[r.hour_label]) {
+        a.availN += 1;
+        if (AVAIL_OK_SET[r.status]) a.availOk += 1;
+      }
       if (r.temperature_c !== null && r.temperature_c !== undefined)
         a.temp = Math.max(a.temp === null ? -1e9 : a.temp, r.temperature_c);
       var rank = { FAULT: 5, OFFLINE: 4, DERATED: 3, UNDERPERFORMING: 2,
@@ -364,7 +383,19 @@ _TEMPLATE = """<!DOCTYPE html>
       ntot = Math.max(ntot, r.inverters_total || 0);
     });
     var pct = theo > 0 ? prod / theo * 100 : null;
-    var invs = aggInverters(irows);
+    var producingHours = {};
+    prows.forEach(function (r) {
+      if ((r.total_kwh || 0) > 0) producingHours[r.hour_label] = 1;
+    });
+    var tariff = null;
+    prows.forEach(function (r) {
+      if (r.tariff_mxn_per_kwh) tariff = r.tariff_mxn_per_kwh;
+    });
+    var invs = aggInverters(irows, producingHours);
+    var plantLoss = 0;
+    invs.forEach(function (a) { plantLoss += a.loss; });
+    document.getElementById('cLoss').innerHTML =
+      lossText(plantLoss, tariff);
     var issues = invs.filter(function (a) {
       return ISSUE_STATUSES[a.status]; }).length;
     setCards(prod, theo, pct, issues, ntot);
@@ -383,14 +414,24 @@ _TEMPLATE = """<!DOCTYPE html>
       'Inverters \u2014 consolidated status';
     document.getElementById('tblHead').innerHTML =
       '<tr><th>Inverter</th><th class="num">kWh</th>' +
+      '<th class="num">Avail</th><th class="num">Loss</th>' +
       '<th class="num">Max \u00b0C</th><th>Status</th><th>Reason</th></tr>';
     var body = document.getElementById('tblBody');
     body.innerHTML = '';
     invs.forEach(function (a) {
       var c = DATA.status_colors[a.status] || ['#eee', '#444'];
       var tr = document.createElement('tr');
+      var av = a.availN > 0 ? Math.round(100 * a.availOk / a.availN) : null;
+      var avCol = av === null ? '#6b6a64'
+        : av < 90 ? '#a32d2d' : av < 98 ? '#854f0b' : '#0f6e56';
+      var lossCell = a.loss < 0.5 ? '\u2013'
+        : (tariff ? '$' + fmt(a.loss * tariff) : fmt(a.loss) + ' kWh');
       tr.innerHTML = '<td>' + a.label + '</td>' +
         '<td class="num">' + fmt(a.kwh) + '</td>' +
+        '<td class="num" style="color:' + avCol + '">' +
+        (av === null ? '\u2013' : av + '%') + '</td>' +
+        '<td class="num" style="color:' + (a.loss >= 0.5 ? '#a32d2d' : '#6b6a64') + '">' +
+        lossCell + '</td>' +
         '<td class="num">' + (a.temp === null ? '\u2013' : fmt(a.temp, 0)) + '</td>' +
         '<td><span class="badge" style="background:' + c[0] + ';color:' +
         c[1] + '">' + a.status + '</span></td>' +
@@ -494,7 +535,13 @@ _TEMPLATE = """<!DOCTYPE html>
         if (worst[sn].status === 'FAULT' || worst[sn].status === 'OFFLINE')
           hardIssues += 1;
       });
+      var tariff = null, loss = 0;
+      prows.forEach(function (r) {
+        if (r.tariff_mxn_per_kwh) tariff = r.tariff_mxn_per_kwh;
+      });
+      irows.forEach(function (r) { loss += r.est_loss_kwh || 0; });
       return { pk: pk, customer: DATA.customers[pk] || pk, prod: prod,
+               lossKwh: loss, tariff: tariff,
                theo: theo, pct: theo > 0 ? prod / theo * 100 : null,
                faulted: faulted, ntot: ntot, temp: t, kwp: kwp,
                issues: issues, hardIssues: hardIssues,
@@ -509,6 +556,17 @@ _TEMPLATE = """<!DOCTYPE html>
     });
     var pct = theo > 0 ? prod / theo * 100 : null;
     setCards(prod, theo, pct, issues, ntot);
+    var lossKwh = 0, lossMxn = 0, allTariffed = true;
+    perPlant.forEach(function (p) {
+      lossKwh += p.lossKwh;
+      if (p.tariff) lossMxn += p.lossKwh * p.tariff;
+      else if (p.lossKwh >= 0.5) allTariffed = false;
+    });
+    document.getElementById('cLoss').innerHTML =
+      lossKwh < 0.5 ? '\u2013'
+      : allTariffed ? ('$' + fmt(lossMxn) + ' <small>MXN \u00b7 ' +
+                       fmt(lossKwh) + ' kWh</small>')
+      : (fmt(lossKwh) + ' <small>kWh (tariffs incomplete)</small>');
 
     // Fleet availability: reporting/expected inverters over DAYLIGHT buckets
     // (bucket-level ratio; KPI_Daily's gap-clustered availability remains

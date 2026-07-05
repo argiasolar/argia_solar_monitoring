@@ -103,6 +103,7 @@ class Plant:
     customer: str
     kwp_dc: float
     expected_factor: float
+    tariff_mxn_per_kwh: float | None = None   # empty in Plants until set
 
     def theoretical(self, irr_kwh_m2: float) -> float:
         """KPI_Daily expected-energy formula, applied to any irradiance window."""
@@ -337,6 +338,14 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 theoretical = plant.theoretical(irr_bucket)
             expected_share = theoretical / n_active if n_active else 0.0
 
+            # availability-loss basis: what producing peers achieved
+            peers_perkw = [energies[sn][0] / inverter_ratings[(pk, sn)]
+                           for sn in inv_sns
+                           if energies[sn][1] and energies[sn][0] > ZERO_KWH
+                           and inverter_ratings.get((pk, sn))]
+            peers_perkw_median = (statistics.median(peers_perkw)
+                                  if peers_perkw else None)
+
             for sn in sorted(inv_sns):
                 e, reported, last = energies[sn]
                 plant_total += e
@@ -344,6 +353,19 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 temp = last.temperature_c if last else None
                 power = last.power_w if last else None
                 status, reason = statuses[sn]
+                # Estimated energy LOST to unavailability (FAULT/OFFLINE
+                # only — underperformance is a different number and is
+                # deliberately not mixed in). Basis: producing peers'
+                # per-kW median x this inverter's rated kW; raw peer
+                # median when ratings are unknown; 0 when the whole
+                # plant is dark (no peers to estimate from).
+                est_loss = 0.0
+                if status in (FAULT, OFFLINE):
+                    rating = inverter_ratings.get((pk, sn))
+                    if peers_perkw_median is not None and rating:
+                        est_loss = max(peers_perkw_median * rating - e, 0.0)
+                    elif peer_median is not None:
+                        est_loss = max(peer_median - e, 0.0)
                 if status == FAULT:
                     faulted += 1
                 res.inverter_rows.append({
@@ -362,6 +384,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                     "peer_median_kwh": round(peer_median, 3) if peer_median else None,
                     "expected_share_kwh": round(expected_share, 3),
                     "production_pct": round(100 * e / expected_share, 1) if expected_share > 0 else None,
+                    "est_loss_kwh": round(est_loss, 3),
                 })
 
             res.plant_rows.append({
@@ -371,6 +394,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 "plant_key": pk,
                 "customer": plant.customer,
                 "kwp_dc": plant.kwp_dc,
+                "tariff_mxn_per_kwh": plant.tariff_mxn_per_kwh,
                 "total_kwh": round(plant_total, 3),
                 "theoretical_kwh": round(theoretical, 3),
                 "irradiance_kwh_m2": round(irr_bucket, 5),
@@ -403,10 +427,11 @@ INVERTER_COLUMNS = [
     "date_mx", "bucket_ts", "hour_label", "plant_key", "customer",
     "inverter_sn", "inverter_label", "energy_kwh", "power_w", "temperature_c",
     "status", "status_reason", "peer_median_kwh", "expected_share_kwh",
-    "production_pct",
+    "production_pct", "est_loss_kwh",
 ]
 PLANT_COLUMNS = [
     "date_mx", "bucket_ts", "hour_label", "plant_key", "customer", "kwp_dc",
+    "tariff_mxn_per_kwh",
     "total_kwh", "theoretical_kwh", "irradiance_kwh_m2", "irradiance_wm2",
     "cloud_cover_pct", "module_temp_c", "ambient_temp_c", "inverters_total",
     "inverters_reporting", "inverters_faulted", "production_pct",
@@ -424,11 +449,18 @@ def parse_plants(rows: list[dict]) -> dict[str, "Plant"]:
         pk = r.get("plant_key")
         if not pk:
             continue
+        # Inactive plants produce nothing but NO_DATA padding (at one point
+        # ~80% of Dashboard_Inverter rows) — skip them at the source.
+        # Missing/blank `active` counts as active (backward compatible).
+        active = str(r.get("active", "")).strip().upper()
+        if active in ("FALSE", "0", "NO"):
+            continue
         kwp = _num(r.get("kwp_dc_override")) or _num(r.get("kwp_dc"))
         ef = _num(r.get("expected_factor"))
         if kwp is None or ef is None:
             continue
-        out[pk] = Plant(pk, r.get("customer") or pk, kwp, ef)
+        out[pk] = Plant(pk, r.get("customer") or pk, kwp, ef,
+                        tariff_mxn_per_kwh=_num(r.get("tariff_mxn_per_kwh")))
     return out
 
 

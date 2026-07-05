@@ -323,3 +323,101 @@ def test_anchored_day_still_sums_exactly_to_kpi_with_trapezoid_shape():
                   daily_expected={"GTO1": 4978.0})
     total = sum(r["theoretical_kwh"] for r in res.plant_rows)
     assert total == pytest.approx(4978.0, abs=0.05)
+
+
+# --- availability-loss estimate (est_loss_kwh) -------------------------------
+
+def _loss_setup(ratings=True):
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    prev = dt.datetime(2026, 7, 2, 9, 5)
+    samples = [
+        mk(ts, "GTO1", "A", 140), mk(prev, "GTO1", "A", 40),      # +100
+        mk(ts, "GTO1", "B", 130), mk(prev, "GTO1", "B", 35),      # +95
+        mk(ts, "GTO1", "D", 0, status=3, fault="FT=302"),
+        mk(prev, "GTO1", "D", 0, status=3, fault="FT=302"),       # dead
+    ]
+    r = {("GTO1", "A"): 100.0, ("GTO1", "B"): 100.0,
+         ("GTO1", "D"): 50.0} if ratings else None
+    return samples, r
+
+
+def test_faulted_inverter_gets_perkw_scaled_loss():
+    """Dead 50 kW unit among 100 kW peers producing ~1 kWh/kW: the loss is
+    per-kW scaled (~48.8 kWh), NOT the raw peer median (~97.5)."""
+    samples, ratings = _loss_setup()
+    res = D.build(DAY, plant_map(), samples,
+                  active_inverters={"GTO1": {"A", "B", "D"}},
+                  inverter_ratings=ratings)
+    b10 = dt.datetime(2026, 7, 2, 10, 0)
+    rows = {r["inverter_sn"]: r for r in res.inverter_rows
+            if r["bucket_ts"] == b10}
+    assert rows["D"]["est_loss_kwh"] == pytest.approx(48.75, abs=0.1)
+    assert rows["A"]["est_loss_kwh"] == 0.0
+    assert rows["B"]["est_loss_kwh"] == 0.0
+
+
+def test_loss_falls_back_to_raw_median_without_ratings():
+    samples, _ = _loss_setup(ratings=False)
+    res = D.build(DAY, plant_map(), samples,
+                  active_inverters={"GTO1": {"A", "B", "D"}})
+    b10 = dt.datetime(2026, 7, 2, 10, 0)
+    rows = {r["inverter_sn"]: r for r in res.inverter_rows
+            if r["bucket_ts"] == b10}
+    assert rows["D"]["est_loss_kwh"] == pytest.approx(97.5, abs=0.1)
+
+
+def test_whole_plant_dark_estimates_zero_loss():
+    """No producing peers -> no basis; the case screams via production %."""
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    samples = [mk(ts, "GTO1", "A", 0, status=3, fault="FT=302"),
+               mk(ts, "GTO1", "B", 0, status=3, fault="FT=302")]
+    res = D.build(DAY, plant_map(), samples,
+                  active_inverters={"GTO1": {"A", "B"}})
+    assert all(r["est_loss_kwh"] == 0.0 for r in res.inverter_rows)
+
+
+def test_underperforming_is_not_counted_as_availability_loss():
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    prev = dt.datetime(2026, 7, 2, 9, 5)
+    samples = [
+        mk(ts, "GTO1", "A", 140), mk(prev, "GTO1", "A", 40),
+        mk(ts, "GTO1", "B", 130), mk(prev, "GTO1", "B", 35),
+        mk(ts, "GTO1", "C", 90), mk(prev, "GTO1", "C", 40),   # +50 laggard
+    ]
+    res = D.build(DAY, plant_map(), samples,
+                  active_inverters={"GTO1": {"A", "B", "C"}})
+    b10 = dt.datetime(2026, 7, 2, 10, 0)
+    rows = {r["inverter_sn"]: r for r in res.inverter_rows
+            if r["bucket_ts"] == b10}
+    assert rows["C"]["status"] == D.UNDERPERFORMING
+    assert rows["C"]["est_loss_kwh"] == 0.0
+
+
+def test_plant_rows_carry_tariff_and_parse_reads_it():
+    plants = D.parse_plants([{"plant_key": "SLP1", "customer": "Quimica",
+                              "kwp_dc": 189.2, "expected_factor": 0.75,
+                              "tariff_mxn_per_kwh": "2.596"}])
+    assert plants["SLP1"].tariff_mxn_per_kwh == pytest.approx(2.596)
+    ts = dt.datetime(2026, 7, 2, 10, 5)
+    res = D.build(DAY, plants, [mk(ts, "SLP1", "A", 10)],
+                  active_inverters={"SLP1": {"A"}})
+    assert res.plant_rows[0]["tariff_mxn_per_kwh"] == pytest.approx(2.596)
+    assert "tariff_mxn_per_kwh" in D.PLANT_COLUMNS
+    assert "est_loss_kwh" in D.INVERTER_COLUMNS
+
+
+def test_parse_plants_skips_inactive_and_defaults_to_active():
+    """Regression: 4 inactive plants (MEX3/NL2/QRO1/GTO2) generated pure
+    NO_DATA padding rows every run — filter at the source. Rows without an
+    `active` column stay included (backward compatible)."""
+    rows = [
+        {"plant_key": "GTO1", "kwp_dc": 818.33, "expected_factor": 0.75,
+         "active": "TRUE"},
+        {"plant_key": "QRO1", "kwp_dc": 100.0, "expected_factor": 0.75,
+         "active": "FALSE"},
+        {"plant_key": "NL2", "kwp_dc": 100.0, "expected_factor": 0.75,
+         "active": False},
+        {"plant_key": "SLP1", "kwp_dc": 189.2, "expected_factor": 0.75},
+    ]
+    plants = D.parse_plants(rows)
+    assert set(plants) == {"GTO1", "SLP1"}

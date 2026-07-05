@@ -256,7 +256,11 @@ _TEMPLATE = """<!DOCTYPE html>
     o.value = d; o.textContent = d; daySel.appendChild(o);
   });
   var maxDay = days[days.length - 1];
-  daySel.value = days.length > 1 ? days[days.length - 2] : maxDay;
+  // Default to TODAY (MX) when present — this is a live ops view; the
+  // banner explains that today's numbers are pro-rated estimates. Falls
+  // back to the newest available day (e.g. a stale offline copy).
+  var todayIso = mxTodayIso();
+  daySel.value = days.indexOf(todayIso) >= 0 ? todayIso : maxDay;
 
   function fmt(n, dec) {
     if (n === null || n === undefined || isNaN(n)) return '\u2013';

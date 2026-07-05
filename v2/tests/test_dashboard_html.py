@@ -277,3 +277,10 @@ class TestIssuesAndAvailability20260705:
             assert st + ": 1" in H._TEMPLATE
         assert "Inverters with issues" in H._TEMPLATE
         assert ">Issues</th>" in H._TEMPLATE
+
+    def test_default_day_is_today_with_stale_fallback(self):
+        """User request 2026-07-05: open on TODAY (live ops view; the
+        pro-rating banner covers the estimate caveat). A stale copy without
+        today falls back to its newest day instead of an empty page."""
+        assert "daySel.value = days.indexOf(todayIso) >= 0" in H._TEMPLATE
+        assert "todayIso : maxDay" in H._TEMPLATE

@@ -135,13 +135,15 @@ _TEMPLATE = """<!DOCTYPE html>
     </div>
   </header>
 
-  <div class="note" id="todayNote">Selected day is still running: theoretical
-    is a live estimate (&plusmn;10%) until the end-of-day KPI is stamped tonight.</div>
+  <div class="note" id="todayNote">Selected day is still running: production and
+    expected are pro-rated to the last complete hour (Mexico City time); the
+    expected value is a live estimate (&plusmn;10%) until the end-of-day KPI is
+    stamped tonight.</div>
 
   <div class="cards">
     <div class="card"><div class="lbl">Production</div>
       <div class="val" id="cProd">–</div></div>
-    <div class="card"><div class="lbl">Expected</div>
+    <div class="card"><div class="lbl" id="cExpLbl">Expected</div>
       <div class="val" id="cExp">–</div></div>
     <div class="card"><div class="lbl">Production vs expected</div>
       <div class="val" id="cPct">–</div></div>
@@ -183,6 +185,12 @@ _TEMPLATE = """<!DOCTYPE html>
     <div class="chartbox"><canvas id="chart" role="img"
       aria-label="Stacked hourly production per inverter with theoretical line"></canvas></div>
   </div>
+
+  <div class="panel" id="panel2" style="margin-top:14px; display:none">
+    <h2 id="chart2Title">Production vs expected &middot; by plant</h2>
+    <div class="chartbox"><canvas id="chart2" role="img"
+      aria-label="Production versus expected by plant"></canvas></div>
+  </div>
 </div>
 
 <script id="data" type="application/json">__DATA__</script>
@@ -195,6 +203,36 @@ _TEMPLATE = """<!DOCTYPE html>
   var plantSel = document.getElementById('plantSel');
   var daySel = document.getElementById('daySel');
   var chart = null;
+  var chart2 = null;
+
+  function mxNow() {
+    try {
+      return new Date(new Date().toLocaleString('en-US',
+        { timeZone: 'America/Mexico_City' }));
+    } catch (e) { return new Date(); }
+  }
+  function mxTodayIso() {
+    try {
+      return new Date().toLocaleDateString('en-CA',
+        { timeZone: 'America/Mexico_City' });
+    } catch (e) { return new Date().toISOString().slice(0, 10); }
+  }
+  // On the LIVE day only, compare pace-vs-pace: keep buckets strictly before
+  // the current MX hour so future/forecast rows can never inflate expected.
+  // Completed days keep the full-day comparison (truncating them would hide
+  // an afternoon outage).
+  function cutLive(rows, day) {
+    if (day !== mxTodayIso()) return rows;
+    var h = mxNow().getHours();
+    return rows.filter(function (r) {
+      return parseInt(r.hour_label, 10) < h; });
+  }
+  function expLabel(day) {
+    document.getElementById('cExpLbl').textContent =
+      (day === mxTodayIso())
+        ? 'Expected \u00b7 to ' + ('0' + mxNow().getHours()).slice(-2) + ':00'
+        : 'Expected';
+  }
 
   document.getElementById('genat').textContent =
     'generated ' + DATA.generated_at + ' (America/Mexico_City)';
@@ -265,14 +303,21 @@ _TEMPLATE = """<!DOCTYPE html>
       pct === null ? '\u2013' : fmt(pct) + '%';
   }
 
-  function newChart(cfg) {
-    if (chart) chart.destroy();
+  function chartDefaults(cfg) {
     cfg.options = cfg.options || {};
     cfg.options.devicePixelRatio =
       Math.max(window.devicePixelRatio || 1, 2);   // crisp on scaled displays
     cfg.options.responsive = true;
     cfg.options.maintainAspectRatio = false;
-    chart = new Chart(document.getElementById('chart'), cfg);
+    return cfg;
+  }
+  function newChart(cfg) {
+    if (chart) chart.destroy();
+    chart = new Chart(document.getElementById('chart'), chartDefaults(cfg));
+  }
+  function newChart2(cfg) {
+    if (chart2) chart2.destroy();
+    chart2 = new Chart(document.getElementById('chart2'), chartDefaults(cfg));
   }
 
   function aggInverters(irows) {
@@ -298,10 +343,12 @@ _TEMPLATE = """<!DOCTYPE html>
   }
 
   function drawPlant(pk, day) {
-    var prows = DATA.plant_rows.filter(function (r) {
-      return r.plant_key === pk && r.date_mx === day; });
-    var irows = DATA.inverter_rows.filter(function (r) {
-      return r.plant_key === pk && r.date_mx === day; });
+    document.getElementById('panel2').style.display = 'none';
+    expLabel(day);
+    var prows = cutLive(DATA.plant_rows.filter(function (r) {
+      return r.plant_key === pk && r.date_mx === day; }), day);
+    var irows = cutLive(DATA.inverter_rows.filter(function (r) {
+      return r.plant_key === pk && r.date_mx === day; }), day);
 
     var prod = 0, theo = 0, faulted = 0, ntot = 0;
     prows.forEach(function (r) {
@@ -391,16 +438,24 @@ _TEMPLATE = """<!DOCTYPE html>
   }
 
   function drawPortfolio(day) {
+    document.getElementById('panel2').style.display = '';
+    expLabel(day);
     var perPlant = DATA.plants.map(function (pk) {
-      var prows = DATA.plant_rows.filter(function (r) {
-        return r.plant_key === pk && r.date_mx === day; });
-      var irows = DATA.inverter_rows.filter(function (r) {
-        return r.plant_key === pk && r.date_mx === day; });
-      var prod = 0, theo = 0, faulted = 0, ntot = 0;
+      var prows = cutLive(DATA.plant_rows.filter(function (r) {
+        return r.plant_key === pk && r.date_mx === day; }), day);
+      var irows = cutLive(DATA.inverter_rows.filter(function (r) {
+        return r.plant_key === pk && r.date_mx === day; }), day);
+      var prod = 0, theo = 0, faulted = 0, ntot = 0, kwp = 0,
+          rep = 0, tot = 0;
       prows.forEach(function (r) {
         prod += r.total_kwh || 0; theo += r.theoretical_kwh || 0;
         faulted = Math.max(faulted, r.inverters_faulted || 0);
         ntot = Math.max(ntot, r.inverters_total || 0);
+        kwp = Math.max(kwp, r.kwp_dc || 0);
+        if ((r.total_kwh || 0) > 0 || (r.theoretical_kwh || 0) > 0) {
+          rep += r.inverters_reporting || 0;
+          tot += r.inverters_total || 0;
+        }
       });
       var t = null;
       irows.forEach(function (r) {
@@ -409,7 +464,9 @@ _TEMPLATE = """<!DOCTYPE html>
       });
       return { pk: pk, customer: DATA.customers[pk] || pk, prod: prod,
                theo: theo, pct: theo > 0 ? prod / theo * 100 : null,
-               faulted: faulted, ntot: ntot, temp: t };
+               faulted: faulted, ntot: ntot, temp: t, kwp: kwp,
+               avail: tot > 0 ? rep / tot * 100 : null,
+               prows: prows };
     });
 
     var prod = 0, theo = 0, faulted = 0, ntot = 0;
@@ -423,11 +480,12 @@ _TEMPLATE = """<!DOCTYPE html>
     // (bucket-level ratio; KPI_Daily's gap-clustered availability remains
     // the audit-grade number and can differ slightly on gappy days).
     var repSum = 0, totSum = 0;
-    DATA.plant_rows.forEach(function (r) {
-      if (r.date_mx !== day) return;
-      if ((r.total_kwh || 0) <= 0 && (r.theoretical_kwh || 0) <= 0) return;
-      repSum += r.inverters_reporting || 0;
-      totSum += r.inverters_total || 0;
+    perPlant.forEach(function (p) {
+      p.prows.forEach(function (r) {
+        if ((r.total_kwh || 0) <= 0 && (r.theoretical_kwh || 0) <= 0) return;
+        repSum += r.inverters_reporting || 0;
+        totSum += r.inverters_total || 0;
+      });
     });
     var avail = totSum > 0 ? repSum / totSum * 100 : null;
     document.getElementById('g1Title').textContent = 'Fleet availability';
@@ -452,26 +510,66 @@ _TEMPLATE = """<!DOCTYPE html>
     document.getElementById('tblHead').innerHTML =
       '<tr><th>Plant</th><th class="num">kWh</th>' +
       '<th class="num">Expected</th><th class="num">%</th>' +
+      '<th class="num">Availability</th>' +
       '<th class="num">Faulted</th><th class="num">Max \u00b0C</th></tr>';
     var body = document.getElementById('tblBody');
     body.innerHTML = '';
     perPlant.forEach(function (p) {
       var col = p.pct === null ? '#6b6a64'
         : p.pct < 70 ? '#a32d2d' : p.pct < 90 ? '#854f0b' : '#0f6e56';
+      var aCol2 = p.avail === null ? '#6b6a64'
+        : p.avail < 90 ? '#a32d2d' : p.avail < 98 ? '#854f0b' : '#0f6e56';
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + p.customer + ' \u00b7 ' + p.pk + '</td>' +
+      tr.innerHTML = '<td>' + p.customer + ' \u00b7 ' + p.pk +
+        ' \u00b7 ' + fmt(p.kwp) + ' kWp DC</td>' +
         '<td class="num">' + fmt(p.prod) + '</td>' +
         '<td class="num">' + fmt(p.theo) + '</td>' +
         '<td class="num" style="color:' + col + ';font-weight:600">' +
         (p.pct === null ? '\u2013' : fmt(p.pct) + '%') + '</td>' +
+        '<td class="num" style="color:' + aCol2 + '">' +
+        (p.avail === null ? '\u2013'
+          : (Math.round(p.avail * 10) / 10) + '%') + '</td>' +
         '<td class="num">' + (p.faulted ? p.faulted : '\u2013') + '</td>' +
         '<td class="num">' + (p.temp === null ? '\u2013' : fmt(p.temp, 0)) + '</td>';
       body.appendChild(tr);
     });
 
+    // fleet hourly: production vs expected, hour by hour
+    var hourAgg = {};
+    perPlant.forEach(function (p) {
+      p.prows.forEach(function (r) {
+        var h = hourAgg[r.hour_label] ||
+          (hourAgg[r.hour_label] = { prod: 0, theo: 0 });
+        h.prod += r.total_kwh || 0;
+        h.theo += r.theoretical_kwh || 0;
+      });
+    });
+    var hrs = Object.keys(hourAgg).sort();
     document.getElementById('chartTitle').textContent =
-      'Production vs expected \u00b7 by plant';
+      'Fleet hourly \u00b7 production vs expected';
     newChart({
+      data: { labels: hrs, datasets: [
+        { type: 'bar', label: 'Production kWh', order: 2,
+          backgroundColor: '#1D9E75', borderRadius: 2,
+          data: hrs.map(function (h) {
+            return Math.round(hourAgg[h].prod); }) },
+        { type: 'line', label: 'Expected kWh', order: 1,
+          borderColor: '#888780', borderDash: [6, 4], borderWidth: 2,
+          pointRadius: 0, tension: 0.35,
+          data: hrs.map(function (h) {
+            return Math.round(hourAgg[h].theo); }) }
+      ] },
+      options: {
+        plugins: { legend: { position: 'bottom',
+                             labels: { boxWidth: 10, font: { size: 11 } } },
+                   tooltip: { mode: 'index' } },
+        scales: { x: { grid: { display: false } },
+                  y: { title: { display: true, text: 'kWh' } } } }
+    });
+
+    document.getElementById('chart2Title').textContent =
+      'Production vs expected \u00b7 by plant';
+    newChart2({
       data: {
         labels: perPlant.map(function (p) { return p.pk; }),
         datasets: [

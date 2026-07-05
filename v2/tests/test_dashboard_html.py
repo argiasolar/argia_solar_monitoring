@@ -222,3 +222,32 @@ class TestFeatureRegressions20260704:
         plant = H._TEMPLATE.split("function drawPlant")[1].split(
             "function drawPortfolio")[0]
         assert "Hottest inverter" in plant
+
+
+class TestFeatureRegressions20260705:
+    def test_portfolio_table_has_availability_column_with_kwp_names(self):
+        port = H._TEMPLATE.split("function drawPortfolio")[1].split(
+            "function draw()")[0]
+        assert "Availability" in port
+        assert "kWp DC" in port                    # size in plant name, power unit
+
+    def test_live_day_is_prorated_to_current_mx_hour(self):
+        """User report 2026-07-05: today's Expected looked full-day-sized
+        (likely forecast irradiance rows with future timestamps). The page
+        must compare pace-vs-pace on the live day: both production and
+        expected truncated to complete hours before the current MX hour.
+        Completed days keep the full-day comparison."""
+        assert "function cutLive" in H._TEMPLATE
+        assert "mxTodayIso" in H._TEMPLATE
+        assert "if (day !== mxTodayIso()) return rows;" in H._TEMPLATE
+        # both draw paths apply the cut
+        assert H._TEMPLATE.count("cutLive(") >= 4
+
+    def test_portfolio_has_fleet_hourly_and_per_plant_charts(self):
+        assert "Fleet hourly" in H._TEMPLATE
+        assert 'id="chart2"' in H._TEMPLATE
+        port = H._TEMPLATE.split("function drawPortfolio")[1]
+        assert "newChart2" in port
+
+    def test_expected_card_label_shows_cutoff_on_live_day(self):
+        assert "Expected \\u00b7 to " in H._TEMPLATE or "Expected · to " in H._TEMPLATE

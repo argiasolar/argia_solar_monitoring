@@ -24,6 +24,7 @@ EXIT CODES
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import logging
 import os
 import sys
@@ -61,11 +62,50 @@ def html_to_pdf(html_path: str, pdf_path: str) -> None:
         browser.close()
 
 
+OUTBOX_TAB = "Report_Outbox"
+OUTBOX_HEADER = ["date_iso", "kind", "pdf_file_id", "html_file_id",
+                 "created_utc", "notified_at"]
+
+
+def resolve_report_date(date_arg, when, now_mx_dt) -> str:
+    """Explicit --date wins; otherwise 'today'/'yesterday' in MX time."""
+    if date_arg:
+        return date_arg
+    d = now_mx_dt.date()
+    if when == "yesterday":
+        d = d - dt.timedelta(days=1)
+    return d.isoformat()
+
+
+def append_outbox(sheets, *, date_iso: str, kind: str,
+                  pdf_file_id: str | None, html_file_id: str | None,
+                  now_utc_iso: str) -> None:
+    """Queue the uploaded report for e-mail delivery.
+
+    The Apps Script notifier (docs/notifier.gs) scans this APPEND-ONLY tab
+    every few minutes, mails rows whose notified_at is empty (PDF attached
+    from Drive), and stamps notified_at. Append-only means the stamp can
+    never be wiped by a rewrite — unlike the engine-owned Alerts tab, which
+    is why alerts use a separate ledger instead.
+    """
+    sheets.ensure_tab(OUTBOX_TAB)
+    sheets.ensure_header(OUTBOX_TAB, OUTBOX_HEADER)
+    sheets.append_rows(OUTBOX_TAB, [[
+        date_iso, kind, pdf_file_id or "", html_file_id or "",
+        now_utc_iso, "",
+    ]])
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--date", default=None,
-                        help="ISO date (default: today, MX local — this is "
-                             "an EVENING job reporting the current day)")
+                        help="ISO date (overrides --when)")
+    parser.add_argument("--when", choices=("today", "yesterday"),
+                        default="today",
+                        help="which MX day to report when --date is not "
+                             "given: 'today' (evening ops snapshot) or "
+                             "'yesterday' (morning KPI-exact performance "
+                             "report, run after kpi_eod)")
     parser.add_argument("--dry-run", action="store_true",
                         help="render locally, upload nothing")
     parser.add_argument("--html-only", action="store_true",
@@ -74,7 +114,7 @@ def main(argv=None) -> int:
                         help="where to write the local files "
                              "(default: temp dir)")
     args = parser.parse_args(argv)
-    date_iso = args.date or now_mx().date().isoformat()
+    date_iso = resolve_report_date(args.date, args.when, now_mx())
 
     sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
     folder_id = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
@@ -126,12 +166,25 @@ def main(argv=None) -> int:
 
     drive = DriveClient()
     reports_id = drive.ensure_folder(folder_id, REPORTS_FOLDER_NAME)
+    pdf_id = None
     if pdf_path:
-        drive.upload_file(reports_id, base + ".pdf", pdf_path,
-                          "application/pdf")
-    drive.upload_file(reports_id, base + ".html", html_path, "text/html")
+        pdf_id = drive.upload_file(reports_id, base + ".pdf", pdf_path,
+                                   "application/pdf")
+    html_id = drive.upload_file(reports_id, base + ".html", html_path,
+                                "text/html")
     log.info("Report %s uploaded to Drive folder '%s'",
              date_iso, REPORTS_FOLDER_NAME)
+    try:
+        kind = ("morning_yesterday" if args.when == "yesterday"
+                and not args.date else "evening_today")
+        append_outbox(sheets, date_iso=date_iso, kind=kind,
+                      pdf_file_id=pdf_id, html_file_id=html_id,
+                      now_utc_iso=dt.datetime.now(dt.timezone.utc)
+                      .strftime("%Y-%m-%dT%H:%M:%SZ"))
+        log.info("Report_Outbox row appended (%s)", kind)
+    except Exception as e:  # noqa: BLE001
+        # e-mail queueing must never fail the report itself
+        log.error("Report_Outbox append failed (report IS uploaded): %s", e)
     return 0
 
 

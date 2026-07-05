@@ -17,7 +17,10 @@ name: v2-report-daily
 
 on:
   schedule:
-    - cron: "45 2 * * *"    # 20:45 America/Mexico_City
+    - cron: "45 2 * * *"    # 20:45 MX — EVENING report for TODAY
+    - cron: "5 13 * * *"    # 07:05 MX — MORNING report for YESTERDAY
+                            # (after kpi-eod 06:00 and alerts-daily 06:30,
+                            # so yesterday is KPI-exact and carryover-safe)
   workflow_dispatch:
     inputs:
       date:
@@ -63,8 +66,10 @@ jobs:
         run: |
           if [ -n "${{ inputs.date }}" ]; then
             D="${{ inputs.date }}"
+          elif [ "$(date -u +%H)" -lt 6 ]; then
+            D=$(TZ=America/Mexico_City date +%F)             # evening: today
           else
-            D=$(TZ=America/Mexico_City date +%F)
+            D=$(TZ=America/Mexico_City date -d yesterday +%F) # morning: yesterday
           fi
           echo "kpi_eod for $D (pre-report stamp)"
           PYTHONPATH=. python scripts/kpi_eod.py --date "$D"
@@ -79,6 +84,8 @@ jobs:
           ARGS=""
           if [ -n "${{ inputs.date }}" ]; then
             ARGS="$ARGS --date ${{ inputs.date }}"
+          elif [ "${{ github.event_name }}" = "schedule" ] && [ "$(date -u +%H)" -ge 6 ]; then
+            ARGS="$ARGS --when yesterday"   # 13:05 UTC morning run
           fi
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" != "false" ]; then
             ARGS="$ARGS --dry-run"

@@ -1,8 +1,11 @@
 # E-mail notifier — one-time setup (~10 minutes)
 
-Result: the OM team gets an e-mail for every NEW open alert (within ~5 min)
-and both daily report PDFs (morning performance report for yesterday,
-evening production report for today) as attachments.
+Result: the OM team gets an e-mail for every NEW open alert (within ~5 min),
+both daily report PDFs (morning performance report for yesterday, evening
+production report for today) as attachments, and watchdog failures
+(KPI missing / v2 telemetry stale / Pi feed stale). The script also carries
+an independent staleness nag that fires even if GitHub Actions itself is
+down — it runs on Google infra.
 
 Design in one sentence: all decisions stay in the tested Python pipeline;
 the Apps Script is a dumb courier that ships rows and stamps them.
@@ -35,6 +38,9 @@ with YOUR account; mails are sent from it.
    (no attachment) and the row's notified_at gets stamped. Delete the row.
 4. Alerts: next time the engine opens a real alert, mail arrives within
    5 minutes and Alert_Notifications gains a ledger row.
+5. Watchdog: Actions -> "v2 Watchdog" -> Run workflow with dry_run FALSE
+   on a healthy day prints "ALL OK" and sends nothing. To see a real
+   mail, add a Watchdog_Alerts row by hand with empty notified_at.
 
 ## Facts worth knowing
 - **Quota**: consumer Gmail 100 recipients/day, Workspace 1,500/day —

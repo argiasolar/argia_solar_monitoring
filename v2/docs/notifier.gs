@@ -3,7 +3,7 @@
  *
  * Runs on a TIME-DRIVEN trigger every 5 minutes (NOT onEdit/onChange —
  * those do not fire reliably for rows written by a service account via
- * the API). Two queues:
+ * the API). Three queues + an independent staleness nag:
  *
  *   1. Alerts tab (engine-owned, may be rewritten by the alert engine):
  *      any OPEN alert whose alert_id is not yet in the Alert_Notifications
@@ -32,7 +32,75 @@ function notify() {
   var sent = 0;
   sent += notifyAlerts_(MAX_EMAILS_PER_RUN - sent);
   sent += notifyReports_(MAX_EMAILS_PER_RUN - sent);
+  sent += notifyWatchdog_(MAX_EMAILS_PER_RUN - sent);
+  sent += githubDownNag_(MAX_EMAILS_PER_RUN - sent);
   if (sent > 0) Logger.log('notifier: sent ' + sent + ' email(s)');
+}
+
+// ---- watchdog rows (written by scripts/watchdog.py on failure) --------------
+function notifyWatchdog_(budget) {
+  if (budget <= 0) return 0;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tab = ss.getSheetByName('Watchdog_Alerts');
+  if (!tab || tab.getLastRow() < 2) return 0;
+  var data = tab.getDataRange().getValues();
+  var col = {};
+  data[0].forEach(function (h, idx) { col[h] = idx; });
+  var sent = 0;
+  for (var r = 1; r < data.length && sent < budget; r++) {
+    if (String(data[r][col['notified_at']] || '') !== '') continue;
+    MailApp.sendEmail(RECIPIENTS,
+      SUBJECT_PREFIX + ' WATCHDOG ' + data[r][col['severity']] + ' — ' +
+        data[r][col['check']],
+      'Detected (UTC): ' + data[r][col['detected_utc']] + '\n\n' +
+      data[r][col['detail']] + '\n\n' +
+      'Check the GitHub Actions runs and, for pi_v1_feed, the Pi itself.');
+    tab.getRange(r + 1, col['notified_at'] + 1)
+       .setValue(new Date().toISOString());
+    sent++;
+  }
+  return sent;
+}
+
+// ---- independent staleness nag ------------------------------------------------
+// The Python watchdog runs in GitHub Actions and cannot detect "GitHub is
+// down". This runs on GOOGLE infra: if v2 telemetry goes very stale during
+// the day, nag once per gap. Threshold deliberately loose (3h) so the
+// Python watchdog (90 min) always fires first when GitHub is healthy.
+var GH_NAG_STALE_MIN = 180;
+function githubDownNag_(budget) {
+  if (budget <= 0) return 0;
+  var now = new Date();
+  var mxHour = parseInt(Utilities.formatDate(now,
+    'America/Mexico_City', 'H'), 10);
+  if (mxHour < 8 || mxHour >= 21) return 0;   // daylight only
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tele = ss.getSheetByName('Telemetry_Argia');
+  if (!tele || tele.getLastRow() < 2) return 0;
+  // timestamp_mx is column A (header row 1); newest is near the bottom
+  var lastRows = tele.getRange(Math.max(2, tele.getLastRow() - 50), 1,
+                               Math.min(51, tele.getLastRow() - 1), 1)
+                     .getValues();
+  var newest = null;
+  lastRows.forEach(function (r) {
+    var v = r[0];
+    if (v instanceof Date && (!newest || v > newest)) newest = v;
+  });
+  if (!newest) return 0;
+  var ageMin = (now - newest) / 60000 -
+    (now.getTimezoneOffset() === 0 ? 360 : 0); // sheet stores MX wall time
+  if (ageMin <= GH_NAG_STALE_MIN) return 0;
+  var props = PropertiesService.getScriptProperties();
+  var lastNag = props.getProperty('gh_nag_newest');
+  if (lastNag === String(newest.getTime())) return 0;  // once per gap
+  MailApp.sendEmail(RECIPIENTS,
+    SUBJECT_PREFIX + ' WATCHDOG CRITICAL — telemetry silent',
+    'v2 telemetry has written nothing for ~' + Math.round(ageMin) +
+    ' minutes (newest row ' + newest + ' MX).\n\n' +
+    'This nag runs on Google infra, independent of GitHub — if GitHub ' +
+    'Actions is down this may be the only alarm you get.');
+  props.setProperty('gh_nag_newest', String(newest.getTime()));
+  return 1;
 }
 
 // ---- alerts ------------------------------------------------------------------

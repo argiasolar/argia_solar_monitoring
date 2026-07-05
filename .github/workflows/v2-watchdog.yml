@@ -1,0 +1,61 @@
+name: v2 Watchdog
+
+# Dead-man's switch: did the data arrive? Runs at 07:15 MX — after
+# kpi-eod (06:00), alerts-daily (06:30) and the morning report (07:05) —
+# checking (1) yesterday's KPI rows exist, (2) v2 telemetry is fresh,
+# (3) the Pi / v1 feed is fresh (read-only on ARGIA_Solar). Failures
+# append rows to Watchdog_Alerts; the Apps Script notifier e-mails them
+# within ~5 minutes. Success writes nothing. The run also goes RED on
+# failure so it is visible in Actions.
+#
+# Second tick at 13:15 MX catches an intraday collector death the same
+# day instead of the next morning.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (check + log, write nothing)"
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: "15 13 * * *"   # 07:15 MX
+    - cron: "15 19 * * *"   # 13:15 MX
+
+concurrency:
+  group: v2-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run watchdog
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "schedule" ] || \
+             [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            ARGS="--apply"
+          fi
+          PYTHONPATH=. python scripts/watchdog.py $ARGS

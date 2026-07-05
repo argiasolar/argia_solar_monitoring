@@ -162,3 +162,32 @@ def test_run_apply_writes_both_tabs_with_correct_headers_and_energy():
     i_date = D.PLANT_COLUMNS.index("date_mx")
     day_total = sum(r[i_total] for r in prows if r[i_date] == "2026-07-02")
     assert day_total == pytest.approx(270.0)  # cumulative: final etoday 140+130
+
+
+class TestAnchorHardening20260705:
+    """Regression: NL1 read 32% because a same-day partial KPI row anchored
+    the live day, cramming the full-day expected into elapsed buckets."""
+
+    def test_partial_rows_never_anchor(self):
+        rows = [{"date_iso": "2026-07-04", "plant_key": "NL1",
+                 "expected_kwh": 3982.4, "data_class": "partial"}]
+        m = R.kpi_expected_map(rows, today=dt.date(2026, 7, 5))
+        assert m == {}
+
+    def test_current_day_never_anchors_even_if_full(self):
+        rows = [{"date_iso": "2026-07-05", "plant_key": "NL1",
+                 "expected_kwh": 2247.6, "data_class": "full"}]
+        m = R.kpi_expected_map(rows, today=dt.date(2026, 7, 5))
+        assert m == {}
+
+    def test_completed_full_day_still_anchors(self):
+        rows = [{"date_iso": "2026-07-04", "plant_key": "NL1",
+                 "expected_kwh": 3982.4, "data_class": "full"}]
+        m = R.kpi_expected_map(rows, today=dt.date(2026, 7, 5))
+        assert m[dt.date(2026, 7, 4)]["NL1"] == pytest.approx(3982.4)
+
+    def test_missing_data_class_treated_as_anchorable_when_past(self):
+        rows = [{"date_iso": "2026-07-03", "plant_key": "GTO1",
+                 "expected_kwh": 3038.7}]
+        m = R.kpi_expected_map(rows, today=dt.date(2026, 7, 5))
+        assert m[dt.date(2026, 7, 3)]["GTO1"] == pytest.approx(3038.7)

@@ -87,14 +87,32 @@ def _cell(v):
 
 # --- pure helpers (testable without a client) --------------------------------
 
-def kpi_expected_map(kpi_rows: list[dict]) -> dict[dt.date, dict[str, float]]:
+def kpi_expected_map(kpi_rows: list[dict],
+                     today: dt.date | None = None) -> dict[dt.date, dict[str, float]]:
+    """Anchors for the dashboard theoretical.
+
+    Two exclusions, both from the 2026-07-05 incident (NL1 read 32% while
+    healthy): a KPI row stamped intraday carries a PARTIAL-day expected, and
+    anchoring the live day crams that whole value into the elapsed buckets,
+    inflating morning expected ~4x. So:
+      * rows with data_class == 'partial' never anchor, and
+      * the current day (MX) never anchors even if a row exists.
+    The live day always uses the trapezoid fallback; the anchor snaps in
+    when the completed-day KPI lands.
+    """
+    today = today or dt.datetime.now(MX_TZ).date()
     out: dict[dt.date, dict[str, float]] = {}
     for r in kpi_rows:
         d = coerce_date(r.get("date_iso"))
         pk = r.get("plant_key")
         e = D._num(r.get("expected_kwh"))
-        if d and pk and e is not None:
-            out.setdefault(d, {})[pk] = e
+        if not (d and pk and e is not None):
+            continue
+        if str(r.get("data_class") or "").strip().lower() == "partial":
+            continue
+        if d >= today:
+            continue
+        out.setdefault(d, {})[pk] = e
     return out
 
 

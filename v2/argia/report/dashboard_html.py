@@ -134,21 +134,22 @@ _TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div>
-      <div style="display:flex; align-items:center; gap:14px; margin-bottom:5px;">
-        <img src="data:image/png;base64,__LOGO__" alt="ARGIA SOLAR"
-             style="height:28px; display:block;">
-        <span style="width:1px; height:26px; background:#c9c8c0;"></span>
-        <span style="font-size:15px; font-weight:500; letter-spacing:3.5px;
-                     color:#3c3b37; white-space:nowrap;
-                     transform:translateY(1px);">PERFORMANCE&nbsp;REPORT</span>
-      </div>
-      <div class="sub" id="genat"></div>
+  <header style="display:block;">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                gap:14px; margin-bottom:12px;">
+      <span style="font-size:16px; font-weight:600; letter-spacing:3.5px;
+                   color:#3c3b37; white-space:nowrap;">PERFORMANCE&nbsp;REPORT</span>
+      <img src="data:image/png;base64,__LOGO__" alt="ARGIA SOLAR"
+           style="height:28px; display:block;">
     </div>
-    <div style="display:flex; gap:8px;">
-      <select id="plantSel" aria-label="Plant"></select>
-      <select id="daySel" aria-label="Day"></select>
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; gap:8px;">
+        <select id="plantSel" aria-label="Plant"></select>
+        <select id="daySel" aria-label="Day"></select>
+      </div>
+      <div id="genat" style="white-space:nowrap; font-size:14px;
+           color:#4a4a45;"></div>
     </div>
   </header>
 
@@ -311,7 +312,7 @@ _TEMPLATE = """<!DOCTYPE html>
   }
 
   document.getElementById('genat').textContent =
-    'generated ' + DATA.generated_at + ' (America/Mexico_City)';
+    'generated ' + DATA.generated_at;
 
   var oAll = document.createElement('option');
   oAll.value = ALL; oAll.textContent = 'All plants \u00b7 portfolio';
@@ -731,7 +732,10 @@ _TEMPLATE = """<!DOCTYPE html>
       'Production vs expected \u00b7 by plant';
     newChart2({
       data: {
-        labels: perPlant.map(function (p) { return p.pk; }),
+        labels: perPlant.map(function (p) {
+          // customer name, trimmed at ' PPA' and at the first comma,
+          // so all labels fit horizontally on one row
+          return (p.customer || p.pk).split(' PPA')[0].split(',')[0]; }),
         datasets: [
           { type: 'bar', label: 'Production kWh',
             backgroundColor: '#1D9E75', borderRadius: 3,
@@ -746,7 +750,9 @@ _TEMPLATE = """<!DOCTYPE html>
         plugins: { legend: { position: 'bottom',
                              labels: { boxWidth: 10, font: { size: 11 } } },
                    tooltip: { mode: 'index' } },
-        scales: { x: { grid: { display: false } },
+        scales: { x: { grid: { display: false },
+                       ticks: { font: { size: 10 }, maxRotation: 0,
+                                autoSkip: false } },
                   y: { title: { display: true, text: 'kWh' } } } }
     });
   }

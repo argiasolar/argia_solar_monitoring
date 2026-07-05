@@ -311,8 +311,10 @@ class TestLogoAndAudit20260705:
         assert 'alt="ARGIA SOLAR"' in html
         assert "data:image/png;base64," in html
         assert len(H.LOGO_B64) > 10000          # a real image, not a stub
-        assert "PERFORMANCE&nbsp;REPORT" in html # label in the lockup
+        assert "PERFORMANCE&nbsp;REPORT" in html
         assert "height:28px" in html             # compact logo size
+        # layout: title precedes logo (left vs right edge)
+        assert html.index("PERFORMANCE&nbsp;REPORT") < html.index("__LOGO__".replace("__LOGO__","data:image/png"))
 
     def test_audit_footer_explains_every_headline_number(self):
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")
@@ -325,3 +327,23 @@ class TestLogoAndAudit20260705:
         assert "carryover" in html
         assert "&plusmn;10%" in html
         assert "NOT" in html                     # loss exclusion stated
+
+
+    def test_generated_stamp_right_aligned_without_tz_suffix(self):
+        """User request 2026-07-05: stamp sits under the selectors on the
+        far right, without the (America/Mexico_City) suffix. The suffix
+        removal is display-only — the value itself is computed in MX time
+        by the publish script."""
+        html = H.render([_plant_row()], [_inv_row()], generated_at="t")
+        # the DISPLAY suffix must be gone; the IANA zone string legitimately
+        # remains inside the JS clock math (mxNow/mxTodayIso)
+        assert "+ ' (America/Mexico_City)'" not in html
+        assert "generated ' + DATA.generated_at;" in html
+        assert html.index('id="daySel"') < html.index('id="genat"')
+
+
+    def test_by_plant_chart_uses_customer_names(self):
+        """User request: readable names on the by-plant axis, trimmed at
+        ' PPA' so long contract names don't wreck the layout."""
+        assert "split(' PPA')[0].split(',')[0]" in H._TEMPLATE
+        assert "maxRotation: 0" in H._TEMPLATE   # labels stay horizontal

@@ -217,7 +217,7 @@ class TestFeatureRegressions20260704:
         assert "Fleet availability" in H._TEMPLATE
         port = H._TEMPLATE.split("function drawPortfolio")[1].split(
             "function draw()")[0]
-        assert "inverters_reporting" in port
+        assert "AVAIL_OK" in port            # operational, not comms-based
         assert "Hottest inverter" not in port
         plant = H._TEMPLATE.split("function drawPlant")[1].split(
             "function drawPortfolio")[0]
@@ -254,15 +254,20 @@ class TestFeatureRegressions20260705:
 
 
 class TestIssuesAndAvailability20260705:
-    def test_availability_counts_only_producing_buckets(self):
-        """Real incident 2026-07-05: a fleet-wide 07:00 telemetry gap made
-        every plant read exactly 80% (4/5 buckets). A bucket with no
-        production recorded is a data gap, not plant unavailability."""
+    def test_availability_is_operational_not_comms(self):
+        """Two real incidents, 2026-07-05:
+        (a) a fleet-wide 07:00 telemetry gap made every plant read exactly
+            80% -> non-producing buckets are data gaps and stay excluded;
+        (b) SAG Inverter 2 reports telemetry while producing 0 kWh and the
+            plant read 100% -> availability must mean OPERATING (status
+            ONLINE/UNDERPERFORMING/DERATED in producing buckets), so a
+            chatty dead inverter counts unavailable."""
         port = H._TEMPLATE.split("function drawPortfolio")[1]
-        assert "producing buckets only" in port
-        assert "(r.total_kwh || 0) <= 0) return;" in port
-        # the old theo-inclusive filter must be gone from availability
-        assert "(r.theoretical_kwh || 0) <= 0) return;" not in port
+        assert "OPERATIONAL availability" in port
+        assert "AVAIL_OK = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 }" in port
+        assert "producing[r.hour_label]" in port
+        # comms-based counting must be gone
+        assert "rep += r.inverters_reporting" not in port
 
     def test_portfolio_surfaces_issues_not_just_faults(self):
         """MEX1 Inverter 2 OFFLINE and GTO1 Inverter 5 UNDERPERFORMING were

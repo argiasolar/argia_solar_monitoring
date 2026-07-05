@@ -457,18 +457,25 @@ _TEMPLATE = """<!DOCTYPE html>
         faulted = Math.max(faulted, r.inverters_faulted || 0);
         ntot = Math.max(ntot, r.inverters_total || 0);
         kwp = Math.max(kwp, r.kwp_dc || 0);
-        // Availability counts only PRODUCING buckets: an inverter silent
-        // while its plant produces is unavailable; a bucket where nothing
-        // was recorded (dawn, fleet-wide telemetry gap) is a data gap, not
-        // plant unavailability, and must not tank the number.
-        if ((r.total_kwh || 0) > 0) {
-          rep += r.inverters_reporting || 0;
-          tot += r.inverters_total || 0;
-        }
+      });
+      // OPERATIONAL availability (2026-07-05 SAG lesson): an inverter that
+      // reports telemetry but produces nothing is NOT available. Within
+      // buckets where the plant produced, an inverter counts available when
+      // its status is a producing state (ONLINE / UNDERPERFORMING /
+      // DERATED); FAULT, OFFLINE or silence count unavailable. Dawn and
+      // fleet-wide data gaps (no production recorded) stay excluded.
+      var producing = {};
+      prows.forEach(function (r) {
+        if ((r.total_kwh || 0) > 0) producing[r.hour_label] = 1;
       });
       var t = null;
       var worst = {};
+      var AVAIL_OK = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
       irows.forEach(function (r) {
+        if (producing[r.hour_label]) {
+          tot += 1;
+          if (AVAIL_OK[r.status]) rep += 1;
+        }
         if (r.temperature_c !== null && r.temperature_c !== undefined)
           t = Math.max(t === null ? -1e9 : t, r.temperature_c);
         var rank = { FAULT: 5, OFFLINE: 4, DERATED: 3, UNDERPERFORMING: 2,
@@ -488,6 +495,7 @@ _TEMPLATE = """<!DOCTYPE html>
                faulted: faulted, ntot: ntot, temp: t, kwp: kwp,
                issues: issues, hardIssues: hardIssues,
                avail: tot > 0 ? rep / tot * 100 : null,
+               availOk: rep, availN: tot,
                prows: prows };
     });
 
@@ -503,11 +511,7 @@ _TEMPLATE = """<!DOCTYPE html>
     // the audit-grade number and can differ slightly on gappy days).
     var repSum = 0, totSum = 0;
     perPlant.forEach(function (p) {
-      p.prows.forEach(function (r) {
-        if ((r.total_kwh || 0) <= 0) return;   // producing buckets only
-        repSum += r.inverters_reporting || 0;
-        totSum += r.inverters_total || 0;
-      });
+      if (p.availN > 0) { repSum += p.availOk; totSum += p.availN; }
     });
     var avail = totSum > 0 ? repSum / totSum * 100 : null;
     document.getElementById('g1Title').textContent = 'Fleet availability';

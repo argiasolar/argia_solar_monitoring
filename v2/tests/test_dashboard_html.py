@@ -302,3 +302,24 @@ class TestLossAndInverterAvailability20260705:
         degrade to kWh with a hint, never invent pesos."""
         assert "set tariff_mxn_per_kwh for MXN" in H._TEMPLATE
         assert "tariffs incomplete" in H._TEMPLATE
+
+
+class TestLogoAndAudit20260705:
+    def test_logo_replaces_text_header(self):
+        html = H.render([_plant_row()], [_inv_row()], generated_at="t")
+        assert "ARGIA SOLAR — plant dashboard" not in html
+        assert 'alt="ARGIA SOLAR"' in html
+        assert "data:image/png;base64," in html
+        assert len(H.LOGO_B64) > 10000          # a real image, not a stub
+
+    def test_audit_footer_explains_every_headline_number(self):
+        html = H.render([_plant_row()], [_inv_row()], generated_at="t")
+        assert "How these numbers are calculated" in html
+        for term in ("Production kWh", "Expected kWh",
+                     "Availability (operational)", "Status",
+                     "Est. loss (unavailability)"):
+            assert term in html
+        # the honest caveats must be in the audit text
+        assert "carryover" in html
+        assert "&plusmn;10%" in html
+        assert "NOT" in html                     # loss exclusion stated

@@ -136,8 +136,14 @@ _TEMPLATE = """<!DOCTYPE html>
 <div class="wrap">
   <header>
     <div>
-      <img src="data:image/png;base64,__LOGO__" alt="ARGIA SOLAR"
-           style="height:44px; display:block; margin-bottom:4px;">
+      <div style="display:flex; align-items:center; gap:14px; margin-bottom:5px;">
+        <img src="data:image/png;base64,__LOGO__" alt="ARGIA SOLAR"
+             style="height:28px; display:block;">
+        <span style="width:1px; height:26px; background:#c9c8c0;"></span>
+        <span style="font-size:15px; font-weight:500; letter-spacing:3.5px;
+                     color:#3c3b37; white-space:nowrap;
+                     transform:translateY(1px);">PERFORMANCE&nbsp;REPORT</span>
+      </div>
       <div class="sub" id="genat"></div>
     </div>
     <div style="display:flex; gap:8px;">

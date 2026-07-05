@@ -311,6 +311,8 @@ class TestLogoAndAudit20260705:
         assert 'alt="ARGIA SOLAR"' in html
         assert "data:image/png;base64," in html
         assert len(H.LOGO_B64) > 10000          # a real image, not a stub
+        assert "PERFORMANCE&nbsp;REPORT" in html # label in the lockup
+        assert "height:28px" in html             # compact logo size
 
     def test_audit_footer_explains_every_headline_number(self):
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")

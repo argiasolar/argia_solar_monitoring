@@ -35,6 +35,7 @@ import os
 import sys
 from zoneinfo import ZoneInfo
 
+from argia.core.cells import coerce_date, coerce_ts
 from argia.core.sheets import SheetsClient
 
 MX_TZ = ZoneInfo("America/Mexico_City")
@@ -51,24 +52,13 @@ COLLECT_START_H = 6      # MX collection window (matches telemetry crons)
 COLLECT_END_H = 22
 
 
-def _parse_ts(v) -> dt.datetime | None:
-    if isinstance(v, dt.datetime):
-        return v
-    if isinstance(v, str):
-        s = v.strip().replace("T", " ").split("+")[0].split("Z")[0]
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
-                    "%Y-%m-%d %H:%M:%S.%f"):
-            try:
-                return dt.datetime.strptime(s, fmt)
-            except ValueError:
-                pass
-    return None
-
-
 def newest_ts(rows: list[dict], column: str) -> dt.datetime | None:
+    """Newest timestamp in a column, via the SHARED cell coercion — the
+    live API returns serial floats, which the watchdog's original private
+    parser could not read (false-alarm incident, 2026-07-05)."""
     out = None
     for r in rows:
-        t = _parse_ts(r.get(column))
+        t = coerce_ts(r.get(column))
         if t and (out is None or t > out):
             out = t
     return out
@@ -79,17 +69,15 @@ def newest_ts(rows: list[dict], column: str) -> dt.datetime | None:
 def check_kpi_yesterday(kpi_rows: list[dict], now_mx: dt.datetime,
                         min_plants: int) -> dict | None:
     """Fail when yesterday has fewer than min_plants KPI rows."""
-    yday = (now_mx.date() - dt.timedelta(days=1)).isoformat()
+    yday = now_mx.date() - dt.timedelta(days=1)
     n = 0
     for r in kpi_rows:
-        d = r.get("date_iso")
-        ds = d.date().isoformat() if isinstance(d, dt.datetime) else str(d)[:10]
-        if ds == yday and r.get("plant_key"):
+        if coerce_date(r.get("date_iso")) == yday and r.get("plant_key"):
             n += 1
     if n >= min_plants:
         return None
     return {"check": "kpi_yesterday", "severity": "CRITICAL",
-            "detail": f"KPI_Daily has {n} plant rows for {yday} "
+            "detail": f"KPI_Daily has {n} plant rows for {yday.isoformat()} "
                       f"(expected >= {min_plants}) — kpi_eod failed or "
                       f"had no telemetry to stamp"}
 

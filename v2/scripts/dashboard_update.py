@@ -34,39 +34,10 @@ from argia.report import dashboard as D
 MX_TZ = ZoneInfo("America/Mexico_City")
 INVERTER_TAB = "Dashboard_Inverter"
 PLANT_TAB = "Dashboard_Plant"
-GOOGLE_EPOCH = dt.datetime(1899, 12, 30)
-
-
-# --- cell coercion (Sheets returns strings / serials, not datetimes) --------
-
-def coerce_ts(v) -> dt.datetime | None:
-    """Sheet cell -> naive local datetime (MX wall time, as stored)."""
-    if isinstance(v, dt.datetime):
-        return v
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return GOOGLE_EPOCH + dt.timedelta(days=float(v))
-    if isinstance(v, str):
-        s = v.strip().replace("T", " ")
-        s = s.split("+")[0].strip()
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
-                    "%Y-%m-%d %H:%M:%S.%f", "%d/%m/%Y %H:%M:%S"):
-            try:
-                return dt.datetime.strptime(s, fmt)
-            except ValueError:
-                pass
-    return None
-
-
-def coerce_date(v) -> dt.date | None:
-    ts = coerce_ts(v)
-    if ts is not None:
-        return ts.date()
-    if isinstance(v, str):
-        try:
-            return dt.date.fromisoformat(v.strip()[:10])
-        except ValueError:
-            return None
-    return None
+# Cell coercion is DELEGATED to the shared module (argia/core/cells.py) —
+# the one place that knows the live Sheets API returns datetimes as serial
+# floats (watchdog false-alarm lesson, 2026-07-05).
+from argia.core.cells import GOOGLE_EPOCH, coerce_date, coerce_ts  # noqa: E402,F401
 
 
 def _col_letter(n: int) -> str:

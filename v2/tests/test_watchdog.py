@@ -129,3 +129,40 @@ class TestRun:
         (tab, rows), _ = v2.append_rows.call_args
         assert rows[0][1] == "pi_v1_feed"
         assert "Pi / v1 collector" in rows[0][3]
+
+
+class TestSerialFormatRegression20260705:
+    """The live API false-alarm: UNFORMATTED_VALUE returns datetimes as
+    SERIAL floats; the watchdog reported 'no parseable timestamps at all'
+    and '0 KPI rows' on a perfectly healthy sheet. The watchdog must read
+    exactly what the API sends."""
+
+    def _serial(self, d):
+        from argia.core.cells import GOOGLE_EPOCH
+        return (d - GOOGLE_EPOCH) / dt.timedelta(days=1)
+
+    def test_kpi_check_accepts_serial_dates(self):
+        serial = self._serial(dt.datetime(2026, 7, 5))
+        rows = [{"date_iso": serial, "plant_key": f"P{i}"} for i in range(6)]
+        assert W.check_kpi_yesterday(rows, NOW_MX, min_plants=4) is None
+
+    def test_newest_ts_accepts_serial_timestamps(self):
+        rows = [{"timestamp_mx": self._serial(dt.datetime(2026, 7, 6, 7, 0))},
+                {"timestamp_mx": self._serial(dt.datetime(2026, 7, 6, 7, 10))}]
+        assert W.newest_ts(rows, "timestamp_mx") == \
+            dt.datetime(2026, 7, 6, 7, 10)
+
+    def test_healthy_serial_sheet_end_to_end_is_all_ok(self):
+        serial_kpi = self._serial(dt.datetime(2026, 7, 5))
+        v2 = MagicMock(spec=SheetsClient)
+        tables = {
+            "KPI_Daily": [{"date_iso": serial_kpi, "plant_key": f"P{i}"}
+                          for i in range(6)],
+            "Telemetry_Argia": [{"timestamp_mx":
+                self._serial(NOW_MX - dt.timedelta(minutes=10))}],
+        }
+        v2.read_table.side_effect = lambda tab, rng="A1:Z": tables[tab]
+        rc = W.run(v2, None, apply=True, max_age_min=90,
+                   min_kpi_plants=4, now_mx=NOW_MX)
+        assert rc == 0
+        v2.append_rows.assert_not_called()

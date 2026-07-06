@@ -83,7 +83,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             # Scheduled: yesterday (default date), APPLY (no --dry-run).
-            ARGS="--log-level INFO"
+            ARGS="--log-level INFO --dense-irradiance"
           else
             # Manual dispatch: honor the inputs; dry-run by default.
             ARGS="--log-level ${{ inputs.log_level }}"

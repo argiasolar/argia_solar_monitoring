@@ -330,6 +330,10 @@ class TestLogoAndAudit20260705:
         assert "carryover" in html
         assert "&plusmn;10%" in html
         assert "NOT" in html                     # loss exclusion stated
+        # irradiance method transparency (dense rollout, 2026-07-06)
+        assert "ShineMaster" in html
+        assert "STORED minute-scale history" in html
+        assert "which source was used" in html
 
 
     def test_generated_stamp_right_aligned_without_tz_suffix(self):

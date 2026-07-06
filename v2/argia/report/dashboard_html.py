@@ -235,8 +235,14 @@ _TEMPLATE = """<!DOCTYPE html>
         instantaneous W/m&sup2; readings (trapezoidal, gaps capped at 3 h)
         &mdash; a &plusmn;10% estimate until tonight's KPI stamp &mdash; and
         both sides are pro-rated to the last complete hour (Mexico City).
-        Irradiance is the on-site pyranometer where installed, otherwise a
-        weather model &mdash; so Expected already reflects clouds.</dd>
+        Irradiance for completed days comes from the plant's
+        ShineMaster weather station: its STORED minute-scale history
+        (~300 samples/day) is fetched from the logger and integrated
+        trapezoidally &mdash; validated July 2026 against an independent
+        weather model to &lt;1% on every plant. If that fetch fails, the
+        fallback is poll-time snapshots, then a cloud-adjusted clear-sky
+        model; the KPI records which source was used each day. Either
+        way, Expected already reflects the actual clouds.</dd>
 
         <dt style="font-weight:600;">Production vs expected (%)</dt>
         <dd style="margin:0 0 8px;">Production &divide; Expected over the

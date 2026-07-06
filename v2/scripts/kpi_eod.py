@@ -94,10 +94,13 @@ def try_dense_irradiance(web, plant, date_iso):
     Never allowed to break the KPI run: any fetch/parse problem logs a
     warning and returns None so the snapshot/cloud hybrid stands."""
     from argia.kpi.irradiance import integrate_history_points
-    from argia.meteo.growatt_env import DEFAULT_ENV_ADDR, fetch_env_day
+    from argia.meteo.growatt_env import fetch_env_day_auto
     try:
-        addr = int(plant.datalogger_addr or DEFAULT_ENV_ADDR)
-        points = fetch_env_day(web, plant.datalogger_sn, addr, date_iso)
+        points, sn, addr = fetch_env_day_auto(
+            web, plant.weather_plant_id, plant.datalogger_sn,
+            plant.datalogger_addr, date_iso)
+        LOG.info("[%s] dense fetch via device (%s, addr=%s): %d points",
+                 plant.plant_key, sn, addr, len(points))
         result = integrate_history_points(points)
         if result.kwh_m2 is None:
             LOG.warning("[%s] dense irradiance unusable (%d samples) — "

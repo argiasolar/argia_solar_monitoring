@@ -20,7 +20,10 @@ from argia.meteo.growatt_env import (
     DEFAULT_ENV_ADDR,
     calendar_to_dt,
     fetch_env_day,
+    fetch_env_day_auto,
     parse_env_history_page,
+    parse_env_list,
+    pick_env_device,
 )
 
 
@@ -73,9 +76,15 @@ class FakeWeb:
         self.pages = pages
         self.calls = []
 
-    def get_env_history(self, sn, addr, day, start):
+    def get_env_history(self, plant_id, sn, addr, day, start):
         self.calls.append(start)
         return self.pages[min(len(self.calls) - 1, len(self.pages) - 1)]
+
+    def seed_env_page(self, plant_id):
+        self.seeded = getattr(self, "seeded", []) + [plant_id]
+
+    def get_env_list(self, plant_id, curr_page=1):
+        return getattr(self, "env_list", {"datas": []})
 
 
 def page(rows, have_next=False, start=None):
@@ -94,8 +103,8 @@ class TestFetchEnvDay:
             page([{"calendar": cal(2026, 7, 5, 8, 1), "radiant": 200},  # dup
                   {"calendar": cal(2026, 7, 5, 8, 2), "radiant": 300}]),
         ])
-        pts = fetch_env_day(web, "SN", DEFAULT_ENV_ADDR, "2026-07-05",
-                            sleep_s=0)
+        pts = fetch_env_day(web, "P1", "SN", DEFAULT_ENV_ADDR,
+                            "2026-07-05", sleep_s=0)
         assert pts == [(dt.datetime(2026, 7, 5, 8, 0), 100.0),
                        (dt.datetime(2026, 7, 5, 8, 1), 200.0),
                        (dt.datetime(2026, 7, 5, 8, 2), 300.0)]
@@ -106,7 +115,7 @@ class TestFetchEnvDay:
         stuck = page([{"calendar": cal(2026, 7, 5, 8, 0), "radiant": 1}],
                      have_next=True, start=0)
         web = FakeWeb([stuck, stuck, page([], have_next=False)])
-        pts = fetch_env_day(web, "SN", 32, "2026-07-05", sleep_s=0)
+        pts = fetch_env_day(web, "P1", "SN", 32, "2026-07-05", sleep_s=0)
         assert len(pts) == 1
         assert web.calls[0] == 0 and web.calls[1] > 0   # advanced despite echo
 
@@ -114,7 +123,7 @@ class TestFetchEnvDay:
         endless = page([{"calendar": cal(2026, 7, 5, 8, 0), "radiant": 1}],
                        have_next=True, start=0)
         web = FakeWeb([endless])
-        fetch_env_day(web, "SN", 32, "2026-07-05", max_pages=5, sleep_s=0)
+        fetch_env_day(web, "P1", "SN", 32, "2026-07-05", max_pages=5, sleep_s=0)
         assert len(web.calls) == 5
 
 
@@ -151,3 +160,59 @@ def test_irr_compare_iterates_plant_objects_not_keys():
            / "scripts" / "irr_compare.py").read_text()
     assert "portfolio.active_plants()" in src
     assert "for plant in portfolio.plants:" not in src
+
+
+class TestLiveRunRegressions20260706:
+    """The first live irr-compare returned 0 samples for every plant.
+    Two causes, both replayed here:
+    (a) v2's _post wraps responses in {_meta, response} — parsing the
+        ENVELOPE for `obj` silently yields nothing;
+    (b) Growatt env endpoints need plant-context seeding, and the
+        configured datalogger SN may not be the env device (v1's warning)
+        — getEnvList is the authoritative fallback."""
+
+    def test_envelope_wrapped_page_parses(self):
+        inner = {"obj": {"datas": [
+            {"calendar": cal(2026, 7, 5, 8, 0), "radiant": 500}],
+            "haveNext": False}}
+        env = {"_meta": {"url": "x"}, "response": inner}
+        points, _, _ = parse_env_history_page(env)
+        assert points == [(dt.datetime(2026, 7, 5, 8, 0), 500.0)]
+
+    def test_raw_text_envelope_parses(self):
+        import json
+        inner = {"obj": {"datas": [
+            {"calendar": cal(2026, 7, 5, 8, 0), "radiant": 500}],
+            "haveNext": False}}
+        env = {"_meta": {}, "response": {"_raw_text": json.dumps(inner)}}
+        points, _, _ = parse_env_history_page(env)
+        assert len(points) == 1
+
+    def test_env_list_parse_and_pick(self):
+        js = {"datas": [{"datalogSn": "AAA", "addr": 32},
+                        {"datalogSn": "BBB", "addr": 2}]}
+        devs = parse_env_list(js)
+        assert devs == [("AAA", 32), ("BBB", 2)]
+        assert pick_env_device(devs, "BBB", None) == ("BBB", 2)
+        assert pick_env_device(devs, "BBB", 2) == ("BBB", 2)
+        assert pick_env_device(devs, "ZZZ", 9) == ("AAA", 32)  # first
+        assert pick_env_device([], "AAA", 1) is None
+
+    def test_auto_retries_with_envlist_device(self):
+        good = page([{"calendar": cal(2026, 7, 5, 8, 0), "radiant": 100},
+                     *[{"calendar": cal(2026, 7, 5, 8, i), "radiant": 100}
+                       for i in range(1, 60)]])
+        empty = page([])
+
+        class Web(FakeWeb):
+            def get_env_history(self, plant_id, sn, addr, day, start):
+                self.calls.append((sn, addr))
+                return good if sn == "REAL" else empty
+
+        web = Web([])
+        web.env_list = {"datas": [{"datalogSn": "REAL", "addr": 2}]}
+        points, sn, addr = fetch_env_day_auto(
+            web, "P1", "CONFIGURED", 32, "2026-07-05")
+        assert sn == "REAL" and addr == 2
+        assert len(points) == 60
+        assert web.seeded == ["P1"]

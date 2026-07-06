@@ -29,7 +29,7 @@ from argia.core.cells import coerce_date
 from argia.kpi.irradiance import integrate_history_points
 from argia.kpi.irradiance import daily_irradiance_for_plant
 from argia.kpi.reader import read_day_bundle
-from argia.meteo.growatt_env import DEFAULT_ENV_ADDR, fetch_env_day
+from argia.meteo.growatt_env import fetch_env_day_auto
 from argia.vendors.growatt_web import GrowattWebClient
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -72,9 +72,12 @@ def main(argv=None) -> int:
         rows = bundle.rows_for_plant(plant.plant_key)
         snap = daily_irradiance_for_plant(rows, lat=plant.lat,
                                           date_iso=date_iso)
-        addr = int(plant.datalogger_addr or DEFAULT_ENV_ADDR)
         try:
-            points = fetch_env_day(web, plant.datalogger_sn, addr, date_iso)
+            points, used_sn, used_addr = fetch_env_day_auto(
+                web, plant.weather_plant_id, plant.datalogger_sn,
+                plant.datalogger_addr, date_iso)
+            print(f"   [{plant.plant_key}] device used: {used_sn} "
+                  f"addr={used_addr}, {len(points)} raw points")
             dense = integrate_history_points(points)
         except Exception as e:  # noqa: BLE001
             print(f"{plant.plant_key:6s}  FETCH FAILED: {e}")

@@ -260,10 +260,34 @@ class GrowattWebClient:
         """GET /panel/alertPlantEvent?plantId=… — current alerts."""
         return self._get(f"/panel/alertPlantEvent?plantId={plant_id}")
 
-    def get_env_history(self, datalog_sn: str, addr: int, day_iso: str,
-                        start: int = 0) -> Dict[str, Any]:
+    def seed_env_page(self, plant_id: str) -> None:
+        """Growatt's env endpoints return EMPTY 200s without plant context:
+        the web UI sets a selectedPlantId cookie and visits the env page
+        first (v1-proven; skipping this was the 2026-07-06 all-zeros bug)."""
+        self.login()
+        self._session.cookies.set("selectedPlantId", str(plant_id))
+        self._get("/device/getEnvPage")
+
+    def get_env_list(self, plant_id: str,
+                     curr_page: int = 1) -> Dict[str, Any]:
+        """List env/weather devices for a plant. The configured datalogger
+        SN is NOT guaranteed to be the env device (v1's explicit warning) —
+        this is the authoritative source."""
+        self.login()
+        self._session.cookies.set("selectedPlantId", str(plant_id))
+        return self._post("/device/getEnvList", {
+            "plantId": str(plant_id),
+            "currPage": str(curr_page),
+            "alias": "",
+        })
+
+    def get_env_history(self, plant_id: str, datalog_sn: str, addr: int,
+                        day_iso: str, start: int = 0) -> Dict[str, Any]:
         """ShineMaster stored history (dense W/m² samples) for one day.
-        Same endpoint + payload the proven v1 scripts used."""
+        Same endpoint + payload + plant-context seeding as the proven v1
+        scripts."""
+        self.login()
+        self._session.cookies.set("selectedPlantId", str(plant_id))
         return self._post("/device/getEnvHistory", {
             "datalogSn": datalog_sn,
             "addr": str(addr),

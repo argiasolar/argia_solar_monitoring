@@ -260,6 +260,18 @@ class GrowattWebClient:
         """GET /panel/alertPlantEvent?plantId=… — current alerts."""
         return self._get(f"/panel/alertPlantEvent?plantId={plant_id}")
 
+    def get_env_history(self, datalog_sn: str, addr: int, day_iso: str,
+                        start: int = 0) -> Dict[str, Any]:
+        """ShineMaster stored history (dense W/m² samples) for one day.
+        Same endpoint + payload the proven v1 scripts used."""
+        return self._post("/device/getEnvHistory", {
+            "datalogSn": datalog_sn,
+            "addr": str(addr),
+            "startDate": day_iso,
+            "endDate": day_iso,
+            "start": str(start),
+        })
+
     def get_weather_by_plant_id(self, plant_id: str) -> Dict[str, Any]:
         """POST /index/getWeatherByPlantId?plantId=… — Growatt's weather feed."""
         return self._post(f"/index/getWeatherByPlantId?plantId={plant_id}")

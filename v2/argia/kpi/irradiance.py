@@ -36,6 +36,7 @@ LOG = logging.getLogger("argia.kpi.irradiance")
 
 class IrradianceSource(str, Enum):
     SHINEMASTER = "shinemaster"
+    SHINEMASTER_HISTORY = "shinemaster_history"   # dense stored history
     CLOUD_COVER_MODEL = "cloud_cover_model"
     NONE = "none"
 
@@ -170,6 +171,32 @@ def integrate_irradiance_kwh_m2(
         source=IrradianceSource.SHINEMASTER,
         samples_used=len(points),
     )
+
+
+def integrate_history_points(
+    points: List[Tuple[dt.datetime, float]],
+    max_gap_sec: int = SHINEMASTER_MAX_GAP_SEC,
+    min_samples: int = 60,
+) -> IrradianceDay:
+    """Dense ShineMaster HISTORY path (argia.meteo.growatt_env points).
+
+    Same trapezoid as the snapshot path, but the input is the logger's
+    stored minute-level series, so `min_samples` is stricter: fewer than
+    ~an hour of dense data means the fetch failed or the day is tiny —
+    the caller should fall back to the snapshot/cloud hybrid.
+    """
+    pts = sorted({(ts, min(max(w, 0.0), MAX_PLAUSIBLE_WM2))
+                  for ts, w in points})
+    if len(pts) < min_samples:
+        return IrradianceDay(kwh_m2=None, source=IrradianceSource.NONE,
+                             samples_used=len(pts))
+    total = _trapezoidal_integrate_wm2_to_kwh_m2(pts, max_gap_sec=max_gap_sec)
+    if total is None or total <= 0:
+        return IrradianceDay(kwh_m2=None, source=IrradianceSource.NONE,
+                             samples_used=len(pts))
+    return IrradianceDay(kwh_m2=total,
+                         source=IrradianceSource.SHINEMASTER_HISTORY,
+                         samples_used=len(pts))
 
 
 # ---------- cloud-cover fallback ----------

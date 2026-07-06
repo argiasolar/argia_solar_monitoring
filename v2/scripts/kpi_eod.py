@@ -85,8 +85,53 @@ def _yesterday_mx_iso() -> str:
     return (now_mx().date() - dt.timedelta(days=1)).isoformat()
 
 
+LOG = logging.getLogger("argia.kpi_eod")
+
+
+def try_dense_irradiance(web, plant, date_iso):
+    """Best-effort dense ShineMaster history -> IrradianceDay, or None.
+
+    Never allowed to break the KPI run: any fetch/parse problem logs a
+    warning and returns None so the snapshot/cloud hybrid stands."""
+    from argia.kpi.irradiance import integrate_history_points
+    from argia.meteo.growatt_env import DEFAULT_ENV_ADDR, fetch_env_day
+    try:
+        addr = int(plant.datalogger_addr or DEFAULT_ENV_ADDR)
+        points = fetch_env_day(web, plant.datalogger_sn, addr, date_iso)
+        result = integrate_history_points(points)
+        if result.kwh_m2 is None:
+            LOG.warning("[%s] dense irradiance unusable (%d samples) — "
+                        "falling back", plant.plant_key,
+                        result.samples_used)
+            return None
+        return result
+    except Exception as e:  # noqa: BLE001 — best-effort by contract
+        LOG.warning("[%s] dense irradiance fetch failed (%s) — falling "
+                    "back", plant.plant_key, e)
+        return None
+
+
+def build_dense_web_client():
+    """GrowattWebClient from env creds, or None (feature silently off)."""
+    from argia.vendors.growatt_web import GrowattWebClient
+    user = os.environ.get("GROWATT_USERNAME", "").strip()
+    pwd = os.environ.get("GROWATT_PASSWORD", "").strip()
+    if not (user and pwd):
+        LOG.info("dense irradiance requested but GROWATT_USERNAME/"
+                 "GROWATT_PASSWORD not set — skipping")
+        return None
+    client = GrowattWebClient(username=user, password=pwd)
+    client.login()
+    return client
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser.add_argument(
+        "--dense-irradiance", action="store_true",
+        help="fetch dense ShineMaster history for plants with a "
+             "datalogger_sn (best-effort; any problem falls back to the "
+             "snapshot/cloud hybrid)")
     parser.add_argument(
         "--date", default=None,
         help="Local date YYYY-MM-DD (default: yesterday MX)",
@@ -137,6 +182,7 @@ def main(argv=None) -> int:
         return 3
 
     date_iso = args.date or _yesterday_mx_iso()
+    dense_web = build_dense_web_client() if args.dense_irradiance else None
     log.info("Computing EOD KPIs for date %s", date_iso)
     bundle = read_day_bundle(sheets, date_iso)
 
@@ -177,6 +223,16 @@ def main(argv=None) -> int:
 
         energy_by_inv = compute_plant_energy(rows)
         irr = daily_irradiance_for_plant(rows, lat=plant.lat, date_iso=date_iso)
+        if dense_web is not None and plant.datalogger_sn:
+            dense = try_dense_irradiance(dense_web, plant, date_iso)
+            if dense is not None:
+                log.info("[%s] irradiance %.3f (%s, %d samples) replaces "
+                         "%.3f (%s, %d samples)",
+                         plant.plant_key, dense.kwh_m2, dense.source.value,
+                         dense.samples_used,
+                         irr.kwh_m2 or 0.0, irr.source.value,
+                         irr.samples_used)
+                irr = dense
         module_temp = irradiance_weighted_module_temp(
             (r.module_temp_c, r.irradiance_wm2) for r in rows
         )

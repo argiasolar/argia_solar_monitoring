@@ -1,0 +1,39 @@
+name: v2 Irradiance compare
+
+# Verification runner for the dense-irradiance rollout (READ-ONLY):
+# prints dense ShineMaster history vs snapshot trapezoid vs stored KPI for
+# one date. Run it for a few July days, review the deltas in the run log,
+# then enable dense irradiance on the scheduled kpi_eod.
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date YYYY-MM-DD (MX)"
+        required: true
+        type: string
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compare irradiance methods (read-only)
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
+        run: |
+          PYTHONPATH=. python scripts/irr_compare.py --date "${{ inputs.date }}"

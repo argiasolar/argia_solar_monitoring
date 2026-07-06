@@ -23,6 +23,11 @@ on:
     - cron: "0 12 * * *"
   workflow_dispatch:
     inputs:
+      dense_irradiance:
+        description: "Use dense ShineMaster history for irradiance (verify with v2-irr-compare first)"
+        required: false
+        default: false
+        type: boolean
       date:
         description: "Date YYYY-MM-DD (MX local). Empty = yesterday."
         required: false
@@ -73,6 +78,8 @@ jobs:
         env:
           GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GROWATT_USERNAME: ${{ secrets.GROWATT_USERNAME }}
+          GROWATT_PASSWORD: ${{ secrets.GROWATT_PASSWORD }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             # Scheduled: yesterday (default date), APPLY (no --dry-run).
@@ -82,6 +89,9 @@ jobs:
             ARGS="--log-level ${{ inputs.log_level }}"
             if [ -n "${{ inputs.date }}" ]; then
               ARGS="$ARGS --date ${{ inputs.date }}"
+          fi
+          if [ "${{ inputs.dense_irradiance }}" = "true" ]; then
+            ARGS="$ARGS --dense-irradiance"
             fi
             if [ "${{ inputs.dry_run }}" = "true" ]; then
               ARGS="$ARGS --dry-run"

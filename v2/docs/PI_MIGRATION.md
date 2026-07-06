@@ -33,18 +33,28 @@ Phase 0 measured 2026-07-06: Pi 4B 4GB, 113d uptime, throttled=0x0,
 37 degC, 20G free, NTP+MX tz OK, GitHub 73ms. Verdict: GREEN — the
 "server problems" were GitHub's scheduler, not this box.
 
+## Phase 1 discovery (2026-07-06) — READ FIRST
+`~/argia_solar_monitoring` on the Pi is v1's LIVE HOME: a February clone
+with local, unpushed edits to argia.py and argia_sync.py (backed up to
+`~/v1_local_backup/`). No git command ever runs there again. v2 lives in
+its own fresh clone at `~/argia_v2`; deploy.sh refuses to reset any dirty
+tree as a structural guard. `~/.argia_env` also already exists (v1
+sources it): APPEND v2 variables, never overwrite.
+CUTOVER TODO: diff the two rescued files against their last commit and
+preserve the changes (commit to a v1-final branch) BEFORE retiring v1.
+
 ## Phase 1 — prepare (changes nothing in production)
     # read-only deploy key first (repo is private):
     #   ssh-keygen -t ed25519 -f ~/.ssh/argia_deploy -N ""
     #   add ~/.ssh/argia_deploy.pub as a GitHub Deploy Key (read-only)
-    cd ~ && git clone git@github.com:argiasolar/argia_solar_monitoring.git
-    cd argia_solar_monitoring/v2
+    cd ~ && git clone git@github.com:argiasolar/argia_solar_monitoring.git argia_v2
+    cd argia_v2/v2
     python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
     # reports print PDFs with headless Chromium:
     ./.venv/bin/pip install playwright && ./.venv/bin/playwright install chromium
     # secrets (values = the GitHub Actions secrets, 1:1):
     mkdir -p ~/secrets && nano ~/secrets/argia-service-account.json  # paste JSON
-    cp pi/env.example ~/.argia_env && nano ~/.argia_env && chmod 600 ~/.argia_env
+    nano ~/.argia_env   # APPEND missing v2 vars from pi/env.example; chmod 600 if not already
     # the environment earns trust by running the whole suite ON the Pi:
     PYTHONPATH=. ./.venv/bin/python -m pytest tests -q     # expect all green
     # then one real dry-run per job, eyeballed:

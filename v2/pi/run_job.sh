@@ -4,7 +4,7 @@
 #   e.g. run_job.sh telemetry telemetry_5m.py --apply
 set -euo pipefail
 NAME="$1"; SCRIPT="$2"; shift 2
-REPO_DIR="${ARGIA_REPO:-$HOME/argia_solar_monitoring}"
+REPO_DIR="${ARGIA_REPO:-$HOME/argia_v2}"
 LOG_DIR="${ARGIA_LOG_DIR:-$HOME/argia_logs}"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/$NAME.log"

@@ -55,3 +55,27 @@ class TestPiKit:
         assert "v2-watchdog" in doc          # stays on Actions
         assert "playwright install chromium" in doc
         assert "ROLLBACK" in doc
+
+
+class TestPhase1Discovery20260706:
+    """Live discovery during Phase 1: v1 RUNS from ~/argia_solar_monitoring
+    (a dirty clone with unpushed production edits). The kit must keep v2
+    in its own home and must be structurally unable to erase local work."""
+
+    def test_v2_lives_in_its_own_clone(self):
+        assert "$HOME/argia_v2" in _read("pi/deploy.sh")
+        assert "$HOME/argia_v2" in _read("pi/run_job.sh")
+        cron = _read("pi/crontab.example")
+        assert "/argia_v2/v2/pi/" in cron
+        assert "argia_solar_monitoring/v2/pi" not in cron
+
+    def test_deploy_refuses_dirty_tree(self):
+        s = _read("pi/deploy.sh")
+        assert "git status --porcelain" in s
+        assert "deploy REFUSED" in s
+
+    def test_env_is_append_not_overwrite(self):
+        assert "APPEND" in _read("pi/env.example")
+        doc = _read("docs/PI_MIGRATION.md")
+        assert "v1_local_backup" in doc
+        assert "clone git@github.com:argiasolar/argia_solar_monitoring.git argia_v2" in doc

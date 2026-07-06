@@ -421,3 +421,29 @@ def test_parse_plants_skips_inactive_and_defaults_to_active():
     ]
     plants = D.parse_plants(rows)
     assert set(plants) == {"GTO1", "SLP1"}
+
+
+def test_plant_rows_stamp_data_start():
+    """Incident 2026-07-06: overnight collector outage -> first sample 08:19,
+    early energy rolled into the 08:00 bucket, live % read 269% with no
+    warning. The build stamps each plant-day's first-sample time so the
+    page can flag the asymmetry."""
+    late = [mk(dt.datetime(2026, 7, 2, 8, 19), "GTO1", "A", 150),
+            mk(dt.datetime(2026, 7, 2, 9, 5), "GTO1", "A", 260)]
+    res = D.build(DAY, plant_map(), late, active_inverters={"GTO1": {"A"}})
+    assert res.plant_rows[0]["data_start"] == "08:19"
+    assert "data_start" in D.PLANT_COLUMNS
+
+    normal = [mk(dt.datetime(2026, 7, 2, 6, 4), "GTO1", "A", 0),
+              mk(dt.datetime(2026, 7, 2, 9, 5), "GTO1", "A", 260)]
+    res2 = D.build(DAY, plant_map(), normal, active_inverters={"GTO1": {"A"}})
+    assert res2.plant_rows[0]["data_start"] == "06:04"
+
+    # the hole the real data exposed: a delayed MIDNIGHT run's 00:5x rows
+    # must not mask a late daylight start
+    night_then_late = [mk(dt.datetime(2026, 7, 2, 0, 51), "GTO1", "A", 480),
+                       mk(dt.datetime(2026, 7, 2, 8, 19), "GTO1", "A", 30),
+                       mk(dt.datetime(2026, 7, 2, 9, 5), "GTO1", "A", 120)]
+    res3 = D.build(DAY, plant_map(), night_then_late,
+                   active_inverters={"GTO1": {"A"}})
+    assert res3.plant_rows[0]["data_start"] == "08:19"

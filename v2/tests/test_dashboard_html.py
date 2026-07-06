@@ -350,3 +350,16 @@ class TestLogoAndAudit20260705:
         ' PPA' so long contract names don't wreck the layout."""
         assert "split(' PPA')[0].split(',')[0]" in H._TEMPLATE
         assert "maxRotation: 0" in H._TEMPLATE   # labels stay horizontal
+
+
+class TestLateStartWarning20260706:
+    def test_late_start_flagged_never_hidden(self):
+        """After-gap mornings show a warning chip; all numbers stay visible
+        (the 2026-07-06 lesson twice over: don't hide data, don't let a
+        distorted % masquerade as performance)."""
+        assert "data_start" in H.PLANT_FIELDS
+        assert "LATE_START_AFTER = '06:45'" in H._TEMPLATE
+        assert "lateStarts" in H._TEMPLATE
+        assert "overstated" in H._TEMPLATE          # honest wording
+        # applies only to the live day
+        assert "if (day !== mxTodayIso()) return [];" in H._TEMPLATE

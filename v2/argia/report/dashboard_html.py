@@ -22,7 +22,7 @@ from typing import List
 # explicit. Adding a field to the page starts here.
 PLANT_FIELDS = [
     "date_mx", "hour_label", "plant_key", "customer", "kwp_dc",
-    "tariff_mxn_per_kwh",
+    "tariff_mxn_per_kwh", "data_start",
     "total_kwh", "theoretical_kwh", "cloud_cover_pct",
     "inverters_total", "inverters_reporting", "inverters_faulted",
 ]
@@ -152,6 +152,9 @@ _TEMPLATE = """<!DOCTYPE html>
            color:#4a4a45;"></div>
     </div>
   </header>
+
+  <div class="note" id="gapNote" style="background:#fcebeb; color:#791f1f;">
+    </div>
 
   <div class="note" id="todayNote">Selected day is still running: production and
     expected are pro-rated to the last complete hour (Mexico City time); the
@@ -339,6 +342,34 @@ _TEMPLATE = """<!DOCTYPE html>
   var todayIso = mxTodayIso();
   daySel.value = days.indexOf(todayIso) >= 0 ? todayIso : maxDay;
 
+  // A plant whose first sample arrived well after dawn had its early
+  // energy rolled into the first sampled bucket, while the gap's sun is
+  // unmeasurable — the live % is then OVERSTATED. Warn, never hide.
+  var LATE_START_AFTER = '06:45';
+  function lateStarts(prowsAll, day) {
+    if (day !== mxTodayIso()) return [];
+    var seen = {};
+    prowsAll.forEach(function (r) {
+      if (r.date_mx === day && r.data_start) seen[r.plant_key] = r.data_start;
+    });
+    var out = [];
+    Object.keys(seen).forEach(function (pk) {
+      if (seen[pk] > LATE_START_AFTER)
+        out.push(pk + ' (from ' + seen[pk] + ')');
+    });
+    return out.sort();
+  }
+  function setGapNote(late) {
+    var el = document.getElementById('gapNote');
+    if (!late.length) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.textContent = '\u26a0 Telemetry started late today for ' +
+      late.join(', ') + ' \u2014 energy produced during the gap rolled ' +
+      'into the first sampled hour, but the sun for those hours could not ' +
+      'be measured. Production is real; the % is overstated until ' +
+      'coverage builds. Tonight\u2019s KPI corrects the full-day number.';
+  }
+
   function lossText(kwh, tariff) {
     if (!kwh || kwh < 0.5) return '\u2013';
     if (tariff) return '$' + fmt(kwh * tariff) + ' <small>MXN \u00b7 ' +
@@ -444,6 +475,9 @@ _TEMPLATE = """<!DOCTYPE html>
   function drawPlant(pk, day) {
     document.getElementById('panel2').style.display = 'none';
     expLabel(day);
+    setGapNote(lateStarts(
+      DATA.plant_rows.filter(function (r) { return r.plant_key === pk; }),
+      day));
     var prows = cutLive(DATA.plant_rows.filter(function (r) {
       return r.plant_key === pk && r.date_mx === day; }), day);
     var irows = cutLive(DATA.inverter_rows.filter(function (r) {
@@ -563,6 +597,7 @@ _TEMPLATE = """<!DOCTYPE html>
   function drawPortfolio(day) {
     document.getElementById('panel2').style.display = '';
     expLabel(day);
+    setGapNote(lateStarts(DATA.plant_rows, day));
     var perPlant = DATA.plants.map(function (pk) {
       var prows = cutLive(DATA.plant_rows.filter(function (r) {
         return r.plant_key === pk && r.date_mx === day; }), day);

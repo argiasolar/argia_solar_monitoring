@@ -280,6 +280,16 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
             continue
         plant_samples = [s for s in samples if s.plant_key == pk]
 
+        # First telemetry sample of this plant-day. A late start (after a
+        # collector outage) means early energy ROLLED INTO the first sampled
+        # bucket while irradiance for the gap hours is unmeasurable — the
+        # live production-vs-expected ratio is then overstated. The page
+        # uses this stamp to warn instead of silently showing 269%
+        # (incident 2026-07-06).
+        first_ts = min((s.ts for s in plant_samples
+                        if s.ts.hour >= DAY_START_H), default=None)
+        data_start = first_ts.strftime("%H:%M") if first_ts else None
+
         # Per-bucket irradiance via trapezoidal integration of the
         # instantaneous series; used both to shape the KPI anchor and as the
         # live-day fallback. (The old sum of sparse irradiance_kwh_m2_5m
@@ -395,6 +405,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 "customer": plant.customer,
                 "kwp_dc": plant.kwp_dc,
                 "tariff_mxn_per_kwh": plant.tariff_mxn_per_kwh,
+                "data_start": data_start,
                 "total_kwh": round(plant_total, 3),
                 "theoretical_kwh": round(theoretical, 3),
                 "irradiance_kwh_m2": round(irr_bucket, 5),
@@ -431,7 +442,7 @@ INVERTER_COLUMNS = [
 ]
 PLANT_COLUMNS = [
     "date_mx", "bucket_ts", "hour_label", "plant_key", "customer", "kwp_dc",
-    "tariff_mxn_per_kwh",
+    "tariff_mxn_per_kwh", "data_start",
     "total_kwh", "theoretical_kwh", "irradiance_kwh_m2", "irradiance_wm2",
     "cloud_cover_pct", "module_temp_c", "ambient_temp_c", "inverters_total",
     "inverters_reporting", "inverters_faulted", "production_pct",

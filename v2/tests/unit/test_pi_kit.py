@@ -90,3 +90,11 @@ def test_shell_scripts_are_executable_in_git():
     import os
     for rel in ("pi/deploy.sh", "pi/run_job.sh"):
         assert os.access(V2 / rel, os.X_OK), f"{rel} not executable"
+
+
+def test_run_job_sets_pythonpath():
+    """2026-07-06 smoke-test catch: the wrapper cd'd into v2/ but never
+    set PYTHONPATH, so every job died with ModuleNotFoundError. The
+    scripts import argia exactly like the workflows do — with an
+    explicit PYTHONPATH."""
+    assert "PYTHONPATH" in _read("pi/run_job.sh")

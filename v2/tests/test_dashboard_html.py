@@ -240,6 +240,9 @@ class TestFeatureRegressions20260705:
         assert "function cutLive" in H._TEMPLATE
         assert "mxTodayIso" in H._TEMPLATE
         assert "if (day !== mxTodayIso()) return rows;" in H._TEMPLATE
+        # regression 2026-07-06: the IN-PROGRESS hour must be kept (<=, not <)
+        # — cutting it hid the first real data after an overnight gap
+        assert "parseInt(r.hour_label, 10) <= h" in H._TEMPLATE
         # both draw paths apply the cut
         assert H._TEMPLATE.count("cutLive(") >= 4
 
@@ -250,7 +253,7 @@ class TestFeatureRegressions20260705:
         assert "newChart2" in port
 
     def test_expected_card_label_shows_cutoff_on_live_day(self):
-        assert "Expected \\u00b7 to " in H._TEMPLATE or "Expected · to " in H._TEMPLATE
+        assert "Expected \u00b7 so far" in H._TEMPLATE
 
 
 class TestIssuesAndAvailability20260705:

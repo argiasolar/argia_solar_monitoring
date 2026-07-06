@@ -294,20 +294,23 @@ _TEMPLATE = """<!DOCTYPE html>
         { timeZone: 'America/Mexico_City' });
     } catch (e) { return new Date().toISOString().slice(0, 10); }
   }
-  // On the LIVE day only, compare pace-vs-pace: keep buckets strictly before
-  // the current MX hour so future/forecast rows can never inflate expected.
-  // Completed days keep the full-day comparison (truncating them would hide
-  // an afternoon outage).
+  // On the LIVE day only, drop FUTURE buckets so forecast-timestamped rows
+  // can never inflate expected. The CURRENT in-progress hour is kept: its
+  // production is real and its trapezoid expected only integrates samples
+  // that exist, so both sides are elapsed-matched. (Regression 2026-07-06:
+  // cutting the in-progress hour hid the first data after an overnight
+  // telemetry gap — tabs had 08:19 data, the page showed zeros.)
+  // Completed days keep the full-day comparison.
   function cutLive(rows, day) {
     if (day !== mxTodayIso()) return rows;
     var h = mxNow().getHours();
     return rows.filter(function (r) {
-      return parseInt(r.hour_label, 10) < h; });
+      return parseInt(r.hour_label, 10) <= h; });
   }
   function expLabel(day) {
     document.getElementById('cExpLbl').textContent =
       (day === mxTodayIso())
-        ? 'Expected \u00b7 to ' + ('0' + mxNow().getHours()).slice(-2) + ':00'
+        ? 'Expected \u00b7 so far (' + ('0' + mxNow().getHours()).slice(-2) + 'h)'
         : 'Expected';
   }
 

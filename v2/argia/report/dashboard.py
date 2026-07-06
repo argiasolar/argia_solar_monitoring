@@ -298,6 +298,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
         irr_day_total = sum(irr_by_bucket.values())
         anchor = daily_expected.get(pk)
 
+        prev_coverage_broken = False
         for b_start in buckets:
             b_end = b_start + step
             hour_label = b_start.strftime("%H:%M")
@@ -335,6 +336,31 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
             ]
             statuses = classify_plant_bucket(buckets_in, plant_key=pk,
                                              sun_up=sun_up)
+
+            # --- coverage guards (GTO1 incident, 2026-07-06) -------------
+            # Degraded polling can hit only PART of a plant inside a bucket
+            # (one stray 09:59 poll reached 1 of 6 inverters). Judging that
+            # bucket as if the plant were fully polled produced 5 phantom
+            # OFFLINEs (+$804 phantom loss) and, in the NEXT bucket, a
+            # phantom "43% of peers" CRITICAL because the energy windows
+            # differed.
+            # (a) fewer than half the inverters reported -> the silent ones
+            #     are NO_DATA, not OFFLINE (=> no availability loss either);
+            # (b) peer-relative UNDERPERFORMING is suppressed in the bucket
+            #     FOLLOWING a coverage-broken one — cross-window energy
+            #     comparisons there are meaningless.
+            reported_now = sum(1 for sn in inv_sns if energies[sn][1])
+            coverage_broken = 0 < reported_now < max(2, -(-len(inv_sns) // 2))
+            if coverage_broken:
+                for sn in inv_sns:
+                    if not energies[sn][1] and statuses[sn][0] == OFFLINE:
+                        statuses[sn] = (NO_DATA, "plant only partially "
+                                                 "polled this hour")
+            if prev_coverage_broken:
+                for sn in inv_sns:
+                    if statuses[sn][0] == UNDERPERFORMING:
+                        statuses[sn] = (ONLINE, "")
+            prev_coverage_broken = coverage_broken
 
             plant_total = 0.0
             reporting = 0

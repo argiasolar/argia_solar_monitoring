@@ -447,3 +447,64 @@ def test_plant_rows_stamp_data_start():
     res3 = D.build(DAY, plant_map(), night_then_late,
                    active_inverters={"GTO1": {"A"}})
     assert res3.plant_rows[0]["data_start"] == "08:19"
+
+
+class TestCoverageGuards20260706:
+    """Replay of the GTO1 morning: degraded polling hit 1 of 6 inverters
+    in the 09h bucket -> 5 phantom OFFLINEs (+$804 phantom loss), and the
+    lone reporter read "43% of peers CRITICAL" in the 10h bucket because
+    its energy window differed from the peers'."""
+
+    def _gto_like(self):
+        t = lambda h, m: dt.datetime(2026, 7, 2, h, m)
+        S = []
+        # 08h: all six report (post-gap rollover bucket)
+        for i, sn in enumerate("ABCDEF"):
+            S += [mk(t(8, 18), "GTO1", sn, 50 + i)]
+        # 09h: ONE stray poll reaches only F
+        S += [mk(t(9, 59), "GTO1", "F", 150)]
+        # 10h: the other five return; F polls again at 10:49
+        for i, sn in enumerate("ABCDE"):
+            S += [mk(t(10, 48), "GTO1", sn, 230 + i)]
+        S += [mk(t(10, 49), "GTO1", "F", 228)]
+        return S
+
+    def _build(self):
+        return D.build(DAY, plant_map(), self._gto_like(),
+                       active_inverters={"GTO1": set("ABCDEF")},
+                       inverter_ratings={("GTO1", c): 124.0
+                                         for c in "ABCDEF"})
+
+    def test_partial_poll_bucket_yields_no_phantom_offline_or_loss(self):
+        rows = {(r["hour_label"], r["inverter_sn"]): r
+                for r in self._build().inverter_rows}
+        for sn in "ABCDE":
+            r = rows[("09:00", sn)]
+            assert r["status"] == D.NO_DATA, r
+            assert r["est_loss_kwh"] == 0.0
+        assert rows[("09:00", "F")]["status"] == D.ONLINE
+
+    def test_no_phantom_underperformance_after_broken_bucket(self):
+        rows = {(r["hour_label"], r["inverter_sn"]): r
+                for r in self._build().inverter_rows}
+        # F's 10h window (09:59->10:49) vs peers' (08:18->10:48): without
+        # the guard this read ~43% of peers CRITICAL
+        assert rows[("10:00", "F")]["status"] == D.ONLINE
+
+    def test_true_single_inverter_outage_still_flags(self):
+        """The guard must NOT hide a real outage: full plant coverage,
+        one inverter silent -> OFFLINE with loss, as before."""
+        t = lambda h, m: dt.datetime(2026, 7, 2, h, m)
+        S = []
+        for h in (9, 10):
+            for i, sn in enumerate("ABCDE"):   # F silent all day
+                S += [mk(t(h, 5), "GTO1", sn, (h - 8) * 100 + i)]
+        res = D.build(DAY, plant_map(), S,
+                      active_inverters={"GTO1": set("ABCDEF")},
+                      inverter_ratings={("GTO1", c): 124.0
+                                        for c in "ABCDEF"})
+        rows = {(r["hour_label"], r["inverter_sn"]): r
+                for r in res.inverter_rows}
+        r = rows[("10:00", "F")]
+        assert r["status"] == D.OFFLINE
+        assert r["est_loss_kwh"] > 0

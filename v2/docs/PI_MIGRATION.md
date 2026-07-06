@@ -91,3 +91,4 @@ One machine instead of GitHub's fleet: hardware is now the risk. Detection
 exists (watchdog + nag); prevention is on you — decent SD card or SSD
 boot, and a UPS if the site's power is moody. The later SQLite/dense-data
 phase lands on this same setup with zero rework.
+Pi deploy loop verified 2026-07-06

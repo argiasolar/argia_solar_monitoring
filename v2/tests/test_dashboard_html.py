@@ -367,3 +367,20 @@ class TestLateStartWarning20260706:
         assert "overstated" in H._TEMPLATE          # honest wording
         # applies only to the live day
         assert "if (day !== mxTodayIso()) return [];" in H._TEMPLATE
+
+
+class TestInverterIdentityAndTempVoice20260707:
+    def test_serial_shown_under_label(self):
+        assert '<span class="sn">' in H._TEMPLATE
+        assert ".sn { display: block;" in H._TEMPLATE
+
+    def test_temperature_colored_and_explained(self):
+        """A red 74degC gauge above a mute table row was unanswerable.
+        Same 65/75 bands as the alert engine, with a check-cooling note
+        appended to Reason."""
+        assert "a.temp >= 75 ? '#a32d2d'" in H._TEMPLATE
+        assert "a.temp >= 65 ? '#854f0b'" in H._TEMPLATE
+        assert "check cooling/heatsink" in H._TEMPLATE
+        # audit footer documents the meaning + production consequence
+        html = H.render([_plant_row()], [_inv_row()], generated_at="t")
+        assert "INTERNAL" in html and "derating" in html

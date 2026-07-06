@@ -106,6 +106,7 @@ _TEMPLATE = """<!DOCTYPE html>
            flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
   h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: .3px; }
   .sub { font-size: 12px; color: #6b6a64; }
+  .sn { display: block; font-size: 10.5px; color: #9a998f; }
   select { font-size: 14px; padding: 7px 10px; border: 1px solid #c9c8c0;
            border-radius: 8px; background: #fff; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -262,7 +263,11 @@ _TEMPLATE = """<!DOCTYPE html>
         peers produce; UNDERPERFORMING = below 85% of peers per installed
         kW (leave-one-out median, size-normalized); DERATED = derating flag.
         &ldquo;Issues&rdquo; counts inverters whose worst state of the day
-        is any of these.</dd>
+        is any of these. Max &deg;C is the inverter&rsquo;s INTERNAL
+        (electronics) temperature; amber &ge;65&thinsp;&deg;C, red
+        &ge;75&thinsp;&deg;C &mdash; the same bands the alert engine uses.
+        Above ~75&thinsp;&deg;C the unit protects itself by derating, so
+        heat becomes lost production.</dd>
 
         <dt style="font-weight:600;">Est. loss (unavailability)</dt>
         <dd style="margin:0 0 8px;">Only for FAULT/OFFLINE hours: what the
@@ -535,20 +540,34 @@ _TEMPLATE = """<!DOCTYPE html>
       var c = DATA.status_colors[a.status] || ['#eee', '#444'];
       var tr = document.createElement('tr');
       var av = a.availN > 0 ? Math.round(100 * a.availOk / a.availN) : null;
+      // Temperature speaks the alert engine's language (amber >=65,
+      // red >=75 deg C) and explains itself — a red gauge over a mute
+      // table row was unanswerable (user question, 2026-07-07).
+      var tCol = a.temp === null ? '#6b6a64'
+        : a.temp >= 75 ? '#a32d2d' : a.temp >= 65 ? '#854f0b' : '#1a1a19';
+      var tNote = a.temp !== null && a.temp >= 65
+        ? ((a.temp >= 75 ? 'hot: derating likely' : 'running hot')
+           + ' \u2014 check cooling/heatsink (derates \u226575\u00b0C)')
+        : '';
+      var reasonTxt = a.reason || '';
+      if (tNote) reasonTxt = reasonTxt
+        ? reasonTxt + ' \u00b7 ' + tNote : tNote;
       var avCol = av === null ? '#6b6a64'
         : av < 90 ? '#a32d2d' : av < 98 ? '#854f0b' : '#0f6e56';
       var lossCell = a.loss < 0.5 ? '\u2013'
         : (tariff ? '$' + fmt(a.loss * tariff) : fmt(a.loss) + ' kWh');
-      tr.innerHTML = '<td>' + a.label + '</td>' +
+      tr.innerHTML = '<td>' + a.label +
+        '<span class="sn">' + a.sn + '</span></td>' +
         '<td class="num">' + fmt(a.kwh) + '</td>' +
         '<td class="num" style="color:' + avCol + '">' +
         (av === null ? '\u2013' : av + '%') + '</td>' +
         '<td class="num" style="color:' + (a.loss >= 0.5 ? '#a32d2d' : '#6b6a64') + '">' +
         lossCell + '</td>' +
-        '<td class="num">' + (a.temp === null ? '\u2013' : fmt(a.temp, 0)) + '</td>' +
+        '<td class="num" style="font-weight:600;color:' + tCol + '">' +
+        (a.temp === null ? '\u2013' : fmt(a.temp, 0)) + '</td>' +
         '<td><span class="badge" style="background:' + c[0] + ';color:' +
         c[1] + '">' + a.status + '</span></td>' +
-        '<td style="color:#6b6a64">' + a.reason + '</td>';
+        '<td style="color:#6b6a64">' + reasonTxt + '</td>';
       body.appendChild(tr);
     });
 

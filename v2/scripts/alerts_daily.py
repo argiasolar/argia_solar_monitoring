@@ -36,6 +36,7 @@ import sys
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+from argia.alerts.digest import apply_daily_digest
 from argia.alerts.engine import (
     Candidate,
     candidate_from_expected_breach,
@@ -361,6 +362,14 @@ def main(argv=None) -> int:
     for r in result.resolved:
         log.info("RESOLVE  %s  %s", r.alert_id, r.alert_key)
 
+    # --- daily open-alerts digest --------------------------------------
+    # Mail-once dedupe means ongoing issues go silent (three GTO1 FAULTs
+    # sat unmailed for days, 2026-07-06). One digest alert per morning
+    # while anything stays open restores "silence = all clear".
+    digest = apply_daily_digest(result.records, dt.datetime.now(UTC))
+    for line in digest.log_lines():
+        log.info("%s", line)
+
     if args.dry_run:
         log.info("[DRY RUN] no rows written")
         return 0
@@ -369,7 +378,7 @@ def main(argv=None) -> int:
     # Rows only ever update in place or append (history never shrinks), so a
     # single block write of all records is idempotent and race-free for a
     # once-a-day job.
-    if result.opened or result.touched or result.resolved:
+    if result.opened or result.touched or result.resolved or digest.changed:
         block = [record_to_row(r) for r in result.records]
         end_col = chr(ord("A") + len(ALERTS_HEADER) - 1)   # N for 14 cols
         sheets.write_values(

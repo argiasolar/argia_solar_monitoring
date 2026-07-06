@@ -34,6 +34,7 @@ from argia.analytics.inverter_health import (
 )
 from argia.analytics.vendor_flags import fault_tokens
 from argia.archive.kpi_daily import KPI_DAILY_TAB
+from argia.alerts.digest import reportable_alerts
 from argia.core.alerts_state import AlertRecord, load_alerts_ledger
 from argia.core.config import Portfolio
 from argia.core.normalize import normalize_text, safe_float
@@ -599,7 +600,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             status_note=k.get("note", ""), inverters=invs))
 
     ledger = load_alerts_ledger(sheets)
-    alerts = [r for r in ledger.records if r.is_open() or r.is_silenced()]
+    alerts = reportable_alerts(ledger.records)
     sev_rank = {"CRITICAL": 0, "WARNING": 1}
     alerts.sort(key=lambda a: (sev_rank.get(a.severity, 2), a.plant_key,
                                a.inverter_sn))

@@ -351,3 +351,18 @@ class TestPortfolioSummary20260707:
         assert html.index('class="portsummary"') < html.index('class="rail"')
         for label in ("Portfolio size", "Income (est.)", "CO&#8322; avoided"):
             assert label in html
+
+
+def test_rail_is_single_row_grid():
+    """User review on A4: long customer names made the flex rail wrap to
+    two rows in the PDF while the browser fit one. The rail is now a
+    grid with one equal column per plant — always one row, names wrap
+    INSIDE their tile, robust to fleet growth."""
+    html = render_html(TestRenderSmoke()._data())
+    assert "grid" in html.split(".rail{")[1].split("}")[0]
+    # WeasyPrint does NOT support auto-fit (measured: 6 tiles collapsed
+    # to 6 rows) — the column count is injected per render instead
+    assert "auto-fit" not in html
+    n = len(TestRenderSmoke()._data().plants)
+    assert f'style="grid-template-columns:repeat({n},1fr)"' in html
+    assert "min-width:110px" not in html

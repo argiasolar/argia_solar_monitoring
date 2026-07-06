@@ -345,10 +345,9 @@ white-space:nowrap}
 .subrow{display:flex;justify-content:space-between;align-items:baseline}
 .subrow .kind{color:var(--mut);font-size:13px}
 .date{font-size:16px;font-weight:600}
-.rail{display:flex;gap:12px;margin:16px 0 6px;flex-wrap:wrap}
+.rail{display:grid;margin:16px 0 6px;gap:10px}
 .stop{background:var(--card);border:1px solid var(--line);
-border-radius:10px;padding:12px 14px;text-align:center;min-width:110px;
-max-width:170px}
+border-radius:10px;padding:10px 6px;text-align:center;min-width:0}
 .lamp{width:14px;height:14px;border-radius:50%;margin:0 auto 6px}
 .lamp.green{background:var(--green)}.lamp.amber{background:var(--amber)}
 .lamp.red{background:var(--red)}.lamp.gray{background:#9aa39e}
@@ -423,7 +422,8 @@ padding:1px 7px;border-radius:9px;margin-right:4px;color:#fff}
 .chip.red{background:var(--red)}.chip.amber{background:var(--amber)}
 footer{margin-top:30px;color:var(--mut);font-size:12px;
 border-top:1px solid var(--line);padding-top:12px;line-height:1.55}
-@media(max-width:720px){.pgrid{grid-template-columns:1fr}}
+@media(max-width:720px){.pgrid{grid-template-columns:1fr}
+.rail{grid-template-columns:repeat(3,1fr)}}
 @media print{body{background:#fff}.wrap{padding:0}
 .plant,.card,.alert,.stop{border-color:#ccc}}
 """
@@ -582,7 +582,8 @@ def render_html(data: ReportData) -> str:
         f'report &#183; KPI-final numbers</span>'
         f'<span class="date">{data.date_iso}</span></div></header>'
         f'{summary_block}'
-        f'<div class="rail">{rail}</div>'
+        f'<div class="rail" style="grid-template-columns:'
+        f'repeat({max(1, len(data.plants))},1fr)">{rail}</div>'
         f'<div class="fleetline mono">{fleetline}</div>'
         f'<h2>Production vs theoretical &#8212; per plant</h2>'
         f'<div class="card">{svg_fleet_bars(data.plants, sem_of)}'

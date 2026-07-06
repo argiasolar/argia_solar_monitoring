@@ -19,11 +19,14 @@ from argia.report.daily import (
     plant_semaphore,
     render_html,
     svg_inverter_bars,
+    short_name,
+    svg_fleet_bars,
 )
 
 
 def _plant(pk="SLP1", pp=1.05, av=1.0, dc="full", **kw):
-    return PlantDay(plant_key=pk, name=pk, energy_kwh=kw.get("e", 1000.0),
+    return PlantDay(plant_key=pk, name=kw.get("name", pk),
+                    energy_kwh=kw.get("e", 1000.0),
                     expected_kwh=kw.get("x", 950.0), production_pct=pp,
                     pr=0.8, availability=av, soiling=kw.get("soil"),
                     cloud_pct=40.0, data_class=dc,
@@ -115,9 +118,10 @@ class TestRenderSmoke:
         # inverter table with flags and allocation
         assert "JFM7DXN013" in html and "FT=302" in html
         assert "peer median" in html                       # chart annotation
-        # honesty footer
+        # honesty footer — updated with the dense-irradiance rollout
         assert "nameplate share" in html
-        assert "treat % of plan as directional" in html
+        assert "minute-scale history" in html
+        assert "validated to &lt;1%" in html
 
     def test_no_alerts_renders_placeholder(self):
         d = self._data()
@@ -165,3 +169,87 @@ class TestDriveUpload:
         d = DriveClient(service=svc)
         assert d.ensure_folder("PARENT", "Reports") == "FID"
         svc.files().create.assert_not_called()
+
+
+class TestDashboardFamilyStyle20260707:
+    """The PDF is the customer-facing sibling of the dashboard — one
+    visual language. Also: no external font fetch inside the PDF-printing
+    Chromium, so the PDF renders identically offline."""
+
+    def test_lockup_and_shared_logo(self):
+        html = render_html(TestRenderSmoke()._data())
+        assert "PERFORMANCE&nbsp;REPORT" in html
+        assert "data:image/png;base64," in html
+        from argia.report.dashboard_html import LOGO_B64
+        assert LOGO_B64[:40] in html            # the SAME logo asset
+
+    def test_dashboard_palette_and_no_webfonts(self):
+        html = render_html(TestRenderSmoke()._data())
+        assert "#0E8A6D" in html and "#f4f3ef" in html
+        assert "fonts.googleapis.com" not in html
+        assert "IBM Plex" not in html
+
+
+class TestMedianLabelPlacement20260707:
+    """User-reported: 'peer median' overlapped the last bar's value text.
+    The label now hangs BELOW the chart and flips sides near the right
+    edge — collision-impossible by construction."""
+
+    def test_label_below_bars_and_height_extended(self):
+        p = _plant(inv=[_inv(sn="A", kwh=700, rated=100),
+                        _inv(sn="B", kwh=690, rated=100)])
+        svg = svg_inverter_bars(p)
+        h = 2 * 34
+        assert f'y="{h + 13}"' in svg            # below the last bar row
+        assert f'viewBox="0 0 660 {h + 18}"' in svg
+
+    def test_label_flips_left_when_median_near_right_edge(self):
+        # both inverters at the same yield -> median line at the bar tip,
+        # far right: the exact collision case from the screenshot
+        p = _plant(inv=[_inv(sn="A", kwh=700, rated=100),
+                        _inv(sn="B", kwh=700, rated=100)])
+        assert 'text-anchor="end">peer median' in svg_inverter_bars(p)
+
+    def test_label_stays_right_of_line_when_median_left(self):
+        p = _plant(inv=[_inv(sn="A", kwh=700, rated=100),
+                        _inv(sn="B", kwh=100, rated=100)])
+        assert 'text-anchor="start">peer median' in svg_inverter_bars(p)
+
+
+class TestPlantNamesAndCaptionClipping20260707:
+    def test_short_name_trim_rules_match_dashboard(self):
+        assert short_name(_plant(name="HOLIDAY INN EXPRESS, Turistica "
+                                 "Arizona PPA roof (SLP, SLP)")) == \
+            "HOLIDAY INN EXPRESS"
+        assert short_name(_plant(name="TAIGENE PPA roof (Leon, GTO)")) == \
+            "TAIGENE"
+        assert short_name(_plant(pk="GTO1", name="")) == "GTO1"  # key fallback
+
+    def test_rail_and_bars_show_names_not_keys(self):
+        d = TestRenderSmoke()._data()
+        d.plants[0].name = "TAIGENE PPA roof (Leon, GTO)"
+        html = render_html(d)
+        rail = html.split('class="rail"')[1].split("</div></div>")[0]
+        assert "TAIGENE" in rail
+        assert ">GTO1<" not in html.split("aria-label")[1].split("</svg>")[0]
+
+    def test_caption_cannot_clip(self):
+        """User screenshot 2026-07-05: GTO1's '... kWh · 87%' was cut at
+        the viewBox edge. Worst case = full-width outline + longest
+        caption must fit inside the viewBox."""
+        p = _plant(name="X", e=88888.0, x=99999.0, pp=0.87)
+        svg = svg_fleet_bars([p], {p.plant_key: GREEN})
+        import re
+        view_w = int(re.search(r'viewBox="0 0 (\d+)', svg).group(1))
+        text_x = max(float(m) for m in
+                     re.findall(r'<text x="(\d+)" y="19" class="axv"', svg))
+        caption = "88,888 / 99,999 kWh · 87%"
+        assert 200 + text_x + len(caption) * 6.6 <= view_w
+
+
+def test_fleet_summary_is_prominent():
+    """User request 2026-07-07: the fleet line under the tiles was 13px
+    muted — now a 16px card strip with bold key numbers."""
+    html = render_html(TestRenderSmoke()._data())
+    assert "font-size:16px" in html.split(".fleetline{")[1].split("}")[0]
+    assert "<b>" in html.split('class="fleetline')[1].split("</div>")[0]

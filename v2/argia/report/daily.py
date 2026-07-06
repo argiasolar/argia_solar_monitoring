@@ -40,11 +40,13 @@ from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
 from argia.kpi import compute_plant_energy, read_day_bundle
 from argia.kpi.reconcile import date_key
+from argia.report.dashboard_html import LOGO_B64
 
 LOG = logging.getLogger("argia.report.daily")
 
 GREEN, AMBER, RED, GRAY = "green", "amber", "red", "gray"
-COLORS = {GREEN: "#1F7A4D", AMBER: "#C77E00", RED: "#B3372B", GRAY: "#8A938F"}
+# Dashboard-family palette — one visual language across page and PDF
+COLORS = {GREEN: "#0E8A6D", AMBER: "#B7791F", RED: "#A32D2D", GRAY: "#9aa39e"}
 
 
 # ---------------------------------------------------------------- data model
@@ -140,13 +142,26 @@ def _median(vals: List[float]) -> float:
 
 # --------------------------------------------------------------- SVG charts
 
+def short_name(p: PlantDay) -> str:
+    """Customer name for compact display — same trim rule as the dashboard
+    (cut at ' PPA' and at the first comma) so both surfaces name plants
+    identically."""
+    return ((p.name or p.plant_key).split(" PPA")[0].split(",")[0]
+            or p.plant_key)
+
+
 def svg_fleet_bars(plants: List[PlantDay],
                    sem_of: Dict[str, str]) -> str:
     drawable = [p for p in plants if p.expected_kwh]
     if not drawable:
         return ""
     m = max(p.expected_kwh for p in drawable) * 1.05
-    W, rows = 620, []
+    # Geometry: 200px name gutter + 540px bars + 200px caption room in a
+    # 940px viewBox. The caption previously sat at max(bar)+8 inside 860px
+    # and CLIPPED when the theoretical outline was long (user screenshot,
+    # GTO1 2026-07-05: "... kWh (cut)").
+    GUTTER, W, VIEW = 200, 540, 940
+    rows = []
     for i, p in enumerate(drawable):
         y = i * 46
         we = (p.energy_kwh or 0) / m * W
@@ -155,18 +170,18 @@ def svg_fleet_bars(plants: List[PlantDay],
         pct = (f"{p.production_pct * 100:.0f}%"
                if p.production_pct is not None else "n/a")
         rows.append(
-            f'<g transform="translate(150,{y})">'
+            f'<g transform="translate({GUTTER},{y})">'
             f'<text x="-12" y="19" text-anchor="end" class="axl">'
-            f'{p.plant_key}</text>'
+            f'{_html.escape(short_name(p))}</text>'
             f'<rect x="0" y="4" width="{wx:.0f}" height="22" fill="none" '
-            f'stroke="#9AA5A0" stroke-dasharray="4 3"/>'
+            f'stroke="#c9c8c0" stroke-dasharray="4 3"/>'
             f'<rect x="0" y="4" width="{we:.0f}" height="22" '
             f'fill="{col}" opacity="0.88"/>'
             f'<text x="{max(we, wx) + 8:.0f}" y="19" class="axv">'
             f'{(p.energy_kwh or 0):,.0f} / {p.expected_kwh:,.0f} kWh '
             f'&#183; {pct}</text></g>')
     h = len(drawable) * 46
-    return (f'<svg viewBox="0 0 860 {h}" role="img" '
+    return (f'<svg viewBox="0 0 {VIEW} {h}" role="img" '
             f'aria-label="Production vs theoretical per plant">'
             f'{"".join(rows)}</svg>')
 
@@ -196,9 +211,17 @@ def svg_inverter_bars(p: PlantDay) -> str:
     out.append(f'<line x1="{120 + mx:.0f}" y1="0" x2="{120 + mx:.0f}" '
                f'y2="{h}" stroke="#16211C" stroke-width="1.5" '
                f'stroke-dasharray="2 3"/>')
-    out.append(f'<text x="{120 + mx + 4:.0f}" y="10" class="axv" '
-               f'fill="#16211C">peer median</text>')
-    return (f'<svg viewBox="0 0 660 {h + 4}" role="img" '
+    # Label sits BELOW the chart, hanging off the median line; it flips to
+    # the left side when the median is near the right edge. Reason: at the
+    # top-right it collided with the last bar's value text whenever
+    # inverters sat near the median — i.e. on every healthy plant
+    # (user-reported, 2026-07-07).
+    flip = mx > 0.72 * W
+    out.append(f'<text x="{120 + mx + (-4 if flip else 4):.0f}" '
+               f'y="{h + 13}" class="axv" fill="#16211C" '
+               f'text-anchor="{"end" if flip else "start"}">'
+               f'peer median</text>')
+    return (f'<svg viewBox="0 0 660 {h + 18}" role="img" '
             f'aria-label="Specific yield per inverter, {p.plant_key}">'
             f'{"".join(out)}</svg>')
 
@@ -206,84 +229,90 @@ def svg_inverter_bars(p: PlantDay) -> str:
 # ------------------------------------------------------------- HTML render
 
 _CSS = """
-:root{--ink:#16211C;--paper:#F6F7F5;--card:#FFFFFF;--mut:#5E6B66;
---line:#DDE2DF;--green:#1F7A4D;--amber:#C77E00;--red:#B3372B}
+:root{--ink:#1a1a19;--paper:#f4f3ef;--card:#ffffff;--mut:#6b6a64;
+--line:#e4e3dc;--green:#0E8A6D;--amber:#B7791F;--red:#A32D2D}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);
-font:15px/1.5 "IBM Plex Sans",system-ui,sans-serif}
-.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
-.wrap{max-width:960px;margin:0 auto;padding:28px 22px 60px}
-header{display:flex;justify-content:space-between;align-items:baseline;
-border-bottom:3px solid var(--ink);padding-bottom:14px}
-h1{font-size:21px;margin:0;letter-spacing:.02em}
-h1 .sub{color:var(--mut);font-weight:400}
-.date{font-family:"IBM Plex Mono";font-size:18px;font-weight:600}
-.rail{display:flex;gap:10px;margin:20px 0 6px;flex-wrap:wrap}
-.stop{background:var(--card);border:1px solid var(--line);border-radius:4px;
-padding:10px 14px;text-align:center;min-width:96px}
-.lamp{width:16px;height:16px;border-radius:50%;margin:0 auto 6px}
+font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.mono{font-variant-numeric:tabular-nums}
+.wrap{max-width:960px;margin:0 auto;padding:24px 20px 48px}
+header{display:block;margin-bottom:14px}
+.lockup{display:flex;justify-content:space-between;align-items:center;
+gap:14px;margin-bottom:10px}
+.lockup .title{font-size:16px;font-weight:600;letter-spacing:3.5px;
+white-space:nowrap}
+.lockup img{height:26px;display:block}
+.subrow{display:flex;justify-content:space-between;align-items:baseline}
+.subrow .kind{color:var(--mut);font-size:13px}
+.date{font-size:16px;font-weight:600}
+.rail{display:flex;gap:12px;margin:16px 0 6px;flex-wrap:wrap}
+.stop{background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:12px 14px;text-align:center;min-width:110px;
+max-width:170px}
+.lamp{width:14px;height:14px;border-radius:50%;margin:0 auto 6px}
 .lamp.green{background:var(--green)}.lamp.amber{background:var(--amber)}
-.lamp.red{background:var(--red)}.lamp.gray{background:#8A938F}
-.stopk{font-weight:700;font-size:13px}
-.stopv{font-family:"IBM Plex Mono";font-size:13px;color:var(--mut)}
-.fleetline{color:var(--mut);font-size:13px;margin:2px 0 26px}
-h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;
-color:var(--mut);border-top:1px solid var(--line);padding-top:18px;
-margin:30px 0 12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:4px;
-padding:16px 18px}
-.axl{font:600 12px "IBM Plex Sans"} .axv{font:12px "IBM Plex Mono";
-fill:#5E6B66}
+.lamp.red{background:var(--red)}.lamp.gray{background:#9aa39e}
+.stopk{font-weight:600;font-size:12px;line-height:1.25}
+.stopv{font-size:13px;color:var(--mut)}
+.fleetline{color:var(--ink);font-size:16px;margin:8px 0 24px;
+background:var(--card);border:1px solid var(--line);border-radius:10px;
+padding:10px 16px}
+.fleetline b{font-weight:700}
+h2{font-size:13px;font-weight:600;color:var(--ink);margin:26px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:14px 16px}
+.axl{font:600 12px -apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.axv{font:12px -apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+fill:#6b6a64}
 .alert{background:var(--card);border:1px solid var(--line);
-border-left:4px solid var(--amber);border-radius:4px;padding:12px 14px;
-margin-bottom:10px}
+border-left:4px solid var(--amber);border-radius:10px;
+padding:12px 14px;margin-bottom:10px}
 .alert.critical{border-left-color:var(--red)}
 .ahead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
-.badge{font:700 10px "IBM Plex Mono";letter-spacing:.08em;padding:2px 7px;
-border-radius:3px;color:#fff}
+.badge{font-weight:700;font-size:10px;letter-spacing:.08em;
+padding:2px 8px;border-radius:9px;color:#fff}
 .badge.critical{background:var(--red)}.badge.warning{background:var(--amber)}
-.awho{font-weight:700}
-.ametric{font-family:"IBM Plex Mono";font-size:12px;color:var(--mut)}
+.awho{font-weight:600}
+.ametric{font-size:12px;color:var(--mut)}
 .afact{margin-top:4px;font-weight:600}
-.aexp{margin-top:3px;color:var(--mut);font-size:13.5px}
-.plant{background:var(--card);border:1px solid var(--line);border-radius:4px;
-padding:16px 18px;margin-bottom:18px;page-break-inside:avoid}
-.phead{display:grid;grid-template-columns:22px 1fr;gap:4px 12px;
+.aexp{margin-top:3px;color:var(--mut);font-size:13px}
+.plant{background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:14px 16px;margin-bottom:16px;
+page-break-inside:avoid}
+.phead{display:grid;grid-template-columns:20px 1fr;gap:4px 12px;
 align-items:center}
-.phead .lamp{margin:0}.phead h3{margin:0;font-size:17px}
-.pname{color:var(--mut);font-weight:400;font-size:14px}
-.pnote{grid-column:2;color:var(--mut);font-size:13.5px}
+.phead .lamp{margin:0}.phead h3{margin:0;font-size:16px;font-weight:600}
+.pname{color:var(--mut);font-weight:400;font-size:13px}
+.pnote{grid-column:2;color:var(--mut);font-size:13px}
 .pgrid{display:grid;grid-template-columns:250px 1fr;gap:18px;
-margin:14px 0 4px}
+margin:12px 0 4px}
 .pfacts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.fk{font-size:11px;letter-spacing:.08em;text-transform:uppercase;
-color:var(--mut)}
+.fk{font-size:11px;color:var(--mut)}
 .fv{font-size:17px;font-weight:600}
 .fu{font-size:11px;color:var(--mut);font-weight:400}
-.itab{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px}
-.itab th{text-align:left;font-size:11px;letter-spacing:.06em;
-text-transform:uppercase;color:var(--mut);
+.itab{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+.itab th{text-align:left;font-size:11px;font-weight:600;color:var(--mut);
 border-bottom:1px solid var(--line);padding:4px 8px}
 .itab td{border-bottom:1px solid var(--line);padding:6px 8px;
 vertical-align:middle}
-.itab .num{text-align:right;font-family:"IBM Plex Mono"}
+.itab .num{text-align:right;font-variant-numeric:tabular-nums}
 .sn{display:block;font-size:10.5px;color:var(--mut)}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
 .dot.green{background:var(--green)}.dot.amber{background:var(--amber)}
 .dot.red{background:var(--red)}
-.chip{display:inline-block;font:600 10.5px "IBM Plex Mono";padding:1px 6px;
-border-radius:3px;margin-right:4px;color:#fff}
+.chip{display:inline-block;font-weight:600;font-size:10.5px;
+padding:1px 7px;border-radius:9px;margin-right:4px;color:#fff}
 .chip.red{background:var(--red)}.chip.amber{background:var(--amber)}
-footer{margin-top:34px;color:var(--mut);font-size:12px;
-border-top:1px solid var(--line);padding-top:12px}
+footer{margin-top:30px;color:var(--mut);font-size:12px;
+border-top:1px solid var(--line);padding-top:12px;line-height:1.55}
 @media(max-width:720px){.pgrid{grid-template-columns:1fr}}
 @media print{body{background:#fff}.wrap{padding:0}
-.plant,.card,.alert,.stop{border-color:#bbb}}
+.plant,.card,.alert,.stop{border-color:#ccc}}
 """
 
-_FONTS = ('<link href="https://fonts.googleapis.com/css2?family='
-          'IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:'
-          'wght@400;600&display=swap" rel="stylesheet">')
+# System font stack (dashboard family) — no external font fetch inside the
+# PDF-printing Chromium, so the PDF renders identically offline.
+_FONTS = ''
 
 
 def _esc(x) -> str:
@@ -300,7 +329,7 @@ def render_html(data: ReportData) -> str:
 
     rail = "".join(
         f'<div class="stop"><div class="lamp {sem_of[p.plant_key]}"></div>'
-        f'<div class="stopk">{p.plant_key}</div>'
+        f'<div class="stopk">{_esc(short_name(p))}</div>'
         f'<div class="stopv">'
         f'{(f"{p.production_pct*100:.0f}%" if p.production_pct is not None else "n/a")}'
         f'</div></div>'
@@ -310,10 +339,11 @@ def render_html(data: ReportData) -> str:
     fx = sum(p.expected_kwh or 0 for p in data.plants)
     n_crit = sum(1 for a in data.alerts if a.severity == "CRITICAL")
     n_warn = len(data.alerts) - n_crit
-    fleetline = (f'Fleet: {fe:,.0f} kWh produced'
-                 + (f' &#183; {fx:,.0f} kWh theoretical &#183; '
-                    f'{fe / fx * 100:.0f}% of plan' if fx else "")
-                 + f' &#183; {n_crit} critical / {n_warn} warning alerts')
+    fleetline = (f'Fleet: <b>{fe:,.0f} kWh</b> produced'
+                 + (f' &#183; <b>{fx:,.0f} kWh</b> theoretical &#183; '
+                    f'<b>{fe / fx * 100:.0f}%</b> of plan' if fx else "")
+                 + f' &#183; <b>{n_crit}</b> critical / <b>{n_warn}</b> '
+                   f'warning alerts')
 
     alerts_html = "".join(
         f'<div class="alert {a.severity.lower()}">'
@@ -397,9 +427,13 @@ def render_html(data: ReportData) -> str:
         f'<meta name="viewport" content="width=device-width,'
         f'initial-scale=1"><title>ARGIA Daily &#8212; {data.date_iso}'
         f'</title>{_FONTS}<style>{_CSS}</style></head><body>'
-        f'<div class="wrap"><header><h1>ARGIA '
-        f'<span class="sub">&#183; Daily performance report</span></h1>'
-        f'<div class="date">{data.date_iso}</div></header>'
+        f'<div class="wrap"><header>'
+        f'<div class="lockup"><span class="title">PERFORMANCE&nbsp;'
+        f'REPORT</span><img src="data:image/png;base64,{LOGO_B64}" '
+        f'alt="ARGIA SOLAR"></div>'
+        f'<div class="subrow"><span class="kind">Daily performance '
+        f'report &#183; KPI-final numbers</span>'
+        f'<span class="date">{data.date_iso}</span></div></header>'
         f'<div class="rail">{rail}</div>'
         f'<div class="fleetline mono">{fleetline}</div>'
         f'<h2>Production vs theoretical &#8212; per plant</h2>'
@@ -417,9 +451,11 @@ def render_html(data: ReportData) -> str:
         f'&lt;95% or open warning; green otherwise; gray = day not fully '
         f'measured. Inverter: red = critical peer lag or &#8805;75 '
         f'&#176;C; amber = fault code, peer lag, or &#8805;65 &#176;C. '
-        f'ShineMaster-metered plants: theoretical inherits sparse '
-        f'irradiance sampling until the Pi migration &#8212; treat % of '
-        f'plan as directional.</footer></div></body></html>')
+        f'Irradiance: ShineMaster stored minute-scale history '
+        f'(~300 samples/day, trapezoidal), validated to &lt;1% against an '
+        f'independent weather model; snapshot/cloud-model fallback when '
+        f'the fetch fails &#8212; KPI records the source per day.'
+        f'</footer></div></body></html>')
 
 
 # ------------------------------------------------------------ data assembly

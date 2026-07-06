@@ -79,3 +79,14 @@ class TestPhase1Discovery20260706:
         doc = _read("docs/PI_MIGRATION.md")
         assert "v1_local_backup" in doc
         assert "clone git@github.com:argiasolar/argia_solar_monitoring.git argia_v2" in doc
+
+
+def test_shell_scripts_are_executable_in_git():
+    """2026-07-06 live failure: the Windows zip->unzip->git path dropped
+    the execute bit, so cron got 'Permission denied' (exit 126) silently
+    every 10 minutes. The bit must live IN GIT (update-index --chmod=+x)
+    so every clone gets it. Trivially true on Windows (no x concept);
+    enforced on Linux CI and the Pi — where it matters."""
+    import os
+    for rel in ("pi/deploy.sh", "pi/run_job.sh"):
+        assert os.access(V2 / rel, os.X_OK), f"{rel} not executable"

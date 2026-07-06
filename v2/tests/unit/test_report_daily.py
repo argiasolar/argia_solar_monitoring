@@ -21,6 +21,7 @@ from argia.report.daily import (
     svg_inverter_bars,
     short_name,
     svg_fleet_bars,
+    portfolio_semaphore,
 )
 
 
@@ -252,4 +253,47 @@ def test_fleet_summary_is_prominent():
     muted — now a 16px card strip with bold key numbers."""
     html = render_html(TestRenderSmoke()._data())
     assert "font-size:16px" in html.split(".fleetline{")[1].split("}")[0]
-    assert "<b>" in html.split('class="fleetline')[1].split("</div>")[0]
+    assert "<b>" in html.split('class="portnums"')[1].split("</div>")[0]
+
+
+class TestPortfolioSemaphore20260707:
+    def _plants(self):
+        return [_plant(pk="GTO1", name="TAIGENE PPA"),
+                _plant(pk="SLP1", name="QUIMICA PPA")]
+
+    def test_worst_plant_dominates_and_is_named(self):
+        c, title, why = portfolio_semaphore(
+            self._plants(), {"GTO1": RED, "SLP1": GREEN}, 0, 0, 1.0)
+        assert (c, title) == (RED, "ATTENTION")
+        assert "TAIGENE" in why and "QUIMICA" not in why
+
+    def test_critical_alert_forces_red_even_if_plants_green(self):
+        c, title, _ = portfolio_semaphore(
+            self._plants(), {"GTO1": GREEN, "SLP1": GREEN}, 1, 0, 1.02)
+        assert (c, title) == (RED, "ATTENTION")
+
+    def test_fleet_below_85_forces_red(self):
+        c, *_ = portfolio_semaphore(
+            self._plants(), {"GTO1": GREEN, "SLP1": GREEN}, 0, 0, 0.80)
+        assert c == RED
+
+    def test_amber_band(self):
+        c, title, why = portfolio_semaphore(
+            self._plants(), {"GTO1": AMBER, "SLP1": GREEN}, 0, 0, 0.97)
+        assert (c, title) == (AMBER, "WATCH")
+        assert "watch: TAIGENE" in why
+
+    def test_all_green(self):
+        c, title, why = portfolio_semaphore(
+            self._plants(), {"GTO1": GREEN, "SLP1": GREEN}, 0, 0, 1.0)
+        assert (c, title) == (GREEN, "ON PLAN")
+        assert "all 2 plants on plan" in why
+
+    def test_all_gray_is_incomplete(self):
+        c, title, _ = portfolio_semaphore(
+            self._plants(), {"GTO1": GRAY, "SLP1": GRAY}, 0, 0, None)
+        assert (c, title) == (GRAY, "INCOMPLETE DAY")
+
+    def test_rendered_block_present(self):
+        html = render_html(TestRenderSmoke()._data())
+        assert "PORTFOLIO:" in html and 'class="portlamp' in html

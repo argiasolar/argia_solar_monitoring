@@ -150,6 +150,48 @@ def short_name(p: PlantDay) -> str:
             or p.plant_key)
 
 
+def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
+                        n_crit: int, n_warn: int,
+                        fleet_pct: Optional[float]) -> Tuple[str, str, str]:
+    """One verdict for the whole portfolio: (color, title, why).
+
+    Same philosophy as the plant lamps — the worst signal wins:
+      RED    any red plant, any critical alert, or fleet < 85% of plan
+      AMBER  any amber plant, any warning alert, or fleet < 95%
+      GRAY   every plant gray (day not fully measured)
+      GREEN  otherwise
+    The `why` line NAMES the offenders so the verdict is auditable at a
+    glance instead of being a mood light.
+    """
+    colors = [sem_of.get(p.plant_key, GRAY) for p in plants]
+    red_names = [short_name(p) for p in plants
+                 if sem_of.get(p.plant_key) == RED]
+    amber_names = [short_name(p) for p in plants
+                   if sem_of.get(p.plant_key) == AMBER]
+    parts = []
+    if red_names:
+        parts.append("below plan / needs action: " + ", ".join(red_names))
+    if amber_names:
+        parts.append("watch: " + ", ".join(amber_names))
+    if n_crit:
+        parts.append(f"{n_crit} critical alert{'s' if n_crit > 1 else ''}")
+    if n_warn:
+        parts.append(f"{n_warn} warning{'s' if n_warn > 1 else ''}")
+    if fleet_pct is not None:
+        parts.append(f"fleet at {fleet_pct * 100:.0f}% of plan")
+
+    if colors and all(c == GRAY for c in colors):
+        return GRAY, "INCOMPLETE DAY", "no plant fully measured yet"
+    if red_names or n_crit or (fleet_pct is not None and fleet_pct < 0.85):
+        return RED, "ATTENTION", " \u00b7 ".join(parts)
+    if amber_names or n_warn or (fleet_pct is not None and fleet_pct < 0.95):
+        return AMBER, "WATCH", " \u00b7 ".join(parts)
+    why = (f"all {len(plants)} plants on plan"
+           + (f" \u00b7 fleet at {fleet_pct * 100:.0f}%"
+              if fleet_pct is not None else ""))
+    return GREEN, "ON PLAN", why
+
+
 def svg_fleet_bars(plants: List[PlantDay],
                    sem_of: Dict[str, str]) -> str:
     drawable = [p for p in plants if p.expected_kwh]
@@ -258,6 +300,14 @@ max-width:170px}
 background:var(--card);border:1px solid var(--line);border-radius:10px;
 padding:10px 16px}
 .fleetline b{font-weight:700}
+.portrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+margin-bottom:6px}
+.portlamp{width:18px;height:18px;border-radius:50%;flex:0 0 auto}
+.portlamp.green{background:var(--green)}.portlamp.amber{background:var(--amber)}
+.portlamp.red{background:var(--red)}.portlamp.gray{background:#9aa39e}
+.porttitle{font-weight:700;font-size:15px;letter-spacing:2px}
+.portwhy{color:var(--mut);font-size:13px}
+.portnums{font-size:14px;color:var(--ink)}
 h2{font-size:13px;font-weight:600;color:var(--ink);margin:26px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);
 border-radius:10px;padding:14px 16px}
@@ -339,11 +389,18 @@ def render_html(data: ReportData) -> str:
     fx = sum(p.expected_kwh or 0 for p in data.plants)
     n_crit = sum(1 for a in data.alerts if a.severity == "CRITICAL")
     n_warn = len(data.alerts) - n_crit
-    fleetline = (f'Fleet: <b>{fe:,.0f} kWh</b> produced'
-                 + (f' &#183; <b>{fx:,.0f} kWh</b> theoretical &#183; '
-                    f'<b>{fe / fx * 100:.0f}%</b> of plan' if fx else "")
-                 + f' &#183; <b>{n_crit}</b> critical / <b>{n_warn}</b> '
-                   f'warning alerts')
+    fleet_pct = (fe / fx) if fx else None
+    port_color, port_title, port_why = portfolio_semaphore(
+        data.plants, sem_of, n_crit, n_warn, fleet_pct)
+    fleetline = (
+        f'<div class="portrow"><span class="portlamp {port_color}"></span>'
+        f'<span class="porttitle">PORTFOLIO: {port_title}</span>'
+        f'<span class="portwhy">{port_why}</span></div>'
+        f'<div class="portnums">Fleet: <b>{fe:,.0f} kWh</b> produced'
+        + (f' &#183; <b>{fx:,.0f} kWh</b> theoretical &#183; '
+           f'<b>{fe / fx * 100:.0f}%</b> of plan' if fx else "")
+        + f' &#183; <b>{n_crit}</b> critical / <b>{n_warn}</b> '
+          f'warning alerts</div>')
 
     alerts_html = "".join(
         f'<div class="alert {a.severity.lower()}">'

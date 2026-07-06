@@ -1,0 +1,39 @@
+# ARGIA v2 jobs — APPEND these lines with `crontab -e`.
+# NEVER run `crontab <file>`: it REPLACES the whole table and would
+# silently kill the v1 lines still living on this Pi.
+#
+# Pi system timezone must be America/Mexico_City (check: timedatectl).
+# Times below are MX local, transcribed 1:1 from the Actions schedules.
+#
+# Enable ONE JOB AT A TIME, disabling the matching GitHub Actions
+# schedule in the same hour (see docs/PI_MIGRATION.md).
+
+# deploy: follow origin/main (safe to enable first — changes nothing else)
+*/10 * * * * /home/zemel/argia_solar_monitoring/v2/pi/deploy.sh
+
+# telemetry — every 5 min, 05:00-21:55
+#*/5 5-21 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh telemetry telemetry_5m.py
+
+# dashboard tabs + HTML publish — every 10 min (06:02-20:52), offset +2
+# so each build sees the poll that just landed. Was :05/:35 on Actions
+# purely for scheduler economics; on the Pi the constraint is Sheets
+# quota, which has ample headroom at this rate.
+#2,12,22,32,42,52 6-20 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh dashboard dashboard_update.py --apply && /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh dashpub dashboard_html_publish.py --apply
+
+# acute alerts — every 30 min, 07:00-19:30
+#0,30 7-19 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh alerts-snap alerts_snapshot.py
+
+# KPI end-of-day (dense irradiance) — 06:00
+#0 6 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh kpi kpi_eod.py --dense-irradiance
+
+# daily alert tier — 06:30
+#30 6 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh alerts-daily alerts_daily.py
+
+# morning report (yesterday, KPI-exact) — 07:05
+#5 7 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh report-am report_daily.py --when yesterday
+
+# evening report (today) — 20:45
+#45 20 * * * /home/zemel/argia_solar_monitoring/v2/pi/run_job.sh report-pm report_daily.py --when today
+
+# log hygiene — SD cards die of log diarrhea; keep 14 days
+17 3 * * * find /home/zemel/argia_logs -name '*.log' -size +5M -exec truncate -s 1M {} \;

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from argia.core.alerts_state import AlertRecord, AlertState
 from argia.core.drive import DriveClient
 from argia.report.daily import (
@@ -22,6 +24,8 @@ from argia.report.daily import (
     short_name,
     svg_fleet_bars,
     portfolio_semaphore,
+    fleet_stats,
+    summary_sentence,
 )
 
 
@@ -32,7 +36,9 @@ def _plant(pk="SLP1", pp=1.05, av=1.0, dc="full", **kw):
                     pr=0.8, availability=av, soiling=kw.get("soil"),
                     cloud_pct=40.0, data_class=dc,
                     status_note=kw.get("note", "On plan."),
-                    inverters=kw.get("inv", []))
+                    inverters=kw.get("inv", []),
+                    kwp_dc=kw.get("kwp_dc"),
+                    tariff_mxn_per_kwh=kw.get("tariff_mxn_per_kwh"))
 
 
 def _inv(sn="A", kwh=500.0, rated=124.0, t=50.0, faults=(), rel=None):
@@ -297,3 +303,51 @@ class TestPortfolioSemaphore20260707:
     def test_rendered_block_present(self):
         html = render_html(TestRenderSmoke()._data())
         assert "PORTFOLIO:" in html and 'class="portlamp' in html
+
+
+class TestPortfolioSummary20260707:
+    """User review: the report led with issues; the business overview
+    (production, availability, size, income, CO2) hid in a text strip.
+    Now a Portfolio summary section renders FIRST."""
+
+    def _plants(self):
+        return [_plant(pk="GTO1", name="TAIGENE PPA", e=2559.0, x=2955.0,
+                       pp=0.87, av=0.65, kwp_dc=818.0,
+                       tariff_mxn_per_kwh=1.975),
+                _plant(pk="SLP1", name="QUIMICA PPA", e=1006.0, x=1068.0,
+                       pp=0.94, av=1.0, kwp_dc=189.0,
+                       tariff_mxn_per_kwh=2.596)]
+
+    def test_fleet_stats_math(self):
+        st = fleet_stats(self._plants())
+        assert st["production_kwh"] == 3565.0
+        assert st["kwp"] == 1007.0
+        # kWp-weighted availability: (0.65*818 + 1.0*189) / 1007
+        assert st["availability"] == pytest.approx(0.7157, abs=1e-3)
+        assert st["income_mxn"] == pytest.approx(
+            2559 * 1.975 + 1006 * 2.596, rel=1e-6)
+        assert st["co2_kg"] == pytest.approx(3565 * 0.435, rel=1e-6)
+
+    def test_income_skips_missing_tariff_not_energy(self):
+        plants = self._plants()
+        plants[1].tariff_mxn_per_kwh = None
+        st = fleet_stats(plants)
+        assert st["income_mxn"] == pytest.approx(2559 * 1.975, rel=1e-6)
+        assert st["production_kwh"] == 3565.0   # energy still counts
+
+    def test_sentence_carries_verdict_numbers_and_offenders(self):
+        st = fleet_stats(self._plants())
+        s = summary_sentence(st, "ATTENTION", "below plan: TAIGENE")
+        assert s.startswith("ATTENTION: the portfolio produced 3,565 kWh")
+        assert "72% availability" in s
+        assert "t CO\u2082 avoided" in s
+        assert "(below plan: TAIGENE.)" in s
+        clean = summary_sentence(st, "ON PLAN", "all on plan")
+        assert "(" not in clean          # clean day: no offender clause
+
+    def test_summary_renders_before_the_tiles(self):
+        html = render_html(TestRenderSmoke()._data())
+        assert 'class="portsummary"' in html
+        assert html.index('class="portsummary"') < html.index('class="rail"')
+        for label in ("Portfolio size", "Income (est.)", "CO&#8322; avoided"):
+            assert label in html

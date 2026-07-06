@@ -77,6 +77,8 @@ class PlantDay:
     data_class: str
     status_note: str
     inverters: List[InverterDay] = field(default_factory=list)
+    kwp_dc: Optional[float] = None
+    tariff_mxn_per_kwh: Optional[float] = None
 
 
 @dataclass
@@ -149,6 +151,61 @@ def short_name(p: PlantDay) -> str:
     identically."""
     return ((p.name or p.plant_key).split(" PPA")[0].split(",")[0]
             or p.plant_key)
+
+
+# Mexico national grid emission factor (SEMARNAT/CRE annual electric
+# emission factor, ~0.435 tCO2e per MWh). Standard basis for "avoided
+# emissions" claims on grid-displacing solar.
+MX_GRID_KG_CO2_PER_KWH = 0.435
+
+
+def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
+    """Portfolio-level numbers for the summary block. Pure.
+
+    - availability is kWp-WEIGHTED (a 189 kWp plant must not count as
+      much as an 818 kWp one), over plants that reported it
+    - income counts only plants with a tariff (all six have one today;
+      the guard is for config drift, not decoration)
+    """
+    fe = sum(p.energy_kwh or 0 for p in plants)
+    fx = sum(p.expected_kwh or 0 for p in plants)
+    kwp = sum(p.kwp_dc or 0 for p in plants)
+    aw = [(p.availability, p.kwp_dc or 0) for p in plants
+          if p.availability is not None and (p.kwp_dc or 0) > 0]
+    avail = (sum(a * w for a, w in aw) / sum(w for _, w in aw)
+             if aw else None)
+    income = sum((p.energy_kwh or 0) * p.tariff_mxn_per_kwh
+                 for p in plants if p.tariff_mxn_per_kwh)
+    return {
+        "production_kwh": fe,
+        "expected_kwh": fx,
+        "pct": (fe / fx) if fx else None,
+        "kwp": kwp,
+        "availability": avail,
+        "income_mxn": income if income else None,
+        "co2_kg": fe * MX_GRID_KG_CO2_PER_KWH,
+    }
+
+
+def summary_sentence(stats: Dict[str, Optional[float]],
+                     port_title: str, port_why: str) -> str:
+    """One human sentence: the whole day for someone who reads nothing
+    else. Verdict first, numbers after, offenders (from the semaphore's
+    why-line) only when the day wasn't clean."""
+    bits = [f"the portfolio produced {stats['production_kwh']:,.0f} kWh"]
+    if stats["pct"] is not None:
+        bits.append(f"{stats['pct'] * 100:.0f}% of expected")
+    if stats["availability"] is not None:
+        bits.append(f"{stats['availability'] * 100:.0f}% availability")
+    sentence = f"{port_title}: " + ", ".join(bits)
+    if stats["income_mxn"]:
+        sentence += (f" \u2014 \u2248${stats['income_mxn']:,.0f} MXN "
+                     f"income and {stats['co2_kg'] / 1000:.1f} t "
+                     f"CO\u2082 avoided")
+    sentence += "."
+    if port_title != "ON PLAN":
+        sentence += f" ({port_why}.)"
+    return sentence
 
 
 def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
@@ -309,6 +366,16 @@ margin-bottom:6px}
 .porttitle{font-weight:700;font-size:15px;letter-spacing:2px}
 .portwhy{color:var(--mut);font-size:13px}
 .portnums{font-size:14px;color:var(--ink)}
+.portsummary{background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:16px 18px;margin:16px 0 6px}
+.portsentence{font-size:15px;margin:8px 0 14px;line-height:1.5}
+.pstats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.pstat{background:var(--paper);border:1px solid var(--line);
+border-radius:8px;padding:10px 12px;text-align:center}
+.pstatv{font-size:19px;font-weight:700}
+.pstatu{font-size:11px;color:var(--mut);font-weight:400}
+.pstatk{font-size:11px;color:var(--mut);margin-top:2px}
+@media(max-width:720px){.pstats{grid-template-columns:repeat(3,1fr)}}
 h2{font-size:13px;font-weight:600;color:var(--ink);margin:26px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);
 border-radius:10px;padding:14px 16px}
@@ -393,15 +460,37 @@ def render_html(data: ReportData) -> str:
     fleet_pct = (fe / fx) if fx else None
     port_color, port_title, port_why = portfolio_semaphore(
         data.plants, sem_of, n_crit, n_warn, fleet_pct)
-    fleetline = (
+    stats = fleet_stats(data.plants)
+    sentence = summary_sentence(stats, port_title, port_why)
+
+    def stat(label, value, unit=""):
+        return (f'<div class="pstat"><div class="pstatv">{value}'
+                f'<span class="pstatu">{unit}</span></div>'
+                f'<div class="pstatk">{label}</div></div>')
+
+    cards = (
+        stat("Production", f"{stats['production_kwh']:,.0f}", " kWh")
+        + stat("Of expected",
+               f"{stats['pct'] * 100:.0f}" if stats["pct"] is not None
+               else "&#8212;", "%")
+        + stat("Availability",
+               f"{stats['availability'] * 100:.0f}"
+               if stats["availability"] is not None else "&#8212;", "%")
+        + stat("Portfolio size", f"{stats['kwp']:,.0f}", " kWp DC")
+        + stat("Income (est.)",
+               f"${stats['income_mxn']:,.0f}" if stats["income_mxn"]
+               else "&#8212;", " MXN")
+        + stat("CO&#8322; avoided", f"{stats['co2_kg'] / 1000:.1f}", " t")
+    )
+    summary_block = (
+        f'<section class="portsummary">'
         f'<div class="portrow"><span class="portlamp {port_color}"></span>'
-        f'<span class="porttitle">PORTFOLIO: {port_title}</span>'
-        f'<span class="portwhy">{port_why}</span></div>'
-        f'<div class="portnums">Fleet: <b>{fe:,.0f} kWh</b> produced'
-        + (f' &#183; <b>{fx:,.0f} kWh</b> theoretical &#183; '
-           f'<b>{fe / fx * 100:.0f}%</b> of plan' if fx else "")
-        + f' &#183; <b>{n_crit}</b> critical / <b>{n_warn}</b> '
-          f'warning alerts</div>')
+        f'<span class="porttitle">PORTFOLIO: {port_title}</span></div>'
+        f'<div class="portsentence">{sentence}</div>'
+        f'<div class="pstats">{cards}</div>'
+        f'</section>')
+    fleetline = (f'<div class="portnums"><b>{n_crit}</b> critical / '
+                 f'<b>{n_warn}</b> warning alerts open</div>')
 
     alerts_html = "".join(
         f'<div class="alert {a.severity.lower()}">'
@@ -492,6 +581,7 @@ def render_html(data: ReportData) -> str:
         f'<div class="subrow"><span class="kind">Daily performance '
         f'report &#183; KPI-final numbers</span>'
         f'<span class="date">{data.date_iso}</span></div></header>'
+        f'{summary_block}'
         f'<div class="rail">{rail}</div>'
         f'<div class="fleetline mono">{fleetline}</div>'
         f'<h2>Production vs theoretical &#8212; per plant</h2>'
@@ -597,7 +687,9 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             production_pct=k.get("pp"), pr=k.get("pr"),
             availability=k.get("av"), soiling=k.get("soil"),
             cloud_pct=k.get("cloud"), data_class=k.get("dc", "no_data"),
-            status_note=k.get("note", ""), inverters=invs))
+            status_note=k.get("note", ""), inverters=invs,
+            kwp_dc=getattr(plant, "kwp_dc", None),
+            tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None)))
 
     ledger = load_alerts_ledger(sheets)
     alerts = reportable_alerts(ledger.records)

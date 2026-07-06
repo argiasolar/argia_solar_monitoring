@@ -140,3 +140,14 @@ class TestHistoryIntegration:
         r = integrate_history_points(pts)
         assert r.kwh_m2 == pytest.approx(
             MAX_PLAUSIBLE_WM2 * (119 / 60) / 1000, rel=1e-3)
+
+
+def test_irr_compare_iterates_plant_objects_not_keys():
+    """Live-run regression 2026-07-06: `portfolio.plants` yields KEYS
+    (strings); the compare runner crashed on .datalogger_sn. It must use
+    active_plants() like kpi_eod does."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[2]
+           / "scripts" / "irr_compare.py").read_text()
+    assert "portfolio.active_plants()" in src
+    assert "for plant in portfolio.plants:" not in src

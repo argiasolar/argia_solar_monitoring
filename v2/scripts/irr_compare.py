@@ -66,7 +66,7 @@ def main(argv=None) -> int:
 
     print(f"\n{'plant':6s} {'dense kWh/m2':>13s} {'(n)':>6s} "
           f"{'snapshot':>9s} {'(n)':>5s} {'storedKPI':>10s} {'d vs snap':>9s}")
-    for plant in portfolio.plants:
+    for plant in portfolio.active_plants():
         if not plant.datalogger_sn:
             continue
         rows = bundle.rows_for_plant(plant.plant_key)

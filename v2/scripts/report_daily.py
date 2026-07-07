@@ -64,7 +64,7 @@ def html_to_pdf(html_path: str, pdf_path: str) -> None:
 
 OUTBOX_TAB = "Report_Outbox"
 OUTBOX_HEADER = ["date_iso", "kind", "pdf_file_id", "html_file_id",
-                 "created_utc", "notified_at"]
+                 "created_utc", "notified_at", "channel"]
 
 
 def resolve_report_date(date_arg, when, now_mx_dt) -> str:
@@ -79,7 +79,7 @@ def resolve_report_date(date_arg, when, now_mx_dt) -> str:
 
 def append_outbox(sheets, *, date_iso: str, kind: str,
                   pdf_file_id: str | None, html_file_id: str | None,
-                  now_utc_iso: str) -> None:
+                  now_utc_iso: str, channel: str = "reporting") -> None:
     """Queue the uploaded report for e-mail delivery.
 
     The Apps Script notifier (docs/notifier.gs) scans this APPEND-ONLY tab
@@ -92,7 +92,7 @@ def append_outbox(sheets, *, date_iso: str, kind: str,
     sheets.ensure_header(OUTBOX_TAB, OUTBOX_HEADER)
     sheets.append_rows(OUTBOX_TAB, [[
         date_iso, kind, pdf_file_id or "", html_file_id or "",
-        now_utc_iso, "",
+        now_utc_iso, "", channel,
     ]])
 
 

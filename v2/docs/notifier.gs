@@ -3,43 +3,98 @@
  *
  * Runs on a TIME-DRIVEN trigger every 5 minutes (NOT onEdit/onChange —
  * those do not fire reliably for rows written by a service account via
- * the API). Three queues + an independent staleness nag:
+ * the API). Three queues + an independent staleness nag.
  *
- *   1. Alerts tab (engine-owned, may be rewritten by the alert engine):
- *      any OPEN alert whose alert_id is not yet in the Alert_Notifications
- *      ledger gets ONE e-mail; the ledger row makes it idempotent forever.
- *      The ledger is a SEPARATE tab precisely because the engine rewrites
- *      Alerts — a stamp written into Alerts itself would be wiped.
+ * RECIPIENTS (2026-07-07): four audiences, driven by the `Recipients`
+ * tab in the sheet — data, not code:
  *
- *   2. Report_Outbox tab (append-only, written by report_daily.py):
- *      rows with an empty notified_at get the PDF mailed as an attachment
- *      and notified_at stamped in place (safe: nothing rewrites this tab).
+ *     channel      | emails                     | notes
+ *     om           | om-team@argia.cz           | alerts, watchdog, digest
+ *     reporting    | reports@...                | daily PDF reports
+ *     shareholders | (fill when monthly built)  | monthly reports
+ *     invoicing    | (fill when invoicing built)| invoice reports
+ *
+ * Routing philosophy — the failure modes are DELIBERATE:
+ *   - safety mail (om: alerts, watchdog, nag) FAILS OPEN: channel
+ *     missing/empty -> falls back to LEGACY_RECIPIENTS below. A config
+ *     gap must never silence an alarm.
+ *   - business mail (reporting/shareholders/invoicing) FAILS CLOSED:
+ *     channel missing/empty -> row is SKIPPED (stays unsent, retried
+ *     next run) and logged. A shareholder report must never leak to the
+ *     wrong list.
+ *
+ * Report_Outbox rows may carry a `channel` column; blank means
+ * 'reporting' (today's daily reports). Future monthly/invoicing jobs
+ * just append rows with their channel — zero changes needed here.
  *
  * ALL decision logic lives in the tested Python pipeline. This script only
  * ships rows. Keep it dumb; if you feel like adding logic here, add it to
  * the Python side instead where it can be unit-tested.
  *
- * Install: see v2/docs/NOTIFIER_SETUP.md
+ * Install: paste over the old script, Save. Then run testChannels() once
+ * from the editor: every CONFIGURED channel receives a one-line test
+ * mail — that is the routing verified end-to-end.
  */
 
 // ---- configuration ---------------------------------------------------------
-var RECIPIENTS = 'om-team@argia.cz';       // comma-separated list
-var MAX_EMAILS_PER_RUN = 20;               // safety valve
+var LEGACY_RECIPIENTS = 'om-team@argia.cz';  // om-channel fallback ONLY
+var MAX_EMAILS_PER_RUN = 20;                 // safety valve
 var SUBJECT_PREFIX = '[ARGIA]';
+
+// ---- recipients ------------------------------------------------------------
+function loadRecipients_() {
+  var map = {};
+  var tab = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recipients');
+  if (!tab || tab.getLastRow() < 2) return map;
+  var data = tab.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    var ch = String(data[r][0] || '').trim().toLowerCase();
+    var emails = String(data[r][1] || '').trim();
+    if (ch && emails) map[ch] = emails;
+  }
+  return map;
+}
+
+// Pure resolver (node-verified in the repo): '' means DO NOT SEND.
+function resolveRecipients_(map, channel, failOpenFallback) {
+  var v = String(map[channel] || '').trim();
+  if (v) return v;
+  if (failOpenFallback) return failOpenFallback;   // safety mail: fail OPEN
+  Logger.log('recipients: channel "' + channel +
+             '" not configured — row skipped (fail closed)');
+  return '';                                       // business mail: fail CLOSED
+}
 
 // ---- entry point (attach the time trigger to this) --------------------------
 function notify() {
+  var rcpt = loadRecipients_();
   var sent = 0;
-  sent += notifyAlerts_(MAX_EMAILS_PER_RUN - sent);
-  sent += notifyReports_(MAX_EMAILS_PER_RUN - sent);
-  sent += notifyWatchdog_(MAX_EMAILS_PER_RUN - sent);
-  sent += githubDownNag_(MAX_EMAILS_PER_RUN - sent);
+  sent += notifyAlerts_(MAX_EMAILS_PER_RUN - sent, rcpt);
+  sent += notifyReports_(MAX_EMAILS_PER_RUN - sent, rcpt);
+  sent += notifyWatchdog_(MAX_EMAILS_PER_RUN - sent, rcpt);
+  sent += githubDownNag_(MAX_EMAILS_PER_RUN - sent, rcpt);
   if (sent > 0) Logger.log('notifier: sent ' + sent + ' email(s)');
 }
 
+// ---- one-time routing verification -------------------------------------------
+function testChannels() {
+  var rcpt = loadRecipients_();
+  var channels = ['om', 'reporting', 'shareholders', 'invoicing'];
+  channels.forEach(function (ch) {
+    var to = resolveRecipients_(rcpt, ch, ch === 'om' ? LEGACY_RECIPIENTS : '');
+    if (!to) { Logger.log('testChannels: "' + ch + '" unconfigured — skipped'); return; }
+    MailApp.sendEmail(to,
+      SUBJECT_PREFIX + ' channel test — ' + ch,
+      'If you received this, you are on the "' + ch + '" list of the ' +
+      'ARGIA notifier. No action needed.');
+    Logger.log('testChannels: "' + ch + '" -> ' + to);
+  });
+}
+
 // ---- watchdog rows (written by scripts/watchdog.py on failure) --------------
-function notifyWatchdog_(budget) {
+function notifyWatchdog_(budget, rcpt) {
   if (budget <= 0) return 0;
+  var to = resolveRecipients_(rcpt, 'om', LEGACY_RECIPIENTS);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tab = ss.getSheetByName('Watchdog_Alerts');
   if (!tab || tab.getLastRow() < 2) return 0;
@@ -49,12 +104,12 @@ function notifyWatchdog_(budget) {
   var sent = 0;
   for (var r = 1; r < data.length && sent < budget; r++) {
     if (String(data[r][col['notified_at']] || '') !== '') continue;
-    MailApp.sendEmail(RECIPIENTS,
+    MailApp.sendEmail(to,
       SUBJECT_PREFIX + ' WATCHDOG ' + data[r][col['severity']] + ' — ' +
         data[r][col['check']],
       'Detected (UTC): ' + data[r][col['detected_utc']] + '\n\n' +
       data[r][col['detail']] + '\n\n' +
-      'Check the GitHub Actions runs and, for pi_v1_feed, the Pi itself.');
+      'Check the GitHub Actions runs and the Pi job logs (~/argia_logs).');
     tab.getRange(r + 1, col['notified_at'] + 1)
        .setValue(new Date().toISOString());
     sent++;
@@ -68,8 +123,9 @@ function notifyWatchdog_(budget) {
 // the day, nag once per gap. Threshold deliberately loose (3h) so the
 // Python watchdog (90 min) always fires first when GitHub is healthy.
 var GH_NAG_STALE_MIN = 180;
-function githubDownNag_(budget) {
+function githubDownNag_(budget, rcpt) {
   if (budget <= 0) return 0;
+  var to = resolveRecipients_(rcpt, 'om', LEGACY_RECIPIENTS);
   var now = new Date();
   var mxHour = parseInt(Utilities.formatDate(now,
     'America/Mexico_City', 'H'), 10);
@@ -93,19 +149,20 @@ function githubDownNag_(budget) {
   var props = PropertiesService.getScriptProperties();
   var lastNag = props.getProperty('gh_nag_newest');
   if (lastNag === String(newest.getTime())) return 0;  // once per gap
-  MailApp.sendEmail(RECIPIENTS,
+  MailApp.sendEmail(to,
     SUBJECT_PREFIX + ' WATCHDOG CRITICAL — telemetry silent',
     'v2 telemetry has written nothing for ~' + Math.round(ageMin) +
     ' minutes (newest row ' + newest + ' MX).\n\n' +
-    'This nag runs on Google infra, independent of GitHub — if GitHub ' +
-    'Actions is down this may be the only alarm you get.');
+    'This nag runs on Google infra, independent of GitHub AND of the ' +
+    'Pi — it may be the only alarm you get if the Pi dies.');
   props.setProperty('gh_nag_newest', String(newest.getTime()));
   return 1;
 }
 
 // ---- alerts ------------------------------------------------------------------
-function notifyAlerts_(budget) {
+function notifyAlerts_(budget, rcpt) {
   if (budget <= 0) return 0;
+  var to = resolveRecipients_(rcpt, 'om', LEGACY_RECIPIENTS);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var alerts = ss.getSheetByName('Alerts');
   if (!alerts) return 0;
@@ -146,7 +203,7 @@ function notifyAlerts_(budget) {
       String(row[col['message']] || '') + '\n\n' +
       String(row[col['explanation']] || '');
 
-    MailApp.sendEmail(RECIPIENTS, subject, body);
+    MailApp.sendEmail(to, subject, body);
     ledger.appendRow([id, new Date().toISOString()]);
     sent++;
   }
@@ -154,7 +211,7 @@ function notifyAlerts_(budget) {
 }
 
 // ---- reports -------------------------------------------------------------------
-function notifyReports_(budget) {
+function notifyReports_(budget, rcpt) {
   if (budget <= 0) return 0;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var outbox = ss.getSheetByName('Report_Outbox');
@@ -170,12 +227,21 @@ function notifyReports_(budget) {
     var row = data[r];
     if (String(row[notifiedCol] || '') !== '') continue;
 
+    // channel column optional; blank/legacy rows are daily reports
+    var channel = (col['channel'] !== undefined)
+      ? (String(row[col['channel']] || '').trim().toLowerCase() || 'reporting')
+      : 'reporting';
+    var to = resolveRecipients_(rcpt, channel, '');   // business: fail CLOSED
+    if (!to) continue;                                // stays queued, retried
+
     var dateIso = String(row[col['date_iso']] || '');
     var kind = String(row[col['kind']] || '');
     var pdfId = String(row[col['pdf_file_id']] || '');
     var label = (kind === 'morning_yesterday')
       ? 'Daily performance report'
-      : 'Evening production report';
+      : (kind === 'evening_today')
+      ? 'Evening production report'
+      : 'ARGIA report (' + kind + ')';
 
     var attachments = [];
     if (pdfId) {
@@ -186,7 +252,7 @@ function notifyReports_(budget) {
       }
     }
     MailApp.sendEmail({
-      to: RECIPIENTS,
+      to: to,
       subject: SUBJECT_PREFIX + ' ' + label + ' — ' + dateIso,
       body: label + ' for ' + dateIso + ' attached.\n\n' +
             (attachments.length ? '' :

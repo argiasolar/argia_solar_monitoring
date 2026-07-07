@@ -366,3 +366,32 @@ def test_rail_is_single_row_grid():
     n = len(TestRenderSmoke()._data().plants)
     assert f'style="grid-template-columns:repeat({n},1fr)"' in html
     assert "min-width:110px" not in html
+
+
+class TestOutboxChannel20260707:
+    """Four recipient lists (om/reporting/shareholders/invoicing) are
+    routed by the notifier via a channel column on Report_Outbox rows.
+    Daily reports default to 'reporting'; future monthly/invoicing jobs
+    just pass their channel — the notifier needs no further changes."""
+
+    def _sheets(self):
+        from argia.core.sheets import SheetsClient
+        return MagicMock(spec=SheetsClient)
+
+    def test_header_and_default_channel(self):
+        from scripts.report_daily import OUTBOX_HEADER, append_outbox
+        assert OUTBOX_HEADER[-1] == "channel"
+        sheets = self._sheets()
+        append_outbox(sheets, date_iso="2026-07-07", kind="morning_yesterday",
+                      pdf_file_id="p1", html_file_id="h1",
+                      now_utc_iso="t")
+        row = sheets.append_rows.call_args[0][1][0]
+        assert row[-1] == "reporting" and len(row) == len(OUTBOX_HEADER)
+
+    def test_future_jobs_pass_their_channel(self):
+        from scripts.report_daily import append_outbox
+        sheets = self._sheets()
+        append_outbox(sheets, date_iso="2026-07-31", kind="monthly",
+                      pdf_file_id="p", html_file_id=None,
+                      now_utc_iso="t", channel="shareholders")
+        assert sheets.append_rows.call_args[0][1][0][-1] == "shareholders"

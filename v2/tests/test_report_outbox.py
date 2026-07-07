@@ -52,17 +52,26 @@ class TestOutbox:
             "Report_Outbox", RD.OUTBOX_HEADER)
         (tab, rows), _ = sheets.append_rows.call_args
         assert tab == "Report_Outbox"
+        # channel column added 2026-07-07 (four recipient lists);
+        # daily reports default to 'reporting'
         assert rows == [["2026-07-05", "morning_yesterday", "PDF123",
-                         "HTML456", "2026-07-06T13:07:00Z", ""]]
+                         "HTML456", "2026-07-06T13:07:00Z", "",
+                         "reporting"]]
 
     def test_notified_at_starts_empty(self):
-        """The empty last cell is the notifier's claim column — if it were
-        pre-filled the Apps Script would never send the mail."""
-        assert RD.OUTBOX_HEADER[-1] == "notified_at"
+        """The empty notified_at cell is the notifier's claim column — if
+        it were pre-filled the Apps Script would never send the mail.
+        (No longer the LAST column since channel was appended; the
+        notifier finds it by header name, not position.)"""
+        assert "notified_at" in RD.OUTBOX_HEADER
+        assert RD.OUTBOX_HEADER[-1] == "channel"
         sheets = MagicMock(spec=SheetsClient)
         RD.append_outbox(sheets, date_iso="d", kind="k",
                          pdf_file_id=None, html_file_id=None,
                          now_utc_iso="t")
         (_, rows), _ = sheets.append_rows.call_args
-        assert rows[0][-1] == ""
+        # notified_at is index 5 (header-addressed by the notifier);
+        # channel now occupies the last slot
+        assert rows[0][5] == ""
+        assert rows[0][-1] == "reporting"
         assert rows[0][2] == "" and rows[0][3] == ""   # None -> blank cells

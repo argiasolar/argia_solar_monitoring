@@ -159,10 +159,15 @@ class TestTelemetryTrigger:
 
 class TestWiring:
     def test_telemetry_and_kpi_are_wired(self):
-        tel = open("scripts/telemetry_5m.py").read()
+        # anchored to this file, not cwd (2026-07-07: passed in the
+        # sandbox, failed on the laptop — cwd-relative paths in tests
+        # are traps)
+        from pathlib import Path
+        v2 = Path(__file__).resolve().parents[2]
+        tel = (v2 / "scripts" / "telemetry_5m.py").read_text(encoding="utf-8")
         assert "GrowattTokenClient.from_env()" in tel
         assert "if not plant_rows and errors and token_client is not None:" in tel
         assert "cache_energy(date_iso, plant.plant_key, kwh)" in tel
-        kpi = open("scripts/kpi_eod.py").read()
+        kpi = (v2 / "scripts" / "kpi_eod.py").read_text(encoding="utf-8")
         assert "apply_energy_fallback" in kpi
         assert "energy via Growatt token API" in kpi

@@ -191,3 +191,22 @@ class TestAnchorHardening20260705:
                  "expected_kwh": 3038.7}]
         m = R.kpi_expected_map(rows, today=dt.date(2026, 7, 5))
         assert m[dt.date(2026, 7, 3)]["GTO1"] == pytest.approx(3038.7)
+
+
+def test_dashpub_default_output_is_outside_the_repo(monkeypatch):
+    """2026-07-07: the default --out wrote dashboard.html into the repo
+    working tree; on the Pi the untracked artifact tripped the deploy
+    guard and three pushes sat undelivered. The default must live in
+    ARGIA_LOG_DIR (or tmp), never the working tree."""
+    import importlib
+    monkeypatch.setenv("ARGIA_LOG_DIR", "/some/log/dir")
+    import scripts.dashboard_html_publish as dp
+    importlib.reload(dp)
+    ap = dp.build_parser() if hasattr(dp, "build_parser") else None
+    if ap is None:
+        # parser built inside main; assert on source contract instead
+        src = open(dp.__file__).read()
+        assert 'default="dashboard.html"' not in src
+        assert "ARGIA_LOG_DIR" in src and "tempfile.gettempdir()" in src
+    else:
+        assert ap.get_default("out") == "/some/log/dir/dashboard.html"

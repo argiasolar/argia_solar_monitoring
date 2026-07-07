@@ -71,7 +71,10 @@ class TestPhase1Discovery20260706:
 
     def test_deploy_refuses_dirty_tree(self):
         s = _read("pi/deploy.sh")
-        assert "git status --porcelain" in s
+        # tracked-only (2026-07-07): reset --hard cannot destroy untracked
+        # files, so untracked build artifacts must not block deploys —
+        # a dashboard.html in the tree stalled three pushes for hours
+        assert "git status --porcelain --untracked-files=no" in s
         assert "deploy REFUSED" in s
 
     def test_env_is_append_not_overwrite(self):

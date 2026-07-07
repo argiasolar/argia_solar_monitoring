@@ -17,7 +17,10 @@ REMOTE=$(git rev-parse origin/main)
 # GitHub is the only source of truth for v2, so a dirty tree here means
 # either misconfiguration (pointed at v1's home) or manual edits — both
 # must be looked at by a human, not erased by a cron job.
-if [ -n "$(git status --porcelain)" ]; then
+# --untracked-files=no (2026-07-07): reset --hard does NOT touch
+# untracked files, so they are not at risk and must not block deploys.
+# A dashpub build artifact in the tree stalled three pushes for hours.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "[$(date '+%F %T')] deploy REFUSED: uncommitted changes in $REPO_DIR" >> "$LOG"
   exit 1
 fi

@@ -25,6 +25,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import tempfile
 import sys
 from zoneinfo import ZoneInfo
 
@@ -137,8 +138,16 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Publish HTML dashboard")
     ap.add_argument("--apply", action="store_true",
                     help="upload to GCS (default: render locally only)")
-    ap.add_argument("--out", default="dashboard.html",
-                    help="local output path (default ./dashboard.html)")
+    # Default OUTSIDE the working tree (2026-07-07: writing into the
+    # repo left an untracked build artifact that tripped deploy.sh's
+    # dirty-tree guard on the Pi — three pushes sat undelivered).
+    ap.add_argument("--out",
+                    default=os.path.join(
+                        os.environ.get("ARGIA_LOG_DIR", tempfile.gettempdir()),
+                        "dashboard.html"),
+                    help="local output path (default $ARGIA_LOG_DIR/"
+                         "dashboard.html, falling back to the system tmp "
+                         "dir — NEVER inside the repo)")
     args = ap.parse_args(argv)
     sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2")
     if not sheet_id:

@@ -33,6 +33,7 @@ from google.oauth2.service_account import Credentials
 
 from argia.core.sheets import SheetsClient
 from argia.report import dashboard_html
+from argia.core.job_log import apply_flag_write_if, instrument
 
 MX_TZ = ZoneInfo("America/Mexico_City")
 OBJECT_NAME = "dashboard.html"
@@ -131,6 +132,7 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
     return 0
 
 
+@instrument("dashboard_publish", write_if=apply_flag_write_if)
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Publish HTML dashboard")
     ap.add_argument("--apply", action="store_true",

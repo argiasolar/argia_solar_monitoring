@@ -96,6 +96,10 @@ def append_outbox(sheets, *, date_iso: str, kind: str,
     ]])
 
 
+from argia.core.job_log import instrument
+
+
+@instrument("report_daily")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--date", default=None,

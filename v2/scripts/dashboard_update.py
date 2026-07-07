@@ -38,6 +38,7 @@ PLANT_TAB = "Dashboard_Plant"
 # the one place that knows the live Sheets API returns datetimes as serial
 # floats (watchdog false-alarm lesson, 2026-07-05).
 from argia.core.cells import GOOGLE_EPOCH, coerce_date, coerce_ts  # noqa: E402,F401
+from argia.core.job_log import apply_flag_write_if, instrument
 
 
 def _col_letter(n: int) -> str:
@@ -171,6 +172,7 @@ def run(client: SheetsClient, *, window: int, apply: bool,
     return 0
 
 
+@instrument("dashboard_update", write_if=apply_flag_write_if)
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Populate dashboard tabs")
     ap.add_argument("--apply", action="store_true",

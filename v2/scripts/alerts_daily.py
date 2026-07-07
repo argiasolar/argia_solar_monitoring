@@ -78,6 +78,7 @@ from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
 from argia.core.time_utils import UTC, now_mx
 from argia.kpi import compute_plant_energy, read_day_bundle
+from argia.core.job_log import instrument
 
 logging.basicConfig(
     level=logging.INFO,
@@ -265,6 +266,7 @@ def daily_offline_candidates(readings: List[InverterReading]) -> List[Candidate]
     return out
 
 
+@instrument("alerts_daily")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--date", default=None,

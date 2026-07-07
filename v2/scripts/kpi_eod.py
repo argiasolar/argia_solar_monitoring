@@ -128,6 +128,10 @@ def build_dense_web_client():
     return client
 
 
+from argia.core.job_log import instrument
+
+
+@instrument("kpi_eod")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument(

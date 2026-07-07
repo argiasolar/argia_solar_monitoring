@@ -52,6 +52,7 @@ from argia.core.config import load_portfolio
 from argia.core.sheets import SheetsClient
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.time_utils import UTC, now_mx
+from argia.core.job_log import instrument
 
 logging.basicConfig(
     level=logging.INFO,
@@ -123,6 +124,7 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     return samples, span_h
 
 
+@instrument("alerts_snapshot")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--dry-run", action="store_true",

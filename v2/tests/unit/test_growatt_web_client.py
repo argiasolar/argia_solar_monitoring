@@ -19,6 +19,17 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _isolated_growatt_state(tmp_path, monkeypatch):
+    """Session/backoff persistence (2026-07-07) writes real files in ~ —
+    isolate them per test or a failure test's backoff marker blocks every
+    later login test (observed the day it shipped)."""
+    monkeypatch.setenv("ARGIA_GROWATT_SESSION_FILE",
+                       str(tmp_path / "session.json"))
+    monkeypatch.setenv("ARGIA_GROWATT_BACKOFF_FILE",
+                       str(tmp_path / "backoff"))
+
 from argia.vendors.growatt_web import (
     DEFAULT_USER_AGENT,
     WEB_BASE,

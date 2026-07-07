@@ -32,6 +32,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from argia.vendors import growatt_session
+
 from argia.core.normalize import normalize_text, pick, safe_float
 from argia.core.time_utils import parse_growatt_calendar
 
@@ -273,6 +275,10 @@ class GrowattIrradianceClient:
         self._max_gap_sec = max_gap_sec
 
         self._logged_in = False
+        # Shared persisted session (incident 2026-07-07) — same account,
+        # same site as the web client; one login serves both.
+        if growatt_session.load_cookies(self._http):
+            self._logged_in = True
         self._env_device_cache: Dict[str, Tuple[str, int]] = {}
         self._daily_irradiance_cache: Dict[Tuple[str, str], float] = {}
 
@@ -281,6 +287,7 @@ class GrowattIrradianceClient:
     def _login(self) -> None:
         if self._logged_in:
             return
+        growatt_session.check_backoff()
         # Prime cookies
         self._http.get(
             f"{self._creds.base_url}/login", timeout=self._creds.timeout_sec
@@ -292,10 +299,15 @@ class GrowattIrradianceClient:
         )
         cookies = self._http.cookies.get_dict()
         if "assToken" not in cookies:
+            growatt_session.mark_login_failure()
+            growatt_session.drop_session()
             raise RuntimeError(
-                f"Growatt env-client login failed (HTTP {resp.status_code}, no assToken)"
+                f"Growatt env-client login failed (HTTP {resp.status_code}, "
+                f"no assToken, backoff engaged)"
             )
         self._logged_in = True
+        growatt_session.clear_backoff()
+        growatt_session.save_cookies(self._http)
 
     def _post(self, path: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Single POST. Tests mock THIS method."""

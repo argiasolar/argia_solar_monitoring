@@ -23,6 +23,8 @@ from typing import Any, Dict, Optional
 
 import requests
 
+from argia.vendors import growatt_session
+
 LOG = logging.getLogger("argia.vendors.growatt_web")
 
 WEB_BASE = "https://server.growatt.com"
@@ -98,7 +100,15 @@ class GrowattWebClient:
         self._timeout = timeout_sec
         self._session = session or requests.Session()
         self._session.headers.setdefault("User-Agent", DEFAULT_USER_AGENT)
+
         self._logged_in = False
+        # Persisted session (incident 2026-07-07): reuse yesterday's
+        # cookies instead of logging in ~200x/day from one IP. Trusted
+        # optimistically; any auth failure downstream is non-fatal and
+        # the next explicit login() revalidates.
+        if session is None and growatt_session.load_cookies(self._session):
+            self._logged_in = True
+            LOG.info("Growatt web session restored from disk")
 
     # ----- auth -----
 
@@ -109,6 +119,10 @@ class GrowattWebClient:
         """
         if self._logged_in:
             return
+
+        # A refused login recently? Then do NOT hit the endpoint — raising
+        # here is what lets a soft block cool down (2026-07-07).
+        growatt_session.check_backoff()
 
         # Prime the session — Growatt sets some pre-auth cookies on GET /login
         self._session.get(f"{self._base}/login", timeout=self._timeout)
@@ -125,6 +139,8 @@ class GrowattWebClient:
         # accounts use a JSON response body instead. Treat either as success.
         if "assToken" in cookies:
             self._logged_in = True
+            growatt_session.clear_backoff()
+            growatt_session.save_cookies(self._session)
             LOG.info("Growatt web login OK (assToken cookie)")
             return
 
@@ -132,6 +148,8 @@ class GrowattWebClient:
             loc = resp.headers.get("Location", "")
             if "index" in loc or "panel" in loc:
                 self._logged_in = True
+                growatt_session.clear_backoff()
+                growatt_session.save_cookies(self._session)
                 LOG.info("Growatt web login OK (302 → %s)", loc)
                 return
 
@@ -140,14 +158,18 @@ class GrowattWebClient:
                 j = resp.json()
                 if str(j.get("result")) in ("1", "True", "true"):
                     self._logged_in = True
+                    growatt_session.clear_backoff()
+                    growatt_session.save_cookies(self._session)
                     LOG.info("Growatt web login OK (JSON)")
                     return
             except ValueError:
                 pass
 
+        growatt_session.mark_login_failure()
+        growatt_session.drop_session()
         raise GrowattAuthError(
             f"Growatt web login failed: HTTP {resp.status_code}, "
-            f"no assToken cookie set"
+            f"no assToken cookie set (backoff engaged)"
         )
 
     # ----- low-level GET/POST with safety guard -----

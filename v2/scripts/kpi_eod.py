@@ -27,12 +27,14 @@ EXIT CODES
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import logging
 import os
 import sys
 from typing import Dict, List, Tuple
 
+from argia.vendors import growatt_token
 from argia.archive.kpi_daily import (
     AVAILABILITY_COL_NAME,
     CLOUD_COVERAGE_COL_NAME,
@@ -229,6 +231,14 @@ def main(argv=None) -> int:
             cloud_stamps[(date_iso, plant.plant_key)] = cc
 
         energy_by_inv = compute_plant_energy(rows)
+        # 2026-07-07: if the Growatt web block left the day without
+        # telemetry, use the token-API energy telemetry cached intraday
+        # (plant-level; coverage/data_class stays honest about detail).
+        energy_by_inv, token_used = growatt_token.apply_energy_fallback(
+            energy_by_inv, date_iso, plant.plant_key)
+        if token_used:
+            log.info("[%s] energy via Growatt token API fallback "
+                     "(web telemetry was blocked)", plant.plant_key)
         irr = daily_irradiance_for_plant(rows, lat=plant.lat, date_iso=date_iso)
         if dense_web is not None and plant.datalogger_sn:
             dense = try_dense_irradiance(dense_web, plant, date_iso)
@@ -255,6 +265,10 @@ def main(argv=None) -> int:
             module_temp_c=module_temp,
             gamma_pmax=gamma,
         )
+        if token_used:
+            perf = dataclasses.replace(
+                perf, status_note=(perf.status_note + " | energy via "
+                                   "Growatt token API").strip(" |"))
         new_rows.append(perf_to_row(perf))
 
         # Expected energy for the day (v1 Theoretical_kWh semantics).

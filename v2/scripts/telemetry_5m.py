@@ -59,6 +59,7 @@ from argia.meteo.growatt_irradiance import (
     interval_kwh_m2_from_wm2,
 )
 from argia.meteo.open_meteo import CloudCoverClient
+from argia.vendors import growatt_token
 from argia.telemetry import growatt_row, huawei_row, sma_row, solaredge_row
 from argia.telemetry.growatt_row import WeatherSnapshot
 from argia.telemetry.schema import (
@@ -195,6 +196,7 @@ def _process_growatt_plant(
     weather: WeatherSnapshot,
     dry_run: bool,
     log: logging.Logger,
+    token_client: "growatt_token.GrowattTokenClient | None" = None,
 ) -> tuple:
     plant_rows: List[list] = []
     common_rows: List[list] = []
@@ -241,6 +243,20 @@ def _process_growatt_plant(
         except Exception as e:  # noqa: BLE001
             log.error("[%s] sheet write failed: %s", plant.plant_key, e)
             errors += 1
+
+    # Degraded-mode fallback (2026-07-07): the web session is the only
+    # carrier of per-inverter data; when it is blocked (LoginBackoff /
+    # auth refusal) every inverter fails and plant_rows is empty. Then —
+    # and only then — fetch plant-level today_energy via the OpenAPI
+    # token (v1's proven route) and cache it for tomorrow's kpi-eod.
+    # Errors stand as counted: the run stays PARTIAL, honestly.
+    if not plant_rows and errors and token_client is not None:
+        kwh = token_client.plant_today_energy(plant.weather_plant_id)
+        if kwh is not None and kwh > 0:
+            growatt_token.cache_energy(date_iso, plant.plant_key, kwh)
+            log.info("[%s] degraded mode: today_energy=%.1f kWh via "
+                     "Growatt token API (web session blocked); cached "
+                     "for kpi-eod", plant.plant_key, kwh)
 
     return common_rows, errors
 
@@ -498,6 +514,7 @@ def _run_growatt(portfolio, sheets, date_iso, only_plant,
         return [], 0, len(plants), 1
 
     web_client = GrowattWebClient(username=g_user, password=g_pass)
+    token_client = growatt_token.GrowattTokenClient.from_env()
     log.info("Processing %d Growatt plant(s): %s",
              len(plants), [p.plant_key for p in plants])
 
@@ -519,7 +536,7 @@ def _run_growatt(portfolio, sheets, date_iso, only_plant,
         try:
             common, errs = _process_growatt_plant(
                 plant, inverters, date_iso, sheets, web_client,
-                weather, dry_run, log,
+                weather, dry_run, log, token_client=token_client,
             )
             all_common.extend(common)
             total_errors += errs

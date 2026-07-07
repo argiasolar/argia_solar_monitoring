@@ -17,9 +17,11 @@ name: v2-alerts-daily
 #     + logs candidates and transitions, writes nothing until dry_run is OFF).
 
 on:
-  schedule:
-    # 12:30 UTC daily = 06:30 America/Mexico_City. Targets yesterday.
-    - cron: "30 12 * * *"
+  # schedule moved to the Pi 2026-07-06; dispatch remains the manual fallback.
+  # ROLLBACK = git revert of this commit.
+  # schedule:
+  #   # 12:30 UTC daily = 06:30 America/Mexico_City. Targets yesterday.
+  #   - cron: "30 12 * * *"
   workflow_dispatch:
     inputs:
       date:

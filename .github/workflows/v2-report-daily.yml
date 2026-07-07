@@ -16,11 +16,13 @@ name: v2-report-daily
 #     the schedule: stamp the date first, then report it.
 
 on:
-  schedule:
-    - cron: "45 2 * * *"    # 20:45 MX — EVENING report for TODAY
-    - cron: "5 13 * * *"    # 07:05 MX — MORNING report for YESTERDAY
-                            # (after kpi-eod 06:00 and alerts-daily 06:30,
-                            # so yesterday is KPI-exact and carryover-safe)
+  # schedule moved to the Pi 2026-07-06; dispatch remains the manual fallback.
+  # ROLLBACK = git revert of this commit.
+  # schedule:
+  #   - cron: "45 2 * * *"    # 20:45 MX — EVENING report for TODAY
+  #   - cron: "5 13 * * *"    # 07:05 MX — MORNING report for YESTERDAY
+  #                           # (after kpi-eod 06:00 and alerts-daily 06:30,
+  #                           # so yesterday is KPI-exact and carryover-safe)
   workflow_dispatch:
     inputs:
       date:

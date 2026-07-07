@@ -18,11 +18,13 @@ on:
         required: false
         default: "7"
         type: string
-  schedule:
-    # Mexico City is UTC-6 year-round (no DST since 2023).
-    # 06:00-20:59 MX = 12:00-02:59 UTC, split because cron can't span midnight.
-    - cron: "5,35 12-23 * * *"   # 06:05-17:35 MX
-    - cron: "5,35 0-2 * * *"     # 18:05-20:35 MX
+  # schedule moved to the Pi 2026-07-06; dispatch remains the manual fallback.
+  # ROLLBACK = git revert of this commit.
+  # schedule:
+  #   # Mexico City is UTC-6 year-round (no DST since 2023).
+  #   # 06:00-20:59 MX = 12:00-02:59 UTC, split because cron can't span midnight.
+  #   - cron: "5,35 12-23 * * *"   # 06:05-17:35 MX
+  #   - cron: "5,35 0-2 * * *"     # 18:05-20:35 MX
 
 concurrency:
   group: v2-dashboard

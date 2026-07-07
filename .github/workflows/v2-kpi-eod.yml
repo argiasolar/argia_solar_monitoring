@@ -18,9 +18,11 @@ name: v2-kpi-eod
 # onward. Earlier dates log PR_STC=-- (no module temps), which is expected.
 
 on:
-  schedule:
-    # 12:00 UTC daily = 06:00 America/Mexico_City (UTC-6). Targets yesterday.
-    - cron: "0 12 * * *"
+  # schedule moved to the Pi 2026-07-06; dispatch remains the manual fallback.
+  # ROLLBACK = git revert of this commit.
+  # schedule:
+  #   # 12:00 UTC daily = 06:00 America/Mexico_City (UTC-6). Targets yesterday.
+  #   - cron: "0 12 * * *"
   workflow_dispatch:
     inputs:
       dense_irradiance:

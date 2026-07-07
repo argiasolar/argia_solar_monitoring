@@ -253,7 +253,10 @@ _TEMPLATE = """<!DOCTYPE html>
         <dd style="margin:0 0 8px;">Share of inverter-hours in a PRODUCING
         state (ONLINE / UNDERPERFORMING / DERATED), counted only in hours
         where the plant produced. An inverter that reports telemetry while
-        producing 0 kWh counts as unavailable. Note: this measures
+        producing 0 kWh counts as unavailable. Buckets where the
+        inverter was not observed at all (collector gaps, partial polls)
+        count as UNKNOWN and are excluded &mdash; not treated as
+        downtime. Note: this measures
         operation; the KPI_Daily availability measures data coverage, so
         the two can differ.</dd>
 
@@ -454,6 +457,12 @@ _TEMPLATE = """<!DOCTYPE html>
   }
 
   var AVAIL_OK_SET = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
+  // Availability counts only ASSESSABLE buckets. NO_DATA (collector gap,
+  // partial poll) is UNKNOWN — counting it as downtime punished plants
+  // for the collector's absences: 2026-07-06, MEX1 read 80% availability
+  // while producing 130% of expected with zero issues.
+  var AVAIL_ASSESS = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1,
+                       FAULT: 1, OFFLINE: 1 };
 
   function aggInverters(irows, producingHours) {
     var agg = {};
@@ -464,7 +473,8 @@ _TEMPLATE = """<!DOCTYPE html>
         loss: 0, availOk: 0, availN: 0 });
       a.kwh += r.energy_kwh || 0;
       a.loss += r.est_loss_kwh || 0;
-      if (producingHours && producingHours[r.hour_label]) {
+      if (producingHours && producingHours[r.hour_label]
+          && AVAIL_ASSESS[r.status]) {
         a.availN += 1;
         if (AVAIL_OK_SET[r.status]) a.availOk += 1;
       }
@@ -650,7 +660,7 @@ _TEMPLATE = """<!DOCTYPE html>
       var worst = {};
       var AVAIL_OK = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
       irows.forEach(function (r) {
-        if (producing[r.hour_label]) {
+        if (producing[r.hour_label] && AVAIL_ASSESS[r.status]) {
           tot += 1;
           if (AVAIL_OK[r.status]) rep += 1;
         }

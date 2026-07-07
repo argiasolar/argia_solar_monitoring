@@ -384,3 +384,17 @@ class TestInverterIdentityAndTempVoice20260707:
         # audit footer documents the meaning + production consequence
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")
         assert "INTERNAL" in html and "derating" in html
+
+
+class TestAvailabilityUnknownIsNotDowntime20260707:
+    def test_only_assessable_buckets_enter_denominator(self):
+        """2026-07-06: MEX1 showed 80% availability while producing 130%
+        of expected with zero issues — NO_DATA buckets (collector gaps,
+        partial polls) were counted as downtime. Unknown is unknown."""
+        assert "AVAIL_ASSESS = { ONLINE: 1" in H._TEMPLATE
+        assert "FAULT: 1, OFFLINE: 1 }" in H._TEMPLATE
+        # both counting paths gated by assessability
+        assert H._TEMPLATE.count("AVAIL_ASSESS[r.status]") == 2
+        # audit footer documents the rule
+        html = H.render([_plant_row()], [_inv_row()], generated_at="t")
+        assert "count as UNKNOWN" in html

@@ -494,3 +494,15 @@ class TestVsDesignInReport20260708:
     def test_no_design_renders_dash_not_crash(self):
         html = render_html(TestRenderSmoke()._data())
         assert "Of design" in html                # fact row present
+
+
+class TestAuditTextsCurrent20260708:
+    def test_footer_documents_this_weeks_calculations(self):
+        """The methodology footer is the defense of every number on a
+        page that reaches customers — it must keep pace with the math."""
+        html = render_html(TestRenderSmoke()._data())
+        footer = html.split("<footer>")[1]
+        for phrase in ("Of design", "0.435", "kWp-weighted",
+                       "PPA tariff", "reliably measured",
+                       "Evening editions"):
+            assert phrase in footer, f"footer missing: {phrase}"

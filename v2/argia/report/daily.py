@@ -624,7 +624,17 @@ def render_html(data: ReportData) -> str:
         f'Irradiance: ShineMaster stored minute-scale history '
         f'(~300 samples/day, trapezoidal), validated to &lt;1% against an '
         f'independent weather model; snapshot/cloud-model fallback when '
-        f'the fetch fails &#8212; KPI records the source per day.'
+        f'the fetch fails &#8212; KPI records the source per day. '
+        f'Of design = production vs the contract design estimate '
+        f'(PVsyst/Helioscope monthly kWh &#247; calendar days) &#8212; '
+        f'static, unaffected by sensor outages. The portfolio %% counts '
+        f'only plants whose sun was reliably measured that day; energy, '
+        f'income and CO&#8322; always count every plant. Income (est.) = '
+        f'energy &#215; PPA tariff, before billing adjustments. '
+        f'CO&#8322; avoided uses the SEMARNAT/CRE national grid emission '
+        f'factor (0.435 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'Evening editions carry live telemetry-derived energy ahead of '
+        f'the final KPI numbers mailed the next morning.'
         f'</footer></div></body></html>')
 
 

@@ -247,7 +247,13 @@ _TEMPLATE = """<!DOCTYPE html>
 
         <dt style="font-weight:600;">Production vs expected (%)</dt>
         <dd style="margin:0 0 8px;">Production &divide; Expected over the
-        same hours. Performance vs the actual weather, not vs clear sky.</dd>
+        same hours. Performance vs the actual weather, not vs clear sky.
+        Judged on COMPLETED hours only &mdash; the in-flight hour is
+        excluded (datalogger upload offsets make it momentarily
+        lopsided). On mornings where telemetry started late, the live %
+        is withheld (&mdash;) until coverage builds, because the sun of
+        the gap hours was never measured; that evening&rsquo;s KPI
+        carries the corrected full-day number.</dd>
 
         <dt style="font-weight:600;">Availability (operational)</dt>
         <dd style="margin:0 0 8px;">Share of inverter-hours in a PRODUCING

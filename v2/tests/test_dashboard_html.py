@@ -425,3 +425,10 @@ class TestInFlightBucketExcluded20260708:
         t = H._TEMPLATE
         assert "parseInt(r.hour_label, 10) < h" in t
         assert "parseInt(r.hour_label, 10) <= h" not in t
+
+
+class TestDashboardAuditCurrent20260708:
+    def test_pct_entry_documents_gating_and_completed_hours(self):
+        t = H._TEMPLATE
+        assert "COMPLETED hours only" in t
+        assert "withheld" in t

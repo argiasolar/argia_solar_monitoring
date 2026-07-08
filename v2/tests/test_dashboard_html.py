@@ -398,3 +398,16 @@ class TestAvailabilityUnknownIsNotDowntime20260707:
         # audit footer documents the rule
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")
         assert "count as UNKNOWN" in html
+
+
+class TestGapDayPctSuppressed20260708:
+    def test_live_percent_hidden_on_gap_mornings(self):
+        """08:42 screenshot: a giant green 1,138% gauge above a banner
+        apologizing for it. During gap mornings the % is unknowable —
+        headline, gauge and per-plant cells show nothing instead;
+        tonight's KPI carries the corrected number."""
+        t = H._TEMPLATE
+        assert "function lateSetOf(late)" in t
+        assert "if (gapDay) pct = null;" in t
+        assert "pct: (theo > 0 && !lateSet[pk])" in t
+        assert "var pct = (theo > 0 && !late.length)" in t

@@ -369,16 +369,22 @@ _TEMPLATE = """<!DOCTYPE html>
     var out = [];
     Object.keys(seen).forEach(function (pk) {
       if (seen[pk] > LATE_START_AFTER)
-        out.push(pk + ' (from ' + seen[pk] + ')');
+        out.push({ pk: pk, from: seen[pk] });
     });
-    return out.sort();
+    return out.sort(function (a, b) { return a.pk < b.pk ? -1 : 1; });
+  }
+  function lateSetOf(late) {
+    var m = {};
+    late.forEach(function (l) { m[l.pk] = 1; });
+    return m;
   }
   function setGapNote(late) {
     var el = document.getElementById('gapNote');
     if (!late.length) { el.style.display = 'none'; return; }
     el.style.display = 'block';
     el.textContent = '\u26a0 Telemetry started late today for ' +
-      late.join(', ') + ' \u2014 energy produced during the gap rolled ' +
+      late.map(function (l) { return l.pk + ' (from ' + l.from + ')'; })
+          .join(', ') + ' \u2014 energy produced during the gap rolled ' +
       'into the first sampled hour, but the sun for those hours could not ' +
       'be measured. Production is real; the % is overstated until ' +
       'coverage builds. Tonight\u2019s KPI corrects the full-day number.';
@@ -496,9 +502,11 @@ _TEMPLATE = """<!DOCTYPE html>
   function drawPlant(pk, day) {
     document.getElementById('panel2').style.display = 'none';
     expLabel(day);
-    setGapNote(lateStarts(
+    var late = lateStarts(
       DATA.plant_rows.filter(function (r) { return r.plant_key === pk; }),
-      day));
+      day);
+    setGapNote(late);
+    var gapDay = !!lateSetOf(late)[pk];
     var prows = cutLive(DATA.plant_rows.filter(function (r) {
       return r.plant_key === pk && r.date_mx === day; }), day);
     var irows = cutLive(DATA.inverter_rows.filter(function (r) {
@@ -511,6 +519,10 @@ _TEMPLATE = """<!DOCTYPE html>
       ntot = Math.max(ntot, r.inverters_total || 0);
     });
     var pct = theo > 0 ? prod / theo * 100 : null;
+    // Gap morning (2026-07-08): unmeasured sun makes the live % a lie
+    // the banner then has to apologize for. Show nothing instead —
+    // tonight's KPI carries the corrected number.
+    if (gapDay) pct = null;
     var producingHours = {};
     prows.forEach(function (r) {
       if ((r.total_kwh || 0) > 0) producingHours[r.hour_label] = 1;
@@ -632,7 +644,9 @@ _TEMPLATE = """<!DOCTYPE html>
   function drawPortfolio(day) {
     document.getElementById('panel2').style.display = '';
     expLabel(day);
-    setGapNote(lateStarts(DATA.plant_rows, day));
+    var late = lateStarts(DATA.plant_rows, day);
+    setGapNote(late);
+    var lateSet = lateSetOf(late);
     var perPlant = DATA.plants.map(function (pk) {
       var prows = cutLive(DATA.plant_rows.filter(function (r) {
         return r.plant_key === pk && r.date_mx === day; }), day);
@@ -685,7 +699,8 @@ _TEMPLATE = """<!DOCTYPE html>
       irows.forEach(function (r) { loss += r.est_loss_kwh || 0; });
       return { pk: pk, customer: DATA.customers[pk] || pk, prod: prod,
                lossKwh: loss, tariff: tariff,
-               theo: theo, pct: theo > 0 ? prod / theo * 100 : null,
+               theo: theo,
+               pct: (theo > 0 && !lateSet[pk]) ? prod / theo * 100 : null,
                faulted: faulted, ntot: ntot, temp: t, kwp: kwp,
                issues: issues, hardIssues: hardIssues,
                avail: tot > 0 ? rep / tot * 100 : null,
@@ -697,7 +712,7 @@ _TEMPLATE = """<!DOCTYPE html>
     perPlant.forEach(function (p) {
       prod += p.prod; theo += p.theo; issues += p.issues; ntot += p.ntot;
     });
-    var pct = theo > 0 ? prod / theo * 100 : null;
+    var pct = (theo > 0 && !late.length) ? prod / theo * 100 : null;
     setCards(prod, theo, pct, issues, ntot);
     var lossKwh = 0, lossMxn = 0, allTariffed = true;
     perPlant.forEach(function (p) {

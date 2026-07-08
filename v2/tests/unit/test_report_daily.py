@@ -427,3 +427,36 @@ class TestLiveEveningEstimate20260708:
         html = render_html(TestRenderSmoke()._data())
         assert "KPI-final numbers" in html
         assert "live evening estimate" not in html
+
+
+class TestFleetPctObeysKpiGate20260708:
+    """Block day: kpi withheld every production_pct ("sun measurement
+    unreliable") yet fleet_stats divided raw sums — the portfolio card
+    said 183% under an INCOMPLETE DAY verdict. The portfolio % now uses
+    only plants the KPI layer deemed measurable."""
+
+    def test_all_plants_ungated_means_no_portfolio_pct(self):
+        plants = [_plant(pk="GTO1", name="T", e=3700.0, x=2082.0,
+                         pp=None, av=1.0),
+                  _plant(pk="MEX2", name="V", e=3181.0, x=1579.0,
+                         pp=None, av=1.0)]
+        st = fleet_stats(plants)
+        assert st["pct"] is None                  # not 183%-style fiction
+        assert st["production_kwh"] == 6881.0     # energy stays real
+
+    def test_pct_from_measurable_subset_only(self):
+        plants = [_plant(pk="A", name="A", e=1000.0, x=1000.0,
+                         pp=1.0, av=1.0),
+                  _plant(pk="B", name="B", e=2000.0, x=500.0,
+                         pp=None, av=1.0)]        # unreliable expected
+        st = fleet_stats(plants)
+        assert st["pct"] == pytest.approx(1.0)    # B excluded from ratio
+        assert st["production_kwh"] == 3000.0     # but not from energy
+
+    def test_sentence_omits_pct_when_gated_out(self):
+        plants = [_plant(pk="A", name="A", e=1000.0, x=500.0,
+                         pp=None, av=1.0)]
+        st = fleet_stats(plants)
+        s = summary_sentence(st, "INCOMPLETE DAY", "no plant fully measured")
+        assert "% of expected" not in s
+        assert "1,000 kWh" in s

@@ -169,6 +169,15 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
     """
     fe = sum(p.energy_kwh or 0 for p in plants)
     fx = sum(p.expected_kwh or 0 for p in plants)
+    # Portfolio %% only from plants the KPI layer deemed measurable
+    # (2026-07-08: a block day halved measured sun; kpi withheld every
+    # production_pct and wrote "unreliable" — but this function divided
+    # raw sums anyway and the report shouted 183%% two lines under an
+    # INCOMPLETE DAY verdict).
+    ge = sum(p.energy_kwh or 0 for p in plants
+             if p.production_pct is not None)
+    gx = sum(p.expected_kwh or 0 for p in plants
+             if p.production_pct is not None)
     kwp = sum(p.kwp_dc or 0 for p in plants)
     aw = [(p.availability, p.kwp_dc or 0) for p in plants
           if p.availability is not None and (p.kwp_dc or 0) > 0]
@@ -179,7 +188,7 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
     return {
         "production_kwh": fe,
         "expected_kwh": fx,
-        "pct": (fe / fx) if fx else None,
+        "pct": (ge / gx) if gx else None,
         "kwp": kwp,
         "availability": avail,
         "income_mxn": income if income else None,

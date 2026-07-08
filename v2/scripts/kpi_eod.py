@@ -35,6 +35,7 @@ import sys
 from typing import Dict, List, Tuple
 
 from argia.vendors import growatt_token
+from argia.kpi.design import design_kwh_for_day, load_design_monthly
 from argia.archive.kpi_daily import (
     AVAILABILITY_COL_NAME,
     CLOUD_COVERAGE_COL_NAME,
@@ -199,6 +200,8 @@ def main(argv=None) -> int:
     coverage: Dict[Tuple[str, str], str] = {}
     cloud_stamps: Dict[Tuple[str, str], float] = {}
     expected_stamps: Dict[Tuple[str, str], float] = {}
+    design_stamps: dict = {}
+    design = load_design_monthly(sheets)
     avail_stamps: Dict[Tuple[str, str], float] = {}
     sy_stamps: Dict[Tuple[str, str], float] = {}
     prod_stamps: Dict[Tuple[str, str], float] = {}
@@ -278,6 +281,11 @@ def main(argv=None) -> int:
         if exp is not None:
             expected_stamps[(date_iso, plant.plant_key)] = exp
 
+        # Contract design baseline (static — works on blocked-sun days).
+        dk = design_kwh_for_day(design, plant.plant_key, date_iso)
+        if dk is not None:
+            design_stamps[(date_iso, plant.plant_key)] = dk
+
         # Availability vs CONFIGURED inverters (uptime, not performance).
         av = compute_availability(
             [(r.timestamp_utc, r.inverter_sn, r.status) for r in rows],
@@ -355,6 +363,15 @@ def main(argv=None) -> int:
         stamped = stamp_column(sheets, EXPECTED_KWH_COL_NAME, expected_stamps,
                                dry_run=args.dry_run)
         log.info("Stamped %d expected_kwh cell(s)%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp design_kwh (contract baseline, month/days — static).
+    if design_stamps:
+        log.info("Design kWh/day: %s",
+                 {pk: v for (_, pk), v in design_stamps.items()})
+        stamped = stamp_column(sheets, "design_kwh", design_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d design_kwh cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
     # Stamp specific yield (kWh/kWp).

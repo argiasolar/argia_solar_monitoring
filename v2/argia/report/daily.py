@@ -79,6 +79,7 @@ class PlantDay:
     inverters: List[InverterDay] = field(default_factory=list)
     kwp_dc: Optional[float] = None
     tariff_mxn_per_kwh: Optional[float] = None
+    design_kwh: Optional[float] = None
 
 
 @dataclass
@@ -185,10 +186,13 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
              if aw else None)
     income = sum((p.energy_kwh or 0) * p.tariff_mxn_per_kwh
                  for p in plants if p.tariff_mxn_per_kwh)
+    de = sum(p.energy_kwh or 0 for p in plants if p.design_kwh)
+    dx = sum(p.design_kwh or 0 for p in plants)
     return {
         "production_kwh": fe,
         "expected_kwh": fx,
         "pct": (ge / gx) if gx else None,
+        "design_pct": (de / dx) if dx else None,
         "kwp": kwp,
         "availability": avail,
         "income_mxn": income if income else None,
@@ -204,6 +208,8 @@ def summary_sentence(stats: Dict[str, Optional[float]],
     bits = [f"the portfolio produced {stats['production_kwh']:,.0f} kWh"]
     if stats["pct"] is not None:
         bits.append(f"{stats['pct'] * 100:.0f}% of expected")
+    if stats["design_pct"] is not None:
+        bits.append(f"{stats['design_pct'] * 100:.0f}% of contract design")
     if stats["availability"] is not None:
         bits.append(f"{stats['availability'] * 100:.0f}% availability")
     sentence = f"{port_title}: " + ", ".join(bits)
@@ -557,6 +563,10 @@ def render_html(data: ReportData) -> str:
             + fact("Of plan",
                    f'{p.production_pct*100:.0f}<span class="fu">%</span>'
                    if p.production_pct is not None else "&#8212;")
+            + fact("Of design",
+                   f'{(p.energy_kwh or 0)/p.design_kwh*100:.0f}'
+                   f'<span class="fu">%</span>'
+                   if p.design_kwh else "&#8212;")
             + fact("Cloud cover",
                    f'{p.cloud_pct:.0f}<span class="fu">%</span>'
                    if p.cloud_pct is not None else "&#8212;")
@@ -655,6 +665,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             "av": safe_float(cell("availability")),
             "soil": safe_float(cell("soiling_loss_pct")),
             "cloud": safe_float(cell("cloud_coverage_pct")),
+            "design": safe_float(cell("design_kwh")),
             "dc": normalize_text(cell("data_class")).lower() or "no_data",
             "note": normalize_text(cell("status_note")),
         }
@@ -721,7 +732,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             cloud_pct=k.get("cloud"), data_class=dc,
             status_note=note, inverters=invs,
             kwp_dc=getattr(plant, "kwp_dc", None),
-            tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None)))
+            tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None),
+            design_kwh=k.get("design")))
 
     ledger = load_alerts_ledger(sheets)
     alerts = reportable_alerts(ledger.records)

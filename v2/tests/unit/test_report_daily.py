@@ -39,7 +39,8 @@ def _plant(pk="SLP1", pp=1.05, av=1.0, dc="full", **kw):
                     status_note=kw.get("note", "On plan."),
                     inverters=kw.get("inv", []),
                     kwp_dc=kw.get("kwp_dc"),
-                    tariff_mxn_per_kwh=kw.get("tariff_mxn_per_kwh"))
+                    tariff_mxn_per_kwh=kw.get("tariff_mxn_per_kwh"),
+                    design_kwh=kw.get("design_kwh"))
 
 
 def _inv(sn="A", kwh=500.0, rated=124.0, t=50.0, faults=(), rel=None):
@@ -460,3 +461,36 @@ class TestFleetPctObeysKpiGate20260708:
         s = summary_sentence(st, "INCOMPLETE DAY", "no plant fully measured")
         assert "% of expected" not in s
         assert "1,000 kWh" in s
+
+
+class TestVsDesignInReport20260708:
+    def test_fleet_design_pct_and_sentence(self):
+        plants = [_plant(pk="NL1", name="PO", e=3200.0, x=2900.0,
+                         pp=1.10, av=1.0, design_kwh=3119.5),
+                  _plant(pk="GTO1", name="T", e=3000.0, x=3100.0,
+                         pp=0.97, av=1.0, design_kwh=3054.8)]
+        st = fleet_stats(plants)
+        assert st["design_pct"] == pytest.approx(6200 / 6174.3, rel=1e-4)
+        s = summary_sentence(st, "ON PLAN", "all on plan")
+        assert "% of contract design" in s
+
+    def test_design_survives_ungated_expected(self):
+        """The block-day case: expected unreliable (pp withheld) but the
+        static design baseline still yields a fleet percentage."""
+        plants = [_plant(pk="NL1", name="PO", e=2879.0, x=1620.0,
+                         pp=None, av=1.0, design_kwh=3119.5)]
+        st = fleet_stats(plants)
+        assert st["pct"] is None                  # honest, as v52 made it
+        assert st["design_pct"] == pytest.approx(2879 / 3119.5, rel=1e-4)
+
+    def test_plant_page_shows_of_design(self):
+        p = _plant(pk="NL1", name="PO", e=3200.0, x=2900.0,
+                   pp=1.10, av=1.0, design_kwh=3119.5)
+        html = render_html(ReportData(date_iso="2026-07-08",
+                                      plants=[p], alerts=[]))
+        assert "Of design" in html
+        assert ">103<span" in html                # 3200/3119.5 = 103%
+
+    def test_no_design_renders_dash_not_crash(self):
+        html = render_html(TestRenderSmoke()._data())
+        assert "Of design" in html                # fact row present

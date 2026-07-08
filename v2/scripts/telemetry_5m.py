@@ -515,6 +515,14 @@ def _run_growatt(portfolio, sheets, date_iso, only_plant,
 
     web_client = GrowattWebClient(username=g_user, password=g_pass)
     token_client = growatt_token.GrowattTokenClient.from_env()
+    # Run-level session revalidation (2026-07-08): a restored session is
+    # probed before trust; expired -> fresh login here, ONCE per run.
+    # Failures are non-fatal — per-inverter fetches surface them and the
+    # token fallback covers energy.
+    try:
+        web_client.ensure_session()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Growatt session ensure failed: %s", e)
     log.info("Processing %d Growatt plant(s): %s",
              len(plants), [p.plant_key for p in plants])
 
@@ -879,6 +887,10 @@ def main(argv=None) -> int:
             irradiance_client = GrowattIrradianceClient(
                 GrowattWebSession(username=g_user, password=g_pass)
             )
+            try:
+                irradiance_client.ensure_session()
+            except Exception as e:  # noqa: BLE001
+                log.warning("Growatt env session ensure failed: %s", e)
         except Exception as e:  # noqa: BLE001
             log.warning("Could not build GrowattIrradianceClient: %s", e)
 

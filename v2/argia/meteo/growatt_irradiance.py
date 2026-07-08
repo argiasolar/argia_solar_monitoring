@@ -284,6 +284,19 @@ class GrowattIrradianceClient:
 
     # ----- low-level transport (mocked in tests) -----
 
+    def ensure_session(self) -> None:
+        """Run-level revalidation — see GrowattWebClient.ensure_session."""
+        if not self._logged_in:
+            return  # will login lazily on first use (backoff-aware)
+        if growatt_session.validate_web_session(
+                self._http, self._creds.base_url):
+            return
+        LOG.warning("Growatt env session on disk is stale — dropping; "
+                    "next use logs in fresh")
+        growatt_session.drop_session()
+        self._http.cookies.clear()
+        self._logged_in = False
+
     def _login(self) -> None:
         if self._logged_in:
             return

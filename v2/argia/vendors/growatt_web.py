@@ -112,6 +112,23 @@ class GrowattWebClient:
 
     # ----- auth -----
 
+    def ensure_session(self) -> None:
+        """Run-level revalidation (2026-07-08): a session restored from
+        disk is only TRUSTED after a cheap /index probe. Expired ->
+        drop the file, fresh login (backoff-aware). Call once per run."""
+        if not self._logged_in:
+            self.login()
+            return
+        if growatt_session.validate_web_session(
+                self._session, self._base, self._timeout):
+            return
+        LOG.warning("Growatt web session on disk is stale — dropping and "
+                    "logging in fresh")
+        growatt_session.drop_session()
+        self._session.cookies.clear()
+        self._logged_in = False
+        self.login()
+
     def login(self) -> None:
         """
         Idempotent login. Subsequent calls are a no-op once we have a

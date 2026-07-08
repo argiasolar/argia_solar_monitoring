@@ -38,6 +38,10 @@ LOG = logging.getLogger(__name__)
 DEFAULT_SESSION_FILE = "~/.argia_growatt_session.json"
 DEFAULT_BACKOFF_FILE = "~/.argia_growatt_backoff"
 DEFAULT_COOLDOWN_S = 900  # 15 min
+# Sessions expire server-side overnight (2026-07-08: cookies saved 12:30
+# were dead by 05:00 and v47 trusted them forever — 14 errors/run, zero
+# re-login attempts). Don't trust anything older than this.
+DEFAULT_MAX_SESSION_AGE_S = 20 * 3600
 
 
 def session_file() -> Path:
@@ -72,6 +76,14 @@ def load_cookies(http_session) -> bool:
         if not path.exists():
             return False
         data = json.loads(path.read_text())
+        max_age = float(os.environ.get("ARGIA_GROWATT_SESSION_MAX_AGE_S",
+                                       DEFAULT_MAX_SESSION_AGE_S))
+        age = time.time() - float(data.get("saved_at") or 0)
+        if age > max_age:
+            LOG.info("growatt session on disk is %.1fh old — not trusted, "
+                     "fresh login", age / 3600)
+            path.unlink(missing_ok=True)
+            return False
         for name, value in data.get("cookies", {}).items():
             http_session.cookies.set(name, value)
         return "assToken" in data.get("cookies", {})
@@ -136,3 +148,18 @@ def clear_backoff() -> None:
         backoff_file().unlink(missing_ok=True)
     except Exception:  # noqa: BLE001
         pass
+
+
+def validate_web_session(http_session, base_url: str,
+                         timeout_sec: int = 15) -> bool:
+    """Cheap probe: an authenticated session GETs /index and stays there;
+    an expired one is redirected to /login. False on any doubt or error
+    (2026-07-08: trust-without-verify left a dead session in charge)."""
+    try:
+        r = http_session.get(f"{base_url.rstrip('/')}/index",
+                             timeout=timeout_sec, allow_redirects=True)
+        return r.status_code == 200 and "login" not in r.url.lower()
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("growatt session probe failed (%s) — treating as "
+                    "invalid", e)
+        return False

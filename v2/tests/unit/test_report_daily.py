@@ -26,6 +26,7 @@ from argia.report.daily import (
     portfolio_semaphore,
     fleet_stats,
     summary_sentence,
+    synthesize_live_energy,
 )
 
 
@@ -395,3 +396,34 @@ class TestOutboxChannel20260707:
                       pdf_file_id="p", html_file_id=None,
                       now_utc_iso="t", channel="shareholders")
         assert sheets.append_rows.call_args[0][1][0][-1] == "shareholders"
+
+
+class TestLiveEveningEstimate20260708:
+    """The 20:45 evening report demanded KPI rows that only exist after
+    next morning's kpi-eod — it exited 2 every night of its life, and
+    SyncRuns exposed it on its first instrumented night. Plants without a
+    KPI row now carry a telemetry-derived live estimate, honestly
+    labeled."""
+
+    def test_synthesize_live_energy(self):
+        invs = [InverterDay(sn="A", label="", kwh=500.5, rated_kw=100, tmax_c=None),
+                InverterDay(sn="B", label="", kwh=505.6, rated_kw=100, tmax_c=None),
+                InverterDay(sn="C", label="", kwh=None, rated_kw=100, tmax_c=None)]
+        assert synthesize_live_energy(invs) == 1006.1
+        assert synthesize_live_energy([]) is None
+        assert synthesize_live_energy(
+            [InverterDay(sn="A", label="", kwh=None, rated_kw=None, tmax_c=None)]) is None
+
+    def test_live_report_subtitle_is_honest(self):
+        live_plant = _plant(pk="SLP1", name="Q", e=1006.1, x=None,
+                            pp=None, av=None)
+        live_plant.data_class = "live"
+        html = render_html(ReportData(date_iso="2026-07-07",
+                                      plants=[live_plant], alerts=[]))
+        assert "live evening estimate" in html
+        assert "KPI-final numbers" not in html
+
+    def test_kpi_final_subtitle_unchanged(self):
+        html = render_html(TestRenderSmoke()._data())
+        assert "KPI-final numbers" in html
+        assert "live evening estimate" not in html

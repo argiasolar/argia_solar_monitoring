@@ -460,6 +460,8 @@ def render_html(data: ReportData) -> str:
     fleet_pct = (fe / fx) if fx else None
     port_color, port_title, port_why = portfolio_semaphore(
         data.plants, sem_of, n_crit, n_warn, fleet_pct)
+    live = any(p.data_class == "live" for p in data.plants)
+    subtitle = ("live evening estimate" if live else "KPI-final numbers")
     stats = fleet_stats(data.plants)
     sentence = summary_sentence(stats, port_title, port_why)
 
@@ -579,7 +581,7 @@ def render_html(data: ReportData) -> str:
         f'REPORT</span><img src="data:image/png;base64,{LOGO_B64}" '
         f'alt="ARGIA SOLAR"></div>'
         f'<div class="subrow"><span class="kind">Daily performance '
-        f'report &#183; KPI-final numbers</span>'
+        f'report &#183; {subtitle}</span>'
         f'<span class="date">{data.date_iso}</span></div></header>'
         f'{summary_block}'
         f'<div class="rail" style="grid-template-columns:'
@@ -608,6 +610,14 @@ def render_html(data: ReportData) -> str:
 
 
 # ------------------------------------------------------------ data assembly
+
+def synthesize_live_energy(invs) -> Optional[float]:
+    """Plant energy from the day's telemetry (sum of per-inverter EToday
+    maxima) for reports that run before kpi-eod stamps the day. None when
+    telemetry has nothing — the caller keeps its honest empty state."""
+    vals = [i.kwh for i in invs if i.kwh is not None]
+    return round(sum(vals), 1) if vals else None
+
 
 def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                       date_iso: str) -> ReportData:
@@ -681,14 +691,26 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
         k = kpi.get(plant.plant_key, {})
         invs = sorted(per_plant_inv.get(plant.plant_key, {}).values(),
                       key=lambda i: (i.label or "", i.sn))
+        energy, dc, note = (k.get("energy"), k.get("dc", "no_data"),
+                            k.get("note", ""))
+        if energy is None:
+            live = synthesize_live_energy(invs)
+            if live is not None:
+                # Evening report before kpi-eod has stamped the day
+                # (2026-07-08: this path NEVER worked — it demanded KPI
+                # rows that only exist next morning; SyncRuns exposed the
+                # silent exit-2 on its first instrumented night).
+                energy, dc = live, "live"
+                note = ("Live evening estimate from telemetry — final "
+                        "numbers in tomorrow's 07:05 report.")
         plants.append(PlantDay(
             plant_key=plant.plant_key,
             name=getattr(plant, "customer", "") or plant.plant_key,
-            energy_kwh=k.get("energy"), expected_kwh=k.get("expected"),
+            energy_kwh=energy, expected_kwh=k.get("expected"),
             production_pct=k.get("pp"), pr=k.get("pr"),
             availability=k.get("av"), soiling=k.get("soil"),
-            cloud_pct=k.get("cloud"), data_class=k.get("dc", "no_data"),
-            status_note=k.get("note", ""), inverters=invs,
+            cloud_pct=k.get("cloud"), data_class=dc,
+            status_note=note, inverters=invs,
             kwp_dc=getattr(plant, "kwp_dc", None),
             tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None)))
 

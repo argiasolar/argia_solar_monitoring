@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+import responses
 
 from argia.vendors import growatt_session as gs
 
@@ -127,3 +128,96 @@ class TestWebClientIntegration:
         assert gs.backoff_remaining_s() == 0
         saved = json.loads(gs.session_file().read_text())
         assert saved["cookies"]["assToken"] == "FRESH"
+
+
+class TestSessionAgeGate:
+    """2026-07-08: cookies saved 12:30 were dead by 05:00 and v47 trusted
+    them forever — 14 errors/run, zero re-login attempts, all morning."""
+
+    def _save_with_age(self, age_s):
+        import time as _t
+        s = requests.Session()
+        s.cookies.set("assToken", "OLD")
+        gs.save_cookies(s)
+        raw = json.loads(gs.session_file().read_text())
+        raw["saved_at"] = _t.time() - age_s
+        gs.session_file().write_text(json.dumps(raw))
+
+    def test_old_session_not_trusted_and_dropped(self):
+        self._save_with_age(21 * 3600)
+        assert gs.load_cookies(requests.Session()) is False
+        assert not gs.session_file().exists()      # dropped, not lingering
+
+    def test_fresh_session_still_trusted(self):
+        self._save_with_age(2 * 3600)
+        assert gs.load_cookies(requests.Session()) is True
+
+    def test_age_limit_env_override(self, monkeypatch):
+        monkeypatch.setenv("ARGIA_GROWATT_SESSION_MAX_AGE_S", "60")
+        self._save_with_age(120)
+        assert gs.load_cookies(requests.Session()) is False
+
+
+class TestSessionValidator:
+    @responses.activate
+    def test_valid_session_stays_on_index(self):
+        responses.add(responses.GET, "https://server.growatt.com/index",
+                      status=200, body="<html>dashboard</html>")
+        s = requests.Session()
+        assert gs.validate_web_session(s, "https://server.growatt.com") is True
+
+    @responses.activate
+    def test_expired_session_redirected_to_login(self):
+        responses.add(responses.GET, "https://server.growatt.com/index",
+                      status=302,
+                      headers={"Location": "https://server.growatt.com/login"})
+        responses.add(responses.GET, "https://server.growatt.com/login",
+                      status=200, body="<html>login</html>")
+        s = requests.Session()
+        assert gs.validate_web_session(s, "https://server.growatt.com") is False
+
+    @responses.activate
+    def test_probe_error_means_invalid(self):
+        responses.add(responses.GET, "https://server.growatt.com/index",
+                      body=ConnectionError("down"))
+        assert gs.validate_web_session(
+            requests.Session(), "https://server.growatt.com") is False
+
+
+class TestEnsureSession:
+    def _client_with_restored_session(self):
+        from argia.vendors.growatt_web import GrowattWebClient
+        s = requests.Session()
+        s.cookies.set("assToken", "T1")
+        gs.save_cookies(s)
+        c = GrowattWebClient(username="u", password="p")
+        assert c._logged_in is True                # restored
+        return c
+
+    def test_valid_probe_no_login(self):
+        c = self._client_with_restored_session()
+        with patch.object(gs, "validate_web_session", return_value=True), \
+             patch.object(c, "login") as login:
+            c.ensure_session()
+            login.assert_not_called()
+
+    def test_stale_probe_drops_and_relogs(self):
+        c = self._client_with_restored_session()
+        with patch.object(gs, "validate_web_session", return_value=False), \
+             patch.object(c, "login") as login:
+            c.ensure_session()
+            login.assert_called_once()
+        assert not gs.session_file().exists()      # stale file dropped
+
+    def test_not_logged_in_goes_straight_to_login(self):
+        from argia.vendors.growatt_web import GrowattWebClient
+        c = GrowattWebClient(username="u", password="p")
+        with patch.object(c, "login") as login:
+            c.ensure_session()
+            login.assert_called_once()
+
+    def test_telemetry_calls_ensure_for_both_clients(self):
+        from pathlib import Path
+        v2 = Path(__file__).resolve().parents[2]
+        tel = (v2 / "scripts" / "telemetry_5m.py").read_text(encoding="utf-8")
+        assert tel.count("ensure_session()") == 2

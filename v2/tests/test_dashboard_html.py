@@ -409,11 +409,14 @@ class TestGapDayPctSuppressed20260708:
         apologizing for it. During gap mornings the % is unknowable —
         headline, gauge and per-plant cells show nothing instead;
         tonight's KPI carries the corrected number."""
+        # 2026-07-08 pm supersedes the bare dash: gap mornings now show
+        # an honest COVERED-HOURS % (see TestCoveredHoursPct20260708)
+        # instead of nothing — suppression of the full-day fiction
+        # remains, the mechanism improved.
         t = H._TEMPLATE
         assert "function lateSetOf(late)" in t
-        assert "if (gapDay) pct = null;" in t
-        assert "pct: (theo > 0 && !lateSet[pk])" in t
-        assert "var pct = (theo > 0 && !late.length)" in t
+        assert "pct = coveredPct(prows, lateSetOf(late)[pk]);" in t
+        assert "lateSet[pk] ? coveredPct(prows, lateSet[pk])" in t
 
 
 class TestInFlightBucketExcluded20260708:
@@ -431,4 +434,20 @@ class TestDashboardAuditCurrent20260708:
     def test_pct_entry_documents_gating_and_completed_hours(self):
         t = H._TEMPLATE
         assert "COMPLETED hours only" in t
-        assert "withheld" in t
+        assert "COVERED HOURS" in t
+
+
+class TestCoveredHoursPct20260708:
+    def test_gap_mornings_get_honest_partial_window_not_dash(self):
+        """User: 4 of 6 plants showed no %% all day after a late start.
+        Estimating the missing sun (from other days or other cities'
+        plants) would be fiction; instead the %% is computed over hours
+        where BOTH sides are measured — the roll-in bucket excluded —
+        and visibly marked. Full-day truth still arrives via the KPI's
+        stored-history backfill."""
+        t = H._TEMPLATE
+        assert "function coveredPct(prows, fromHHMM)" in t
+        assert "parseInt(r.hour_label, 10) > startH" in t
+        assert "covered hrs" in t                 # headline marker
+        assert "over covered hours only" in t     # table tooltip
+        assert "pct = coveredPct(prows, lateSetOf(late)[pk]);" in t

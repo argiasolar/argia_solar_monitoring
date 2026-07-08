@@ -250,10 +250,12 @@ _TEMPLATE = """<!DOCTYPE html>
         same hours. Performance vs the actual weather, not vs clear sky.
         Judged on COMPLETED hours only &mdash; the in-flight hour is
         excluded (datalogger upload offsets make it momentarily
-        lopsided). On mornings where telemetry started late, the live %
-        is withheld (&mdash;) until coverage builds, because the sun of
-        the gap hours was never measured; that evening&rsquo;s KPI
-        carries the corrected full-day number.</dd>
+        lopsided). On mornings where telemetry started late, the % is
+        computed over COVERED HOURS only (marked &ldquo;&middot;covered
+        hrs&rdquo; / &ldquo;&middot;c&rdquo;): the roll-in bucket holds
+        energy whose sun was never measured, so it is excluded from both
+        sides. That evening&rsquo;s KPI carries the corrected full-day
+        number from the logger&rsquo;s stored history.</dd>
 
         <dt style="font-weight:600;">Availability (operational)</dt>
         <dd style="margin:0 0 8px;">Share of inverter-hours in a PRODUCING
@@ -385,9 +387,24 @@ _TEMPLATE = """<!DOCTYPE html>
     });
     return out.sort(function (a, b) { return a.pk < b.pk ? -1 : 1; });
   }
+  // Gap mornings: the roll-in bucket holds unmeasured-sun energy, so a
+  // full-day live %% is fiction. Over hours strictly AFTER it, production
+  // and expected are both measured and hour-aligned — an honest partial
+  // window, labeled as such. Tonight's KPI stays the full-day truth.
+  function coveredPct(prows, fromHHMM) {
+    var startH = parseInt(fromHHMM, 10);
+    var prod = 0, theo = 0;
+    prows.forEach(function (r) {
+      if (parseInt(r.hour_label, 10) > startH) {
+        prod += r.total_kwh || 0;
+        theo += r.theoretical_kwh || 0;
+      }
+    });
+    return theo > 0 ? prod / theo * 100 : null;
+  }
   function lateSetOf(late) {
     var m = {};
-    late.forEach(function (l) { m[l.pk] = 1; });
+    late.forEach(function (l) { m[l.pk] = l.from; });
     return m;
   }
   function setGapNote(late) {
@@ -431,13 +448,15 @@ _TEMPLATE = """<!DOCTYPE html>
     el.setAttribute('stroke', color);
   }
 
-  function setCards(prod, theo, pct, faulted, ntot) {
+  function setCards(prod, theo, pct, faulted, ntot, covered) {
     document.getElementById('cProd').innerHTML =
       fmt(prod) + ' <small>kWh</small>';
     document.getElementById('cExp').innerHTML =
       fmt(theo) + ' <small>kWh</small>';
-    document.getElementById('cPct').textContent =
-      pct === null ? '\u2013' : fmt(pct) + '%';
+    document.getElementById('cPct').innerHTML =
+      pct === null ? '\u2013'
+        : fmt(pct) + '%' + (covered
+          ? ' <small>\u00b7 covered hrs</small>' : '');
     document.getElementById('cFault').innerHTML =
       fmt(faulted) + ' <small>of ' + fmt(ntot) + '</small>';
   }
@@ -531,10 +550,14 @@ _TEMPLATE = """<!DOCTYPE html>
       ntot = Math.max(ntot, r.inverters_total || 0);
     });
     var pct = theo > 0 ? prod / theo * 100 : null;
-    // Gap morning (2026-07-08): unmeasured sun makes the live % a lie
-    // the banner then has to apologize for. Show nothing instead —
-    // tonight's KPI carries the corrected number.
-    if (gapDay) pct = null;
+    // Gap morning (2026-07-08): unmeasured sun makes the full-day live
+    // % a lie. Compute over covered hours instead (after the roll-in
+    // bucket); tonight's KPI carries the corrected full-day number.
+    var covered = false;
+    if (gapDay) {
+      pct = coveredPct(prows, lateSetOf(late)[pk]);
+      covered = pct !== null;
+    }
     var producingHours = {};
     prows.forEach(function (r) {
       if ((r.total_kwh || 0) > 0) producingHours[r.hour_label] = 1;
@@ -550,7 +573,7 @@ _TEMPLATE = """<!DOCTYPE html>
       lossText(plantLoss, tariff);
     var issues = invs.filter(function (a) {
       return ISSUE_STATUSES[a.status]; }).length;
-    setCards(prod, theo, pct, issues, ntot);
+    setCards(prod, theo, pct, issues, ntot, covered);
 
     var maxTemp = null;
     invs.forEach(function (a) {
@@ -712,7 +735,9 @@ _TEMPLATE = """<!DOCTYPE html>
       return { pk: pk, customer: DATA.customers[pk] || pk, prod: prod,
                lossKwh: loss, tariff: tariff,
                theo: theo,
-               pct: (theo > 0 && !lateSet[pk]) ? prod / theo * 100 : null,
+               pct: lateSet[pk] ? coveredPct(prows, lateSet[pk])
+                                : (theo > 0 ? prod / theo * 100 : null),
+               covered: !!lateSet[pk],
                faulted: faulted, ntot: ntot, temp: t, kwp: kwp,
                issues: issues, hardIssues: hardIssues,
                avail: tot > 0 ? rep / tot * 100 : null,
@@ -724,8 +749,24 @@ _TEMPLATE = """<!DOCTYPE html>
     perPlant.forEach(function (p) {
       prod += p.prod; theo += p.theo; issues += p.issues; ntot += p.ntot;
     });
-    var pct = (theo > 0 && !late.length) ? prod / theo * 100 : null;
-    setCards(prod, theo, pct, issues, ntot);
+    var pct = null;
+    if (!late.length) {
+      pct = theo > 0 ? prod / theo * 100 : null;
+    } else {
+      // fleet %% over each plant's own covered window
+      var cp = 0, ct = 0;
+      perPlant.forEach(function (p) {
+        var from = lateSet[p.pk] || '00:00';
+        var startH = parseInt(from, 10);
+        p.prows.forEach(function (r) {
+          if (!lateSet[p.pk] || parseInt(r.hour_label, 10) > startH) {
+            cp += r.total_kwh || 0; ct += r.theoretical_kwh || 0;
+          }
+        });
+      });
+      pct = ct > 0 ? cp / ct * 100 : null;
+    }
+    setCards(prod, theo, pct, issues, ntot, !!late.length);
     var lossKwh = 0, lossMxn = 0, allTariffed = true;
     perPlant.forEach(function (p) {
       lossKwh += p.lossKwh;
@@ -783,7 +824,11 @@ _TEMPLATE = """<!DOCTYPE html>
         '<td class="num">' + fmt(p.prod) + '</td>' +
         '<td class="num">' + fmt(p.theo) + '</td>' +
         '<td class="num" style="color:' + col + ';font-weight:600">' +
-        (p.pct === null ? '\u2013' : fmt(p.pct) + '%') + '</td>' +
+        (p.pct === null ? '\u2013'
+          : fmt(p.pct) + '%' + (p.covered
+            ? ' <small title="over covered hours only \u2014 the '
+              + 'late-start roll-in bucket is excluded">\u00b7c</small>'
+            : '')) + '</td>' +
         '<td class="num" style="color:' + aCol2 + '">' +
         (p.avail === null ? '\u2013'
           : (Math.round(p.avail * 10) / 10) + '%') + '</td>' +

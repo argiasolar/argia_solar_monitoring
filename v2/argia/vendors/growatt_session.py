@@ -41,7 +41,10 @@ DEFAULT_COOLDOWN_S = 900  # 15 min
 # Sessions expire server-side overnight (2026-07-08: cookies saved 12:30
 # were dead by 05:00 and v47 trusted them forever — 14 errors/run, zero
 # re-login attempts). Don't trust anything older than this.
-DEFAULT_MAX_SESSION_AGE_S = 20 * 3600
+# 2026-07-08 second lesson: 20h was too generous — the session died at
+# ~16h idle overnight and the gate never fired. 8h forces one honest
+# morning login (~3 logins/day total, still polite).
+DEFAULT_MAX_SESSION_AGE_S = 8 * 3600
 
 
 def session_file() -> Path:

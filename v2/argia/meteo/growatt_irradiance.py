@@ -275,6 +275,7 @@ class GrowattIrradianceClient:
         self._max_gap_sec = max_gap_sec
 
         self._logged_in = False
+        self._reauth_done = False
         # Shared persisted session (incident 2026-07-07) — same account,
         # same site as the web client; one login serves both.
         if growatt_session.load_cookies(self._http):
@@ -285,17 +286,9 @@ class GrowattIrradianceClient:
     # ----- low-level transport (mocked in tests) -----
 
     def ensure_session(self) -> None:
-        """Run-level revalidation — see GrowattWebClient.ensure_session."""
-        if not self._logged_in:
-            return  # will login lazily on first use (backoff-aware)
-        if growatt_session.validate_web_session(
-                self._http, self._creds.base_url):
-            return
-        LOG.warning("Growatt env session on disk is stale — dropping; "
-                    "next use logs in fresh")
-        growatt_session.drop_session()
-        self._http.cookies.clear()
-        self._logged_in = False
+        """No-op placeholder kept for the telemetry call site; staleness
+        is detected at the point of truth in _post (HTML-instead-of-JSON
+        signature, 2026-07-08 — the v50 /index probe validated zombies)."""
 
     def _login(self) -> None:
         if self._logged_in:
@@ -337,6 +330,22 @@ class GrowattIrradianceClient:
         try:
             return resp.json()
         except ValueError as e:
+            # Stale-session signature (2026-07-08): heal once per run.
+            if not self._reauth_done:
+                self._reauth_done = True
+                LOG.warning("Growatt env session stale (non-JSON from %s)"
+                            " — dropping and logging in fresh", path)
+                growatt_session.drop_session()
+                self._http.cookies.clear()
+                self._logged_in = False
+                self._login()
+                retry = self._http.post(
+                    f"{self._creds.base_url}{path}", data=data,
+                    timeout=self._creds.timeout_sec)
+                try:
+                    return retry.json()
+                except ValueError:
+                    pass
             raise RuntimeError(f"Growatt {path} returned non-JSON: {e}") from e
 
     # ----- env device discovery -----

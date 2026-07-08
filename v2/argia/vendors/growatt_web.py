@@ -102,6 +102,7 @@ class GrowattWebClient:
         self._session.headers.setdefault("User-Agent", DEFAULT_USER_AGENT)
 
         self._logged_in = False
+        self._reauth_done = False
         # Persisted session (incident 2026-07-07): reuse yesterday's
         # cookies instead of logging in ~200x/day from one IP. Trusted
         # optimistically; any auth failure downstream is non-fatal and
@@ -113,21 +114,28 @@ class GrowattWebClient:
     # ----- auth -----
 
     def ensure_session(self) -> None:
-        """Run-level revalidation (2026-07-08): a session restored from
-        disk is only TRUSTED after a cheap /index probe. Expired ->
-        drop the file, fresh login (backoff-aware). Call once per run."""
+        """Login upfront if nothing restored. The /index probe from v50
+        is GONE: Growatt serves a 200 SPA shell even to dead sessions
+        (login redirect happens client-side), so the probe validated
+        zombies (2026-07-08, live). Staleness is now detected at the
+        point of truth instead: _request() sees the HTML-instead-of-JSON
+        signature and re-authenticates once per run."""
         if not self._logged_in:
             self.login()
-            return
-        if growatt_session.validate_web_session(
-                self._session, self._base, self._timeout):
-            return
-        LOG.warning("Growatt web session on disk is stale — dropping and "
-                    "logging in fresh")
+
+    def _reauth_once(self, reason: str) -> bool:
+        """Drop the dead session and login fresh (backoff-aware), at most
+        once per run. Returns True if a retry should happen."""
+        if self._reauth_done:
+            return False
+        self._reauth_done = True
+        LOG.warning("Growatt session stale (%s) — dropping and logging "
+                    "in fresh", reason)
         growatt_session.drop_session()
         self._session.cookies.clear()
         self._logged_in = False
         self.login()
+        return True
 
     def login(self) -> None:
         """
@@ -196,17 +204,26 @@ class GrowattWebClient:
             raise GrowattUnsafePathError(
                 f"Refusing to call mutation-shaped path: {path}"
             )
-        self.login()
-        resp = self._session.post(
-            f"{self._base}{path}",
-            data=body or {},
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Origin": self._base,
-                "Referer": f"{self._base}/index",
-            },
-            timeout=self._timeout,
-        )
+        for _attempt in (1, 2):
+            self.login()
+            resp = self._session.post(
+                f"{self._base}{path}",
+                data=body or {},
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Origin": self._base,
+                    "Referer": f"{self._base}/index",
+                },
+                timeout=self._timeout,
+            )
+            # Stale-session signature observed live 2026-07-08: HTTP 200
+            # with an HTML login page where JSON belongs. Heal at the
+            # point of truth — once per run.
+            if (resp.status_code == 200
+                    and resp.text.lstrip().startswith("<")
+                    and self._reauth_once(f"HTML from {path}")):
+                continue
+            return self._build_envelope(resp, path, body)
         return self._build_envelope(resp, path, body)
 
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
@@ -214,12 +231,18 @@ class GrowattWebClient:
             raise GrowattUnsafePathError(
                 f"Refusing to call mutation-shaped path: {path}"
             )
-        self.login()
-        resp = self._session.get(
-            f"{self._base}{path}",
-            params=params,
-            timeout=self._timeout,
-        )
+        for _attempt in (1, 2):
+            self.login()
+            resp = self._session.get(
+                f"{self._base}{path}",
+                params=params,
+                timeout=self._timeout,
+            )
+            if (resp.status_code == 200
+                    and resp.text.lstrip().startswith("<")
+                    and self._reauth_once(f"HTML from {path}")):
+                continue
+            return self._build_envelope(resp, path, params)
         return self._build_envelope(resp, path, params)
 
     @staticmethod

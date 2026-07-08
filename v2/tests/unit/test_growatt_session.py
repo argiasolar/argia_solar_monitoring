@@ -185,29 +185,27 @@ class TestSessionValidator:
 
 
 class TestEnsureSession:
+    """v50's /index probe validated zombies (Growatt serves a 200 SPA
+    shell to dead sessions — login redirect is client-side JS; observed
+    live 2026-07-08). Staleness detection now lives at the point of
+    truth: _post/_get see HTML-instead-of-JSON and re-auth once."""
+
     def _client_with_restored_session(self):
         from argia.vendors.growatt_web import GrowattWebClient
         s = requests.Session()
         s.cookies.set("assToken", "T1")
         gs.save_cookies(s)
         c = GrowattWebClient(username="u", password="p")
-        assert c._logged_in is True                # restored
+        assert c._logged_in is True
         return c
 
-    def test_valid_probe_no_login(self):
+    def test_restored_session_trusted_without_probe(self):
         c = self._client_with_restored_session()
-        with patch.object(gs, "validate_web_session", return_value=True), \
-             patch.object(c, "login") as login:
+        with patch.object(c, "login") as login, \
+             patch.object(c._session, "get") as get:
             c.ensure_session()
             login.assert_not_called()
-
-    def test_stale_probe_drops_and_relogs(self):
-        c = self._client_with_restored_session()
-        with patch.object(gs, "validate_web_session", return_value=False), \
-             patch.object(c, "login") as login:
-            c.ensure_session()
-            login.assert_called_once()
-        assert not gs.session_file().exists()      # stale file dropped
+            get.assert_not_called()               # no /index probe
 
     def test_not_logged_in_goes_straight_to_login(self):
         from argia.vendors.growatt_web import GrowattWebClient
@@ -221,3 +219,58 @@ class TestEnsureSession:
         v2 = Path(__file__).resolve().parents[2]
         tel = (v2 / "scripts" / "telemetry_5m.py").read_text(encoding="utf-8")
         assert tel.count("ensure_session()") == 2
+
+
+class TestSignatureReauth:
+    def _client(self):
+        from argia.vendors.growatt_web import GrowattWebClient
+        s = requests.Session()
+        s.cookies.set("assToken", "DEAD")
+        gs.save_cookies(s)
+        return GrowattWebClient(username="u", password="p")
+
+    def _resp(self, text):
+        r = MagicMock(status_code=200)
+        r.text = text
+        r.json.side_effect = ValueError
+        return r
+
+    def test_html_response_triggers_one_relogin_and_retry(self):
+        c = self._client()
+        html = self._resp("<html>login page</html>")
+        good = MagicMock(status_code=200, text='{"obj": {}}')
+        with patch.object(c._session, "post",
+                          side_effect=[html, good]) as post, \
+             patch.object(c, "login") as login:
+            c._post("/panel/getPlantData", {})
+            assert post.call_count == 2           # retried once
+            login.assert_called()                 # fresh login happened
+        assert not gs.session_file().exists()     # dead session dropped
+
+    def test_reauth_happens_at_most_once_per_run(self):
+        c = self._client()
+        html = self._resp("<html>still login</html>")
+        with patch.object(c._session, "post",
+                          side_effect=[html, html, html]) as post, \
+             patch.object(c, "login"):
+            c._post("/panel/getPlantData", {})    # reauth + retry, gives up
+            c._post("/panel/getPlantData", {})    # NO second reauth
+            assert post.call_count == 3           # 2 + 1, not 2 + 2
+
+    def test_backoff_during_reauth_propagates(self):
+        c = self._client()
+        gs.mark_login_failure()
+        html = self._resp("<html>login</html>")
+        c._logged_in = True                        # restored, so first
+        with patch.object(c._session, "post", return_value=html):
+            with pytest.raises(gs.LoginBackoff):
+                c._post("/panel/getPlantData", {})  # reauth hits backoff
+
+    def test_json_response_never_touches_reauth(self):
+        c = self._client()
+        good = MagicMock(status_code=200, text='{"obj": {}}')
+        with patch.object(c._session, "post", return_value=good) as post, \
+             patch.object(c, "login") as login:
+            c._post("/panel/getPlantData", {})
+            assert post.call_count == 1
+        assert gs.session_file().exists()          # session untouched

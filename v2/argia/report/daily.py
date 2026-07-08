@@ -38,6 +38,7 @@ from argia.archive.kpi_daily import KPI_DAILY_TAB
 from argia.alerts.digest import reportable_alerts
 from argia.core.alerts_state import AlertRecord, load_alerts_ledger
 from argia.core.config import Portfolio
+from argia.core.constants import CO2_KG_PER_KWH
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
 from argia.kpi import compute_plant_energy, read_day_bundle
@@ -155,12 +156,6 @@ def short_name(p: PlantDay) -> str:
             or p.plant_key)
 
 
-# Mexico national grid emission factor (SEMARNAT/CRE annual electric
-# emission factor, ~0.435 tCO2e per MWh). Standard basis for "avoided
-# emissions" claims on grid-displacing solar.
-MX_GRID_KG_CO2_PER_KWH = 0.435
-
-
 def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
     """Portfolio-level numbers for the summary block. Pure.
 
@@ -197,7 +192,7 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
         "kwp": kwp,
         "availability": avail,
         "income_mxn": income if income else None,
-        "co2_kg": fe * MX_GRID_KG_CO2_PER_KWH,
+        "co2_kg": fe * CO2_KG_PER_KWH,
     }
 
 
@@ -635,8 +630,8 @@ def render_html(data: ReportData) -> str:
         f'only plants whose sun was reliably measured that day; energy, '
         f'income and CO&#8322; always count every plant. Income (est.) = '
         f'energy &#215; PPA tariff, before billing adjustments. '
-        f'CO&#8322; avoided uses the SEMARNAT/CRE national grid emission '
-        f'factor (0.435 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'CO&#8322; avoided uses the national grid emission '
+        f'factor (0.444 kg/kWh). Portfolio availability is kWp-weighted. '
         f'Evening editions carry live telemetry-derived energy ahead of '
         f'the final KPI numbers mailed the next morning.'
         f'</footer></div></body></html>')

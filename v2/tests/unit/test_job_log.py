@@ -90,3 +90,38 @@ class TestAllJobsAreWired:
         gate = m.main._job_log_write_if
         assert gate(["--apply"]) is True
         assert gate([] if needs_apply else ["--dry-run"]) is False
+
+
+class TestQuotaRetry20260708:
+    """kpi-eod's ~50 stamp writes consumed the 60/min Sheets quota and
+    the SyncRuns append — the run's LAST write — got a 429: heavy jobs
+    silently lost their log row. One retry after the quota window."""
+
+    def _run(self, side_effects, monkeypatch):
+        sleeps = []
+        monkeypatch.setattr("argia.core.job_log.time.sleep",
+                            lambda s: sleeps.append(s))
+        fake = MagicMock()
+        fake.append_rows.side_effect = side_effects
+        with patch("argia.core.sheets.SheetsClient", return_value=fake):
+            with patch.dict("os.environ", {"GOOGLE_SHEET_ID_V2": "s1"}):
+                from argia.core.job_log import _append_row
+                _append_row(["r"])
+        return fake, sleeps
+
+    def test_429_waits_and_retries_once(self, monkeypatch):
+        fake, sleeps = self._run(
+            [Exception("HttpError 429 ... RATE_LIMIT_EXCEEDED"), None],
+            monkeypatch)
+        assert fake.append_rows.call_count == 2
+        assert sleeps == [65]
+
+    def test_non_quota_error_does_not_retry(self, monkeypatch):
+        with pytest.raises(Exception, match="denied"):
+            self._run([Exception("403 permission denied")], monkeypatch)
+
+    def test_second_429_gives_up_as_best_effort(self, monkeypatch):
+        # the instrument's outer best-effort catch handles the re-raise
+        with pytest.raises(Exception, match="429"):
+            self._run([Exception("429 RATE_LIMIT"),
+                       Exception("429 RATE_LIMIT")], monkeypatch)

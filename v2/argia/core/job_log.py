@@ -32,6 +32,7 @@ import os
 import secrets
 import socket
 import sys
+import time
 from typing import Callable, List, Optional
 
 LOG = logging.getLogger(__name__)
@@ -60,7 +61,21 @@ def _append_row(row: List) -> None:
         LOG.warning("job_log: GOOGLE_SHEET_ID_V2 not set — skipping "
                     "SyncRuns row")
         return
-    SheetsClient(sheet_id=sheet_id).append_rows(SYNC_TAB, [row])
+    client = SheetsClient(sheet_id=sheet_id)
+    try:
+        client.append_rows(SYNC_TAB, [row])
+    except Exception as e:  # noqa: BLE001
+        # 2026-07-08: kpi-eod's ~50 stamp writes ate the 60/min quota and
+        # the SyncRuns append — the LAST write of the run — got the 429.
+        # Heavy jobs were silently losing their log row. The quota is
+        # per-minute: wait out the window and retry ONCE.
+        if "429" not in str(e) and "RATE_LIMIT" not in str(e).upper():
+            raise
+        wait = int(os.environ.get("ARGIA_JOBLOG_RETRY_S", "65"))
+        LOG.warning("job_log: Sheets write quota hit — retrying the "
+                    "SyncRuns row in %ss", wait)
+        time.sleep(wait)
+        client.append_rows(SYNC_TAB, [row])
 
 
 def instrument(script: str,

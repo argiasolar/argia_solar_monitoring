@@ -506,3 +506,20 @@ class TestAuditTextsCurrent20260708:
                        "PPA tariff", "reliably measured",
                        "Evening editions"):
             assert phrase in footer, f"footer missing: {phrase}"
+
+
+class TestDesignCardAndEveningFallback20260708:
+    def test_seventh_card_renders_of_design(self):
+        p = _plant(pk="NL1", name="PO", e=3200.0, x=2900.0,
+                   pp=1.10, av=1.0, design_kwh=3119.5)
+        html = render_html(ReportData(date_iso="2026-07-08",
+                                      plants=[p], alerts=[]))
+        cards = html.split('class="pstats"')[1].split("</section>")[0]
+        assert cards.count('class="pstat"') == 7
+        assert "Of design" in cards
+        assert "repeat(7,1fr)" in html            # WeasyPrint: fixed count
+
+    def test_no_design_card_shows_dash(self):
+        html = render_html(TestRenderSmoke()._data())
+        cards = html.split('class="pstats"')[1].split("</section>")[0]
+        assert cards.count('class="pstat"') == 7  # card always present

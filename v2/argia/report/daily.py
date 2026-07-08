@@ -27,6 +27,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from argia.kpi.design import design_kwh_for_day, load_design_monthly
 from argia.analytics.acute import TEMP_CRIT_C, TEMP_WARN_C
 from argia.analytics.inverter_health import (
     InverterReading,
@@ -383,13 +384,13 @@ margin-bottom:6px}
 .portsummary{background:var(--card);border:1px solid var(--line);
 border-radius:10px;padding:16px 18px;margin:16px 0 6px}
 .portsentence{font-size:15px;margin:8px 0 14px;line-height:1.5}
-.pstats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.pstats{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
 .pstat{background:var(--paper);border:1px solid var(--line);
 border-radius:8px;padding:10px 12px;text-align:center}
 .pstatv{font-size:19px;font-weight:700}
 .pstatu{font-size:11px;color:var(--mut);font-weight:400}
 .pstatk{font-size:11px;color:var(--mut);margin-top:2px}
-@media(max-width:720px){.pstats{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:720px){.pstats{grid-template-columns:repeat(4,1fr)}}
 h2{font-size:13px;font-weight:600;color:var(--ink);margin:26px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);
 border-radius:10px;padding:14px 16px}
@@ -497,6 +498,9 @@ def render_html(data: ReportData) -> str:
         + stat("Income (est.)",
                f"${stats['income_mxn']:,.0f}" if stats["income_mxn"]
                else "&#8212;", " MXN")
+        + stat("Of design",
+               f"{stats['design_pct'] * 100:.0f}"
+               if stats["design_pct"] is not None else "&#8212;", "%")
         + stat("CO&#8322; avoided", f"{stats['co2_kg'] / 1000:.1f}", " t")
     )
     summary_block = (
@@ -680,6 +684,11 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             "note": normalize_text(cell("status_note")),
         }
 
+    # Contract design fallback: evening (live) editions and pre-stamp
+    # days have no KPI design cell — compute it from the Design_Monthly
+    # tab directly. Static data, so this is exact, not an estimate.
+    design_map = load_design_monthly(sheets)
+
     # per-inverter from telemetry
     bundle = read_day_bundle(sheets, date_iso)
     rated = {i.inverter_sn: i.rated_kw
@@ -743,7 +752,9 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             status_note=note, inverters=invs,
             kwp_dc=getattr(plant, "kwp_dc", None),
             tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None),
-            design_kwh=k.get("design")))
+            design_kwh=(k.get("design")
+                        or design_kwh_for_day(design_map,
+                                              plant.plant_key, date_iso))))
 
     ledger = load_alerts_ledger(sheets)
     alerts = reportable_alerts(ledger.records)

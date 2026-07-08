@@ -85,3 +85,17 @@ class TestWiring:
         kpi = (v2 / "scripts" / "kpi_eod.py").read_text(encoding="utf-8")
         assert "load_design_monthly(sheets)" in kpi
         assert 'stamp_column(sheets, "design_kwh", design_stamps' in kpi
+
+
+class TestReportBuilderFallback:
+    def test_builder_uses_tab_when_kpi_cell_empty(self):
+        """Evening (live) editions have no KPI row — design comes from
+        the Design_Monthly tab directly, so the contract comparison
+        exists in BOTH daily editions."""
+        from pathlib import Path
+        v2 = Path(__file__).resolve().parents[2]
+        src = (v2 / "argia" / "report" / "daily.py").read_text(
+            encoding="utf-8")
+        assert "load_design_monthly(sheets)" in src
+        assert 'k.get("design")\n' in src or 'k.get("design")' in src
+        assert "design_kwh_for_day(design_map" in src

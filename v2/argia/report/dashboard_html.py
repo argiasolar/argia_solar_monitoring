@@ -320,9 +320,15 @@ _TEMPLATE = """<!DOCTYPE html>
   // Completed days keep the full-day comparison.
   function cutLive(rows, day) {
     if (day !== mxTodayIso()) return rows;
+    // STRICTLY before the current hour (2026-07-08): the in-flight
+    // bucket is mid-birth — datalogger phase offsets mean some inverters
+    // trail by one sample at the boundary, and judging that bucket
+    // branded two healthy NL1 inverters OFFLINE with phantom loss. The
+    // banner has always promised "last complete hour"; now the code
+    // agrees.
     var h = mxNow().getHours();
     return rows.filter(function (r) {
-      return parseInt(r.hour_label, 10) <= h; });
+      return parseInt(r.hour_label, 10) < h; });
   }
   function expLabel(day) {
     document.getElementById('cExpLbl').textContent =

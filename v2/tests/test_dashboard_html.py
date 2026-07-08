@@ -242,7 +242,10 @@ class TestFeatureRegressions20260705:
         assert "if (day !== mxTodayIso()) return rows;" in H._TEMPLATE
         # regression 2026-07-06: the IN-PROGRESS hour must be kept (<=, not <)
         # — cutting it hid the first real data after an overnight gap
-        assert "parseInt(r.hour_label, 10) <= h" in H._TEMPLATE
+        # 2026-07-08 supersedes <=: the in-flight bucket is excluded
+        # (see TestInFlightBucketExcluded20260708) — "last complete
+        # hour", exactly as the banner always promised.
+        assert "parseInt(r.hour_label, 10) < h" in H._TEMPLATE
         # both draw paths apply the cut
         assert H._TEMPLATE.count("cutLive(") >= 4
 
@@ -411,3 +414,14 @@ class TestGapDayPctSuppressed20260708:
         assert "if (gapDay) pct = null;" in t
         assert "pct: (theo > 0 && !lateSet[pk])" in t
         assert "var pct = (theo > 0 && !late.length)" in t
+
+
+class TestInFlightBucketExcluded20260708:
+    def test_cutlive_is_strictly_before_current_hour(self):
+        """10:02 page judged the 10:00 bucket 2 minutes into its life:
+        datalogger phase offsets left 2 of 4 NL1 inverters momentarily
+        sampleless -> phantom OFFLINE chips, 67% availability, $18 loss.
+        The banner promises "last complete hour"; the filter now agrees."""
+        t = H._TEMPLATE
+        assert "parseInt(r.hour_label, 10) < h" in t
+        assert "parseInt(r.hour_label, 10) <= h" not in t

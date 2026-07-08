@@ -405,7 +405,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
   function invSortKey(label, sn) {
     // "Inverter 12" -> 12; unnumbered labels sort after, alphabetically
-    var m = /(\d+)\s*$/.exec(label || '');
+    var m = /(\\d+)\\s*$/.exec(label || '');
     return [m ? parseInt(m[1], 10) : 1e9, label || sn];
   }
 

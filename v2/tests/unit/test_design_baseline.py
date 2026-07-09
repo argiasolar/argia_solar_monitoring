@@ -33,13 +33,20 @@ class TestLoadDesignMonthly:
         assert d[("NL1", 2026, 7)] == 96706.0
         assert d[("SLP1", 2026, 7)] == 25011.0   # case + string tolerant
 
-    def test_lowercase_tab_fallback(self):
+    def test_tab_fallback_order(self):
+        # v61: Contract_Monthly became the primary design source; the
+        # legacy names remain as fallbacks. This test previously pinned
+        # ("Design_Monthly", "design_monthly") — consciously rewritten
+        # for the new candidate chain.
         m = MagicMock(spec=SheetsClient)
         m.read_range.side_effect = [RuntimeError("no such tab"),
+                                    RuntimeError("no such tab"),
                                     [HDR, ["NL1", 2026, 7, 96706]]]
         d = load_design_monthly(m)
         assert d[("NL1", 2026, 7)] == 96706.0
-        assert m.read_range.call_args_list[1][0][0] == "design_monthly"
+        attempts = [c[0][0] for c in m.read_range.call_args_list]
+        assert attempts == ["Contract_Monthly", "Design_Monthly",
+                            "design_monthly"]
 
     def test_missing_tab_degrades_to_empty(self):
         m = MagicMock(spec=SheetsClient)

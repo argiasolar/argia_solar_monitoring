@@ -71,6 +71,13 @@ class PlantConfig:
     """Energy price for the customer at this site, MXN/kWh. Used to
     convert PR loss into pesos for cost-benefit decisions."""
 
+    # v61 — finance layer
+    om_cost_monthly_mxn: Optional[float] = None
+    """Average monthly O&M cost for this plant, MXN (manual entry).
+    Feeds the investor report's opex line; prorated for partial
+    ranges. None/blank = not provided, opex line shows 0 for the
+    plant with a footnote."""
+
 
 @dataclass(frozen=True)
 class InverterConfig:
@@ -237,6 +244,9 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
                 pr_baseline=_optional_float(row.get("pr_baseline")),
                 tariff_mxn_per_kwh=_optional_float(row.get("tariff_mxn_per_kwh")),
                 gamma_pmax=_optional_float(row.get("gamma_pmax")),
+                # v61
+                om_cost_monthly_mxn=_optional_float(
+                    row.get("om_cost_monthly_mxn")),
             )
         except (ValueError, TypeError) as e:
             LOG.warning("Skipping malformed Plants row %s: %s", plant_key, e)

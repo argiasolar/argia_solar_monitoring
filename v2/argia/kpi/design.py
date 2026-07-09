@@ -23,7 +23,11 @@ from typing import Dict, Optional, Tuple
 
 LOG = logging.getLogger(__name__)
 
-DESIGN_TAB_CANDIDATES = ("Design_Monthly", "design_monthly")
+# Contract_Monthly (v61) carries design_kwh as its 4th column with the
+# same header names, so it is a drop-in primary source; the legacy
+# Design_Monthly names remain as fallbacks during the transition.
+DESIGN_TAB_CANDIDATES = ("Contract_Monthly", "Design_Monthly",
+                         "design_monthly")
 DesignMap = Dict[Tuple[str, int, int], float]
 
 

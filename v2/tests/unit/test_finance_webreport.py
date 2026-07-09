@@ -157,3 +157,34 @@ class TestApprovedDesign:
         h = self._html()
         for card_id in ("c_exp", "c_act", "c_net", "c_de", "c_da"):
             assert 'id="%s"' % card_id in h
+
+
+class TestEmbeddedJsIsValid:
+    """Regression for 2026-07-09: an unescaped apostrophe inside a
+    single-quoted JS string killed the entire script at parse time and
+    the published page rendered empty. Where node is available, the
+    embedded script must pass a real syntax check; the pure-Python
+    guard below runs everywhere."""
+
+    def _script(self):
+        import re
+        h = render_financial_report_html(_atoms(), generated_at="t")
+        return re.search(r"<script>(.*)</script>", h, re.S).group(1)
+
+    def test_script_passes_node_syntax_check(self, tmp_path):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            import pytest as _pytest
+            _pytest.skip("node not available on this machine")
+        js = tmp_path / "embedded.js"
+        js.write_text(self._script())
+        res = subprocess.run([node, "--check", str(js)],
+                             capture_output=True, text=True)
+        assert res.returncode == 0, res.stderr
+
+    def test_logo_is_the_dashboards(self):
+        from argia.report.dashboard_html import LOGO_B64
+        h = render_financial_report_html(_atoms(), generated_at="t")
+        assert LOGO_B64[:60] in h

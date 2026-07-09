@@ -127,6 +127,16 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
 
 
 def _logo_uri() -> str:
+    """The dashboard's embedded logotype (851x96) — imported so the
+    financial report and the performance dashboard carry the IDENTICAL
+    image; the repo PNG asset is the fallback. The asset has a much
+    squarer aspect ratio, so at the same 28px height it rendered
+    visibly smaller than the dashboard's (user report, 2026-07-09)."""
+    try:
+        from argia.report.dashboard_html import LOGO_B64
+        return "data:image/png;base64," + LOGO_B64
+    except ImportError:
+        pass
     try:
         return ("data:image/png;base64,"
                 + base64.b64encode(LOGO_PATH.read_bytes()).decode())
@@ -342,7 +352,7 @@ function recompute() {{
       .reduce((acc,p)=>acc+sumRange(p.key,a,b).svc, 0);
   document.getElementById("fxline").innerHTML = T.svc>0
     ? '<b>FX position:</b> ' + (usdSvc/T.svc*100).toFixed(1)
-      + '% of the selection\'s debt service is USD-denominated, matched by '
+      + '% of the selected debt service is USD-denominated, matched by '
       + 'USD-indexed LaaS fees at the same rate &mdash; net portfolio FX '
       + 'exposure &asymp; zero. ' : '';
   const set = (id,v)=>document.getElementById(id).textContent=v;

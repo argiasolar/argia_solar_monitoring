@@ -46,25 +46,15 @@ log = logging.getLogger("argia.report_daily")
 REPORTS_FOLDER_NAME = "Reports"
 
 
-def html_to_pdf(html_path: str, pdf_path: str) -> None:
-    """Print the HTML to PDF with headless Chromium — renders the inline
-    SVG charts and web fonts exactly as a browser does."""
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(f"file://{os.path.abspath(html_path)}")
-        page.wait_for_load_state("networkidle")   # let fonts arrive
-        page.pdf(path=pdf_path, format="A4",
-                 margin={"top": "12mm", "bottom": "12mm",
-                         "left": "10mm", "right": "10mm"},
-                 print_background=True)
-        browser.close()
+# v64: html_to_pdf and the outbox helpers moved to argia.report.output
+# (shared with the finance report). Re-exported here so existing imports
+# (tests, notifier docs) keep working.
+from argia.report.output import (
+    OUTBOX_HEADER, OUTBOX_TAB, append_outbox, html_to_pdf,
+)
 
-
-OUTBOX_TAB = "Report_Outbox"
-OUTBOX_HEADER = ["date_iso", "kind", "pdf_file_id", "html_file_id",
-                 "created_utc", "notified_at", "channel"]
+# re-exported names (tests and the notifier contract import them here)
+__all__ = ["OUTBOX_HEADER", "OUTBOX_TAB", "append_outbox", "html_to_pdf"]
 
 
 def resolve_report_date(date_arg, when, now_mx_dt) -> str:
@@ -77,23 +67,6 @@ def resolve_report_date(date_arg, when, now_mx_dt) -> str:
     return d.isoformat()
 
 
-def append_outbox(sheets, *, date_iso: str, kind: str,
-                  pdf_file_id: str | None, html_file_id: str | None,
-                  now_utc_iso: str, channel: str = "reporting") -> None:
-    """Queue the uploaded report for e-mail delivery.
-
-    The Apps Script notifier (docs/notifier.gs) scans this APPEND-ONLY tab
-    every few minutes, mails rows whose notified_at is empty (PDF attached
-    from Drive), and stamps notified_at. Append-only means the stamp can
-    never be wiped by a rewrite — unlike the engine-owned Alerts tab, which
-    is why alerts use a separate ledger instead.
-    """
-    sheets.ensure_tab(OUTBOX_TAB)
-    sheets.ensure_header(OUTBOX_TAB, OUTBOX_HEADER)
-    sheets.append_rows(OUTBOX_TAB, [[
-        date_iso, kind, pdf_file_id or "", html_file_id or "",
-        now_utc_iso, "", channel,
-    ]])
 
 
 from argia.core.job_log import instrument

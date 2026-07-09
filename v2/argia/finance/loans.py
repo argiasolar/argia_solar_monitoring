@@ -22,9 +22,13 @@ Design rules (learned from v1's failure modes):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Dict, List, Optional, Tuple
+
+from argia.core.normalize import safe_float
+from argia.report.daily import date_key
 
 LOG = logging.getLogger(__name__)
 
@@ -78,23 +82,27 @@ class ScheduleRow:
 
 
 def _f(value) -> Optional[float]:
-    if value is None:
-        return None
-    s = str(value).strip()
-    if s == "":
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        return None
+    # safe_float strips thousands commas — the Sheets API returns
+    # FORMATTED values ("94,668.89"), which plain float() rejects.
+    # That parsing gap made the live schedule load empty (v64 incident).
+    return safe_float(value)
+
+
+_YM = re.compile(r"^\d{4}-\d{2}$")
 
 
 def _month_str(value) -> str:
-    """Normalize a sheet cell to 'YYYY-MM' (accepts date, datetime,
-    'YYYY-MM', 'YYYY-MM-DD...')."""
-    if hasattr(value, "year"):
-        return "%04d-%02d" % (value.year, value.month)
-    return str(value or "").strip()[:7]
+    """Normalize a sheet cell to 'YYYY-MM'.
+
+    The live sheet auto-parsed the migration's "2024-10" strings into
+    date cells, which read back as US-formatted strings ("10/1/2024"),
+    serial numbers, or datetimes depending on render option. date_key
+    handles all of those; plain 'YYYY-MM' strings pass through."""
+    s = str(value or "").strip()
+    if _YM.match(s):
+        return s
+    iso = date_key(value)
+    return iso[:7] if iso else s[:7]
 
 
 def current_month(today: Optional[date] = None) -> str:

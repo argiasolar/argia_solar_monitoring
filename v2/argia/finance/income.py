@@ -29,8 +29,10 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from argia.core.normalize import safe_float
 from argia.finance.contract import ContractMonth, MonthKey
 from argia.finance.loans import ScheduleRow
+from argia.report.daily import date_key
 
 LOG = logging.getLogger(__name__)
 
@@ -75,11 +77,11 @@ class Period:
             cursor = m_end + timedelta(days=1)
         return out
 
-    def contains_iso(self, date_iso: str) -> bool:
-        try:
-            d = date.fromisoformat(str(date_iso)[:10])
-        except ValueError:
+    def contains_iso(self, date_iso) -> bool:
+        iso = date_key(date_iso)
+        if not iso:
             return False
+        d = date.fromisoformat(iso)
         return self.start <= d <= self.end
 
 
@@ -113,16 +115,15 @@ def load_kpi_energy(sheets, period: Period) -> Dict[Tuple[str, str], float]:
     out: Dict[Tuple[str, str], float] = {}
     for row in data[1:]:
         try:
-            d_iso = str(row[idx["date_iso"]])[:10]
+            d_iso = date_key(row[idx["date_iso"]])
             pk = str(row[idx["plant_key"]]).strip().upper()
             raw = row[energy_col] if energy_col < len(row) else None
         except IndexError:
             continue
-        if not pk or not period.contains_iso(d_iso):
+        if not pk or not d_iso or not period.contains_iso(d_iso):
             continue
-        try:
-            kwh = float(raw)
-        except (TypeError, ValueError):
+        kwh = safe_float(raw)   # comma-tolerant; see v64 incident
+        if kwh is None:
             continue
         out[(pk, d_iso)] = kwh
     return out

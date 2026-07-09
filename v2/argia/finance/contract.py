@@ -95,15 +95,9 @@ class ContractMonth:
 
 
 def _f(value) -> Optional[float]:
-    if value is None:
-        return None
-    s = str(value).strip()
-    if s == "":
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        return None
+    # comma-tolerant (Sheets FORMATTED values); see v64 incident
+    from argia.core.normalize import safe_float
+    return safe_float(value)
 
 
 def load_contract_monthly(sheets) -> Dict[MonthKey, ContractMonth]:
@@ -136,8 +130,8 @@ def load_contract_monthly(sheets) -> Dict[MonthKey, ContractMonth]:
     for row in data[1:]:
         try:
             pk = str(cell(row, "plant_key") or "").strip().upper()
-            year = int(float(cell(row, "year")))
-            month = int(float(cell(row, "month")))
+            year = int(_f(cell(row, "year")))
+            month = int(_f(cell(row, "month")))
         except (TypeError, ValueError):
             bad += 1
             continue

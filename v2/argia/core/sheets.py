@@ -372,6 +372,44 @@ class SheetsClient:
             }]},
         ).execute()
 
+    def set_header_notes(self, tab: str, notes: Dict[str, str]) -> int:
+        """Attach a Google Sheets note (hover comment) to header cells.
+
+        ``notes`` maps header text -> note text. Header names are
+        matched case-insensitively against row 1. Returns how many
+        notes were set; unknown columns are logged and skipped, never
+        fatal. Used for data-provenance annotations ("value comes from
+        contract", "manual input", ...) so the audit trail lives inside
+        the sheet itself.
+        """
+        header = [str(c or "").strip()
+                  for c in (self.read_range(tab, "A1:ZZ1") or [[]])[0]]
+        lookup = {h.lower(): i for i, h in enumerate(header) if h}
+        gid = self._tab_gid(tab)
+        requests = []
+        missing = []
+        for name, note in notes.items():
+            i = lookup.get(name.lower())
+            if i is None:
+                missing.append(name)
+                continue
+            requests.append({"updateCells": {
+                "range": {"sheetId": gid, "startRowIndex": 0,
+                          "endRowIndex": 1, "startColumnIndex": i,
+                          "endColumnIndex": i + 1},
+                "rows": [{"values": [{"note": note}]}],
+                "fields": "note"}})
+        if missing:
+            LOG.warning("set_header_notes(%s): columns not found: %s",
+                        tab, missing)
+        if requests:
+            self._svc.spreadsheets().batchUpdate(
+                spreadsheetId=self.sheet_id,
+                body={"requests": requests},
+            ).execute()
+            LOG.info("Set %d header note(s) on '%s'", len(requests), tab)
+        return len(requests)
+
     def freeze_and_bold_header(self, tab: str) -> None:
         """Freeze row 1 and make it bold — the standard tab header look."""
         gid = self._tab_gid(tab)

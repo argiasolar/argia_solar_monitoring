@@ -36,12 +36,40 @@ class TestEvaluateAcute:
         samples = [_s(10, "A"), _s(10, "B"), _s(10, "C", plant="MEX1")]
         assert evaluate_acute(samples, PLANTS, NOW) == []
 
-    def test_fault_token_in_latest_sample_fires(self):
-        samples = [_s(10, "A", fault="FT=302"), _s(10, "B")]
+    # Consciously rewritten (fault look-back change): faults are now
+    # judged over the last FAULT_LOOKBACK_MIN across ALL samples, with
+    # MIN_FAULT_SAMPLES as the evidence bar — a single-sample blip no
+    # longer fires, and a self-recovered transient (the JFM5D8900B
+    # FT=302 case: two samples that cleared before the tick) now does.
+    def test_two_fault_samples_in_lookback_fire(self):
+        samples = [_s(15, "A", fault="FT=302"),
+                   _s(10, "A", fault="FT=302"), _s(5, "A"), _s(5, "B")]
         b = evaluate_acute(samples, PLANTS, NOW)
         assert len(b) == 1
         assert b[0].metric == "inverter_fault"
         assert b[0].severity is Severity.CRITICAL and b[0].inverter_sn == "A"
+        assert "2 samples" in b[0].message and "FT=302" in b[0].message
+
+    def test_single_fault_blip_does_not_fire(self):
+        samples = [_s(10, "A", fault="FT=302"), _s(5, "A"), _s(5, "B")]
+        assert all(x.metric != "inverter_fault"
+                   for x in evaluate_acute(samples, PLANTS, NOW))
+
+    def test_recovered_transient_fires_even_with_healthy_latest(self):
+        # the exact 2026-07-09 shape: faults at T-24 and T-19 min,
+        # healthy samples since — latest-sample-only missed this.
+        samples = [_s(24, "A", fault="FT=302"),
+                   _s(19, "A", fault="FT=302"),
+                   _s(14, "A"), _s(9, "A"), _s(4, "A")]
+        b = evaluate_acute(samples, PLANTS, NOW)
+        assert any(x.metric == "inverter_fault" and x.inverter_sn == "A"
+                   for x in b)
+
+    def test_fault_samples_older_than_lookback_ignored(self):
+        samples = [_s(50, "A", fault="FT=302"),
+                   _s(45, "A", fault="FT=302"), _s(5, "A")]
+        assert all(x.metric != "inverter_fault"
+                   for x in evaluate_acute(samples, PLANTS, NOW))
 
     def test_huawei_state_tokens_do_not_fire(self):
         samples = [_s(10, "A", plant="MEX1", fault="IS=512,RS=1")]
@@ -98,7 +126,8 @@ class TestEvaluateAcute:
         assert evaluate_acute(samples, PLANTS, night) == []
 
     def test_mapper_keys_match_daily_tier(self):
-        samples = [_s(10, "A", fault="FT=302"),
+        samples = [_s(15, "A", fault="FT=302"),
+                   _s(10, "A", fault="FT=302"),
                    _s(10, "A", plant="MEX1", power=0.0),
                    _s(10, "B", plant="MEX1", power=0.0)]
         cands = {c.metric: c for c in

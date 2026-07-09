@@ -8,7 +8,6 @@ Contract under test:
   uploads with the right headers, and fails loudly on a bad HTTP status
 """
 
-import datetime as dt
 import importlib
 import json
 import re
@@ -451,3 +450,22 @@ class TestCoveredHoursPct20260708:
         assert "covered hrs" in t                 # headline marker
         assert "over covered hours only" in t     # table tooltip
         assert "pct = coveredPct(prows, lateSetOf(late)[pk]);" in t
+
+
+# --- fault events bypass the in-flight cutoff (display-only) ----------------
+
+def test_fault_events_js_reads_uncut_rows():
+    """The events map must be built from ALL-day rows BEFORE cutLive —
+    classification honors the in-flight rule, raw fault facts do not."""
+    html = H.render([_plant_row()], [_inv_row()], generated_at="t")
+    assert "faultEventsByInv" in html
+    assert html.index("faultEventsByInv(irowsAllDay)") < \
+        html.index("cutLive(irowsAllDay, day)")
+    assert "fault today:" in html
+
+
+def test_fault_events_field_embedded_in_payload():
+    html = H.render([_plant_row()],
+                    [_inv_row(fault_events="FT=302 x2 13:06-13:11")],
+                    generated_at="t")
+    assert "FT=302 x2 13:06-13:11" in html

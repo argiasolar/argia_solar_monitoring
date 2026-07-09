@@ -5,7 +5,7 @@ Runs frequently during daylight, right behind telemetry collection, so
 conditions that are evidence from a SINGLE sample surface within one cycle
 instead of tomorrow morning:
 
-    inverter_fault       fault token in an inverter's latest sample
+    inverter_fault       >=2 fault samples in the last 35 min (look-back)
     inverter_temp_high   latest internal temperature >= 65/75 degC
     plant_offline        the WHOLE plant at 0 W mid-daylight
     data_stale           plant's newest sample older than 2 h of daylight
@@ -34,7 +34,6 @@ import datetime as dt
 import logging
 import os
 import sys
-from typing import List
 
 from argia.alerts.engine import candidate_from_acute_breach, reconcile_alerts
 from argia.analytics.acute import (

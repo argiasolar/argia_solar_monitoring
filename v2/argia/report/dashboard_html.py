@@ -29,7 +29,7 @@ PLANT_FIELDS = [
 INVERTER_FIELDS = [
     "date_mx", "hour_label", "plant_key", "inverter_sn", "inverter_label",
     "energy_kwh", "temperature_c", "status", "status_reason",
-    "est_loss_kwh",
+    "est_loss_kwh", "fault_events",
 ]
 
 # Argia Solar logotype (transparent PNG, 851x96, ~18 KiB) embedded so the
@@ -501,6 +501,20 @@ _TEMPLATE = """<!DOCTYPE html>
   var AVAIL_ASSESS = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1,
                        FAULT: 1, OFFLINE: 1 };
 
+  // Fault events for the day, from UNCUT rows: the in-flight-hour rule
+  // (cutLive) protects CLASSIFICATION from mid-birth buckets, but a raw
+  // vendor fault is a fact, not a judgement — it must show regardless of
+  // which hour it happened in (JFM5D8900B FT=302 lesson, 2026-07-09).
+  function faultEventsByInv(irowsAllDay) {
+    var ev = {};
+    irowsAllDay.forEach(function (r) {
+      if (r.fault_events) {
+        (ev[r.inverter_sn] = ev[r.inverter_sn] || []).push(r.fault_events);
+      }
+    });
+    return ev;
+  }
+
   function aggInverters(irows, producingHours) {
     var agg = {};
     irows.forEach(function (r) {
@@ -540,8 +554,10 @@ _TEMPLATE = """<!DOCTYPE html>
     var gapDay = !!lateSetOf(late)[pk];
     var prows = cutLive(DATA.plant_rows.filter(function (r) {
       return r.plant_key === pk && r.date_mx === day; }), day);
-    var irows = cutLive(DATA.inverter_rows.filter(function (r) {
-      return r.plant_key === pk && r.date_mx === day; }), day);
+    var irowsAllDay = DATA.inverter_rows.filter(function (r) {
+      return r.plant_key === pk && r.date_mx === day; });
+    var faultEv = faultEventsByInv(irowsAllDay);
+    var irows = cutLive(irowsAllDay, day);
 
     var prod = 0, theo = 0, faulted = 0, ntot = 0;
     prows.forEach(function (r) {
@@ -609,6 +625,10 @@ _TEMPLATE = """<!DOCTYPE html>
       var reasonTxt = a.reason || '';
       if (tNote) reasonTxt = reasonTxt
         ? reasonTxt + ' \u00b7 ' + tNote : tNote;
+      if (faultEv[a.sn]) {
+        var evTxt = '\u26a1 fault today: ' + faultEv[a.sn].join('; ');
+        reasonTxt = reasonTxt ? reasonTxt + ' \u00b7 ' + evTxt : evTxt;
+      }
       var avCol = av === null ? '#6b6a64'
         : av < 90 ? '#a32d2d' : av < 98 ? '#854f0b' : '#0f6e56';
       var lossCell = a.loss < 0.5 ? '\u2013'

@@ -50,10 +50,9 @@ DAYLIGHT_WM2 = 50.0          # avg irradiance above this => sun is up
 # Status classification is DELEGATED to the shared module — one state
 # machine for every consumer (see argia/analytics/status.py). Vocabulary
 # constants are re-exported here so existing imports keep working.
+from argia.analytics.vendor_flags import fault_tokens  # noqa: E402
 from argia.analytics.status import (  # noqa: E402
-    DERATED,
     FAULT,
-    IDLE_NIGHT,
     NO_DATA,
     OFFLINE,
     ONLINE,
@@ -389,6 +388,24 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 temp = last.temperature_c if last else None
                 power = last.power_w if last else None
                 status, reason = statuses[sn]
+                # Fault events: judged over ALL samples in the bucket,
+                # not the last one. A mid-bucket transient (JFM5D8900B
+                # FT=302 13:06-13:11, 2026-07-09) was erased because the
+                # bucket's LAST sample was healthy again — the status
+                # machine stays last-sample-based (v55 family of rules),
+                # but the raw fact of the fault must survive to the UI.
+                f_hits = [s for s in by_inv.get((pk, sn), [])
+                          if b_start <= s.ts < b_end
+                          and fault_tokens(s.fault_code)]
+                fault_events = ""
+                if f_hits:
+                    f_codes = ",".join(sorted(
+                        {t for s in f_hits
+                         for t in fault_tokens(s.fault_code)}))
+                    fault_events = "%s x%d %s-%s" % (
+                        f_codes, len(f_hits),
+                        f_hits[0].ts.strftime("%H:%M"),
+                        f_hits[-1].ts.strftime("%H:%M"))
                 # Estimated energy LOST to unavailability (FAULT/OFFLINE
                 # only — underperformance is a different number and is
                 # deliberately not mixed in). Basis: producing peers'
@@ -421,6 +438,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                     "expected_share_kwh": round(expected_share, 3),
                     "production_pct": round(100 * e / expected_share, 1) if expected_share > 0 else None,
                     "est_loss_kwh": round(est_loss, 3),
+                    "fault_events": fault_events,
                 })
 
             res.plant_rows.append({
@@ -464,7 +482,7 @@ INVERTER_COLUMNS = [
     "date_mx", "bucket_ts", "hour_label", "plant_key", "customer",
     "inverter_sn", "inverter_label", "energy_kwh", "power_w", "temperature_c",
     "status", "status_reason", "peer_median_kwh", "expected_share_kwh",
-    "production_pct", "est_loss_kwh",
+    "production_pct", "est_loss_kwh", "fault_events",
 ]
 PLANT_COLUMNS = [
     "date_mx", "bucket_ts", "hour_label", "plant_key", "customer", "kwp_dc",

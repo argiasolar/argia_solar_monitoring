@@ -508,3 +508,36 @@ class TestCoverageGuards20260706:
         r = rows[("10:00", "F")]
         assert r["status"] == D.OFFLINE
         assert r["est_loss_kwh"] > 0
+
+
+# --- fault events survive last-sample bucket classification -----------------
+# Regression for 2026-07-09: JFM5D8900B tripped FT=302 at 13:06 and 13:11,
+# recovered by 13:16 — the bucket's LAST sample was healthy, so the status
+# machine (correctly, v55 family) classified the hour ONLINE and the fault
+# vanished from every surface. fault_events preserves the raw fact.
+
+def test_mid_bucket_fault_recorded_even_when_last_sample_healthy():
+    h = dt.datetime(2026, 7, 2, 13, 0)
+    samples = [
+        mk(h + dt.timedelta(minutes=1), "GTO1", "A", 100),
+        mk(h + dt.timedelta(minutes=6), "GTO1", "A", 101,
+           fault="FT=302", status=3, power=0),
+        mk(h + dt.timedelta(minutes=11), "GTO1", "A", 101,
+           fault="FT=302", status=3, power=0),
+        mk(h + dt.timedelta(minutes=56), "GTO1", "A", 130),   # healthy last
+        mk(h + dt.timedelta(minutes=1), "GTO1", "B", 90),
+        mk(h + dt.timedelta(minutes=56), "GTO1", "B", 120),
+    ]
+    res = D.build(DAY, plant_map(), samples,
+                  active_inverters={"GTO1": {"A", "B"}})
+    rows = [r for r in res.inverter_rows
+            if r["inverter_sn"] == "A" and r["hour_label"] == "13:00"]
+    assert len(rows) == 1
+    assert rows[0]["fault_events"] == "FT=302 x2 13:06-13:11"
+    # healthy peers and healthy buckets carry the empty string
+    b_rows = [r for r in res.inverter_rows if r["inverter_sn"] == "B"]
+    assert all(r["fault_events"] == "" for r in b_rows)
+
+
+def test_fault_events_column_is_exported():
+    assert D.INVERTER_COLUMNS[-1] == "fault_events"

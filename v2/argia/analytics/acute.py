@@ -27,13 +27,23 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from argia.analytics.inverter_health import Severity
-from argia.analytics.vendor_flags import fault_tokens
+from argia.analytics.vendor_flags import MIN_FAULT_SAMPLES, fault_tokens
 from argia.core.time_utils import utc_to_mx
 
 LOG = logging.getLogger("argia.analytics.acute")
 
 # Latest-sample freshness: a snapshot older than this says nothing about NOW.
 FRESH_WINDOW_MIN = 45
+
+# Vendor-fault look-back: faults are judged over ALL samples in this
+# window, not just the latest one. A self-recovering trip (JFM5D8900B
+# FT=302, 2026-07-09, 13:06-13:11 MX — two samples, cleared before the
+# 13:30 tick) was structurally invisible to latest-sample-only
+# evaluation. 35 min covers the 30-min tick cadence plus jitter; the
+# evidence bar is MIN_FAULT_SAMPLES faulted samples in the window,
+# mirroring the daily tier so a single-sample vendor blip still does
+# not page anyone.
+FAULT_LOOKBACK_MIN = 35
 
 # Mid-daylight window (MX) for the plant-dark check. Narrower than the
 # 06-20 aggregation window on purpose: at the edges a healthy plant can
@@ -111,18 +121,35 @@ def evaluate_acute(
         if ts >= fresh_cut:
             fresh_by_plant.setdefault(plant, []).append(s)
 
-    # --- per-inverter: fault + temperature (fresh samples only) ---
+    # --- per-inverter: vendor faults (look-back window, not just the
+    # latest sample — see FAULT_LOOKBACK_MIN) ---
+    fault_cut = now_utc - dt.timedelta(minutes=FAULT_LOOKBACK_MIN)
+    fault_hits: Dict[Tuple[str, str], List[Tuple[dt.datetime, str]]] = {}
+    for ts, plant, sn, _pw, _temp, _st, fault in samples:
+        if ts < fault_cut or plant not in active_plants:
+            continue
+        tokens = fault_tokens(fault)
+        if tokens:
+            fault_hits.setdefault((plant, sn), []).append(
+                (ts, ",".join(tokens)))
+    for (plant, sn), hits in sorted(fault_hits.items()):
+        if len(hits) < MIN_FAULT_SAMPLES:
+            continue   # single blip: below the daily tier's evidence bar
+        hits.sort()
+        codes = ",".join(sorted({c for _, c in hits}))
+        first, last = hits[0][0], hits[-1][0]
+        breaches.append(AcuteBreach(
+            metric="inverter_fault", plant_key=plant, inverter_sn=sn,
+            severity=Severity.CRITICAL, value=None,
+            message=(f"{plant} {sn}: vendor fault {codes} in "
+                     f"{len(hits)} samples "
+                     f"({utc_to_mx(first):%H:%M}-{utc_to_mx(last):%H:%M} "
+                     f"MX, last {FAULT_LOOKBACK_MIN} min) [CRITICAL]"),
+        ))
+
+    # --- per-inverter: temperature (latest fresh sample) ---
     for plant, rows in sorted(fresh_by_plant.items()):
         for ts, _p, sn, _pw, temp, _st, fault in sorted(rows, key=lambda r: r[2]):
-            tokens = fault_tokens(fault)
-            if tokens:
-                code = ",".join(tokens)
-                breaches.append(AcuteBreach(
-                    metric="inverter_fault", plant_key=plant, inverter_sn=sn,
-                    severity=Severity.CRITICAL, value=None,
-                    message=(f"{plant} {sn}: vendor fault {code} in latest "
-                             f"sample ({utc_to_mx(ts):%H:%M} MX) [CRITICAL]"),
-                ))
             if temp is not None and temp >= TEMP_WARN_C:
                 crit = temp >= TEMP_CRIT_C
                 breaches.append(AcuteBreach(

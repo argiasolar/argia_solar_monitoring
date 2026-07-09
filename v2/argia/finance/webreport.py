@@ -135,111 +135,165 @@ def _logo_uri() -> str:
 
 
 def render_financial_report_html(data: Dict, generated_at: str) -> str:
+    """One design system with the performance dashboard (approved sample
+    2026-07-09): same fonts/palette/cards/badges, FINANCIAL REPORT
+    letterspaced top-left, logotype top-right, audit text collapsed into
+    a <details> block. The date picker still only SUMS the embedded
+    daily atoms — no financial logic in the browser."""
     payload = json.dumps(data, separators=(",", ":"))
     logo = _logo_uri()
-    logo_html = ('<img src="%s" alt="ARGIA SOLAR" style="height:32px">'
-                 % logo) if logo else "<b>ARGIA SOLAR</b>"
+    logo_html = ('<img src="%s" alt="ARGIA SOLAR" '
+                 'style="height:28px; display:block;">' % logo
+                 ) if logo else "<b>ARGIA SOLAR</b>"
     footer = _footer_sources()
     default_from = data["days"][0]
     default_to = data["last_actual_day"] or data["days"][-1]
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Argia Solar — Financial Report</title><style>
-:root{{--ink:#1b2a31;--muted:#6d7f88;--line:#e2e9ec;--brand:#0e7c66;--band:#f6f9f9;--good:#1f9d63;--warn:#c98a00;--bad:#c0392b;--laas:#5b57c9;--ppa:#0e7c66}}
-*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);font-size:13px;line-height:1.45;background:#fbfcfc}}
-.page{{max-width:1060px;margin:0 auto;padding:22px 26px}}
-header{{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid var(--brand);padding-bottom:12px;flex-wrap:wrap;gap:10px}}
-.hm{{text-align:right;font-size:11.5px;color:var(--muted)}}.hm .t{{font-size:16px;font-weight:700;color:var(--ink)}}
-.picker{{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:16px 0;flex-wrap:wrap}}
-.picker label{{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px}}
-.picker input{{border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit}}
-.picker .quick{{margin-left:auto;display:flex;gap:6px}}
-.picker button{{border:1px solid var(--line);background:var(--band);border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer}}
-.picker button:hover{{border-color:var(--brand);color:var(--brand)}}
-.pill{{font-size:10.5px;color:var(--muted)}}
-h2{{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);margin:22px 0 10px;font-weight:700}}
-.two{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
-@media(max-width:760px){{.two{{grid-template-columns:1fr}}}}
-.stmt{{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}}
-.stmt .hd{{background:var(--band);padding:9px 14px;font-weight:800;font-size:12px;border-bottom:1px solid var(--line)}}
-.stmt table{{width:100%;border-collapse:collapse}}
-.stmt td{{padding:8px 14px;border-bottom:1px solid var(--line);font-size:12.5px}}
-.stmt td.n{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}}
-.stmt tr.tot td{{font-weight:800;font-size:14px;border-bottom:none;border-top:2px solid var(--brand)}}
-.good{{color:var(--good)}}.bad{{color:var(--bad)}}
-table.det{{width:100%;border-collapse:collapse;background:#fff}}
-.det th,.det td{{padding:8px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}}
-.det th{{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:2px solid var(--brand)}}
-.det th.l,.det td.l{{text-align:left}}.n{{font-variant-numeric:tabular-nums}}
-.sub{{font-size:9.5px;color:var(--muted)}}
-tfoot td{{font-weight:800;border-top:2px solid var(--brand);border-bottom:none}}
-.tag{{font-size:9px;font-weight:800;padding:2px 6px;border-radius:9px;color:#fff}}
-.tag.ppa{{background:var(--ppa)}}.tag.laas{{background:var(--laas)}}
-.dscr{{font-weight:800;padding:2px 7px;border-radius:9px;font-size:11.5px}}
-.dscr.good{{background:#e6f6ed;color:var(--good)}}.dscr.warn{{background:#fdf3e0;color:var(--warn)}}
-.dscr.bad{{background:#fdeceb;color:var(--bad)}}.dscr.na{{background:#eef1f2;color:var(--muted)}}
-.note{{background:#eef6f4;border-left:3px solid var(--brand);padding:10px 13px;border-radius:0 6px 6px 0;font-size:11px;margin:12px 0}}
-.note b{{color:var(--brand)}}
-.gap{{background:#fdf3e0;border-left:3px solid var(--warn);padding:10px 13px;border-radius:0 6px 6px 0;font-size:11px;margin:12px 0}}
-.gap b{{color:var(--warn)}}
-footer{{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);font-size:10px;color:var(--muted);line-height:1.65}}
-</style></head><body><div class="page">
-<header>
-  <div>{logo_html}</div>
-  <div class="hm"><div class="t">Financial Report</div>
-  generated {html.escape(generated_at)} · actuals through {html.escape(str(default_to))}</div>
-</header>
+<title>Argia &mdash; Financial Report</title><style>
+  :root {{ font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }}
+  body {{ margin: 0; background: #f4f3ef; color: #1a1a19; }}
+  .wrap {{ max-width: 1080px; margin: 0 auto; padding: 20px 16px 40px; }}
+  .sub {{ font-size: 12px; color: #6b6a64; }}
+  .sn {{ display: block; font-size: 10.5px; color: #9a998f; }}
+  input[type=date], button.quick {{
+           font-size: 14px; padding: 7px 10px; border: 1px solid #c9c8c0;
+           border-radius: 8px; background: #fff; color: #1a1a19; }}
+  button.quick {{ cursor: pointer; }}
+  button.quick:hover {{ border-color: #8a897f; }}
+  .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+           gap: 12px; margin-bottom: 14px; }}
+  .card {{ background: #fff; border-radius: 10px; padding: 14px 16px;
+          border: 1px solid #e4e3dc; }}
+  .card .lbl {{ font-size: 12px; color: #6b6a64; }}
+  .card .val {{ font-size: 24px; font-weight: 600; margin-top: 2px; }}
+  .card .val small {{ font-size: 12px; font-weight: 400; color: #6b6a64; }}
+  .row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+         gap: 12px; margin-bottom: 14px; }}
+  .panel {{ background: #fff; border-radius: 10px; border: 1px solid #e4e3dc;
+           padding: 14px 16px; margin-bottom: 14px; }}
+  .panel h2 {{ font-size: 13px; font-weight: 600; margin: 0 0 8px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  th {{ text-align: left; font-weight: 400; color: #8a897f; padding: 4px 6px; }}
+  td {{ border-top: 1px solid #eceae2; padding: 7px 6px; }}
+  .badge {{ padding: 2px 10px; border-radius: 10px; font-size: 12px;
+           white-space: nowrap; }}
+  .note {{ font-size: 12px; color: #9a6a1f; background: #faeeda;
+          border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }}
+  .note.warn {{ background:#fcebeb; color:#791f1f; }}
+  .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
+  .stmt td:last-child {{ text-align: right; font-variant-numeric: tabular-nums; }}
+  .stmt tr.tot td {{ font-weight: 600; border-top: 2px solid #1a1a19; }}
+  details.audit {{ margin-top: 6px; }}
+  details.audit summary {{ cursor: pointer; font-size: 12px; color: #6b6a64; }}
+  details.audit summary:hover {{ color: #1a1a19; }}
+  details.audit .body {{ font-size: 12px; color: #6b6a64; line-height: 1.6;
+                        padding: 10px 2px 0; }}
+</style></head><body><div class="wrap">
+  <header style="display:block; margin-bottom:16px;">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                gap:14px; margin-bottom:12px;">
+      <span style="font-size:16px; font-weight:600; letter-spacing:3.5px;
+                   color:#3c3b37; white-space:nowrap;">FINANCIAL&nbsp;REPORT</span>
+      {logo_html}
+    </div>
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span class="sub">From</span>
+        <input type="date" id="from" min="{data['days'][0]}" max="{data['days'][-1]}" value="{default_from}">
+        <span class="sub">To</span>
+        <input type="date" id="to" min="{data['days'][0]}" max="{data['days'][-1]}" value="{default_to}">
+        <span class="sub" id="plabel"></span>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="quick" onclick="setMTD()">Month to date</button>
+        <button class="quick" onclick="setPrevMonth()">Previous month</button>
+        <button class="quick" onclick="setAll()">Full range</button>
+        <span style="white-space:nowrap; font-size:14px; color:#4a4a45;">
+          generated {html.escape(generated_at)} &middot; actuals through {html.escape(str(default_to))}</span>
+      </div>
+    </div>
+  </header>
 
-<div class="picker">
-  <label>From</label><input type="date" id="from" min="{data['days'][0]}" max="{data['days'][-1]}" value="{default_from}">
-  <label>To</label><input type="date" id="to" min="{data['days'][0]}" max="{data['days'][-1]}" value="{default_to}">
-  <span class="pill" id="plabel"></span>
-  <div class="quick">
-    <button onclick="setMTD()">Month to date</button>
-    <button onclick="setPrevMonth()">Previous month</button>
-    <button onclick="setAll()">Full range</button>
+  <div class="cards">
+    <div class="card"><div class="lbl">Expected revenue</div>
+      <div class="val" id="c_exp">&ndash;</div></div>
+    <div class="card"><div class="lbl">Actual revenue</div>
+      <div class="val" id="c_act">&ndash;</div></div>
+    <div class="card"><div class="lbl">Net cash (actual)</div>
+      <div class="val" id="c_net">&ndash;</div></div>
+    <div class="card"><div class="lbl">DSCR expected</div>
+      <div class="val" id="c_de">&ndash;</div></div>
+    <div class="card"><div class="lbl">DSCR actual</div>
+      <div class="val" id="c_da">&ndash;</div></div>
   </div>
-</div>
 
-<div class="two">
-<div class="stmt"><div class="hd">Expected — contracted</div>
-<table>
-<tr><td>Revenue</td><td class="n" id="e_rev"></td></tr>
-<tr><td>O&amp;M costs</td><td class="n" id="e_om"></td></tr>
-<tr><td>Debt service</td><td class="n" id="e_svc"></td></tr>
-<tr class="tot"><td>Net cash after debt service</td><td class="n" id="e_net"></td></tr>
-<tr class="tot"><td>Portfolio DSCR (expected)</td><td class="n" id="e_dscr"></td></tr>
-</table></div>
-<div class="stmt"><div class="hd">Actual — accrued <span class="pill" id="acov"></span></div>
-<table>
-<tr><td>Revenue</td><td class="n" id="a_rev"></td></tr>
-<tr><td>O&amp;M costs</td><td class="n" id="a_om"></td></tr>
-<tr><td>Debt service</td><td class="n" id="a_svc"></td></tr>
-<tr class="tot"><td>Net cash after debt service</td><td class="n" id="a_net"></td></tr>
-<tr class="tot"><td>Portfolio DSCR (actual)</td><td class="n" id="a_dscr"></td></tr>
-</table></div>
-</div>
+  <div class="row">
+    <div class="panel" style="margin-bottom:0;">
+      <h2>Expected &mdash; contracted</h2>
+      <table class="stmt">
+        <tr><td>Revenue</td><td id="e_rev"></td></tr>
+        <tr><td>O&amp;M costs</td><td id="e_om"></td></tr>
+        <tr><td>Debt service</td><td id="e_svc"></td></tr>
+        <tr class="tot"><td>Net cash after debt service</td><td id="e_net"></td></tr>
+        <tr class="tot"><td>Portfolio DSCR</td><td id="e_dscr"></td></tr>
+      </table>
+    </div>
+    <div class="panel" style="margin-bottom:0;">
+      <h2>Actual &mdash; accrued <span class="sub" id="acov"></span></h2>
+      <table class="stmt">
+        <tr><td>Revenue</td><td id="a_rev"></td></tr>
+        <tr><td>O&amp;M costs</td><td id="a_om"></td></tr>
+        <tr><td>Debt service</td><td id="a_svc"></td></tr>
+        <tr class="tot"><td>Net cash after debt service</td><td id="a_net"></td></tr>
+        <tr class="tot"><td>Portfolio DSCR</td><td id="a_dscr"></td></tr>
+      </table>
+    </div>
+  </div>
 
-<h2>Per-asset detail</h2>
-<table class="det"><thead><tr><th class="l">Asset</th><th>Type</th><th>Exp. revenue</th><th>Actual revenue</th><th>O&amp;M</th><th>Debt service</th><th>DSCR exp.</th><th>DSCR act.</th></tr></thead>
-<tbody id="rows"></tbody>
-<tfoot><tr id="totrow"></tr></tfoot>
-</table>
-<div id="notes"></div>
+  <div id="notes"></div>
 
-<footer>{footer}<br>
-This page embeds per-day figures computed server-side by the same
-engine as the PDF report; the date picker only sums them — no financial
-logic runs in the browser.</footer>
+  <div class="panel">
+    <h2>Per-asset detail</h2>
+    <table>
+      <thead><tr><th>Asset</th><th>Type</th><th class="num">Exp. revenue</th>
+        <th class="num">Actual revenue</th><th class="num">O&amp;M</th>
+        <th class="num">Debt service</th><th class="num">DSCR exp.</th>
+        <th class="num">DSCR act.</th></tr></thead>
+      <tbody id="rows"></tbody>
+      <tfoot><tr id="totrow" style="font-weight:600;"></tr></tfoot>
+    </table>
+
+    <details class="audit">
+      <summary>Data sources &amp; audit</summary>
+      <div class="body">
+        <span id="fxline"></span>
+        {footer}<br>
+        This page embeds per-day figures computed server-side by the same
+        engine as the PDF report; the date picker only sums them &mdash;
+        no financial logic runs in the browser.
+      </div>
+    </details>
+  </div>
 </div>
 <script>
 const D = {payload};
 const idx = Object.fromEntries(D.days.map((d,i)=>[d,i]));
-const fmt = x => x==null ? "—" : Math.round(x).toLocaleString("en-US");
-function dscrSpan(inc, svc) {{
-  if (inc==null || !(svc>0)) return '<span class="dscr na">n/a</span>';
-  const v = inc/svc, cls = v<1 ? "bad" : (v<1.15 ? "warn" : "good");
-  return '<span class="dscr '+cls+'">'+Math.round(v*100)+'%</span>';
+const fmt = x => x==null ? "\u2013" : Math.round(x).toLocaleString("en-US");
+function dscrBadge(inc, svc) {{
+  if (inc==null || !(svc>0))
+    return '<span class="badge" style="background:#efeee8;color:#6b6a64;">n/a</span>';
+  const v = inc/svc;
+  const c = v<1 ? ["#FDECEB","#791f1f"]
+          : (v<1.15 ? ["#FAEEDA","#9a6a1f"] : ["#E1F5EE","#085041"]);
+  return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+';">'
+       + Math.round(v*100) + '%</span>';
+}}
+function typBadge(t) {{
+  const c = t==="LaaS" ? ["#EBEAFB","#3F3A8F"] : ["#E1F5EE","#085041"];
+  return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+';">'
+       + t + '</span>';
 }}
 function sumRange(pk, a, b) {{
   const s = {{rev:0, exp:0, svc:0, om:0, revDays:0}};
@@ -267,53 +321,55 @@ function recompute() {{
     if (s.revDays>0) anyActual = true;
     maxRevDays = Math.max(maxRevDays, s.revDays);
     const actual = s.revDays>0 ? s.rev : null;
-    rowsHtml += '<tr><td class="l"><b>'+p.name+'</b><div class="sub">'
-      + p.key + '</div></td><td><span class="tag '
-      + (p.typ==="LaaS"?"laas":"ppa") + '">' + p.typ + '</span></td>'
-      + '<td class="n">'+fmt(s.exp)+'</td><td class="n">'+fmt(actual)
-      + '</td><td class="n">'+(s.om>0?fmt(s.om):"—")+'</td>'
-      + '<td class="n">'+fmt(s.svc)+'</td>'
-      + '<td class="n">'+dscrSpan(s.exp||null, s.svc)+'</td>'
-      + '<td class="n">'+dscrSpan(actual, s.svc)+'</td></tr>';
+    rowsHtml += '<tr><td>'+p.name+'<span class="sn">'+p.key+'</span></td>'
+      + '<td>'+typBadge(p.typ)+'</td>'
+      + '<td class="num">'+fmt(s.exp)+'</td><td class="num">'+fmt(actual)
+      + '</td><td class="num">'+(s.om>0?fmt(s.om):"\u2013")+'</td>'
+      + '<td class="num">'+fmt(s.svc)+'</td>'
+      + '<td class="num">'+dscrBadge(s.exp||null, s.svc)+'</td>'
+      + '<td class="num">'+dscrBadge(actual, s.svc)+'</td></tr>';
     if (actual!=null && s.svc>0 && actual/s.svc < 1)
-      notes += '<div class="gap"><b>Watch: '+p.name+' ('+p.key
-        + ') actual DSCR '+Math.round(actual/s.svc*100)
-        + '%</b> — accrued income below debt service for the selection.</div>';
-    if (p.om_missing)
-      notes += "";
+      notes += '<div class="note warn">Watch: '+p.name+' &middot; '+p.key
+        + ' &mdash; actual DSCR '+Math.round(actual/s.svc*100)
+        + '%, accrued income below debt service for the selection.</div>';
   }}
   const missing = D.plants.filter(p=>p.om_missing).map(p=>p.key);
   if (missing.length)
-    notes += '<div class="gap"><b>O&M missing for '+missing.join(", ")
-      + '</b> — Plants.om_cost_monthly_mxn is blank; opex shows 0 for '
+    notes += '<div class="note">O&amp;M missing for '+missing.join(", ")
+      + ' &mdash; Plants.om_cost_monthly_mxn is blank; opex shows 0 for '
       + 'these plants.</div>';
   const usdSvc = D.plants.filter(p=>p.usd)
       .reduce((acc,p)=>acc+sumRange(p.key,a,b).svc, 0);
-  if (T.svc>0)
-    notes = '<div class="note"><b>FX position.</b> '
-      + (usdSvc/T.svc*100).toFixed(1) + '% of the selection\\'s debt '
-      + 'service is USD-denominated — matched by USD-indexed LaaS fees '
-      + 'at the same rate, so net portfolio FX exposure is ≈ zero.</div>'
-      + notes;
+  document.getElementById("fxline").innerHTML = T.svc>0
+    ? '<b>FX position:</b> ' + (usdSvc/T.svc*100).toFixed(1)
+      + '% of the selection\'s debt service is USD-denominated, matched by '
+      + 'USD-indexed LaaS fees at the same rate &mdash; net portfolio FX '
+      + 'exposure &asymp; zero. ' : '';
   const set = (id,v)=>document.getElementById(id).textContent=v;
+  const setH = (id,v)=>document.getElementById(id).innerHTML=v;
   set("e_rev", fmt(T.exp)); set("e_om","("+fmt(T.om)+")");
   set("e_svc","("+fmt(T.svc)+")");
   set("e_net", fmt(T.exp-T.om-T.svc));
-  document.getElementById("e_dscr").innerHTML = dscrSpan(T.exp||null,T.svc);
+  setH("e_dscr", dscrBadge(T.exp||null,T.svc));
   const actTotal = anyActual ? T.rev : null;
   set("a_rev", fmt(actTotal)); set("a_om","("+fmt(T.om)+")");
   set("a_svc","("+fmt(T.svc)+")");
-  set("a_net", actTotal==null ? "—" : fmt(actTotal-T.om-T.svc));
-  document.getElementById("a_dscr").innerHTML = dscrSpan(actTotal,T.svc);
+  set("a_net", actTotal==null ? "\u2013" : fmt(actTotal-T.om-T.svc));
+  setH("a_dscr", dscrBadge(actTotal,T.svc));
   document.getElementById("acov").textContent =
-      anyActual ? "(" + maxRevDays + "/" + nDays + " days with data)" : "(no data in range)";
+      anyActual ? "(" + maxRevDays + "/" + nDays + " days with data)"
+                : "(no data in range)";
+  set("c_exp", fmt(T.exp)); set("c_act", fmt(actTotal));
+  set("c_net", actTotal==null ? "\u2013" : fmt(actTotal-T.om-T.svc));
+  set("c_de", (T.svc>0 && T.exp>0) ? Math.round(T.exp/T.svc*100)+"%" : "\u2013");
+  set("c_da", (T.svc>0 && actTotal!=null) ? Math.round(actTotal/T.svc*100)+"%" : "\u2013");
   document.getElementById("rows").innerHTML = rowsHtml;
   document.getElementById("totrow").innerHTML =
-      '<td class="l">PORTFOLIO</td><td></td><td class="n">'+fmt(T.exp)
-      + '</td><td class="n">'+fmt(actTotal)+'</td><td class="n">'
-      + fmt(T.om)+'</td><td class="n">'+fmt(T.svc)+'</td><td class="n">'
-      + dscrSpan(T.exp||null,T.svc)+'</td><td class="n">'
-      + dscrSpan(actTotal,T.svc)+'</td>';
+      '<td>PORTFOLIO</td><td></td><td class="num">'+fmt(T.exp)
+      + '</td><td class="num">'+fmt(actTotal)+'</td><td class="num">'
+      + fmt(T.om)+'</td><td class="num">'+fmt(T.svc)+'</td><td class="num">'
+      + dscrBadge(T.exp||null,T.svc)+'</td><td class="num">'
+      + dscrBadge(actTotal,T.svc)+'</td>';
   document.getElementById("notes").innerHTML = notes;
 }}
 function setRange(f,t) {{
@@ -330,7 +386,7 @@ function setMTD() {{
 function setPrevMonth() {{
   const t = D.last_actual_day || D.days[D.days.length-1];
   const d = new Date(t.slice(0,8)+"01T00:00:00");
-  d.setDate(0);   // last day of previous month
+  d.setDate(0);
   const last = d.toISOString().slice(0,10);
   setRange(last.slice(0,8)+"01", last);
 }}

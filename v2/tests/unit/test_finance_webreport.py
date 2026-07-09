@@ -123,3 +123,37 @@ class TestRenderer:
         h = render_financial_report_html(_atoms(om=None),
                                          generated_at="2026-07-09")
         assert '"om_missing":true' in h
+
+
+class TestApprovedDesign:
+    """Pins the 2026-07-09 approved restyle: one design system with the
+    performance dashboard."""
+
+    def _html(self):
+        return render_financial_report_html(_atoms(),
+                                            generated_at="2026-07-09")
+
+    def test_dashboard_design_tokens(self):
+        h = self._html()
+        assert "background: #f4f3ef" in h          # dashboard page bg
+        assert '"Segoe UI", Roboto' in h           # same font stack
+        assert "letter-spacing:3.5px" in h         # letterspaced title
+
+    def test_title_left_logo_right(self):
+        h = self._html()
+        title = h.index("FINANCIAL&nbsp;REPORT")
+        logo = h.index("data:image/png;base64,")
+        assert title < logo    # title markup precedes logo in the header
+
+    def test_audit_is_collapsed_details(self):
+        h = self._html()
+        assert '<details class="audit">' in h
+        assert "Data sources &amp; audit" in h
+        # provenance still lives inside it (registry drift-guard)
+        body_start = h.index('<details class="audit">')
+        assert h.index("principal+interest combined") > body_start
+
+    def test_stat_cards_present(self):
+        h = self._html()
+        for card_id in ("c_exp", "c_act", "c_net", "c_de", "c_da"):
+            assert 'id="%s"' % card_id in h

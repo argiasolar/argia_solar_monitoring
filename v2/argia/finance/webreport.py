@@ -52,7 +52,7 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
     schedule = load_loan_schedule(sheets)
     kpi = load_kpi_energy(sheets, window)
 
-    ppa = {p.plant_key.upper(): p for p in portfolio.active_plants()}
+    ppa = {p.plant_key.upper(): p for p in portfolio.financial_plants()}
     contract_plants = {k[0] for k in contracts}
     laas_keys = sorted(
         pk for pk in contract_plants if pk not in ppa

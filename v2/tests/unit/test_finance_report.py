@@ -80,6 +80,9 @@ def _portfolio(om=8000.0):
     plants = [_plant(pk, om) for pk in JULY_MTD_ENERGY]
     p = MagicMock(spec=Portfolio)
     p.active_plants.return_value = plants
+    # v74: the financial surfaces read the report-axis accessor; the
+    # fixture keeps both in sync (all fixture plants are visible)
+    p.financial_plants.return_value = plants
     return p
 
 

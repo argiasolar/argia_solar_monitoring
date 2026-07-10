@@ -140,7 +140,8 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
 
     # asset universe: active PPA plants + every plant in the contract
     # table that isn't on the Plants tab (the LaaS projects)
-    ppa_plants = {p.plant_key.upper(): p for p in portfolio.active_plants()}
+    ppa_plants = {p.plant_key.upper(): p
+                  for p in portfolio.financial_plants()}
     contract_plants = {k[0] for k in contracts}
     laas_keys = sorted(
         pk for pk in contract_plants

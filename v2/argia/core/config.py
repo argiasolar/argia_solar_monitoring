@@ -78,6 +78,18 @@ class PlantConfig:
     ranges. None/blank = not provided, opex line shows 0 for the
     plant with a footnote."""
 
+    # v74 — visibility flags. Two axes, deliberately separate:
+    # `active` is the MACHINE axis (telemetry/KPI/alerts) and is the
+    # only flag that can stop data capture. The columns below are the
+    # REPORT axis: they control where a plant appears, never what is
+    # collected — a wrong value here can hide a plant but can never
+    # silently lose data. `portfolio` is a pure label (grouping,
+    # badges, future per-portfolio reports); it controls nothing.
+    portfolio: str = "PPA"
+    show_dashboard: bool = True
+    show_daily_report: bool = True
+    show_financial: bool = True
+
 
 @dataclass(frozen=True)
 class InverterConfig:
@@ -99,7 +111,18 @@ class Portfolio:
     inverters_by_plant: Dict[str, List[InverterConfig]] = field(default_factory=dict)
 
     def active_plants(self) -> List[PlantConfig]:
+        """MACHINE axis: telemetry, KPI, alerts. Report flags never
+        filter here — hiding a plant must not stop its data."""
         return [p for p in self.plants.values() if p.active]
+
+    def dashboard_plants(self) -> List[PlantConfig]:
+        return [p for p in self.active_plants() if p.show_dashboard]
+
+    def daily_report_plants(self) -> List[PlantConfig]:
+        return [p for p in self.active_plants() if p.show_daily_report]
+
+    def financial_plants(self) -> List[PlantConfig]:
+        return [p for p in self.active_plants() if p.show_financial]
 
     def inverters_for(self, plant_key: str) -> List[InverterConfig]:
         return [i for i in self.inverters_by_plant.get(plant_key, []) if i.active]
@@ -143,6 +166,39 @@ INVERTERS_HEADER = INVERTERS_HEADER_V70 + [
 def _truthy(value) -> bool:
     s = normalize_text(value).lower()
     return s in ("true", "yes", "y", "1", "x")
+
+
+KNOWN_PORTFOLIOS = ("PPA", "CAPEX", "PROLOGIS")
+
+
+def _flag_default_true(value, column: str, plant_key: str) -> bool:
+    """Report-visibility flags: BLANK means TRUE (migration is a
+    behavioral no-op), an explicit falsy hides, and an unrecognized
+    value warns and shows — erring on visibility, never on silent
+    hiding."""
+    s = normalize_text(value).lower()
+    if s == "":
+        return True
+    if s in ("false", "no", "n", "0"):
+        return False
+    if s in ("true", "yes", "y", "1", "x"):
+        return True
+    LOG.warning("Plants.%s for %s: unrecognized value %r — treating as "
+                "TRUE (visible)", column, plant_key, value)
+    return True
+
+
+def _portfolio_label(value, plant_key: str) -> str:
+    """Pure label: blank -> PPA; unknown labels are KEPT (a new deal
+    category must never disable anything) with a warning."""
+    s = normalize_text(value).upper()
+    if s == "":
+        return "PPA"
+    if s not in KNOWN_PORTFOLIOS:
+        LOG.warning("Plants.portfolio for %s: unknown label %r (kept — "
+                    "known: %s)", plant_key, s,
+                    "/".join(KNOWN_PORTFOLIOS))
+    return s
 
 
 def _optional_int(value) -> Optional[int]:
@@ -247,6 +303,18 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
                 # v61
                 om_cost_monthly_mxn=_optional_float(
                     row.get("om_cost_monthly_mxn")),
+                # v74
+                portfolio=_portfolio_label(row.get("portfolio"),
+                                           plant_key),
+                show_dashboard=_flag_default_true(
+                    row.get("show_dashboard"), "show_dashboard",
+                    plant_key),
+                show_daily_report=_flag_default_true(
+                    row.get("show_daily_report"), "show_daily_report",
+                    plant_key),
+                show_financial=_flag_default_true(
+                    row.get("show_financial"), "show_financial",
+                    plant_key),
             )
         except (ValueError, TypeError) as e:
             LOG.warning("Skipping malformed Plants row %s: %s", plant_key, e)

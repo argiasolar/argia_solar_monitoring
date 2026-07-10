@@ -98,6 +98,19 @@ COLUMN_NOTES: Dict[str, Dict[str, str]] = {
         "month": "Calendar month of the row (1-12).",
     },
     "Plants": {
+        "portfolio": "Label only: PPA / CAPEX / PROLOGIS (blank = PPA). "
+                     "Groups plants and feeds future per-portfolio "
+                     "reports; controls NOTHING — visibility is the "
+                     "show_* columns, data capture is `active`.",
+        "show_dashboard": "FALSE hides this plant from the performance "
+                          "dashboard. Blank/TRUE = visible. Never "
+                          "affects telemetry/KPI/alerts.",
+        "show_daily_report": "FALSE hides this plant from the daily "
+                             "PDF (both editions). Blank/TRUE = "
+                             "visible. Never affects data capture.",
+        "show_financial": "FALSE hides this plant from the financial "
+                          "web report and investor PDF. Blank/TRUE = "
+                          "visible. Never affects data capture.",
         "om_cost_monthly_mxn": "MANUAL INPUT: average monthly O&M cost "
                                "per plant, MXN (Argia estimate, not an "
                                "invoice feed). Feeds the investor "

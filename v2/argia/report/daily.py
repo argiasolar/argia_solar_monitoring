@@ -701,14 +701,14 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
     # per-inverter from telemetry
     bundle = read_day_bundle(sheets, date_iso)
     rated = {i.inverter_sn: i.rated_kw
-             for p in portfolio.active_plants()
+             for p in portfolio.daily_report_plants()
              for i in portfolio.inverters_for(p.plant_key)}
     labels = {i.inverter_sn: i.inverter_label
-              for p in portfolio.active_plants()
+              for p in portfolio.daily_report_plants()
               for i in portfolio.inverters_for(p.plant_key)}
     readings: List[InverterReading] = []
     per_plant_inv: Dict[str, Dict[str, InverterDay]] = defaultdict(dict)
-    for plant in portfolio.active_plants():
+    for plant in portfolio.daily_report_plants():
         rows = bundle.rows_for_plant(plant.plant_key)
         tmax: Dict[str, float] = {}
         faults: Dict[str, set] = defaultdict(set)
@@ -735,7 +735,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             inv.rel = rel.get(sn)
 
     plants: List[PlantDay] = []
-    for plant in portfolio.active_plants():
+    for plant in portfolio.daily_report_plants():
         k = kpi.get(plant.plant_key, {})
         invs = sorted(per_plant_inv.get(plant.plant_key, {}).values(),
                       key=lambda i: (i.label or "", i.sn))

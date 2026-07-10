@@ -510,6 +510,12 @@ def parse_plants(rows: list[dict]) -> dict[str, "Plant"]:
         active = str(r.get("active", "")).strip().upper()
         if active in ("FALSE", "0", "NO"):
             continue
+        # v74 report-axis flag: hide from the dashboard only on an
+        # EXPLICIT falsy — blank keeps today's behavior. Hiding here
+        # never touches telemetry/KPI/alerts (machine axis is `active`).
+        show = str(r.get("show_dashboard", "")).strip().upper()
+        if show in ("FALSE", "0", "NO"):
+            continue
         kwp = _num(r.get("kwp_dc_override")) or _num(r.get("kwp_dc"))
         ef = _num(r.get("expected_factor"))
         if kwp is None or ef is None:

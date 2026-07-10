@@ -469,3 +469,30 @@ def test_fault_events_field_embedded_in_payload():
                     [_inv_row(fault_events="FT=302 x2 13:06-13:11")],
                     generated_at="t")
     assert "FT=302 x2 13:06-13:11" in html
+
+
+# --- read-range regression (v78): appended columns must never be
+# silently truncated again ---------------------------------------------------
+
+def test_publisher_reads_full_width():
+    """Three incidents came from hardcoded narrow ranges (pr_baseline
+    past AB, show_dashboard past AJ, fault_events past P). The
+    operational reads must use A1:ZZ."""
+    import inspect
+    import scripts.dashboard_html_publish as P
+    src = inspect.getsource(P)
+    assert 'read_table("Plants", "A1:ZZ")' in src
+    assert 'read_table("Dashboard_Plant", "A1:ZZ")' in src
+    assert 'read_table("Dashboard_Inverter", "A1:ZZ")' in src
+
+
+def test_selector_honors_show_dashboard():
+    from scripts.dashboard_html_publish import active_plants
+    rows = [
+        {"plant_key": "GTO1", "active": "TRUE"},
+        {"plant_key": "MEX3", "active": "TRUE",
+         "show_dashboard": "FALSE"},
+        {"plant_key": "NL2", "active": "TRUE", "show_dashboard": ""},
+        {"plant_key": "QRO1", "active": "FALSE"},
+    ]
+    assert active_plants(rows) == ["GTO1", "NL2"]

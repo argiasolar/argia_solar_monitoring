@@ -67,12 +67,21 @@ def coerce_rows(rows: list[dict], numeric: set) -> list[dict]:
 
 
 def active_plants(plant_config_rows: list[dict]) -> list[str]:
-    """plant_keys with active=TRUE in the Plants config, sorted."""
+    """plant_keys for the dashboard selector: active=TRUE and not
+    explicitly hidden by show_dashboard (v74 report-axis flag —
+    blank/absent means visible, mirroring parse_plants)."""
     out = []
     for r in plant_config_rows:
         pk = r.get("plant_key")
-        if pk and str(r.get("active")).strip().upper() in ("TRUE", "1", "YES"):
-            out.append(pk)
+        if not pk:
+            continue
+        if str(r.get("active")).strip().upper() not in ("TRUE", "1",
+                                                        "YES"):
+            continue
+        if str(r.get("show_dashboard", "")).strip().upper() in (
+                "FALSE", "0", "NO"):
+            continue
+        out.append(pk)
     return sorted(out)
 
 
@@ -104,10 +113,14 @@ def upload_to_gcs(bucket: str, object_name: str, html: str,
 
 def run(client: SheetsClient, *, out_path: str, apply: bool,
         bucket: str | None, session=None) -> int:
-    plant_cfg = client.read_table("Plants", "A1:AJ")
-    prows = coerce_rows(client.read_table("Dashboard_Plant", "A1:R"),
+    # A1:ZZ everywhere (see dashboard_update.py note): the A1:P read
+    # here silently dropped the 17th Dashboard_Inverter column —
+    # fault_events — killing the "fault today" UI from the day it
+    # shipped (v67) until this fix.
+    plant_cfg = client.read_table("Plants", "A1:ZZ")
+    prows = coerce_rows(client.read_table("Dashboard_Plant", "A1:ZZ"),
                         NUMERIC_PLANT)
-    irows = coerce_rows(client.read_table("Dashboard_Inverter", "A1:P"),
+    irows = coerce_rows(client.read_table("Dashboard_Inverter", "A1:ZZ"),
                         NUMERIC_INV)
     plants = active_plants(plant_cfg)
     now = dt.datetime.now(MX_TZ).strftime("%Y-%m-%d %H:%M")

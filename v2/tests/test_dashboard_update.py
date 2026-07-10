@@ -210,3 +210,12 @@ def test_dashpub_default_output_is_outside_the_repo(monkeypatch):
         assert "ARGIA_LOG_DIR" in src and "tempfile.gettempdir()" in src
     else:
         assert ap.get_default("out") == "/some/log/dir/dashboard.html"
+
+
+def test_update_reads_full_width():
+    """v78 read-range regression: see test_dashboard_html counterpart."""
+    import inspect
+    import scripts.dashboard_update as U
+    src = inspect.getsource(U)
+    assert 'read_table("Plants", "A1:ZZ")' in src
+    assert 'read_table("Inverters", "A1:Z")' in src

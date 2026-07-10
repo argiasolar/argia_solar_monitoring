@@ -37,7 +37,10 @@ PLANT_TAB = "Dashboard_Plant"
 # Cell coercion is DELEGATED to the shared module (argia/core/cells.py) —
 # the one place that knows the live Sheets API returns datetimes as serial
 # floats (watchdog false-alarm lesson, 2026-07-05).
-from argia.core.cells import GOOGLE_EPOCH, coerce_date, coerce_ts  # noqa: E402,F401
+from argia.core.cells import GOOGLE_EPOCH, coerce_date, coerce_ts  # noqa: E402
+
+# re-exported for tests and downstream tooling
+__all__ = ["GOOGLE_EPOCH", "coerce_date", "coerce_ts"]
 from argia.core.job_log import apply_flag_write_if, instrument
 
 
@@ -136,8 +139,12 @@ def run(client: SheetsClient, *, window: int, apply: bool,
     print(f"Dashboard window: {days[0]} .. {days[-1]}  "
           f"({'APPLY' if apply else 'dry-run'})")
 
-    plants = D.parse_plants(client.read_table("Plants", "A1:AJ"))
-    inverter_rows = client.read_table("Inverters", "A1:L")
+    # A1:ZZ, deliberately: three separate incidents (pr_baseline past
+    # AB, show_dashboard past AJ, fault_events past P) came from
+    # appended columns falling outside a hardcoded read range. Reads
+    # are cheap; silent truncation is not.
+    plants = D.parse_plants(client.read_table("Plants", "A1:ZZ"))
+    inverter_rows = client.read_table("Inverters", "A1:Z")
     active = D.parse_active_inverters(inverter_rows)
     ratings = D.parse_inverter_ratings(inverter_rows)
     kpi_by_day = kpi_expected_map(client.read_table("KPI_Daily", "A1:V"))

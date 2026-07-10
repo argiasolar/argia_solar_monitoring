@@ -37,7 +37,7 @@ LOG = logging.getLogger("migrate_plant_flags")
 
 PLANTS_TAB = "Plants"
 NEW_COLUMNS = ["portfolio", "show_dashboard", "show_daily_report",
-               "show_financial"]
+               "show_financial", "client_channel"]
 
 
 def main() -> int:

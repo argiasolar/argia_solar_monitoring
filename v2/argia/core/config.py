@@ -90,6 +90,14 @@ class PlantConfig:
     show_daily_report: bool = True
     show_financial: bool = True
 
+    # v77 — client delivery. Non-blank routes this plant into a
+    # per-client daily report mailed via the notifier channel of the
+    # same name (Recipients rows per channel). Blank = internal only.
+    # Independent of show_daily_report, which governs the INTERNAL
+    # report: a CAPEX plant is typically show_daily_report=FALSE +
+    # client_channel=<client>.
+    client_channel: str = ""
+
 
 @dataclass(frozen=True)
 class InverterConfig:
@@ -123,6 +131,26 @@ class Portfolio:
 
     def financial_plants(self) -> List[PlantConfig]:
         return [p for p in self.active_plants() if p.show_financial]
+
+    def client_channels(self) -> List[str]:
+        """Distinct non-blank client channels among active plants."""
+        return sorted({p.client_channel for p in self.active_plants()
+                       if p.client_channel})
+
+    def for_client_channel(self, channel: str) -> "Portfolio":
+        """A portfolio VIEW for one client: only that channel's active
+        plants, with show_daily_report forced True — the internal flag
+        hides a plant from ARGIA's report, never from the client's own
+        (the whole point of the channel). Alerts scoping then covers
+        exactly the client's plants for free."""
+        from dataclasses import replace
+        view = Portfolio()
+        for pk, p in self.plants.items():
+            if p.active and p.client_channel == channel:
+                view.plants[pk] = replace(p, show_daily_report=True)
+                view.inverters_by_plant[pk] = list(
+                    self.inverters_by_plant.get(pk, []))
+        return view
 
     def inverters_for(self, plant_key: str) -> List[InverterConfig]:
         return [i for i in self.inverters_by_plant.get(plant_key, []) if i.active]
@@ -186,6 +214,15 @@ def _flag_default_true(value, column: str, plant_key: str) -> bool:
     LOG.warning("Plants.%s for %s: unrecognized value %r — treating as "
                 "TRUE (visible)", column, plant_key, value)
     return True
+
+
+def _client_channel(value, plant_key: str) -> str:
+    """Notifier channel token: lowercased, spaces collapsed to '_'.
+    Channels live in Report_Outbox/Recipients as simple lowercase
+    tokens ('reporting', 'shareholders'), so client channels follow
+    the same convention."""
+    s = normalize_text(value).lower().replace(" ", "_")
+    return s
 
 
 def _portfolio_label(value, plant_key: str) -> str:
@@ -315,6 +352,9 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
                 show_financial=_flag_default_true(
                     row.get("show_financial"), "show_financial",
                     plant_key),
+                # v77
+                client_channel=_client_channel(
+                    row.get("client_channel"), plant_key),
             )
         except (ValueError, TypeError) as e:
             LOG.warning("Skipping malformed Plants row %s: %s", plant_key, e)

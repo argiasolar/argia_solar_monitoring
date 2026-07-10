@@ -108,6 +108,12 @@ COLUMN_NOTES: Dict[str, Dict[str, str]] = {
         "show_daily_report": "FALSE hides this plant from the daily "
                              "PDF (both editions). Blank/TRUE = "
                              "visible. Never affects data capture.",
+        "client_channel": "Notifier channel for this plant's OWN daily "
+                          "report (per-client delivery). Blank = "
+                          "internal only. Lowercase token matching a "
+                          "Recipients channel; independent of "
+                          "show_daily_report (which governs Argia's "
+                          "internal report).",
         "show_financial": "FALSE hides this plant from the financial "
                           "web report and investor PDF. Blank/TRUE = "
                           "visible. Never affects data capture.",

@@ -218,6 +218,19 @@ def summary_sentence(stats: Dict[str, Optional[float]],
     return sentence
 
 
+def scoped_alerts(alerts: List[AlertRecord],
+                  visible_keys: set) -> List[AlertRecord]:
+    """v76: the daily report is a PORTFOLIO-SCOPED document — its alert
+    section and its verdict counters must speak only about the plants
+    the report shows (show_daily_report). A CAPEX plant's open alert
+    must not flip the PPA report to ATTENTION; those plants get their
+    own per-client reports and channels (v77+). An alert with a blank
+    plant_key (none exist today) is kept — never silently drop
+    something that can't be attributed."""
+    return [a for a in alerts
+            if not a.plant_key or a.plant_key in visible_keys]
+
+
 def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
                         n_crit: int, n_warn: int,
                         fleet_pct: Optional[float],
@@ -643,6 +656,9 @@ def render_html(data: ReportData) -> str:
         f'energy &#215; PPA tariff, before billing adjustments. '
         f'CO&#8322; avoided uses the national grid emission '
         f'factor (0.444 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'Report scope: plants with show_daily_report enabled; the alert '
+        f'section and the verdict counters cover only those plants '
+        f'(other portfolios report through their own channels). '
         f'"INCOMPLETE DAY" appears only in final editions when measurement '
         f'gaps remain; evening editions show "DAY IN PROGRESS" while the '
         f'day awaits its end-of-day classification. '
@@ -766,7 +782,9 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                                               plant.plant_key, date_iso))))
 
     ledger = load_alerts_ledger(sheets)
-    alerts = reportable_alerts(ledger.records)
+    visible_keys = {p.plant_key for p in portfolio.daily_report_plants()}
+    alerts = scoped_alerts(reportable_alerts(ledger.records),
+                           visible_keys)
     sev_rank = {"CRITICAL": 0, "WARNING": 1}
     alerts.sort(key=lambda a: (sev_rank.get(a.severity, 2), a.plant_key,
                                a.inverter_sn))

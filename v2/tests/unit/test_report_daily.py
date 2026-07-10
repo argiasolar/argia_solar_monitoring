@@ -564,3 +564,48 @@ class TestEditionAwareVerdict:
         src = inspect.getsource(RD)
         assert "DAY IN PROGRESS" in src
         assert "appears only in final editions" in src
+
+
+class TestScopedAlerts:
+    """v76: the daily report speaks only about its own plants — a CAPEX
+    plant's critical alert must not appear in the section nor flip the
+    PPA verdict to ATTENTION."""
+
+    def _alert(self, pk, sev="CRITICAL"):
+        from argia.core.alerts_state import AlertRecord, AlertState
+        return AlertRecord(
+            alert_id="x", alert_key="k", plant_key=pk, inverter_sn="SN",
+            metric="inverter_fault", severity=sev,
+            state=AlertState.OPEN,
+            opened_utc="2026-07-10T00:00:00+00:00",
+            last_seen_utc="2026-07-10T00:00:00+00:00", resolved_utc="",
+            value=None, threshold=None, message="m", channels_sent="",
+            explanation="e")
+
+    def test_capex_alerts_excluded_ppa_kept(self):
+        from argia.report.daily import scoped_alerts
+        alerts = [self._alert("GTO1"), self._alert("MEX3"),
+                  self._alert("QRO1", "WARNING")]
+        out = scoped_alerts(alerts, {"GTO1", "SLP1"})
+        assert [a.plant_key for a in out] == ["GTO1"]
+
+    def test_blank_plant_key_kept(self):
+        from argia.report.daily import scoped_alerts
+        out = scoped_alerts([self._alert("")], {"GTO1"})
+        assert len(out) == 1
+
+    def test_verdict_not_polluted_by_hidden_plant(self):
+        # a hidden plant's critical alert must not reach the counters:
+        # with GTO1-only scope and only a MEX3 alert, n_crit is 0 and
+        # the verdict path sees a clean board
+        from argia.report.daily import scoped_alerts
+        visible = {"GTO1"}
+        alerts = scoped_alerts([self._alert("MEX3")], visible)
+        n_crit = sum(1 for a in alerts if a.severity == "CRITICAL")
+        assert n_crit == 0
+
+    def test_footer_states_the_scope(self):
+        import inspect
+        import argia.report.daily as RD
+        src = inspect.getsource(RD)
+        assert "Report scope: plants with show_daily_report" in src

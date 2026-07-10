@@ -20,7 +20,6 @@ Pure parts (semaphores, allocation, SVG, HTML) are unit-tested; the
 
 from __future__ import annotations
 
-import datetime as dt
 import html as _html
 import logging
 from collections import defaultdict
@@ -221,7 +220,8 @@ def summary_sentence(stats: Dict[str, Optional[float]],
 
 def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
                         n_crit: int, n_warn: int,
-                        fleet_pct: Optional[float]) -> Tuple[str, str, str]:
+                        fleet_pct: Optional[float],
+                        live: bool = False) -> Tuple[str, str, str]:
     """One verdict for the whole portfolio: (color, title, why).
 
     Same philosophy as the plant lamps — the worst signal wins:
@@ -231,6 +231,13 @@ def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
       GREEN  otherwise
     The `why` line NAMES the offenders so the verdict is auditable at a
     glance instead of being a mood light.
+
+    ``live`` distinguishes the two honest meanings of an all-gray board
+    (user report 2026-07-09): in the EVENING edition the day simply has
+    not been stamped yet — telemetry may be perfect — so the title is
+    "DAY IN PROGRESS", a state, not an alarm. "INCOMPLETE DAY" is
+    reserved for final editions, where an unstamped/partial day means
+    measurement genuinely failed and should read like a problem.
     """
     colors = [sem_of.get(p.plant_key, GRAY) for p in plants]
     red_names = [short_name(p) for p in plants
@@ -250,6 +257,10 @@ def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
         parts.append(f"fleet at {fleet_pct * 100:.0f}% of plan")
 
     if colors and all(c == GRAY for c in colors):
+        if live:
+            return (GRAY, "DAY IN PROGRESS",
+                    "live estimate; telemetry running, day is classified "
+                    "tonight — final numbers in tomorrow's 07:05 report")
         return GRAY, "INCOMPLETE DAY", "no plant fully measured yet"
     if red_names or n_crit or (fleet_pct is not None and fleet_pct < 0.85):
         return RED, "ATTENTION", " \u00b7 ".join(parts)
@@ -469,9 +480,9 @@ def render_html(data: ReportData) -> str:
     n_crit = sum(1 for a in data.alerts if a.severity == "CRITICAL")
     n_warn = len(data.alerts) - n_crit
     fleet_pct = (fe / fx) if fx else None
-    port_color, port_title, port_why = portfolio_semaphore(
-        data.plants, sem_of, n_crit, n_warn, fleet_pct)
     live = any(p.data_class == "live" for p in data.plants)
+    port_color, port_title, port_why = portfolio_semaphore(
+        data.plants, sem_of, n_crit, n_warn, fleet_pct, live=live)
     subtitle = ("live evening estimate" if live else "KPI-final numbers")
     stats = fleet_stats(data.plants)
     sentence = summary_sentence(stats, port_title, port_why)
@@ -632,6 +643,9 @@ def render_html(data: ReportData) -> str:
         f'energy &#215; PPA tariff, before billing adjustments. '
         f'CO&#8322; avoided uses the national grid emission '
         f'factor (0.444 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'"INCOMPLETE DAY" appears only in final editions when measurement '
+        f'gaps remain; evening editions show "DAY IN PROGRESS" while the '
+        f'day awaits its end-of-day classification. '
         f'Evening editions carry live telemetry-derived energy ahead of '
         f'the final KPI numbers mailed the next morning.'
         f'</footer></div></body></html>')

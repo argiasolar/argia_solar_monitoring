@@ -523,3 +523,44 @@ class TestDesignCardAndEveningFallback20260708:
         html = render_html(TestRenderSmoke()._data())
         cards = html.split('class="pstats"')[1].split("</section>")[0]
         assert cards.count('class="pstat"') == 7  # card always present
+
+
+class TestEditionAwareVerdict:
+    """User report 2026-07-09: the evening edition headlined
+    'INCOMPLETE DAY' although telemetry ran perfectly all day — the day
+    simply had no KPI stamps yet. All-gray must read as a state in the
+    live edition and as an alarm only in the final one."""
+
+    def _gray_board(self):
+        plants = [_plant(k) for k in ("SLP1", "GTO1")]
+        sem = {p.plant_key: GRAY for p in plants}
+        return plants, sem
+
+    def test_live_edition_all_gray_is_day_in_progress(self):
+        plants, sem = self._gray_board()
+        c, title, why = portfolio_semaphore(plants, sem, 0, 0, None,
+                                            live=True)
+        assert (c, title) == (GRAY, "DAY IN PROGRESS")
+        assert "07:05" in why and "live estimate" in why
+
+    def test_final_edition_all_gray_stays_incomplete(self):
+        plants, sem = self._gray_board()
+        c, title, why = portfolio_semaphore(plants, sem, 0, 0, None,
+                                            live=False)
+        assert (c, title) == (GRAY, "INCOMPLETE DAY")
+
+    def test_live_edition_with_stamped_reds_alarms_normally(self):
+        plants = [_plant("SLP1"), _plant("GTO1")]
+        sem = {"SLP1": RED, "GTO1": GRAY}
+        c, title, _ = portfolio_semaphore(plants, sem, 0, 0, None,
+                                          live=True)
+        assert (c, title) == (RED, "ATTENTION")
+
+    def test_footer_documents_the_distinction(self):
+        # audit-text-in-same-commit rule: the footer must explain when
+        # each title can appear
+        import argia.report.daily as RD
+        import inspect
+        src = inspect.getsource(RD)
+        assert "DAY IN PROGRESS" in src
+        assert "appears only in final editions" in src

@@ -177,3 +177,16 @@ class TestHeaderContracts:
         assert list(_csv_rows("loans_seed.csv")[0]) == LOANS_HEADER
         assert list(_csv_rows("loan_schedule_seed.csv")[0]) == \
             SCHEDULE_HEADER
+
+
+def test_dscr_definition_in_audit_footer():
+    """User audit question 2026-07-09: the portfolio DSCR must state its
+    aggregation in the audit text — summed revenue over summed service,
+    not an average of per-asset ratios."""
+    data = build_finance_report_data(_sheets(), _portfolio(),
+                                     Period.from_iso("2026-07-01",
+                                                     "2026-07-31"))
+    h = render_html(data)
+    flat = " ".join(h.split())
+    assert "Σ revenue ÷ Σ debt service" in flat
+    assert "NOT an average of per-asset ratios" in flat

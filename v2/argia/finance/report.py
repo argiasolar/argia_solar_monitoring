@@ -205,6 +205,11 @@ def _footer_sources() -> str:
         ("Debt service", "Derived: Σ Loan_Schedule installments for the "
          "period (never a stored per-plant figure). "
          + src["Loan_Schedule"]["payment_mxn"]),
+        ("DSCR", "Revenue ÷ debt service for the same period. Portfolio "
+         "DSCR is Σ revenue ÷ Σ debt service across assets — a "
+         "debt-weighted aggregate, NOT an average of per-asset ratios "
+         "(an average would let a small loan's high ratio mask a large "
+         "loan's shortfall). An asset with no debt has no DSCR."),
         ("FX", src["Loan_Schedule"]["xr"]),
         ("O&M", src["Plants"]["om_cost_monthly_mxn"]),
         ("Interest split", src["Loan_Schedule"]["due_after_mxn"]),

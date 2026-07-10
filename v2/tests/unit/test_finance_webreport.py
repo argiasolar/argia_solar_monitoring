@@ -188,3 +188,12 @@ class TestEmbeddedJsIsValid:
         from argia.report.dashboard_html import LOGO_B64
         h = render_financial_report_html(_atoms(), generated_at="t")
         assert LOGO_B64[:60] in h
+
+
+def test_dscr_definition_in_web_audit():
+    """Same guarantee as the PDF: the collapsed audit block explains
+    that portfolio DSCR is the debt-weighted aggregate."""
+    h = render_financial_report_html(_atoms(), generated_at="t")
+    flat = " ".join(h.split())
+    assert "Σ revenue ÷ Σ debt service" in flat
+    assert "NOT an average of per-asset ratios" in flat

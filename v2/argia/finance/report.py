@@ -32,7 +32,9 @@ from argia.finance.income import (
     Period, actual_income, debt_service_for_period, dscr,
     expected_income_month, load_kpi_energy, om_cost_for_period,
 )
-from argia.finance.loans import load_loan_schedule, load_loans
+from argia.finance.loans import (
+    installment_label, load_loan_schedule, load_loans,
+)
 from argia.finance.provenance import report_sources
 
 LOG = logging.getLogger(__name__)
@@ -51,6 +53,9 @@ class AssetFinance:
     om_mxn: float
     service_mxn: float            # prorated for the period
     is_usd_service: bool
+    kwp_dc: Optional[float] = None       # PPA plant size (Plants tab)
+    installments: str = ""               # loan position at period end,
+    #                                      e.g. "22/84", "paid off"
 
     @property
     def net_expected(self) -> Optional[float]:
@@ -146,6 +151,7 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
     usd_plants = {l.plant_key for l in loans.values()
                   if l.currency == "USD"}
 
+    end_ym = period.end.strftime("%Y-%m")
     for pk, plant in sorted(ppa_plants.items()):
         svc = debt_service_for_period(schedule, pk, period)
         om = om_cost_for_period(plant.om_cost_monthly_mxn, period)
@@ -158,7 +164,9 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
             actual_mxn=actual_income(kpi, contracts, schedule, pk, period,
                                      tariff_fallback=plant.tariff_mxn_per_kwh),
             om_mxn=om, service_mxn=svc,
-            is_usd_service=pk in usd_plants))
+            is_usd_service=pk in usd_plants,
+            kwp_dc=plant.kwp_dc,
+            installments=installment_label(schedule, pk, end_ym)))
 
     for pk in laas_keys:
         svc = debt_service_for_period(schedule, pk, period)
@@ -168,7 +176,8 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
                                               period),
             actual_mxn=actual_income(kpi, contracts, schedule, pk, period),
             om_mxn=0.0, service_mxn=svc,
-            is_usd_service=pk in usd_plants))
+            is_usd_service=pk in usd_plants,
+            installments=installment_label(schedule, pk, end_ym)))
     return data
 
 
@@ -205,6 +214,9 @@ def _footer_sources() -> str:
         ("Debt service", "Derived: Σ Loan_Schedule installments for the "
          "period (never a stored per-plant figure). "
          + src["Loan_Schedule"]["payment_mxn"]),
+        ("Loan position", "Installments paid / total per ACTIVE loan at "
+         "the period's end month, from Loan_Schedule (completed loans "
+         "drop out; several active loans show separately)."),
         ("DSCR", "Revenue ÷ debt service for the same period. Portfolio "
          "DSCR is Σ revenue ÷ Σ debt service across assets — a "
          "debt-weighted aggregate, NOT an average of per-asset ratios "
@@ -236,17 +248,21 @@ def render_html(data: FinanceReportData) -> str:
     rows_html = ""
     for a in sorted(data.assets, key=lambda x: (x.typ, -(x.expected_mxn
                                                          or 0))):
+        sub = (a.plant_key + " · %d kWp" % round(a.kwp_dc)
+               if a.kwp_dc else a.plant_key)
         rows_html += (
             '<tr><td class="l"><b>%s</b><div class="sub">%s</div></td>'
             '<td><span class="tag %s">%s</span></td>'
             '<td class="n">%s</td><td class="n">%s</td>'
             '<td class="n">%s</td><td class="n">%s</td>'
+            '<td class="n">%s</td>'
             '<td class="n">%s</td><td class="n">%s</td></tr>\n' % (
-                html.escape(a.name), a.plant_key,
+                html.escape(a.name), sub,
                 "laas" if a.typ == "LaaS" else "ppa", a.typ,
                 _m(a.expected_mxn), _m(a.actual_mxn),
                 _m(a.om_mxn if a.om_mxn else None),
                 _m(a.service_mxn),
+                html.escape(a.installments or "—"),
                 _dscr_span(a.dscr_expected), _dscr_span(a.dscr_actual)))
 
     exp, act = data.expected_total, data.actual_total
@@ -332,9 +348,9 @@ footer{{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);font-s
 
 <h2>Per-asset detail</h2>
 <table class="det">
-<thead><tr><th class="l">Asset</th><th>Type</th><th>Exp. revenue</th><th>Actual revenue</th><th>O&amp;M</th><th>Debt service</th><th>DSCR exp.</th><th>DSCR act.</th></tr></thead>
+<thead><tr><th class="l">Asset</th><th>Type</th><th>Exp. revenue</th><th>Actual revenue</th><th>O&amp;M</th><th>Debt service</th><th>Loan position</th><th>DSCR exp.</th><th>DSCR act.</th></tr></thead>
 <tbody>{rows_html}</tbody>
-<tfoot><tr><td class="l">PORTFOLIO</td><td></td><td class="n">{_m(exp)}</td><td class="n">{_m(act)}</td><td class="n">{_m(om)}</td><td class="n">{_m(svc)}</td><td class="n">{_dscr_span(d_e)}</td><td class="n">{_dscr_span(d_a)}</td></tr></tfoot>
+<tfoot><tr><td class="l">PORTFOLIO</td><td></td><td class="n">{_m(exp)}</td><td class="n">{_m(act)}</td><td class="n">{_m(om)}</td><td class="n">{_m(svc)}</td><td></td><td class="n">{_dscr_span(d_e)}</td><td class="n">{_dscr_span(d_a)}</td></tr></tfoot>
 </table>
 
 <div class="note"><b>FX position.</b> {usd_share*100:.1f}% of the period's debt service is USD-denominated — matched by USD-indexed LaaS fees at the same rate, so LaaS coverage is FX-neutral and net portfolio FX exposure is ≈ zero.</div>

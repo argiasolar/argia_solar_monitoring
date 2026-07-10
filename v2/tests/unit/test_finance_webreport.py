@@ -197,3 +197,17 @@ def test_dscr_definition_in_web_audit():
     flat = " ".join(h.split())
     assert "Σ revenue ÷ Σ debt service" in flat
     assert "NOT an average of per-asset ratios" in flat
+
+
+def test_kwp_and_loan_position_embedded_in_web():
+    """Same guarantees on the web surface: kwp on PPA plants, per-month
+    loan position labels embedded for client-side lookup only."""
+    data = _atoms()
+    ppa = [p for p in data["plants"] if p["typ"] == "PPA"]
+    assert all(p["kwp"] == 100.0 for p in ppa)     # fixture value
+    assert all(p["kwp"] is None for p in data["plants"]
+               if p["typ"] == "LaaS")
+    assert data["inst"]["GTO1"]["2026-07"] == "22/84"
+    assert data["inst"]["SLP1"]["2026-07"] == "2/12"
+    h = render_financial_report_html(data, generated_at="t")
+    assert "Loan position" in h and '"22/84"' in h

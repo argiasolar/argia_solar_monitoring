@@ -219,3 +219,47 @@ class TestDscr:
         assert inc == pytest.approx(1754409.06, abs=1.0)
         assert svc == pytest.approx(1267488.22, abs=0.05)
         assert dscr(inc, svc) == pytest.approx(1.384, abs=0.001)
+
+
+class TestInstallmentLabel:
+    """Loan position labels (user request 2026-07-10): paid/total per
+    ACTIVE loan at a month, verified against the real schedule."""
+
+    def test_july_positions_match_schedule(self):
+        from argia.finance.loans import installment_label
+        sched = _schedule()
+        expect = {"GTO1": "22/84", "LGTO1": "13/72", "LOAX1": "35/82",
+                  "MEX1": "20/84", "MEX2": "10/84", "NL1": "20/84",
+                  "SLP2": "25/63"}
+        for pk, label in expect.items():
+            assert installment_label(sched, pk, "2026-07") == label, pk
+
+    def test_slp1_handoff_between_loans(self):
+        # L1 ends 2026-05 (24/24), L2 starts 2026-06 — completed loan
+        # drops out, so July shows only the active refinance
+        from argia.finance.loans import installment_label
+        sched = _schedule()
+        assert installment_label(sched, "SLP1", "2026-05") == "24/24"
+        assert installment_label(sched, "SLP1", "2026-06") == "1/12"
+        assert installment_label(sched, "SLP1", "2026-07") == "2/12"
+
+    def test_boundaries(self):
+        from argia.finance.loans import installment_label
+        sched = _schedule()
+        assert installment_label(sched, "SLP1", "2028-01") == "paid off"
+        assert installment_label(sched, "SLP1",
+                                 "2024-01") == "starts 2024-06"
+        assert installment_label(sched, "NOLOAN", "2026-07") == ""
+
+    def test_two_active_loans_show_separately(self):
+        from argia.finance.loans import ScheduleRow, installment_label
+
+        def row(lid, no, tot):
+            return ScheduleRow(loan_id=lid, plant_key="LGTO1",
+                               ref_month="2027-01", installment_no=no,
+                               total_installments=tot, payment_mxn=1.0,
+                               payment_ccy=1.0, xr=18.0,
+                               due_after_mxn=0.0)
+        sched = [row("LGTO1-L1", 19, 72), row("LGTO1-L2", 3, 48)]
+        assert installment_label(sched, "LGTO1",
+                                 "2027-01") == "19/72 · 3/48"

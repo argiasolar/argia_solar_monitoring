@@ -190,3 +190,19 @@ def test_dscr_definition_in_audit_footer():
     flat = " ".join(h.split())
     assert "Σ revenue ÷ Σ debt service" in flat
     assert "NOT an average of per-asset ratios" in flat
+
+
+def test_kwp_and_loan_position_in_pdf(monkeypatch=None):
+    """User request 2026-07-10: plant size in the asset name, loan
+    position column (paid/total, active loans only)."""
+    data = build_finance_report_data(_sheets(), _portfolio(),
+                                     Period.from_iso("2026-07-01",
+                                                     "2026-07-31"))
+    by_key = {a.plant_key: a for a in data.assets}
+    assert by_key["GTO1"].installments == "22/84"
+    assert by_key["SLP1"].installments == "2/12"   # L1 done, L2 active
+    assert by_key["GTO1"].kwp_dc == pytest.approx(100.0)  # fixture value
+    assert by_key["LOAX1"].kwp_dc is None          # LaaS: no Plants row
+    h = render_html(data)
+    assert "Loan position" in h and "22/84" in h and "2/12" in h
+    assert "100 kWp" in h

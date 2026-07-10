@@ -240,3 +240,28 @@ def fx_exposure(schedule: List[ScheduleRow],
 def portfolio_debt_service(schedule: List[ScheduleRow],
                            ref_month: str) -> float:
     return sum(monthly_debt_service(schedule, ref_month).values())
+
+
+def installment_label(schedule, plant_key: str, ym: str) -> str:
+    """Human loan position for a plant at a given month, e.g. "22/84",
+    or "24/24 · 2/12" when several loans pay that month (only ACTIVE
+    loans appear — a completed loan has no row and drops out, which is
+    the honest answer to "how many payments are still missing").
+    Boundary months: "paid off" after the last installment,
+    "starts YYYY-MM" before the first, "" for a plant with no loans.
+    """
+    pk = str(plant_key).upper()
+    mine = [r for r in schedule if r.plant_key == pk]
+    if not mine:
+        return ""
+    hits = sorted((r for r in mine if r.ref_month == ym),
+                  key=lambda r: r.loan_id)
+    if hits:
+        return " · ".join("%d/%d" % (r.installment_no,
+                                     r.total_installments) for r in hits)
+    months = sorted(r.ref_month for r in mine)
+    if ym > months[-1]:
+        return "paid off"
+    if ym < months[0]:
+        return "starts " + months[0]
+    return ""

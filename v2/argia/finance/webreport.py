@@ -65,10 +65,12 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
     for pk, p in sorted(ppa.items()):
         plants.append({"key": pk, "name": p.customer or pk, "typ": "PPA",
                        "usd": pk in usd_plants,
+                       "kwp": p.kwp_dc,
                        "om_missing": p.om_cost_monthly_mxn is None})
     for pk in laas_keys:
         plants.append({"key": pk, "name": loan_names.get(pk, pk),
                        "typ": "LaaS", "usd": pk in usd_plants,
+                       "kwp": None,
                        "om_missing": False})
 
     # per-month intermediates (single computation, shared by every day)
@@ -121,9 +123,21 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
                 round(svc_d, 2), round(om_m / dim, 2)])
         cursor += timedelta(days=1)
 
+    # loan position labels per plant-month ("22/84", "24/24 · 2/12",
+    # "paid off") — computed here so the browser only LOOKS THEM UP by
+    # the selected end month, same no-logic-client-side rule as atoms
+    from argia.finance.loans import installment_label
+    inst: Dict[str, Dict[str, str]] = {}
+    for pl in plants:
+        pk = pl["key"]
+        inst[pk] = {}
+        for (y, m, _, _) in months:
+            ym = "%04d-%02d" % (y, m)
+            inst[pk][ym] = installment_label(schedule, pk, ym)
+
     last_actual = max((d for (pk, d) in kpi.keys()), default=None)
     return {"days": days, "plants": plants, "atoms": atoms,
-            "last_actual_day": last_actual}
+            "inst": inst, "last_actual_day": last_actual}
 
 
 def _logo_uri() -> str:
@@ -269,7 +283,8 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
     <table>
       <thead><tr><th>Asset</th><th>Type</th><th class="num">Exp. revenue</th>
         <th class="num">Actual revenue</th><th class="num">O&amp;M</th>
-        <th class="num">Debt service</th><th class="num">DSCR exp.</th>
+        <th class="num">Debt service</th><th class="num">Loan position</th>
+        <th class="num">DSCR exp.</th>
         <th class="num">DSCR act.</th></tr></thead>
       <tbody id="rows"></tbody>
       <tfoot><tr id="totrow" style="font-weight:600;"></tr></tfoot>
@@ -280,6 +295,11 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
       <div class="body">
         <span id="fxline"></span>
         {footer}<br>
+        <b>Loan position:</b> installments paid / total per active loan
+        as of the selected end month, from Loan_Schedule (a completed
+        loan drops out; several active loans show as
+        "24/24 &middot; 2/12"). <b>Plant size:</b> kWp DC from the
+        Plants tab (PPA assets).
         This page embeds per-day figures computed server-side by the same
         engine as the PDF report; the date picker only sums them &mdash;
         no financial logic runs in the browser.
@@ -331,11 +351,15 @@ function recompute() {{
     if (s.revDays>0) anyActual = true;
     maxRevDays = Math.max(maxRevDays, s.revDays);
     const actual = s.revDays>0 ? s.rev : null;
-    rowsHtml += '<tr><td>'+p.name+'<span class="sn">'+p.key+'</span></td>'
+    const sub = p.kwp ? p.key + ' \u00b7 ' + Math.round(p.kwp) + ' kWp'
+                      : p.key;
+    const instLabel = (D.inst[p.key] || {{}})[t.slice(0,7)] || '\u2013';
+    rowsHtml += '<tr><td>'+p.name+'<span class="sn">'+sub+'</span></td>'
       + '<td>'+typBadge(p.typ)+'</td>'
       + '<td class="num">'+fmt(s.exp)+'</td><td class="num">'+fmt(actual)
       + '</td><td class="num">'+(s.om>0?fmt(s.om):"\u2013")+'</td>'
       + '<td class="num">'+fmt(s.svc)+'</td>'
+      + '<td class="num">'+(instLabel||'\u2013')+'</td>'
       + '<td class="num">'+dscrBadge(s.exp||null, s.svc)+'</td>'
       + '<td class="num">'+dscrBadge(actual, s.svc)+'</td></tr>';
     if (actual!=null && s.svc>0 && actual/s.svc < 1)
@@ -377,9 +401,9 @@ function recompute() {{
   document.getElementById("totrow").innerHTML =
       '<td>PORTFOLIO</td><td></td><td class="num">'+fmt(T.exp)
       + '</td><td class="num">'+fmt(actTotal)+'</td><td class="num">'
-      + fmt(T.om)+'</td><td class="num">'+fmt(T.svc)+'</td><td class="num">'
-      + dscrBadge(T.exp||null,T.svc)+'</td><td class="num">'
-      + dscrBadge(actTotal,T.svc)+'</td>';
+      + fmt(T.om)+'</td><td class="num">'+fmt(T.svc)+'</td><td></td>'
+      + '<td class="num">'+dscrBadge(T.exp||null,T.svc)+'</td>'
+      + '<td class="num">'+dscrBadge(actTotal,T.svc)+'</td>';
   document.getElementById("notes").innerHTML = notes;
 }}
 function setRange(f,t) {{

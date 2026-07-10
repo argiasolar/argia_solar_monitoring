@@ -85,3 +85,24 @@ class TestClientView:
         visible = {p.plant_key for p in view.daily_report_plants()}
         assert visible == {"MEX3"}
         assert scoped_alerts([], visible) == []
+
+
+class TestClientPageNames:
+    """v79: the published object is <channel>.html — and the name must
+    be a clean token because it becomes a URL path."""
+
+    def test_expected_pages(self):
+        from scripts.client_reports_publish import object_name
+        for ch in ("tetrapack", "sms", "budenheim", "hirschmann"):
+            assert object_name(ch) == ch + ".html"
+
+    def test_normalized_tokens_pass(self):
+        from scripts.client_reports_publish import object_name
+        assert object_name("acme_corp") == "acme_corp.html"
+
+    def test_dirty_tokens_refused(self):
+        import pytest
+        from scripts.client_reports_publish import object_name
+        for bad in ("", "Tetra Pack", "a/b", "../x", "sms.html", "SMS"):
+            with pytest.raises(ValueError):
+                object_name(bad)

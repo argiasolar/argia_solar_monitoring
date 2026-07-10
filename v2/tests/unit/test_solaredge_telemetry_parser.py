@@ -11,16 +11,14 @@ live_equipment_data_QRO1.json).
 
 from __future__ import annotations
 
-import datetime as dt
 from unittest.mock import MagicMock
 
 import pytest
 
-from argia.vendors.solaredge import SolarEdgeAPIError, SolarEdgeAuthError
+from argia.vendors.solaredge import SolarEdgeAPIError
 from argia.vendors.solaredge_telemetry import (
     EMPTY_PHASE,
     PhaseData,
-    SolarEdgeTelemetryRow,
     fetch_inverter_telemetry,
     parse_telemetry_response,
 )
@@ -336,8 +334,16 @@ class TestFetchRegression:
         client._get_json.assert_not_called()
 
     def test_returns_parsed_rows(self):
+        # v80: the fetch now applies a 60-min recency window, so the
+        # fixture entry must carry a current timestamp (site-local
+        # naive, as the API serves it)
+        import datetime as _dt
+        from zoneinfo import ZoneInfo as _Z
+        entry = _rich_telemetry()
+        entry["date"] = _dt.datetime.now(
+            _Z("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S")
         client = MagicMock()
-        client._get_json.return_value = _equipment_response([_rich_telemetry()])
+        client._get_json.return_value = _equipment_response([entry])
         result = fetch_inverter_telemetry(
             client, _FakePlant(),
             [_FakeInverter("INV1"), _FakeInverter("INV2")],
@@ -360,3 +366,55 @@ class TestFetchRegression:
             client, _FakePlant(), [_FakeInverter("OFFLINE_INV")],
         )
         assert result == []
+
+
+class TestMultiEntryParsing:
+    """v80: every 5-minute entry becomes a row (previously only the
+    latest survived), with eToday cumulative from the day's first
+    entry — the same semantics as every other vendor feed, so
+    KPI max(EToday) aggregation is unchanged."""
+
+    def _entries(self):
+        base = 421_000_000.0
+        out = []
+        for i, (hh, wh) in enumerate([("08:00", 0.0), ("08:05", 2500.0),
+                                      ("08:10", 6000.0)]):
+            e = _rich_telemetry()
+            e["date"] = "2026-05-14 %s:00" % hh
+            e["totalEnergy"] = base + wh
+            out.append(e)
+        return out
+
+    def test_all_entries_become_rows(self):
+        from argia.vendors.solaredge_telemetry import (
+            parse_telemetry_entries,
+        )
+        rows = parse_telemetry_entries(
+            _equipment_response(self._entries()), "QRO1", "INV1")
+        assert len(rows) == 3
+        assert [r.etoday_kwh for r in rows] == [0.0, 2.5, 6.0]
+
+    def test_min_ts_filters_rows_but_keeps_day_anchor(self):
+        import datetime as _dt
+        from argia.vendors.solaredge_telemetry import (
+            MX_TZ, parse_telemetry_entries,
+        )
+        # cut at 08:07 site-local: only the 08:10 row survives, but its
+        # eToday still measures from the 08:00 first entry
+        cut = _dt.datetime(2026, 5, 14, 8, 7,
+                           tzinfo=MX_TZ).astimezone(_dt.timezone.utc)
+        rows = parse_telemetry_entries(
+            _equipment_response(self._entries()), "QRO1", "INV1",
+            min_ts_utc=cut)
+        assert len(rows) == 1
+        assert rows[0].etoday_kwh == 6.0
+
+    def test_latest_wrapper_unchanged(self):
+        from argia.vendors.solaredge_telemetry import (
+            parse_telemetry_entries, parse_telemetry_response,
+        )
+        resp = _equipment_response(self._entries())
+        latest = parse_telemetry_response(resp, "QRO1", "INV1")
+        allrows = parse_telemetry_entries(resp, "QRO1", "INV1")
+        assert latest.timestamp_utc == allrows[-1].timestamp_utc
+        assert latest.etoday_kwh == 6.0

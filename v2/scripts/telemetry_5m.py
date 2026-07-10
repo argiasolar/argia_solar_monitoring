@@ -45,7 +45,6 @@ from typing import List, Optional
 from argia.core.config import (
     InverterConfig,
     PlantConfig,
-    Portfolio,
     load_portfolio,
 )
 from argia.core.sheets import SheetsClient
@@ -332,8 +331,31 @@ def _process_huawei_plant(
 # ============================================================
 
 
+KNOWN_BRANDS = ("GROWATT", "HUAWEI", "SOLAREDGE", "SMA")
+
+
+def brand_enabled(brand: str, only: str | None, skip: str | None) -> bool:
+    """--brand X runs only X; --skip-brand Y runs everything but Y.
+    Both None = everything (unchanged default)."""
+    if only is not None:
+        return brand == only
+    if skip is not None:
+        return brand != skip
+    return True
+
+
 class _SolarEdgeQuotaExhausted(Exception):
-    """Signal that the SolarEdge quota has hit; caller should skip remaining plants."""
+    """This SITE's daily API quota (300 req/day/site) is spent. v80:
+    per-site budgets — the orchestrator skips THIS plant only and
+    continues with the next SolarEdge plant, whose budget is separate.
+    Quota exhaustion near end of day is an expected condition, not an
+    outage: data resumes after site-local midnight and the evening gap
+    is reconciled by the next morning's full-day fetch."""
+
+
+class _SolarEdgeAuthFailed(Exception):
+    """API key rejected — no point trying other calls with it; the
+    orchestrator skips ONLY plants sharing this key's secret name."""
 
 
 def _process_solaredge_plant(
@@ -354,15 +376,19 @@ def _process_solaredge_plant(
             se_client, plant, inverters,
         )
     except SolarEdgeAuthError as e:
-        log.error("[%s] SolarEdge auth failed: %s — skipping remaining SE plants",
+        log.error("[%s] SolarEdge auth failed (key rejected): %s",
                   plant.plant_key, e)
-        raise _SolarEdgeQuotaExhausted() from e
+        raise _SolarEdgeAuthFailed() from e
     except SolarEdgeAPIError as e:
         msg = str(e).lower()
         if "rate-limited" in msg or "429" in msg:
             log.warning(
-                "[%s] SolarEdge rate-limited — skipping this and remaining SE plants",
-                plant.plant_key,
+                "[%s] site %s: daily SolarEdge API quota reached "
+                "(~300 req/day/site) — expected near end of day at the "
+                "20-min cadence, NOT an outage. Collection resumes "
+                "after site-local midnight; tomorrow's full-day fetch "
+                "backfills today's tail for KPI purposes.",
+                plant.plant_key, plant.site_id,
             )
             raise _SolarEdgeQuotaExhausted() from e
         log.warning("[%s] SolarEdge fetch failed: %s", plant.plant_key, e)
@@ -629,8 +655,12 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
     skipped = 0
     total_errors = 0
 
+    dead_keys: set = set()
     for plant in plants:
         secret_name = plant.secret_api_name
+        if secret_name in dead_keys:
+            skipped += 1
+            continue
         api_key = os.environ.get(secret_name, "").strip() if secret_name else ""
         if not api_key:
             log.warning("[%s] env var %s is not set — skipping",
@@ -666,8 +696,20 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
             total_errors += errs
             processed += 1
         except _SolarEdgeQuotaExhausted:
-            skipped += len(plants) - processed - 1
-            break
+            # per-SITE budget: only this plant pauses; the next SE
+            # plant has its own quota. Not counted as an error — the
+            # condition is expected and self-heals at midnight.
+            skipped += 1
+            continue
+        except _SolarEdgeAuthFailed:
+            bad_key = plant.secret_api_name
+            same_key = [p.plant_key for p in plants
+                        if p.secret_api_name == bad_key]
+            log.error("skipping plant(s) sharing rejected key %r: %s",
+                      bad_key, same_key)
+            dead_keys.add(bad_key)
+            total_errors += 1
+            skipped += 1
         except Exception as e:  # noqa: BLE001
             log.exception("[%s] plant crashed: %s", plant.plant_key, e)
             total_errors += 1
@@ -844,6 +886,19 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--plant-key", default=None)
+    parser.add_argument("--brand", default=None,
+                        choices=KNOWN_BRANDS,
+                        type=lambda v: v.upper(),
+                        help="run ONLY this vendor pipeline (e.g. the "
+                             "dedicated SolarEdge cron at its "
+                             "quota-safe cadence)")
+    parser.add_argument("--skip-brand", default=None,
+                        choices=KNOWN_BRANDS,
+                        type=lambda v: v.upper(),
+                        help="run every pipeline EXCEPT this vendor "
+                             "(the main 5-min cron skips SOLAREDGE, "
+                             "whose ~300 req/day/site quota needs the "
+                             "slower dedicated cron)")
     parser.add_argument(
         "--log-level", default=os.environ.get("LOG_LEVEL", "INFO"),
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -908,10 +963,13 @@ def main(argv=None) -> int:
 
     # ----- Growatt -----
     try:
-        common, processed, skipped, errs = _run_growatt(
-            portfolio, sheets, date_iso, args.plant_key,
-            irradiance_client, cloud_client, args.dry_run, log,
-        )
+        common, processed, skipped, errs = (
+            _run_growatt(
+                portfolio, sheets, date_iso, args.plant_key,
+                irradiance_client, cloud_client, args.dry_run, log,
+            )
+            if brand_enabled("GROWATT", args.brand, args.skip_brand)
+            else ([], 0, 0, 0))
         all_common.extend(common)
         total_processed += processed
         total_skipped += skipped
@@ -922,10 +980,13 @@ def main(argv=None) -> int:
 
     # ----- Huawei -----
     try:
-        common, processed, skipped, errs = _run_huawei(
-            portfolio, sheets, date_iso, args.plant_key,
-            irradiance_client, cloud_client, args.dry_run, log,
-        )
+        common, processed, skipped, errs = (
+            _run_huawei(
+                portfolio, sheets, date_iso, args.plant_key,
+                irradiance_client, cloud_client, args.dry_run, log,
+            )
+            if brand_enabled("HUAWEI", args.brand, args.skip_brand)
+            else ([], 0, 0, 0))
         all_common.extend(common)
         total_processed += processed
         total_skipped += skipped
@@ -936,10 +997,13 @@ def main(argv=None) -> int:
 
     # ----- SolarEdge -----
     try:
-        common, processed, skipped, errs = _run_solaredge(
-            portfolio, sheets, date_iso, args.plant_key,
-            irradiance_client, cloud_client, args.dry_run, log,
-        )
+        common, processed, skipped, errs = (
+            _run_solaredge(
+                portfolio, sheets, date_iso, args.plant_key,
+                irradiance_client, cloud_client, args.dry_run, log,
+            )
+            if brand_enabled("SOLAREDGE", args.brand, args.skip_brand)
+            else ([], 0, 0, 0))
         all_common.extend(common)
         total_processed += processed
         total_skipped += skipped
@@ -950,10 +1014,13 @@ def main(argv=None) -> int:
 
     # ----- SMA (NEW in Stage 6) -----
     try:
-        common, processed, skipped, errs = _run_sma(
-            portfolio, sheets, date_iso, args.plant_key,
-            irradiance_client, cloud_client, args.dry_run, log,
-        )
+        common, processed, skipped, errs = (
+            _run_sma(
+                portfolio, sheets, date_iso, args.plant_key,
+                irradiance_client, cloud_client, args.dry_run, log,
+            )
+            if brand_enabled("SMA", args.brand, args.skip_brand)
+            else ([], 0, 0, 0))
         all_common.extend(common)
         total_processed += processed
         total_skipped += skipped

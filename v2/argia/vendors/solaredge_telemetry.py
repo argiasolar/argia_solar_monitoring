@@ -147,75 +147,38 @@ def _parse_phase(phase_dict: Any) -> PhaseData:
     )
 
 
-def parse_telemetry_response(
-    response: Dict[str, Any],
+def _parse_entry(
+    entry: Dict[str, Any],
+    first_total_wh: Optional[float],
     plant_key: str,
     inverter_sn: str,
     site_tz=MX_TZ,
 ) -> Optional[SolarEdgeTelemetryRow]:
-    """Parse a ``/equipment/{siteId}/{sn}/data`` response into a rich row.
-
-    The response has multiple telemetry entries (one per 5/15 min through
-    today). We pick the LATEST entry for current-state fields and use the
-    diff between first and last for ``etoday_kwh``.
-
-    Returns None if there are no telemetry entries.
-    """
-    if not isinstance(response, dict):
+    """One 5-minute telemetry entry -> one rich row. ``etoday_kwh`` is
+    cumulative: this entry's totalEnergy minus the day's FIRST entry —
+    the same EToday semantics every other vendor feed uses, so the KPI
+    max(EToday) aggregation works unchanged."""
+    if not isinstance(entry, dict):
         return None
 
-    data = response.get("data") or {}
-    telemetries = data.get("telemetries") or []
-    if not isinstance(telemetries, list) or not telemetries:
-        return None
-
-    # Sort defensively (API usually chronological but verify)
-    def _entry_ts(entry: Dict[str, Any]) -> str:
-        return str(entry.get("date", "")) if isinstance(entry, dict) else ""
-
-    sorted_entries = sorted(telemetries, key=_entry_ts)
-    latest = sorted_entries[-1]
-    first = sorted_entries[0]
-    if not isinstance(latest, dict):
-        return None
-
-    if LOG.isEnabledFor(logging.DEBUG):
-        LOG.debug(
-            "solaredge telemetry latest entry keys for %s: %s",
-            inverter_sn, sorted(latest.keys()),
-        )
-
-    power_w = safe_float(pick(latest, ["totalActivePower", "power"]))
-    mode_raw = pick(latest, ["inverterMode", "mode"])
+    power_w = safe_float(pick(entry, ["totalActivePower", "power"]))
+    mode_raw = pick(entry, ["inverterMode", "mode"])
     raw_mode_str = str(mode_raw) if mode_raw is not None else ""
     status = _inverter_mode_to_status(mode_raw)
 
-    latest_total = safe_float(latest.get("totalEnergy"))
+    entry_total = safe_float(entry.get("totalEnergy"))
     etotal_kwh = (
-        round(latest_total / 1000.0, 3) if latest_total is not None else None
+        round(entry_total / 1000.0, 3) if entry_total is not None else None
     )
-
-    # eToday from totalEnergy diff (latest minus first entry of the day)
-    first_total = safe_float(first.get("totalEnergy")) if isinstance(first, dict) else None
-    if latest_total is not None and first_total is not None:
-        etoday_wh = max(0.0, latest_total - first_total)
-        etoday_kwh: Optional[float] = round(etoday_wh / 1000.0, 3)
+    if entry_total is not None and first_total_wh is not None:
+        etoday_kwh: Optional[float] = round(
+            max(0.0, entry_total - first_total_wh) / 1000.0, 3)
     else:
         etoday_kwh = None
 
-    ts_utc = _parse_site_local_to_utc(latest.get("date"), site_tz)
+    ts_utc = _parse_site_local_to_utc(entry.get("date"), site_tz)
     if ts_utc is None:
         ts_utc = dt.datetime.now(UTC).replace(microsecond=0)
-
-    # NEW in Stage 5.1: line-to-line voltages
-    v_l1_l2 = safe_float(latest.get("vL1To2"))
-    v_l2_l3 = safe_float(latest.get("vL2To3"))
-    v_l3_l1 = safe_float(latest.get("vL3To1"))
-
-    # NEW in Stage 5.1: per-phase nested data
-    l1 = _parse_phase(latest.get("L1Data"))
-    l2 = _parse_phase(latest.get("L2Data"))
-    l3 = _parse_phase(latest.get("L3Data"))
 
     return SolarEdgeTelemetryRow(
         plant_key=plant_key,
@@ -223,21 +186,84 @@ def parse_telemetry_response(
         timestamp_utc=ts_utc,
         status=status,
         raw_mode=raw_mode_str,
-        operation_mode=None if latest.get("operationMode") is None
-                       else int(safe_float(latest.get("operationMode")) or 0),
+        operation_mode=None if entry.get("operationMode") is None
+                       else int(safe_float(entry.get("operationMode")) or 0),
         power_w=power_w,
-        v_l1_to_l2_v=v_l1_l2,
-        v_l2_to_l3_v=v_l2_l3,
-        v_l3_to_l1_v=v_l3_l1,
-        l1=l1, l2=l2, l3=l3,
+        v_l1_to_l2_v=safe_float(entry.get("vL1To2")),
+        v_l2_to_l3_v=safe_float(entry.get("vL2To3")),
+        v_l3_to_l1_v=safe_float(entry.get("vL3To1")),
+        l1=_parse_phase(entry.get("L1Data")),
+        l2=_parse_phase(entry.get("L2Data")),
+        l3=_parse_phase(entry.get("L3Data")),
         etoday_kwh=etoday_kwh,
         etotal_kwh=etotal_kwh,
-        temperature_c=safe_float(latest.get("temperature")),
-        dc_voltage_v=safe_float(latest.get("dcVoltage")),
-        power_limit_pct=safe_float(latest.get("powerLimit")),
-        ground_fault_resistance=safe_float(latest.get("groundFaultResistance")),
-        raw_telemetry=dict(latest),
+        temperature_c=safe_float(entry.get("temperature")),
+        dc_voltage_v=safe_float(entry.get("dcVoltage")),
+        power_limit_pct=safe_float(entry.get("powerLimit")),
+        ground_fault_resistance=safe_float(entry.get("groundFaultResistance")),
+        raw_telemetry=dict(entry),
     )
+
+
+def parse_telemetry_entries(
+    response: Dict[str, Any],
+    plant_key: str,
+    inverter_sn: str,
+    site_tz=MX_TZ,
+    min_ts_utc: Optional[dt.datetime] = None,
+) -> List[SolarEdgeTelemetryRow]:
+    """Parse EVERY telemetry entry in a ``/equipment/.../data`` response
+    (v80 — previously only the latest was kept, discarding the 5-minute
+    history the API hands over in the same payload).
+
+    ``min_ts_utc``: only build rows at/after this timestamp — the day's
+    FIRST entry is still used as the eToday base regardless, so callers
+    can request a small recent window without breaking the cumulative
+    energy semantics. Rows older than the window are simply already in
+    the sheet from earlier polls (idempotent upsert).
+    """
+    if not isinstance(response, dict):
+        return []
+    data = response.get("data") or {}
+    telemetries = data.get("telemetries") or []
+    if not isinstance(telemetries, list) or not telemetries:
+        return []
+
+    def _entry_ts(entry: Dict[str, Any]) -> str:
+        return str(entry.get("date", "")) if isinstance(entry, dict) else ""
+
+    sorted_entries = [e for e in sorted(telemetries, key=_entry_ts)
+                      if isinstance(e, dict)]
+    if not sorted_entries:
+        return []
+    if LOG.isEnabledFor(logging.DEBUG):
+        LOG.debug("solaredge telemetry entry keys for %s: %s",
+                  inverter_sn, sorted(sorted_entries[-1].keys()))
+
+    first_total_wh = safe_float(sorted_entries[0].get("totalEnergy"))
+    out: List[SolarEdgeTelemetryRow] = []
+    for entry in sorted_entries:
+        row = _parse_entry(entry, first_total_wh, plant_key,
+                           inverter_sn, site_tz)
+        if row is None:
+            continue
+        if min_ts_utc is not None and row.timestamp_utc < min_ts_utc:
+            continue
+        out.append(row)
+    return out
+
+
+def parse_telemetry_response(
+    response: Dict[str, Any],
+    plant_key: str,
+    inverter_sn: str,
+    site_tz=MX_TZ,
+) -> Optional[SolarEdgeTelemetryRow]:
+    """Latest entry only — kept as a compatibility wrapper over
+    :func:`parse_telemetry_entries` (v80)."""
+    rows = parse_telemetry_entries(response, plant_key, inverter_sn,
+                                   site_tz)
+    return rows[-1] if rows else None
 
 
 # ============================================================
@@ -296,16 +322,22 @@ def fetch_inverter_telemetry(
             )
             continue
 
-        row = parse_telemetry_response(
+        # v80: keep the full 5-minute series, not just the latest
+        # sample. Window: last 60 min (3 poll cadences of overlap —
+        # idempotent upsert dedups); the day's first entry still
+        # anchors eToday.
+        min_ts = dt.datetime.now(UTC) - dt.timedelta(minutes=60)
+        rows = parse_telemetry_entries(
             response, plant.plant_key, inv.inverter_sn, site_tz,
+            min_ts_utc=min_ts,
         )
-        if row is None:
+        if not rows:
             LOG.warning(
                 "[%s/%s] no telemetry entries — likely offline or no data today",
                 plant.plant_key, inv.inverter_sn,
             )
             continue
-        out.append(row)
+        out.extend(rows)
 
     LOG.info(
         "[%s] fetched %d telemetry rows from %d inverter(s)",

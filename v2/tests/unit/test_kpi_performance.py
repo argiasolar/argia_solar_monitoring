@@ -8,7 +8,6 @@ from argia.kpi.energy import EnergyDay
 from argia.kpi.irradiance import IrradianceDay, IrradianceSource
 from argia.kpi.performance import (
     Confidence,
-    PlantPerformanceDay,
     compute_inverter_peer_ranking,
     compute_plant_pr,
 )
@@ -303,3 +302,49 @@ class TestPeerRanking:
 
     def test_empty_returns_empty(self):
         assert compute_inverter_peer_ranking("P", {}, {}) == []
+
+
+class TestHistorySourceConfidence:
+    """Regression for the enum fall-through found 2026-07-10: every day
+    since the dense pipeline became primary was stamped
+    pr_confidence=NONE because _confidence_from_irradiance never
+    learned SHINEMASTER_HISTORY — punishing the HIGHEST-quality
+    irradiance source (stored minute-scale history, ~300 samples/day,
+    validated <1% vs an independent model) and starving the soiling
+    estimator of qualifying days."""
+
+    def _ir(self, source, samples):
+        from argia.kpi.irradiance import IrradianceDay
+        return IrradianceDay(kwh_m2=5.0, source=source,
+                             samples_used=samples)
+
+    def test_dense_history_is_high(self):
+        from argia.kpi.irradiance import IrradianceSource
+        from argia.kpi.performance import (
+            Confidence, _confidence_from_irradiance,
+        )
+        ir = self._ir(IrradianceSource.SHINEMASTER_HISTORY, 300)
+        assert _confidence_from_irradiance(ir, True) is Confidence.HIGH
+
+    def test_sparse_history_is_medium(self):
+        from argia.kpi.irradiance import IrradianceSource
+        from argia.kpi.performance import (
+            Confidence, _confidence_from_irradiance,
+        )
+        ir = self._ir(IrradianceSource.SHINEMASTER_HISTORY, 12)
+        assert _confidence_from_irradiance(ir, True) is Confidence.MEDIUM
+
+    def test_live_shinemaster_grading_unchanged(self):
+        from argia.kpi.irradiance import IrradianceSource
+        from argia.kpi.performance import (
+            Confidence, _confidence_from_irradiance,
+        )
+        assert _confidence_from_irradiance(
+            self._ir(IrradianceSource.SHINEMASTER, 90), True) \
+            is Confidence.HIGH
+        assert _confidence_from_irradiance(
+            self._ir(IrradianceSource.CLOUD_COVER_MODEL, 90), True) \
+            is Confidence.LOW
+        assert _confidence_from_irradiance(
+            self._ir(IrradianceSource.SHINEMASTER_HISTORY, 300), False) \
+            is Confidence.NONE   # no energy -> still NONE

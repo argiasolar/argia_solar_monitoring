@@ -109,9 +109,11 @@ def _confidence_from_irradiance(ir: IrradianceDay, energy_present: bool) -> Conf
     """Map an IrradianceDay + energy presence into a PR confidence flag."""
     if ir.kwh_m2 is None or not energy_present:
         return Confidence.NONE
-    if ir.source == IrradianceSource.SHINEMASTER and ir.samples_used >= 60:
+    measured = (IrradianceSource.SHINEMASTER,
+                IrradianceSource.SHINEMASTER_HISTORY)
+    if ir.source in measured and ir.samples_used >= 60:
         return Confidence.HIGH
-    if ir.source == IrradianceSource.SHINEMASTER:
+    if ir.source in measured:
         return Confidence.MEDIUM
     if ir.source == IrradianceSource.CLOUD_COVER_MODEL:
         return Confidence.LOW

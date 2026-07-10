@@ -213,16 +213,27 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
   details.audit summary:hover {{ color: #1a1a19; }}
   details.audit .body {{ font-size: 12px; color: #6b6a64; line-height: 1.6;
                         padding: 10px 2px 0; }}
+  .dl {{ text-align: center; margin-top: 18px; }}
+  @media print {{
+    body {{ background: #fff; }}
+    .no-print, .dl {{ display: none !important; }}
+    .card, .panel {{ border: 1px solid #d5d4cc; break-inside: avoid; }}
+    .badge, .card, .note {{ -webkit-print-color-adjust: exact;
+                            print-color-adjust: exact; }}
+    @page {{ margin: 12mm; }}
+  }}
 </style></head><body><div class="wrap">
   <header style="display:block; margin-bottom:16px;">
     <div style="display:flex; align-items:center; justify-content:space-between;
                 gap:14px; margin-bottom:12px;">
       <span style="font-size:16px; font-weight:600; letter-spacing:3.5px;
-                   color:#3c3b37; white-space:nowrap;">FINANCIAL&nbsp;REPORT</span>
+                   color:#3c3b37; white-space:nowrap;">FINANCIAL&nbsp;REPORT
+        <span class="sub" id="printperiod" style="letter-spacing:normal;
+              font-weight:400; margin-left:10px;"></span></span>
       {logo_html}
     </div>
-    <div style="display:flex; align-items:center; justify-content:space-between;
-                gap:10px; flex-wrap:wrap;">
+    <div class="no-print" style="display:flex; align-items:center;
+                justify-content:space-between; gap:10px; flex-wrap:wrap;">
       <div style="display:flex; gap:8px; align-items:center;">
         <span class="sub">From</span>
         <input type="date" id="from" min="{data['days'][0]}" max="{data['days'][-1]}" value="{default_from}">
@@ -305,6 +316,10 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
         no financial logic runs in the browser.
       </div>
     </details>
+  </div>
+  <div class="dl">
+    <button class="quick" onclick="downloadPdf()">Download PDF
+      (current selection)</button>
   </div>
 </div>
 <script>
@@ -406,6 +421,20 @@ function recompute() {{
       + '<td class="num">'+dscrBadge(actTotal,T.svc)+'</td>';
   document.getElementById("notes").innerHTML = notes;
 }}
+function downloadPdf() {{ window.print(); }}
+let _auditWasOpen = false;
+window.addEventListener("beforeprint", function () {{
+  const d = document.querySelector("details.audit");
+  _auditWasOpen = d.open;
+  d.open = true;   // a saved PDF must carry its provenance
+  const f = document.getElementById("from").value,
+        t = document.getElementById("to").value;
+  document.getElementById("printperiod").textContent = f + " \u2013 " + t;
+  document.title = "ARGIA_Finance_" + f + "_" + t;
+}});
+window.addEventListener("afterprint", function () {{
+  document.querySelector("details.audit").open = _auditWasOpen;
+}});
 function setRange(f,t) {{
   const clamp = d => d < D.days[0] ? D.days[0]
                    : (d > D.days[D.days.length-1] ? D.days[D.days.length-1] : d);

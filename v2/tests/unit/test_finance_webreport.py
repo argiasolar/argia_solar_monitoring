@@ -211,3 +211,17 @@ def test_kwp_and_loan_position_embedded_in_web():
     assert data["inst"]["SLP1"]["2026-07"] == "2/12"
     h = render_financial_report_html(data, generated_at="t")
     assert "Loan position" in h and '"22/84"' in h
+
+
+def test_download_pdf_button_and_print_support():
+    """User request 2026-07-10: a Download PDF button — window.print()
+    with a print stylesheet, since only the browser knows the selected
+    range. The saved PDF must hide controls, expand the audit block,
+    and carry the period in title and filename."""
+    h = render_financial_report_html(_atoms(), generated_at="t")
+    assert "Download PDF" in h and "downloadPdf()" in h
+    assert "@media print" in h and "no-print" in h
+    assert "beforeprint" in h and "afterprint" in h
+    assert 'document.title = "ARGIA_Finance_"' in h
+    # provenance must open for print
+    assert "d.open = true" in h

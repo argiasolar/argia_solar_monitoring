@@ -609,3 +609,38 @@ class TestScopedAlerts:
         import argia.report.daily as RD
         src = inspect.getsource(RD)
         assert "Report scope: plants with show_daily_report" in src
+
+
+class TestPlantNaming:
+    """v82 (user report 2026-07-10): CAPEX customer names like
+    'SMS (CDMX,MEX)' rendered as the broken 'SMS (CDMX' under the
+    comma-only trim; and the plant card header carried no size."""
+
+    def _p(self, name, kwp=None):
+        p = _plant("MEX3")
+        p.name = name
+        p.kwp_dc = kwp
+        return p
+
+    def test_capex_names_trim_cleanly(self):
+        from argia.report.daily import short_name
+        assert short_name(self._p("SMS (CDMX,MEX)")) == "SMS"
+        assert short_name(self._p("HIRSCHMANN-MEXICO (San Miguel, GTO)")) \
+            == "HIRSCHMANN-MEXICO"
+        assert short_name(self._p("BUDENHEIM (Monterrey, NL)")) \
+            == "BUDENHEIM"
+
+    def test_ppa_names_unchanged(self):
+        from argia.report.daily import short_name
+        assert short_name(self._p(
+            "QUIMICA COYOACAN PPA land (SLP, SLP)")) == "QUIMICA COYOACAN"
+        assert short_name(self._p(
+            "HOLIDAY INN EXPRESS, Turistica Arizona PPA roof (SLP, SLP)")) \
+            == "HOLIDAY INN EXPRESS"
+        assert short_name(self._p("")) == "MEX3"
+
+    def test_card_header_carries_kwp(self):
+        import argia.report.daily as RD
+        import inspect
+        src = inspect.getsource(RD)
+        assert "kWp DC" in src and "round(p.kwp_dc)" in src

@@ -148,11 +148,14 @@ def _median(vals: List[float]) -> float:
 # --------------------------------------------------------------- SVG charts
 
 def short_name(p: PlantDay) -> str:
-    """Customer name for compact display — same trim rule as the dashboard
-    (cut at ' PPA' and at the first comma) so both surfaces name plants
-    identically."""
-    return ((p.name or p.plant_key).split(" PPA")[0].split(",")[0]
-            or p.plant_key)
+    """Customer name for compact display: cut at ' PPA', at ' (' and at
+    the first comma. The ' (' cut is for CAPEX-style names —
+    "SMS (CDMX,MEX)" rendered as the broken "SMS (CDMX" under the
+    comma-only rule (user report 2026-07-10). PPA names are unaffected:
+    the ' PPA' cut fires first for them."""
+    n = (p.name or p.plant_key)
+    n = n.split(" PPA")[0].split(" (")[0].split(",")[0].strip()
+    return n or p.plant_key
 
 
 def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
@@ -604,7 +607,9 @@ def render_html(data: ReportData) -> str:
             f'<section class="plant">'
             f'<div class="phead"><div class="lamp {sem_of[p.plant_key]}">'
             f'</div><h3>{p.plant_key} '
-            f'<span class="pname">{_esc(p.name)}</span></h3>'
+            f'<span class="pname">{_esc(p.name)}'
+            f'{" &#183; %d kWp DC" % round(p.kwp_dc) if p.kwp_dc else ""}'
+            f'</span></h3>'
             f'<div class="pnote">{_esc(p.status_note)}</div></div>'
             f'<div class="pgrid"><div class="pfacts">{facts}</div>'
             f'<div class="pchart">{svg_inverter_bars(p)}</div></div>'

@@ -43,6 +43,30 @@ def _col_to_a1(col: int) -> str:
     return out
 
 
+
+def _cells_equivalent(old, new) -> bool:
+    """Sheets reads values back FORMATTED (6.0 -> "6", blank for
+    empty), so raw string equality brands identical data as changed.
+    Numbers compare as floats; everything else as stripped strings
+    with blank == None. Without this, every overlap-window row
+    re-writes on every poll — forever (v81, live 429s 2026-07-10)."""
+    so, sn = str(old).strip(), str(new).strip()
+    if so == sn:
+        return True
+    if (so == "" and new is None) or (sn == "" and old is None):
+        return True
+    try:
+        return float(so) == float(sn)
+    except (TypeError, ValueError):
+        return False
+
+
+def _rows_equivalent(old_row, new_row) -> bool:
+    padded = list(old_row) + [""] * max(0, len(new_row) - len(old_row))
+    return all(_cells_equivalent(padded[i], new_row[i])
+               for i in range(len(new_row)))
+
+
 class SheetsClient:
     """Wrapper around the Google Sheets API. Constructor reads credentials."""
 
@@ -499,9 +523,8 @@ class SheetsClient:
             k = key_of(row)
             if k in existing_keys:
                 sheet_row = existing_keys[k]
-                # compare row content (stringified) to detect unchanged
                 old = existing_data_rows[sheet_row - header_row - 1]
-                if [str(c) for c in old[: len(row)]] == [str(c) for c in row]:
+                if _rows_equivalent(old, row):
                     unchanged += 1
                 else:
                     to_update.append((sheet_row, row))
@@ -512,13 +535,22 @@ class SheetsClient:
         if to_insert:
             self.append_rows(tab, to_insert)
 
-        # Apply updates one row at a time (small N, simpler than batch)
-        for sheet_row, row in to_update:
-            self._values().update(
+        # Apply updates in ONE batch request (v81): the per-row loop
+        # this replaces issued one HTTP write per row and, combined
+        # with v80's overlap-window upserts, blew the Sheets quota of
+        # 60 writes/min/user (live 429s, 2026-07-10). N updates now
+        # cost 1 request.
+        if to_update:
+            self._values().batchUpdate(
                 spreadsheetId=self.sheet_id,
-                range=self._qrange(tab, f"A{sheet_row}"),
-                valueInputOption="USER_ENTERED",
-                body={"values": [row]},
+                body={
+                    "valueInputOption": "USER_ENTERED",
+                    "data": [
+                        {"range": self._qrange(tab, f"A{sheet_row}"),
+                         "values": [row]}
+                        for sheet_row, row in to_update
+                    ],
+                },
             ).execute()
 
         result = {

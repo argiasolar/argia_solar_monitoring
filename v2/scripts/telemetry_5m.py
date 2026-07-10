@@ -399,11 +399,25 @@ def _process_solaredge_plant(
 
     label_by_sn = {inv.inverter_sn: inv.inverter_label for inv in inverters}
 
+    # v81: the weather snapshot is CURRENT-conditions data — attach it
+    # only to each inverter's latest row. Stamping it on every row of
+    # the v80 overlap window rewrote historical 5-min entries with
+    # fresher weather each poll: wrong data on old timestamps AND a
+    # quota-costing update per row per tick (live 429s, 2026-07-10).
+    latest_ts_by_sn: dict = {}
+    for tel in telemetry:
+        cur = latest_ts_by_sn.get(tel.inverter_sn)
+        if cur is None or tel.timestamp_utc > cur:
+            latest_ts_by_sn[tel.inverter_sn] = tel.timestamp_utc
+
     for tel in telemetry:
         label = label_by_sn.get(tel.inverter_sn, tel.inverter_sn)
+        w = (weather
+             if tel.timestamp_utc == latest_ts_by_sn.get(tel.inverter_sn)
+             else solaredge_row.EMPTY_WEATHER)
         try:
-            plant_rows.append(solaredge_row.build_plant_row(tel, label, weather))
-            common_rows.append(solaredge_row.build_common_row(tel, label, weather))
+            plant_rows.append(solaredge_row.build_plant_row(tel, label, w))
+            common_rows.append(solaredge_row.build_common_row(tel, label, w))
         except Exception as e:  # noqa: BLE001
             log.warning("[%s/%s] row build failed: %s",
                         plant.plant_key, tel.inverter_sn, e)

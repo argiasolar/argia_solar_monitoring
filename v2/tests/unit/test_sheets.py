@@ -47,9 +47,13 @@ class TestUpsertRows:
         mock_get.return_value.execute.return_value = {"values": existing_rows}
 
     def _capture_calls(self, client):
-        """Capture append + update calls on the mock service."""
+        """Capture append + batchUpdate calls on the mock service.
+        v81: updates go through ONE values.batchUpdate instead of one
+        values.update per row — the per-row loop blew the Sheets
+        60-writes/min quota once v80 overlap windows made multi-row
+        updates routine (live 429s, 2026-07-10)."""
         values = client._svc.spreadsheets.return_value.values.return_value
-        return values.append, values.update
+        return values.append, values.batchUpdate
 
     def test_all_new_rows_inserted(self, client):
         # Existing sheet has only header
@@ -108,6 +112,11 @@ class TestUpsertRows:
 
         assert result == {"inserted": 0, "updated": 1, "unchanged": 0}
         append.assert_not_called()
+        # one batched write, carrying the one changed row
+        body = update.call_args.kwargs["body"]
+        assert len(body["data"]) == 1
+        assert body["data"][0]["values"] == [["4/15/2026", "MEX1",
+                                              1500.0]]
         update.assert_called_once()
 
     def test_mixed_insert_update_unchanged(self, client):
@@ -165,3 +174,26 @@ class TestUpsertRows:
             "DailyProduction", rows, natural_key_columns=[0, 1]
         )
         assert result["inserted"] == 2
+
+
+class TestFormattedReadbackEquivalence:
+    """v81: Sheets returns values FORMATTED (6.0 -> "6"), so the old
+    raw-string comparison re-updated identical rows on every poll —
+    each a quota-costing write. Numeric equivalence must survive the
+    round-trip."""
+
+    def test_cell_equivalence_table(self):
+        from argia.core.sheets import _cells_equivalent
+        assert _cells_equivalent("6", 6.0)
+        assert _cells_equivalent("435.14", 435.14)
+        assert _cells_equivalent("", None)
+        assert _cells_equivalent("0", 0.0)
+        assert not _cells_equivalent("6", 7.0)
+        assert not _cells_equivalent("ONLINE", "OFFLINE")
+        assert _cells_equivalent(" MPPT ", "MPPT")
+
+    def test_roundtrip_row_counts_as_unchanged(self):
+        from argia.core.sheets import _rows_equivalent
+        written = ["2026-07-10 13:40:00", "QRO1", 6.0, 435.14, None]
+        readback = ["2026-07-10 13:40:00", "QRO1", "6", "435.14", ""]
+        assert _rows_equivalent(readback, written)

@@ -54,3 +54,50 @@ class TestQuotaPerSite:
         assert skipped == 1          # QRO1 paused
         assert errors == 0           # quota is not an error
         assert common == ["row"]
+
+
+class TestWeatherOnLatestRowOnly:
+    """v81: current weather belongs only to each inverter's newest
+    entry — historical rows re-stamped with fresh weather churned an
+    update per row per poll (and misdated the weather itself)."""
+
+    @patch("scripts.telemetry_5m.write_telemetry_rows",
+           return_value={"inserted": 0, "updated": 0, "unchanged": 0})
+    @patch("scripts.telemetry_5m.ensure_telemetry_tab")
+    @patch("scripts.telemetry_5m.solaredge_row")
+    @patch("scripts.telemetry_5m.fetch_solaredge_telemetry")
+    def test_only_latest_gets_weather(self, fetch, rowmod, _ensure,
+                                      _write):
+        import datetime as dt
+
+        from scripts.telemetry_5m import _process_solaredge_plant
+
+        def tel(sn, minute):
+            t = MagicMock()
+            t.inverter_sn = sn
+            t.timestamp_utc = dt.datetime(2026, 7, 10, 19, minute,
+                                          tzinfo=dt.timezone.utc)
+            return t
+
+        fetch.return_value = [tel("A", 0), tel("A", 5), tel("A", 10),
+                              tel("B", 5)]
+        rowmod.EMPTY_WEATHER = "EMPTY"
+        rowmod.build_plant_row.side_effect = lambda t, l, w: [w]
+        rowmod.build_common_row.side_effect = lambda t, l, w: [w]
+
+        inv_a, inv_b = MagicMock(), MagicMock()
+        inv_a.inverter_sn, inv_a.inverter_label = "A", "Inv A"
+        inv_b.inverter_sn, inv_b.inverter_label = "B", "Inv B"
+        plant = MagicMock()
+        plant.plant_key = "QRO1"
+
+        common, errors = _process_solaredge_plant(
+            plant, [inv_a, inv_b], MagicMock(), MagicMock(),
+            "LIVE_WEATHER", True, MagicMock())
+
+        assert errors == 0
+        # A's 19:10 row and B's only row carry weather; A's older two
+        # rows carry the empty snapshot
+        weathers = [c[0] for c in common]
+        assert weathers.count("LIVE_WEATHER") == 2
+        assert weathers.count("EMPTY") == 2

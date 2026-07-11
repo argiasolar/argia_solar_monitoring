@@ -40,7 +40,8 @@ def _plant(pk="SLP1", pp=1.05, av=1.0, dc="full", **kw):
                     inverters=kw.get("inv", []),
                     kwp_dc=kw.get("kwp_dc"),
                     tariff_mxn_per_kwh=kw.get("tariff_mxn_per_kwh"),
-                    design_kwh=kw.get("design_kwh"))
+                    design_kwh=kw.get("design_kwh"),
+                    buckets=kw.get("buckets", []))
 
 
 def _inv(sn="A", kwh=500.0, rated=124.0, t=50.0, faults=(), rel=None):
@@ -773,3 +774,64 @@ class TestSunriseGuardAndIncomeCard:
         src = inspect.getsource(RD.build_report_data)
         assert "0.05 * design_day" in src
         assert "live_e >= floor" in src
+
+
+class TestHourlyChart:
+    """v88: client pages get the intraday 60-min chart (production vs
+    theoretical per bucket) — same Dashboard_Plant rows v85 reads, as
+    static CSS bars. Internal 6-plant report unchanged."""
+
+    def _rows(self):
+        return [
+            {"date_mx": "7/11/2026", "hour_label": "08:00",
+             "plant_key": "NL2", "total_kwh": "22.4",
+             "theoretical_kwh": "41.0"},
+            {"date_mx": "7/11/2026", "hour_label": "09:00",
+             "plant_key": "NL2", "total_kwh": "48.1",
+             "theoretical_kwh": "82.0"},
+            # in-flight at 10:xx — excluded on the live day
+            {"date_mx": "7/11/2026", "hour_label": "10:00",
+             "plant_key": "NL2", "total_kwh": "12",
+             "theoretical_kwh": "30"},
+            {"date_mx": "7/10/2026", "hour_label": "08:00",
+             "plant_key": "NL2", "total_kwh": "99",
+             "theoretical_kwh": "99"},
+        ]
+
+    def _now(self):
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+        return dt.datetime(2026, 7, 11, 10, 25,
+                           tzinfo=ZoneInfo("America/Mexico_City"))
+
+    def test_bucket_series_built_and_sorted(self):
+        from argia.report.daily import plant_buckets_from_dashboard
+        out = plant_buckets_from_dashboard(self._rows(), "2026-07-11",
+                                           self._now())
+        assert out == {"NL2": [("08:00", 22.4, 41.0),
+                               ("09:00", 48.1, 82.0)]}
+
+    def test_past_day_keeps_all_buckets(self):
+        from argia.report.daily import plant_buckets_from_dashboard
+        out = plant_buckets_from_dashboard(self._rows(), "2026-07-10",
+                                           self._now())
+        assert out == {"NL2": [("08:00", 99.0, 99.0)]}
+
+    def test_chart_renders_on_small_report_only(self):
+        p = _plant("NL2", buckets=[("08:00", 22.4, 41.0),
+                                   ("09:00", 48.1, 82.0)])
+        html = TestClientPagePresentation()._render([p])
+        assert "Intraday production" in html
+        assert html.count('class="ibcol"') == 2
+        # theoretical peak (82) is the 100% ghost; production 48.1 -> 59%
+        assert 'style="height:100%"' in html
+        assert 'style="height:59%"' in html
+        # internal-size report: chart absent
+        six = [_plant(k) for k in ("SLP1", "SLP2", "GTO1", "MEX1",
+                                   "NL1", "MEX2")]
+        html6 = TestClientPagePresentation()._render(six)
+        assert "Intraday production" not in html6
+
+    def test_no_buckets_no_chart(self):
+        html = TestClientPagePresentation()._render([_plant("NL2")])
+        assert "Intraday production" not in html

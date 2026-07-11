@@ -84,6 +84,10 @@ class PlantDay:
     kwp_dc: Optional[float] = None
     tariff_mxn_per_kwh: Optional[float] = None
     design_kwh: Optional[float] = None
+    # v88: (hour_label, production_kwh, theoretical_kwh) per completed
+    # 60-min bucket, from Dashboard_Plant — rendered as the hourly
+    # chart on small (client) reports
+    buckets: List[Tuple[str, float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -327,6 +331,36 @@ def svg_fleet_bars(plants: List[PlantDay],
             f'{"".join(rows)}</svg>')
 
 
+def hourly_chart(p: PlantDay) -> str:
+    """v88: intraday production vs theoretical per 60-min bucket, as
+    static CSS bars (no JS — renders identically in the browser client
+    pages and WeasyPrint). Ghost bar = theoretical, solid bar =
+    production, colored like the plant lamp. Empty when no buckets."""
+    if not p.buckets:
+        return ""
+    peak = max(max(prod, theor) for _, prod, theor in p.buckets)
+    if peak <= 0:
+        return ""
+    cols = ""
+    for hour, prod, theor in p.buckets:
+        hp = round(prod / peak * 100)
+        ht = round(theor / peak * 100)
+        cols += (
+            f'<div class="ibcol">'
+            f'<div class="ibbars">'
+            f'<div class="ibghost" style="height:{ht}%"></div>'
+            f'<div class="ibbar" style="height:{hp}%"></div>'
+            f'</div>'
+            f'<div class="iblab">{_esc(hour)}</div>'
+            f'</div>')
+    return (f'<div class="ibchart"><div class="ibtitle">Intraday '
+            f'production &#183; 60-min buckets '
+            f'<span class="ibsub">solid = measured &#183; outline = '
+            f'theoretical (kWp &#215; measured irradiance &#215; '
+            f'expected factor)</span></div>'
+            f'<div class="ibrow">{cols}</div></div>')
+
+
 def svg_inverter_bars(p: PlantDay) -> str:
     inv = [i for i in p.inverters if i.rated_kw]
     if not inv:
@@ -410,6 +444,15 @@ margin-bottom:6px}
 border-radius:10px;padding:16px 18px;margin:16px 0 6px}
 .portsentence{font-size:15px;margin:8px 0 14px;line-height:1.5}
 .pstats{display:grid;gap:10px}
+.ibchart{margin:12px 0 4px}
+.ibtitle{font-size:12px;font-weight:600;margin-bottom:6px}
+.ibsub{font-weight:400;color:#8a897f;font-size:11px}
+.ibrow{display:flex;align-items:flex-end;gap:3px;height:120px}
+.ibcol{flex:1;display:flex;flex-direction:column;height:100%}
+.ibbars{position:relative;flex:1}
+.ibghost{position:absolute;bottom:0;left:0;right:0;background:#e7e5dc;border:1px dashed #c9c8c0;border-bottom:none;border-radius:3px 3px 0 0}
+.ibbar{position:absolute;bottom:0;left:15%;right:15%;background:#0d8a6a;border-radius:2px 2px 0 0}
+.iblab{font-size:9px;color:#8a897f;text-align:center;margin-top:3px}
 .pstats.n7{grid-template-columns:repeat(7,1fr)}
 .pstats.n6{grid-template-columns:repeat(6,1fr)}
 .pstat{background:var(--paper);border:1px solid var(--line);
@@ -626,6 +669,7 @@ def render_html(data: ReportData) -> str:
             f'<div class="pnote">{_esc(p.status_note)}</div></div>'
             f'<div class="pgrid"><div class="pfacts">{facts}</div>'
             f'<div class="pchart">{svg_inverter_bars(p)}</div></div>'
+            f'{hourly_chart(p) if len(data.plants) <= 3 else ""}'
             f'<table class="itab"><thead><tr><th></th><th>Inverter</th>'
             f'<th class="num">kWh</th><th class="num">Theor.</th>'
             f'<th class="num">% of th.</th>'
@@ -692,6 +736,35 @@ def render_html(data: ReportData) -> str:
 
 
 # ------------------------------------------------------------ data assembly
+
+def plant_buckets_from_dashboard(rows, date_iso: str,
+                                 now_mx: dt.datetime
+                                 ) -> Dict[str, List[Tuple[str, float,
+                                                           float]]]:
+    """v88: per-plant hourly (hour_label, production, theoretical)
+    series from Dashboard_Plant, for the intraday chart on client
+    pages. Same rules as live_expected_from_dashboard: only the
+    report's date, in-flight bucket excluded on the live day,
+    date_key/safe_float on the formatted Sheets values."""
+    out: Dict[str, List[Tuple[str, float, float]]] = {}
+    cur_hour = now_mx.strftime("%H")
+    today = now_mx.date().isoformat()
+    for r in rows or []:
+        if date_key(r.get("date_mx")) != date_iso:
+            continue
+        hour = str(r.get("hour_label") or "")
+        if date_iso == today and hour[:2] == cur_hour:
+            continue
+        pk = str(r.get("plant_key") or "").strip().upper()
+        if not pk or not hour:
+            continue
+        prod = safe_float(r.get("total_kwh")) or 0.0
+        theor = safe_float(r.get("theoretical_kwh")) or 0.0
+        out.setdefault(pk, []).append((hour, prod, theor))
+    for pk in out:
+        out[pk].sort(key=lambda b: b[0])
+    return out
+
 
 def live_expected_from_dashboard(rows, date_iso: str,
                                  now_mx: dt.datetime) -> Dict[str, float]:
@@ -810,6 +883,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
         _dash_rows = []
     live_exp = live_expected_from_dashboard(_dash_rows, date_iso,
                                             now_mx())
+    buckets_by_plant = plant_buckets_from_dashboard(_dash_rows, date_iso,
+                                                    now_mx())
 
     for plant in portfolio.daily_report_plants():
         k = kpi.get(plant.plant_key, {})
@@ -861,7 +936,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None),
             design_kwh=(k.get("design")
                         or design_kwh_for_day(design_map,
-                                              plant.plant_key, date_iso))))
+                                              plant.plant_key, date_iso)),
+            buckets=buckets_by_plant.get(plant.plant_key, [])))
 
     ledger = load_alerts_ledger(sheets)
     visible_keys = {p.plant_key for p in portfolio.daily_report_plants()}

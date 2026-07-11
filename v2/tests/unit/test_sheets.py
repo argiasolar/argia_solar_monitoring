@@ -237,3 +237,51 @@ def test_blank_never_overwrites_data():
     stored = ["2026-07-11 09:20", "QRO1", 55.2, "527", "88.1"]
     reparse = ["2026-07-11 09:20", "QRO1", 55.2, "", None]
     assert _rows_equivalent(stored, reparse)
+
+
+class TestV90UpsertCorrectness:
+    """v90 — the two halves the SolarEdge overlap exposed live
+    (2026-07-11, updated=32/unchanged=0 every tick despite v89):
+    (1) timestamp columns round-trip FORMATTED, so instant-equality
+    must back up string/float equality; (2) when a row DOES update,
+    blanks in the incoming row must not erase stored data — updates
+    merge."""
+
+    def _serial(self, y, mo, d, h, mi):
+        # what UNFORMATTED_VALUE returns for a cell Sheets parsed as a
+        # datetime (the tz-less ts_mx column): days since the Sheets
+        # epoch, sheet-local naive
+        import datetime as dt
+
+        from argia.core.cells import GOOGLE_EPOCH
+        delta = dt.datetime(y, mo, d, h, mi) - GOOGLE_EPOCH
+        return delta.days + delta.seconds / 86400.0
+
+    def test_serial_vs_string_timestamp_is_equivalent(self):
+        from argia.core.sheets import _cells_equivalent, _rows_equivalent
+        ser = self._serial(2026, 7, 11, 13, 0)
+        assert _cells_equivalent(ser, "2026-07-11 13:00:00")
+        assert not _cells_equivalent(ser, "2026-07-11 13:20:00")
+        # the live SE overlap row: ISO key text identical, ts_mx as
+        # serial, weather re-parsed blank -> unchanged
+        stored = ["2026-07-11T19:00:00+00:00", "QRO1", ser, 55.2, 527.0]
+        reparse = ["2026-07-11T19:00:00+00:00", "QRO1",
+                   "2026-07-11 13:00:00", 55.2, ""]
+        assert _rows_equivalent(stored, reparse)
+
+    def test_update_merges_blanks_with_stored(self, client):
+        # power changed (real update) but weather cells arrive blank —
+        # the written row must carry the STORED weather, not blanks
+        TestUpsertRows()._setup_existing(client, [
+            ["ts", "plant", "power", "irr"],
+            ["2026-07-11T19:00:00+00:00", "QRO1", 100.0, 527.0],
+        ])
+        values = client._svc.spreadsheets.return_value.values.return_value
+        res = client.upsert_rows(
+            "T", [["2026-07-11T19:00:00+00:00", "QRO1", 120.0, ""]],
+            natural_key_columns=[0, 1])
+        assert res == {"inserted": 0, "updated": 1, "unchanged": 0}
+        body = values.batchUpdate.call_args.kwargs["body"]
+        written = body["data"][0]["values"][0]
+        assert written[2] == 120.0        # the real change lands
+        assert written[3] == 527.0        # stored weather survives

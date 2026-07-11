@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import logging
+
+from argia.core.cells import coerce_ts
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -70,7 +72,17 @@ def _cells_equivalent(old, new) -> bool:
     try:
         return float(so) == float(sn)
     except (TypeError, ValueError):
-        return False
+        pass
+    # v90: timestamps round-trip FORMATTED ("2026-07-11T13:00:00+00:00"
+    # written, "7/11/2026 13:00:00" read back) — compare as instants.
+    # Without this every overlap row "changed" on its ts column alone,
+    # re-updating forever (live 2026-07-11, SolarEdge tabs).
+    # coerce the ORIGINAL values: the serial arrives as a float and
+    # must not be stringified before coercion
+    ta, tb = coerce_ts(old), coerce_ts(new)
+    if ta is not None and tb is not None:
+        return ta == tb
+    return False
 
 
 def _rows_equivalent(old_row, new_row) -> bool:
@@ -583,6 +595,23 @@ class SheetsClient:
         # 60 writes/min/user (live 429s, 2026-07-10). N updates now
         # cost 1 request.
         if to_update:
+            # v90: updates MERGE — a blank incoming cell never
+            # overwrites stored data even when OTHER cells legitimately
+            # changed (the v89 equivalence rule only prevented
+            # detection; a real update still rewrote the whole row,
+            # blanks included, erasing SolarEdge weather).
+            merged = []
+            for sheet_row, row in to_update:
+                old_row = existing_data_rows[sheet_row - header_row - 1]
+                out_row = list(row)
+                for i in range(min(len(out_row), len(old_row))):
+                    nv = out_row[i]
+                    ov = old_row[i]
+                    if (nv is None or str(nv).strip() == "") and \
+                            ov is not None and str(ov).strip() != "":
+                        out_row[i] = ov
+                merged.append((sheet_row, out_row))
+            to_update = merged
             self._values().batchUpdate(
                 spreadsheetId=self.sheet_id,
                 body={

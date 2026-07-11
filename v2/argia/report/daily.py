@@ -409,13 +409,15 @@ margin-bottom:6px}
 .portsummary{background:var(--card);border:1px solid var(--line);
 border-radius:10px;padding:16px 18px;margin:16px 0 6px}
 .portsentence{font-size:15px;margin:8px 0 14px;line-height:1.5}
-.pstats{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+.pstats{display:grid;gap:10px}
+.pstats.n7{grid-template-columns:repeat(7,1fr)}
+.pstats.n6{grid-template-columns:repeat(6,1fr)}
 .pstat{background:var(--paper);border:1px solid var(--line);
 border-radius:8px;padding:10px 12px;text-align:center}
 .pstatv{font-size:19px;font-weight:700}
 .pstatu{font-size:11px;color:var(--mut);font-weight:400}
 .pstatk{font-size:11px;color:var(--mut);margin-top:2px}
-@media(max-width:720px){.pstats{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:720px){.pstats.n7,.pstats.n6{grid-template-columns:repeat(3,1fr)}}
 h2{font-size:13px;font-weight:600;color:var(--ink);margin:26px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);
 border-radius:10px;padding:14px 16px}
@@ -525,20 +527,23 @@ def render_html(data: ReportData) -> str:
                f"{stats['availability'] * 100:.0f}"
                if stats["availability"] is not None else "&#8212;", "%")
         + stat("Portfolio size", f"{stats['kwp']:,.0f}", " kWp DC")
-        + stat("Income (est.)",
-               f"${stats['income_mxn']:,.0f}" if stats["income_mxn"]
-               else "&#8212;", " MXN")
+        + (stat("Income (est.)", f"${stats['income_mxn']:,.0f}",
+                " MXN") if stats["income_mxn"] else "")
         + stat("Of design",
                f"{stats['design_pct'] * 100:.0f}"
                if stats["design_pct"] is not None else "&#8212;", "%")
         + stat("CO&#8322; avoided", f"{stats['co2_kg'] / 1000:.1f}", " t")
     )
+    # WeasyPrint needs the grid template to MATCH the card count (fixed
+    # columns, hard-learned 2026-07-08); the Income card is conditional
+    # since v87, so the count is computed, never assumed.
+    n_cards = cards.count('class="pstat"')
     summary_block = (
         f'<section class="portsummary">'
         f'<div class="portrow"><span class="portlamp {port_color}"></span>'
         f'<span class="porttitle">PORTFOLIO: {port_title}</span></div>'
         f'<div class="portsentence">{sentence}</div>'
-        f'<div class="pstats">{cards}</div>'
+        f'<div class="pstats n{n_cards}">{cards}</div>'
         f'</section>')
     fleetline = (f'<div class="portnums"><b>{n_crit}</b> critical / '
                  f'<b>{n_warn}</b> warning alerts open</div>')
@@ -824,8 +829,20 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                 note = ("Live evening estimate from telemetry — final "
                         "numbers in tomorrow's 07:05 report.")
                 if expected is None:
-                    expected = live_exp.get(plant.plant_key)
-                    if expected:
+                    live_e = live_exp.get(plant.plant_key)
+                    # v87 sunrise guard: a near-zero denominator turns
+                    # the ratio into noise ("340% of expected" at 07:00
+                    # on 0.6 kWh, user report 2026-07-11). The live
+                    # figure speaks only once expected-so-far reaches
+                    # 5% of the design day (or 25 kWh when no design):
+                    # below that, honest dashes.
+                    design_day = (k.get("design")
+                                  or design_kwh_for_day(
+                                      design_map, plant.plant_key,
+                                      date_iso))
+                    floor = (0.05 * design_day) if design_day else 25.0
+                    if live_e and live_e >= floor:
+                        expected = live_e
                         pp = round(energy / expected, 4)
                         note = ("Live evening estimate from telemetry; "
                                 "expected is a live \u00b110% estimate "

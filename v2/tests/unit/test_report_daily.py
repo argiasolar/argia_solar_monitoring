@@ -509,20 +509,31 @@ class TestAuditTextsCurrent20260708:
 
 
 class TestDesignCardAndEveningFallback20260708:
-    def test_seventh_card_renders_of_design(self):
+    # v87 rewrote these: the Income card is conditional (absent without
+    # tariffs), and the WeasyPrint fixed-count rule is now satisfied by
+    # the grid template FOLLOWING the card count (n6/n7 classes) rather
+    # than by a hardcoded 7.
+    def test_seven_cards_with_income(self):
         p = _plant(pk="NL1", name="PO", e=3200.0, x=2900.0,
-                   pp=1.10, av=1.0, design_kwh=3119.5)
+                   pp=1.10, av=1.0, design_kwh=3119.5,
+                   tariff_mxn_per_kwh=1.975)
         html = render_html(ReportData(date_iso="2026-07-08",
                                       plants=[p], alerts=[]))
-        cards = html.split('class="pstats"')[1].split("</section>")[0]
+        cards = html.split('class="pstats')[1].split("</section>")[0]
         assert cards.count('class="pstat"') == 7
-        assert "Of design" in cards
-        assert "repeat(7,1fr)" in html            # WeasyPrint: fixed count
+        assert "Of design" in cards and "Income (est.)" in cards
+        assert 'class="pstats n7"' in html
+        assert ".pstats.n7{grid-template-columns:repeat(7,1fr)}" in html
 
-    def test_no_design_card_shows_dash(self):
+    def test_six_cards_without_income_grid_matches(self):
+        # CAPEX-style report: no tariff -> no Income card, template n6
         html = render_html(TestRenderSmoke()._data())
-        cards = html.split('class="pstats"')[1].split("</section>")[0]
-        assert cards.count('class="pstat"') == 7  # card always present
+        cards = html.split('class="pstats')[1].split("</section>")[0]
+        assert cards.count('class="pstat"') == 6
+        assert "Income (est.)" not in cards
+        assert "Of design" in cards               # dash card still there
+        assert 'class="pstats n6"' in html
+        assert ".pstats.n6{grid-template-columns:repeat(6,1fr)}" in html
 
 
 class TestEditionAwareVerdict:
@@ -734,3 +745,31 @@ class TestLiveExpectedFromDashboard:
         src = inspect.getsource(RD.build_report_data)
         assert "live_expected_from_dashboard" in src
         assert 'read_table("Dashboard_Plant", "A1:ZZ")' in src
+
+
+class TestSunriseGuardAndIncomeCard:
+    """v87 (user report 2026-07-11): near-zero live-expected
+    denominators printed noise ('340% of expected' at 07:00 on
+    0.6 kWh); the Income card is dead weight on tariff-less (CAPEX)
+    reports."""
+
+    def test_income_card_absent_without_tariffs(self):
+        # scope to the cards block: the audit footer legitimately
+        # mentions "Income (est.)" in its formula text
+        p = _plant("NL2")
+        html = TestClientPagePresentation()._render([p])
+        cards = html.split('class="pstats')[1].split("</section>")[0]
+        assert "Income (est.)" not in cards
+
+    def test_income_card_present_with_tariff(self):
+        p = _plant("SLP1", tariff_mxn_per_kwh=1.975)
+        html = TestClientPagePresentation()._render([p])
+        cards = html.split('class="pstats')[1].split("</section>")[0]
+        assert "Income (est.)" in cards
+
+    def test_floor_logic_in_live_branch(self):
+        import inspect
+        import argia.report.daily as RD
+        src = inspect.getsource(RD.build_report_data)
+        assert "0.05 * design_day" in src
+        assert "live_e >= floor" in src

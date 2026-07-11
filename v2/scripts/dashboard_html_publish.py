@@ -123,6 +123,13 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
     irows = coerce_rows(client.read_table("Dashboard_Inverter", "A1:ZZ"),
                         NUMERIC_INV)
     plants = active_plants(plant_cfg)
+    # v84: the Dashboard tabs now store ALL active plants (CAPEX rows
+    # feed the per-client pages); this internal page must embed ONLY
+    # the show_dashboard set — filtering the rows, not just the
+    # selector, so hidden plants' data never ships in the payload.
+    visible = set(plants)
+    prows = [r for r in prows if str(r.get("plant_key", "")) in visible]
+    irows = [r for r in irows if str(r.get("plant_key", "")) in visible]
     now = dt.datetime.now(MX_TZ).strftime("%Y-%m-%d %H:%M")
 
     html = dashboard_html.render(prows, irows, generated_at=now,

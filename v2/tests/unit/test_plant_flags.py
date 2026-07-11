@@ -103,15 +103,29 @@ class TestPerSurfaceFilters:
         assert pf.daily_report_plants()[0].plant_key == "MEX3"
         assert pf.financial_plants() == []
 
-    def test_dashboard_parse_honors_explicit_false_only(self):
+    def test_dashboard_parse_builds_all_active_plants(self):
+        """Rewritten for v84 (was: parse skips show_dashboard=FALSE).
+        The Dashboard tabs are now the STORE of live-computed metrics
+        for ALL active plants — per-client pages consume CAPEX rows —
+        and show_dashboard filters at render time in the publisher
+        (rows and selector), keeping the internal page pure-PPA."""
         rows = [
             {"plant_key": "A", "active": "TRUE", "kwp_dc": "100",
              "expected_factor": "0.8", "show_dashboard": "FALSE"},
             {"plant_key": "B", "active": "TRUE", "kwp_dc": "100",
              "expected_factor": "0.8", "show_dashboard": ""},
-            {"plant_key": "C", "active": "TRUE", "kwp_dc": "100",
-             "expected_factor": "0.8"},   # column absent entirely
+            {"plant_key": "C", "active": "FALSE", "kwp_dc": "100",
+             "expected_factor": "0.8"},   # machine axis still gates
         ]
         out = parse_plants(rows)
-        assert "A" not in out
-        assert "B" in out and "C" in out
+        assert "A" in out and "B" in out
+        assert "C" not in out
+
+    def test_publisher_filters_rows_to_visible_set(self):
+        """v84 companion: the internal page must not EMBED hidden
+        plants' rows — filtering the selector alone would still ship
+        CAPEX data in the payload."""
+        import inspect
+        import scripts.dashboard_html_publish as P
+        src = inspect.getsource(P.run)
+        assert 'r.get("plant_key", "")) in visible' in src

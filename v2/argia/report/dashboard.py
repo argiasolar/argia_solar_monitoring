@@ -510,12 +510,13 @@ def parse_plants(rows: list[dict]) -> dict[str, "Plant"]:
         active = str(r.get("active", "")).strip().upper()
         if active in ("FALSE", "0", "NO"):
             continue
-        # v74 report-axis flag: hide from the dashboard only on an
-        # EXPLICIT falsy — blank keeps today's behavior. Hiding here
-        # never touches telemetry/KPI/alerts (machine axis is `active`).
-        show = str(r.get("show_dashboard", "")).strip().upper()
-        if show in ("FALSE", "0", "NO"):
-            continue
+        # v84 consciously supersedes the v74 build-time skip: the
+        # Dashboard tabs are the STORE of computed live metrics (incl.
+        # intraday theoretical) for ALL active plants — per-client
+        # pages need CAPEX rows too. show_dashboard now filters at
+        # RENDER time in dashboard_html_publish (rows AND selector),
+        # so the internal page stays pure-PPA while the data exists
+        # for every consumer. Store everything, filter at presentation.
         kwp = _num(r.get("kwp_dc_override")) or _num(r.get("kwp_dc"))
         ef = _num(r.get("expected_factor"))
         if kwp is None or ef is None:

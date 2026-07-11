@@ -483,9 +483,14 @@ def render_html(data: ReportData) -> str:
         p, p.plant_key in crit_plants, p.plant_key in any_plants)
         for p in data.plants}
 
+    # v83: on small reports (client pages, <=3 plants) there is room
+    # for the FULL customer name incl. location; the short name exists
+    # for the crowded internal rail (user report 2026-07-11)
+    rail_name = (lambda p: p.name or p.plant_key) \
+        if len(data.plants) <= 3 else short_name
     rail = "".join(
         f'<div class="stop"><div class="lamp {sem_of[p.plant_key]}"></div>'
-        f'<div class="stopk">{_esc(short_name(p))}</div>'
+        f'<div class="stopk">{_esc(rail_name(p))}</div>'
         f'<div class="stopv">'
         f'{(f"{p.production_pct*100:.0f}%" if p.production_pct is not None else "n/a")}'
         f'</div></div>'
@@ -614,8 +619,10 @@ def render_html(data: ReportData) -> str:
             f'<div class="pgrid"><div class="pfacts">{facts}</div>'
             f'<div class="pchart">{svg_inverter_bars(p)}</div></div>'
             f'<table class="itab"><thead><tr><th></th><th>Inverter</th>'
-            f'<th>kWh</th><th>Theor.</th><th>% of th.</th>'
-            f'<th>T max &#176;C</th><th>Flags</th></tr></thead>'
+            f'<th class="num">kWh</th><th class="num">Theor.</th>'
+            f'<th class="num">% of th.</th>'
+            f'<th class="num">T max &#176;C</th><th>Flags</th>'
+            f'</tr></thead>'
             f'<tbody>{rows}</tbody></table></section>')
 
     return (

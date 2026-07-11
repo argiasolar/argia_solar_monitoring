@@ -644,3 +644,33 @@ class TestPlantNaming:
         import inspect
         src = inspect.getsource(RD)
         assert "kWp DC" in src and "round(p.kwp_dc)" in src
+
+
+class TestClientPagePresentation:
+    """v83 (user report 2026-07-11): single-plant client pages showed
+    the trimmed short name on the semaphore rail (room exists for the
+    full customer name) and numeric table headers sat left-aligned
+    over right-aligned cells."""
+
+    def _render(self, plants):
+        from argia.report.daily import ReportData, render_html
+        return render_html(ReportData(date_iso="2026-07-11",
+                                      plants=plants, alerts=[]))
+
+    def test_small_report_rail_uses_full_name(self):
+        p = _plant("NL2")
+        p.name = "BUDENHEIM (Monterrey, NL)"
+        html = self._render([p])
+        assert "BUDENHEIM (Monterrey, NL)" in html
+
+    def test_internal_rail_keeps_short_names(self):
+        plants = [_plant(k) for k in
+                  ("SLP1", "SLP2", "GTO1", "MEX1", "NL1", "MEX2")]
+        plants[0].name = "QUIMICA COYOACAN PPA land (SLP, SLP)"
+        html = self._render(plants)
+        assert '<div class="stopk">QUIMICA COYOACAN</div>' in html
+
+    def test_numeric_headers_right_aligned(self):
+        html = self._render([_plant("NL2")])
+        assert '<th class="num">kWh</th>' in html
+        assert '<th class="num">Theor.</th>' in html

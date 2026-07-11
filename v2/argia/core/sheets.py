@@ -50,11 +50,23 @@ def _cells_equivalent(old, new) -> bool:
     Numbers compare as floats; everything else as stripped strings
     with blank == None. Without this, every overlap-window row
     re-writes on every poll — forever (v81, live 429s 2026-07-10)."""
-    so, sn = str(old).strip(), str(new).strip()
+    so = "" if old is None else str(old).strip()
+    sn = "" if new is None else str(new).strip()
     if so == sn:
         return True
-    if (so == "" and new is None) or (sn == "" and old is None):
+    if sn == "" and so != "":
+        # v89: a BLANK never overwrites data. Measurements in this
+        # system accrete — no writer intentionally clears a previously
+        # written cell via upsert. Without this rule, the SolarEdge
+        # 60-min overlap window re-parsed the previous poll's rows
+        # WITHOUT the weather snapshot (v81 attaches it only to the
+        # latest row) and each poll erased its predecessor's weather —
+        # live incident 2026-07-11: QRO1/GTO2 dashboard buckets
+        # integrated ~zero irradiance, killing theoretical/cloud on
+        # the client pages.
         return True
+    if so == "" and sn != "":
+        return False
     try:
         return float(so) == float(sn)
     except (TypeError, ValueError):

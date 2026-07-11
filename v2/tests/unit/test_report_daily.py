@@ -835,3 +835,45 @@ class TestHourlyChart:
     def test_no_buckets_no_chart(self):
         html = TestClientPagePresentation()._render([_plant("NL2")])
         assert "Intraday production" not in html
+
+
+class TestLiveConditions:
+    """v89: live cloud + availability from Dashboard_Plant buckets;
+    portfolio per-plant section dropped on client-size reports."""
+
+    def _rows(self):
+        return [
+            {"date_mx": "7/11/2026", "hour_label": "08:00",
+             "plant_key": "QRO1", "total_kwh": "106", "irradiance_kwh_m2":
+             "0.41", "cloud_cover_pct": "88.0", "inverters_total": "4",
+             "inverters_reporting": "4"},
+            {"date_mx": "7/11/2026", "hour_label": "09:00",
+             "plant_key": "QRO1", "total_kwh": "59", "irradiance_kwh_m2":
+             "0.27", "cloud_cover_pct": "72.5", "inverters_total": "4",
+             "inverters_reporting": "3"},
+            # skeleton future bucket: zeros — must not count
+            {"date_mx": "7/11/2026", "hour_label": "18:00",
+             "plant_key": "QRO1", "total_kwh": "0", "irradiance_kwh_m2":
+             "0", "cloud_cover_pct": "", "inverters_total": "4",
+             "inverters_reporting": "0"},
+        ]
+
+    def test_conditions_from_buckets(self):
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        from argia.report.daily import live_conditions_from_dashboard
+        now = dt.datetime(2026, 7, 11, 10, 25,
+                          tzinfo=ZoneInfo("America/Mexico_City"))
+        out = live_conditions_from_dashboard(self._rows(), "2026-07-11",
+                                             now)
+        assert out["QRO1"]["cloud"] == 80.2        # mean(88.0, 72.5) = 80.25 -> banker-rounds to 80.2
+        assert out["QRO1"]["availability"] == 0.875  # mean(1.0, 0.75)
+
+    def test_fleet_section_absent_on_client_pages(self):
+        html = TestClientPagePresentation()._render([_plant("NL2")])
+        assert "Production vs theoretical &#8212; per plant" not in html
+        six = [_plant(k) for k in ("SLP1", "SLP2", "GTO1", "MEX1",
+                                   "NL1", "MEX2")]
+        html6 = TestClientPagePresentation()._render(six)
+        assert "Production vs theoretical &#8212; per plant" in html6

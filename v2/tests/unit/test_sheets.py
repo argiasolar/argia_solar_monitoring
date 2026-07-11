@@ -220,3 +220,20 @@ class TestBatchWriteCells:
         values = client._svc.spreadsheets.return_value.values.return_value
         assert client.batch_write_cells("KPI_Daily", []) == 0
         values.batchUpdate.assert_not_called()
+
+
+def test_blank_never_overwrites_data():
+    """v89: the SolarEdge overlap window re-parses older rows WITHOUT
+    the weather snapshot; each poll erased its predecessor's weather
+    (live 2026-07-11 — QRO1/GTO2 theoretical died on the client
+    pages). A blank incoming cell is equivalent to any stored value;
+    a stored blank still accepts new data."""
+    from argia.core.sheets import _cells_equivalent, _rows_equivalent
+    assert _cells_equivalent("527.0", "")        # blank won't overwrite
+    assert _cells_equivalent("527.0", None)
+    assert not _cells_equivalent("", "527.0")    # data still lands
+    assert not _cells_equivalent("527.0", "600") # real change updates
+    # the exact incident: re-parsed SE row, weather columns empty
+    stored = ["2026-07-11 09:20", "QRO1", 55.2, "527", "88.1"]
+    reparse = ["2026-07-11 09:20", "QRO1", 55.2, "", None]
+    assert _rows_equivalent(stored, reparse)

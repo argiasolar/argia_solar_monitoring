@@ -693,13 +693,18 @@ def render_html(data: ReportData) -> str:
         f'<div class="rail" style="grid-template-columns:'
         f'repeat({max(1, len(data.plants))},1fr)">{rail}</div>'
         f'<div class="fleetline mono">{fleetline}</div>'
-        f'<h2>Production vs theoretical &#8212; per plant</h2>'
-        f'<div class="card">{svg_fleet_bars(data.plants, sem_of)}'
-        f'<div style="color:var(--mut);font-size:12px;margin-top:6px">'
-        f'Solid bar = measured production, colored by plant status. '
-        f'Dashed outline = theoretical (kWp &#215; measured irradiance '
-        f'&#215; expected factor).</div></div>'
-        f'<h2>Alerts &#8212; {len(data.alerts)} open</h2>{alerts_html}'
+        + ((
+            f'<h2>Production vs theoretical &#8212; per plant</h2>'
+            f'<div class="card">{svg_fleet_bars(data.plants, sem_of)}'
+            f'<div style="color:var(--mut);font-size:12px;'
+            f'margin-top:6px">'
+            f'Solid bar = measured production, colored by plant status. '
+            f'Dashed outline = theoretical (kWp &#215; measured '
+            f'irradiance &#215; expected factor).</div></div>'
+        ) if len(data.plants) > 3 else "")
+        # v89: on client pages (one plant per customer) this section
+        # duplicated the plant card + hourly chart — removed there
+        + f'<h2>Alerts &#8212; {len(data.alerts)} open</h2>{alerts_html}'
         f'<h2>Plants</h2>{plants_html}'
         f'<footer>Generated from Argia_Mont_v2 &#183; KPI_Daily '
         f'{data.date_iso} &#183; Per-inverter theoretical = plant '
@@ -763,6 +768,51 @@ def plant_buckets_from_dashboard(rows, date_iso: str,
         out.setdefault(pk, []).append((hour, prod, theor))
     for pk in out:
         out[pk].sort(key=lambda b: b[0])
+    return out
+
+
+def live_conditions_from_dashboard(rows, date_iso: str,
+                                   now_mx: dt.datetime
+                                   ) -> Dict[str, Dict[str, float]]:
+    """v89: live cloud cover and availability per plant from the same
+    Dashboard_Plant buckets (the interactive dashboard's own live
+    sources — single engine). Cloud = mean of buckets that carry it;
+    availability = mean of inverters_reporting/inverters_total over
+    buckets with any production or irradiance (skeleton rows for
+    future hours carry zeros and must not count)."""
+    clouds: Dict[str, List[float]] = {}
+    avails: Dict[str, List[float]] = {}
+    cur_hour = now_mx.strftime("%H")
+    today = now_mx.date().isoformat()
+    for r in rows or []:
+        if date_key(r.get("date_mx")) != date_iso:
+            continue
+        hour = str(r.get("hour_label") or "")
+        if date_iso == today and hour[:2] >= cur_hour:
+            continue                      # in-flight + future skeleton
+        pk = str(r.get("plant_key") or "").strip().upper()
+        if not pk:
+            continue
+        prod = safe_float(r.get("total_kwh")) or 0.0
+        irr = safe_float(r.get("irradiance_kwh_m2")) or 0.0
+        if prod <= 0 and irr <= 0:
+            continue                      # empty/night bucket
+        c = safe_float(r.get("cloud_cover_pct"))
+        if c is not None:
+            clouds.setdefault(pk, []).append(c)
+        tot = safe_float(r.get("inverters_total")) or 0.0
+        rep = safe_float(r.get("inverters_reporting")) or 0.0
+        if tot > 0:
+            avails.setdefault(pk, []).append(min(1.0, rep / tot))
+    out: Dict[str, Dict[str, float]] = {}
+    for pk in set(clouds) | set(avails):
+        d: Dict[str, float] = {}
+        if clouds.get(pk):
+            d["cloud"] = round(sum(clouds[pk]) / len(clouds[pk]), 1)
+        if avails.get(pk):
+            d["availability"] = round(
+                sum(avails[pk]) / len(avails[pk]), 4)
+        out[pk] = d
     return out
 
 
@@ -885,6 +935,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                                             now_mx())
     buckets_by_plant = plant_buckets_from_dashboard(_dash_rows, date_iso,
                                                     now_mx())
+    live_cond = live_conditions_from_dashboard(_dash_rows, date_iso,
+                                               now_mx())
 
     for plant in portfolio.daily_report_plants():
         k = kpi.get(plant.plant_key, {})
@@ -893,6 +945,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
         energy, dc, note = (k.get("energy"), k.get("dc", "no_data"),
                             k.get("note", ""))
         expected, pp = k.get("expected"), k.get("pp")
+        cloud_val, avail_val = k.get("cloud"), k.get("av")
         if energy is None:
             live = synthesize_live_energy(invs)
             if live is not None:
@@ -903,6 +956,11 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                 energy, dc = live, "live"
                 note = ("Live evening estimate from telemetry — final "
                         "numbers in tomorrow's 07:05 report.")
+                cond = live_cond.get(plant.plant_key, {})
+                if cloud_val is None:
+                    cloud_val = cond.get("cloud")
+                if avail_val is None:
+                    avail_val = cond.get("availability")
                 if expected is None:
                     live_e = live_exp.get(plant.plant_key)
                     # v87 sunrise guard: a near-zero denominator turns
@@ -929,8 +987,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             name=getattr(plant, "customer", "") or plant.plant_key,
             energy_kwh=energy, expected_kwh=expected,
             production_pct=pp, pr=k.get("pr"),
-            availability=k.get("av"), soiling=k.get("soil"),
-            cloud_pct=k.get("cloud"), data_class=dc,
+            availability=avail_val, soiling=k.get("soil"),
+            cloud_pct=cloud_val, data_class=dc,
             status_note=note, inverters=invs,
             kwp_dc=getattr(plant, "kwp_dc", None),
             tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None),

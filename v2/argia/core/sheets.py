@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -247,6 +247,36 @@ class SheetsClient:
             body={"values": rows},
         ).execute()
         return len(rows)
+
+    def batch_write_cells(
+        self,
+        tab: str,
+        cells: List[Tuple[int, int, Any]],
+        value_input_option: str = "RAW",
+    ) -> int:
+        """Write many scattered single cells in ONE batchUpdate request
+        (v86). ``cells`` is [(row, col, value)], both 1-indexed.
+
+        Exists because per-cell ``write_cell`` loops hit the Sheets
+        60-writes/min quota the moment the fleet grew to 10 plants:
+        the nightly kpi-eod stamps ~10 columns x 10 plants ~= 100
+        cells, and the 2026-07-10 July rerun crashed live mid-stamp
+        on exactly this. N cells now cost 1 request."""
+        if not cells:
+            return 0
+        self._values().batchUpdate(
+            spreadsheetId=self.sheet_id,
+            body={
+                "valueInputOption": value_input_option,
+                "data": [
+                    {"range": self._qrange(
+                        tab, f"{_col_to_a1(col)}{row}"),
+                     "values": [[value]]}
+                    for row, col, value in cells
+                ],
+            },
+        ).execute()
+        return len(cells)
 
     def write_cell(
         self,

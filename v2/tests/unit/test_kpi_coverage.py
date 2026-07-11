@@ -67,9 +67,14 @@ class TestClassifyCoverage:
 
 # --------------------------------------------------------------------------
 class TestStampDataClass:
+    # v86: stamps flush through ONE batch_write_cells call (the per-cell
+    # write_cell loop blew the 60-writes/min quota at fleet size 10 —
+    # live crash during the July rerun, 2026-07-10). These tests assert
+    # the batched contract.
     def _client(self, rows):
         c = MagicMock(spec=SheetsClient)
         c.read_range.return_value = rows
+        c.batch_write_cells.side_effect = lambda tab, cells, **kw: len(cells)
         return c
 
     # header with data_class NOT in the writer's prefix, date_iso as a SERIAL
@@ -88,13 +93,15 @@ class TestStampDataClass:
         n = stamp_data_class(c, {("2026-06-30", "SLP1"): DATA_CLASS_PARTIAL})
         assert n == 1
         # data_class is column index 3 -> 1-based col 4; SLP1/6-30 is sheet row 2
-        c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 4, DATA_CLASS_PARTIAL)
+        c.batch_write_cells.assert_called_once_with(
+            KPI_DAILY_TAB, [(2, 4, DATA_CLASS_PARTIAL)])
 
     def test_matches_ignoring_plant_key_case_and_space(self):
         c = self._client(self._rows())
         n = stamp_data_class(c, {("2026-06-30", " slp1 "): DATA_CLASS_FULL})
         assert n == 1
-        c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 4, DATA_CLASS_FULL)
+        c.batch_write_cells.assert_called_once_with(
+            KPI_DAILY_TAB, [(2, 4, DATA_CLASS_FULL)])
 
     def test_multiple_stamps(self):
         c = self._client(self._rows())
@@ -103,26 +110,28 @@ class TestStampDataClass:
             ("2026-07-01", "SLP1"): DATA_CLASS_FULL,
         })
         assert n == 2
-        assert c.write_cell.call_count == 2
+        # two cells, still ONE request
+        c.batch_write_cells.assert_called_once()
+        assert len(c.batch_write_cells.call_args.args[1]) == 2
 
     def test_missing_data_class_column_is_noop(self):
         c = self._client([["date_iso", "plant_key", "energy_kwh"],
                           [_serial(dt.date(2026, 6, 30)), "SLP1", 565.2]])
         n = stamp_data_class(c, {("2026-06-30", "SLP1"): DATA_CLASS_PARTIAL})
         assert n == 0
-        c.write_cell.assert_not_called()
+        c.batch_write_cells.assert_not_called()
 
     def test_row_not_found_is_skipped(self):
         c = self._client(self._rows())
         n = stamp_data_class(c, {("2026-06-30", "NL1"): DATA_CLASS_PARTIAL})  # no NL1 row
         assert n == 0
-        c.write_cell.assert_not_called()
+        c.batch_write_cells.assert_not_called()
 
     def test_dry_run_writes_nothing(self):
         c = self._client(self._rows())
         n = stamp_data_class(c, {("2026-06-30", "SLP1"): DATA_CLASS_PARTIAL}, dry_run=True)
         assert n == 1               # counted as "would write"
-        c.write_cell.assert_not_called()
+        c.batch_write_cells.assert_not_called()
 
     def test_empty_stamps_does_not_even_read(self):
         c = self._client(self._rows())
@@ -177,6 +186,7 @@ class TestStampColumnGeneric:
             self.HEADER,
             [_serial(dt.date(2026, 7, 1)), "SLP1", 698.9, "full", ""],  # row 2
         ]
+        c.batch_write_cells.side_effect = lambda tab, cells, **kw: len(cells)
         return c
 
     def test_stamps_named_column_by_position(self):
@@ -185,19 +195,21 @@ class TestStampColumnGeneric:
                          {("2026-07-01", "SLP1"): 0.42})
         assert n == 1
         # cloud_coverage_pct is 0-based index 4 -> 1-based col 5
-        c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 5, 0.42)
+        c.batch_write_cells.assert_called_once_with(
+            KPI_DAILY_TAB, [(2, 5, 0.42)])
 
     def test_unknown_column_is_noop(self):
         c = self._client()
         n = stamp_column(c, "no_such_col", {("2026-07-01", "SLP1"): 1})
         assert n == 0
-        c.write_cell.assert_not_called()
+        c.batch_write_cells.assert_not_called()
 
     def test_data_class_wrapper_still_works_via_generic(self):
         c = self._client()
         n = stamp_data_class(c, {("2026-07-01", "SLP1"): "partial"})
         assert n == 1
-        c.write_cell.assert_called_once_with(KPI_DAILY_TAB, 2, 4, "partial")
+        c.batch_write_cells.assert_called_once_with(
+            KPI_DAILY_TAB, [(2, 4, "partial")])
 
 
 # --------------------------------------------------------------------------

@@ -43,8 +43,7 @@ from typing import Dict, List, Optional, Tuple
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
 from argia.core.time_utils import UTC, utc_to_mx
-from argia.kpi.irradiance import IrradianceSource
-from argia.kpi.performance import Confidence, PlantPerformanceDay
+from argia.kpi.performance import PlantPerformanceDay
 from argia.kpi.reconcile import date_key
 
 LOG = logging.getLogger("argia.archive.kpi_daily")
@@ -463,6 +462,7 @@ def stamp_column(
         key_to_row[(d, pk)] = i
 
     written = 0
+    pending = []          # (row, col, value) — flushed in ONE request
     for (date_iso, plant_key), value in stamps.items():
         d = date_key(date_iso)
         pk = normalize_text(plant_key).upper()
@@ -478,8 +478,12 @@ def stamp_column(
                      plant_key, row_num, col_name, value)
             written += 1
             continue
-        sheets.write_cell(KPI_DAILY_TAB, row_num, target_col + 1, value)  # 1-based col
-        written += 1
+        pending.append((row_num, target_col + 1, value))  # 1-based col
+    if pending:
+        # v86: one batchUpdate instead of one write per cell — the
+        # per-cell loop blew the 60-writes/min Sheets quota at fleet
+        # size 10 (live crash 2026-07-10, July KPI rerun).
+        written += sheets.batch_write_cells(KPI_DAILY_TAB, pending)
     return written
 
 

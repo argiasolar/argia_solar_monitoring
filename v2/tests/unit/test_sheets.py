@@ -197,3 +197,26 @@ class TestFormattedReadbackEquivalence:
         written = ["2026-07-10 13:40:00", "QRO1", 6.0, 435.14, None]
         readback = ["2026-07-10 13:40:00", "QRO1", "6", "435.14", ""]
         assert _rows_equivalent(readback, written)
+
+
+class TestBatchWriteCells:
+    """v86: stamp_column's per-cell write loop hit the 60-writes/min
+    quota at fleet size 10 (live crash, July rerun 2026-07-10). N
+    scattered cells must cost ONE batchUpdate request."""
+
+    def test_single_request_carries_all_cells(self, client):
+        values = client._svc.spreadsheets.return_value.values.return_value
+        n = client.batch_write_cells(
+            "KPI_Daily", [(60, 17, 0.0877), (61, 17, 0.0266),
+                          (62, 17, 0.275)])
+        assert n == 3
+        values.batchUpdate.assert_called_once()
+        body = values.batchUpdate.call_args.kwargs["body"]
+        assert len(body["data"]) == 3
+        assert body["data"][0]["values"] == [[0.0877]]
+        assert "Q60" in body["data"][0]["range"]   # col 17 == Q
+
+    def test_empty_is_free(self, client):
+        values = client._svc.spreadsheets.return_value.values.return_value
+        assert client.batch_write_cells("KPI_Daily", []) == 0
+        values.batchUpdate.assert_not_called()

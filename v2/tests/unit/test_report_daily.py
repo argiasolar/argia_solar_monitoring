@@ -674,3 +674,63 @@ class TestClientPagePresentation:
         html = self._render([_plant("NL2")])
         assert '<th class="num">kWh</th>' in html
         assert '<th class="num">Theor.</th>' in html
+
+
+class TestLiveExpectedFromDashboard:
+    """v85: live editions borrow 'expected so far' from Dashboard_Plant
+    buckets — same engine as the interactive dashboard, so the report
+    cannot drift from it. Sheets values arrive formatted (house rule)."""
+
+    def _rows(self):
+        return [
+            # two complete buckets for QRO1 (formatted strings, as the
+            # live Sheets API returns them)
+            {"date_mx": "7/11/2026", "hour_label": "12:00",
+             "plant_key": "QRO1", "theoretical_kwh": "1,203.4"},
+            {"date_mx": "7/11/2026", "hour_label": "13:00",
+             "plant_key": "QRO1", "theoretical_kwh": "1,310.6"},
+            # in-flight bucket — must be excluded
+            {"date_mx": "7/11/2026", "hour_label": "14:00",
+             "plant_key": "QRO1", "theoretical_kwh": "500"},
+            # other date and other plant — ignored / separate
+            {"date_mx": "7/10/2026", "hour_label": "12:00",
+             "plant_key": "QRO1", "theoretical_kwh": "999"},
+            {"date_mx": "7/11/2026", "hour_label": "12:00",
+             "plant_key": "MEX3", "theoretical_kwh": "88.2"},
+        ]
+
+    def _now(self):
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+        return dt.datetime(2026, 7, 11, 14, 25,
+                           tzinfo=ZoneInfo("America/Mexico_City"))
+
+    def test_sums_complete_buckets_formatted_strings(self):
+        from argia.report.daily import live_expected_from_dashboard
+        out = live_expected_from_dashboard(self._rows(), "2026-07-11",
+                                           self._now())
+        assert out == {"QRO1": 2514.0, "MEX3": 88.2}
+
+    def test_past_date_keeps_every_bucket(self):
+        # rendering yesterday: nothing is in-flight
+        from argia.report.daily import live_expected_from_dashboard
+        rows = [{"date_mx": "7/10/2026", "hour_label": "14:00",
+                 "plant_key": "QRO1", "theoretical_kwh": "500"}]
+        out = live_expected_from_dashboard(rows, "2026-07-10",
+                                           self._now())
+        assert out == {"QRO1": 500.0}
+
+    def test_empty_and_garbage_safe(self):
+        from argia.report.daily import live_expected_from_dashboard
+        assert live_expected_from_dashboard([], "2026-07-11",
+                                            self._now()) == {}
+        assert live_expected_from_dashboard(
+            [{"date_mx": "x", "plant_key": "", "theoretical_kwh": "n/a"}],
+            "2026-07-11", self._now()) == {}
+
+    def test_wired_into_live_branch(self):
+        import inspect
+        import argia.report.daily as RD
+        src = inspect.getsource(RD.build_report_data)
+        assert "live_expected_from_dashboard" in src
+        assert 'read_table("Dashboard_Plant", "A1:ZZ")' in src

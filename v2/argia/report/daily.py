@@ -38,7 +38,10 @@ from argia.alerts.digest import reportable_alerts
 from argia.core.alerts_state import AlertRecord, load_alerts_ledger
 from argia.core.config import Portfolio
 from argia.core.constants import CO2_KG_PER_KWH
+import datetime as dt
+
 from argia.core.normalize import normalize_text, safe_float
+from argia.core.time_utils import now_mx
 from argia.core.sheets import SheetsClient
 from argia.kpi import compute_plant_energy, read_day_bundle
 from argia.kpi.reconcile import date_key
@@ -668,6 +671,10 @@ def render_html(data: ReportData) -> str:
         f'energy &#215; PPA tariff, before billing adjustments. '
         f'CO&#8322; avoided uses the national grid emission '
         f'factor (0.444 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'Live editions estimate expected from the dashboard\'s intraday '
+        f'irradiance buckets (same formula as end-of-day KPI, \u00b110%, '
+        f'pro-rated to the last complete hour); the stamped KPI replaces '
+        f'it next morning. '
         f'Report scope: plants with show_daily_report enabled; the alert '
         f'section and the verdict counters cover only those plants '
         f'(other portfolios report through their own channels). '
@@ -680,6 +687,32 @@ def render_html(data: ReportData) -> str:
 
 
 # ------------------------------------------------------------ data assembly
+
+def live_expected_from_dashboard(rows, date_iso: str,
+                                 now_mx: dt.datetime) -> Dict[str, float]:
+    """v85: live 'expected so far' per plant from the Dashboard_Plant
+    hourly buckets — the SAME engine and numbers the interactive
+    dashboard headlines (kWp x measured irradiance x expected factor
+    per 60-min bucket), so the report cannot drift from it. Rules:
+    only the report's date; the in-flight bucket is excluded
+    (pro-rated to the last complete hour, matching the dashboard);
+    Sheets values arrive FORMATTED, so date_key/safe_float throughout
+    (house rule)."""
+    out: Dict[str, float] = {}
+    cur_hour = now_mx.strftime("%H")
+    today = now_mx.date().isoformat()
+    for r in rows or []:
+        if date_key(r.get("date_mx")) != date_iso:
+            continue
+        hour = str(r.get("hour_label") or "")[:2]
+        if date_iso == today and hour == cur_hour:
+            continue                      # in-flight bucket
+        pk = str(r.get("plant_key") or "").strip().upper()
+        th = safe_float(r.get("theoretical_kwh"))
+        if pk and th:
+            out[pk] = out.get(pk, 0.0) + th
+    return {pk: round(v, 1) for pk, v in out.items() if v > 0}
+
 
 def synthesize_live_energy(invs) -> Optional[float]:
     """Plant energy from the day's telemetry (sum of per-inverter EToday
@@ -763,12 +796,23 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             inv.rel = rel.get(sn)
 
     plants: List[PlantDay] = []
+    # v85: live editions borrow "expected so far" from the dashboard's
+    # intraday buckets (single engine — no second estimator). Loaded
+    # once; a missing/empty tab degrades to the old design-only view.
+    try:
+        _dash_rows = sheets.read_table("Dashboard_Plant", "A1:ZZ")
+    except Exception:  # noqa: BLE001 - report must render regardless
+        _dash_rows = []
+    live_exp = live_expected_from_dashboard(_dash_rows, date_iso,
+                                            now_mx())
+
     for plant in portfolio.daily_report_plants():
         k = kpi.get(plant.plant_key, {})
         invs = sorted(per_plant_inv.get(plant.plant_key, {}).values(),
                       key=lambda i: (i.label or "", i.sn))
         energy, dc, note = (k.get("energy"), k.get("dc", "no_data"),
                             k.get("note", ""))
+        expected, pp = k.get("expected"), k.get("pp")
         if energy is None:
             live = synthesize_live_energy(invs)
             if live is not None:
@@ -779,11 +823,20 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                 energy, dc = live, "live"
                 note = ("Live evening estimate from telemetry — final "
                         "numbers in tomorrow's 07:05 report.")
+                if expected is None:
+                    expected = live_exp.get(plant.plant_key)
+                    if expected:
+                        pp = round(energy / expected, 4)
+                        note = ("Live evening estimate from telemetry; "
+                                "expected is a live \u00b110% estimate "
+                                "from measured irradiance, pro-rated to "
+                                "the last complete hour — final numbers "
+                                "in tomorrow's 07:05 report.")
         plants.append(PlantDay(
             plant_key=plant.plant_key,
             name=getattr(plant, "customer", "") or plant.plant_key,
-            energy_kwh=energy, expected_kwh=k.get("expected"),
-            production_pct=k.get("pp"), pr=k.get("pr"),
+            energy_kwh=energy, expected_kwh=expected,
+            production_pct=pp, pr=k.get("pr"),
             availability=k.get("av"), soiling=k.get("soil"),
             cloud_pct=k.get("cloud"), data_class=dc,
             status_note=note, inverters=invs,

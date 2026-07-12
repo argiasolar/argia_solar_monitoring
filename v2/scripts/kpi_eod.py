@@ -36,9 +36,15 @@ from typing import Dict, List, Tuple
 
 from argia.vendors import growatt_token
 from argia.kpi.design import design_kwh_for_day, load_design_monthly
+from argia.finance.contract import load_contract_monthly
+from argia.maintenance.events import load_maintenance_events
+from argia.maintenance.deemed import (
+    daylight_fraction, deemed_for_date, measured_in_window_from_buckets,
+)
 from argia.archive.kpi_daily import (
     AVAILABILITY_COL_NAME,
     CLOUD_COVERAGE_COL_NAME,
+    BILLABLE_KWH_COL_NAME,
     SPECIFIC_YIELD_COL_NAME,
     EXPECTED_KWH_COL_NAME,
     PRODUCTION_PCT_COL_NAME,
@@ -46,7 +52,6 @@ from argia.archive.kpi_daily import (
     STATUS_NOTE_COL_NAME,
     compute_availability,
     compute_expected_kwh,
-    compute_production_pct,
     gated_production_pct,
     production_statement,
     compute_soiling_loss_pct,
@@ -207,6 +212,7 @@ def main(argv=None) -> int:
     prod_stamps: Dict[Tuple[str, str], float] = {}
     soil_stamps: Dict[Tuple[str, str], float] = {}
     note_stamps: Dict[Tuple[str, str], str] = {}
+    energy_by_plant: Dict[str, float] = {}   # v91: for billable = energy + deemed
     plants_with_data = 0
     plants_without = 0
     for plant in portfolio.active_plants():
@@ -273,6 +279,7 @@ def main(argv=None) -> int:
                 perf, status_note=(perf.status_note + " | energy via "
                                    "Growatt token API").strip(" |"))
         new_rows.append(perf_to_row(perf))
+        energy_by_plant[plant.plant_key] = perf.energy_kwh
 
         # Expected energy for the day (v1 Theoretical_kWh semantics).
         exp = compute_expected_kwh(
@@ -416,6 +423,66 @@ def main(argv=None) -> int:
                                dry_run=args.dry_run)
         log.info("Stamped %d availability cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
+
+    # Stamp billable_kwh = measured energy + approved customer-deemed
+    # energy for the day (v91, maintenance/penalty feature). Deemed is
+    # contract-anchored (Contract_Monthly.contract_kwh_daily) and only
+    # produced by APPROVED customer-category events; on a normal day it
+    # is 0 and billable == energy. We stamp for EVERY processed plant so
+    # the column is populated wherever energy_kwh is — the finance layer
+    # prefers billable_kwh, and a blank cell there would drop a day.
+    import datetime as _dt
+
+    contracts = load_contract_monthly(sheets)
+    events = load_maintenance_events(sheets)
+
+    def _contract_daily_for(pk, y, m):
+        row = contracts.get((str(pk).upper(), y, m))
+        return row.contract_kwh_daily if row is not None else None
+
+    _dash_cache: Dict[str, object] = {}
+
+    def _dash_rows():
+        if "rows" not in _dash_cache:
+            try:
+                _dash_cache["rows"] = sheets.read_table(
+                    "Dashboard_Plant", "A1:ZZ")
+            except Exception as e:  # noqa: BLE001
+                log.warning("Dashboard_Plant unreadable for deemed "
+                            "measured-in-window: %s", e)
+                _dash_cache["rows"] = []
+        return _dash_cache["rows"]
+
+    def _measured_for(pk, d_iso, seg_start, seg_end):
+        energy = energy_by_plant.get(pk)
+        day = _dt.date.fromisoformat(d_iso)
+        frac = daylight_fraction(day, seg_start, seg_end)
+        rows = None if frac >= 0.999 else _dash_rows()
+        return measured_in_window_from_buckets(
+            rows, pk, d_iso, seg_start, seg_end, energy, frac)
+
+    deemed = deemed_for_date(events, date_iso, _contract_daily_for,
+                             _measured_for)
+    if deemed:
+        log.info("Deemed (customer-compensada) kWh: %s",
+                 {pk: round(v, 1) for pk, v in deemed.items()})
+    for pk in set(deemed) - set(energy_by_plant):
+        log.warning("[%s] approved deemed energy on %s but no KPI row this "
+                    "run — billable not stamped (annex bills from events)",
+                    pk, date_iso)
+
+    billable_stamps: Dict[Tuple[str, str], object] = {}
+    for pk in set(energy_by_plant) | set(deemed):
+        energy = energy_by_plant.get(pk)
+        d = deemed.get(pk, 0.0)
+        if (energy is None or energy == 0) and d <= 0:
+            continue   # no data and no event → leave billable blank
+        billable_stamps[(date_iso, pk)] = round((energy or 0.0) + d, 2)
+    if billable_stamps:
+        stamped = stamp_column(sheets, BILLABLE_KWH_COL_NAME,
+                               billable_stamps, dry_run=args.dry_run)
+        log.info("Stamped %d billable_kwh cell(s)%s", stamped,
+                 " (dry-run)" if args.dry_run else "")
 
     # Prune (optional)
     if args.prune or args.prune_apply:

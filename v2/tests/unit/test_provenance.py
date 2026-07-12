@@ -16,6 +16,7 @@ from argia.finance.loans import LOANS_HEADER, SCHEDULE_HEADER
 from argia.finance.provenance import (
     COLUMN_NOTES, NOTES_MARKER, NOTES_SECTION, report_sources,
 )
+from argia.maintenance.events import MAINTENANCE_EVENTS_HEADER
 
 
 class TestCompleteness:
@@ -28,9 +29,17 @@ class TestCompleteness:
     def test_every_contract_column_documented(self):
         assert set(CONTRACT_HEADER) <= set(COLUMN_NOTES["Contract_Monthly"])
 
+    def test_every_maintenance_column_documented(self):
+        # drift guard: adding a Maintenance_Events column without a
+        # provenance note fails here (the setup script enforces the same).
+        assert set(MAINTENANCE_EVENTS_HEADER) <= set(
+            COLUMN_NOTES["Maintenance_Events"])
+
     def test_om_manual_input_is_labelled_as_such(self):
         note = COLUMN_NOTES["Plants"]["om_cost_monthly_mxn"]
         assert "MANUAL" in note.upper()
+        # v91: also flagged as superseded by events
+        assert "SUPERSEDED" in note.upper()
 
     def test_notes_section_carries_marker_and_key_facts(self):
         assert NOTES_MARKER in NOTES_SECTION
@@ -38,7 +47,10 @@ class TestCompleteness:
         # the facts an auditor must find in-sheet
         for fragment in ("LoanPayments", "ContractData", "17.98",
                          "principal+interest", "energia compensada",
-                         "phase-2"):
+                         "phase-2",
+                         # v91 drift guard: the deemed formula + O&M source
+                         "deemed_day", "daylight_fraction",
+                         "Maintenance_Events"):
             assert fragment in joined, fragment
 
     def test_report_sources_returns_and_raises(self):

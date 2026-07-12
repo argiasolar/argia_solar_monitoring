@@ -172,6 +172,21 @@ class TestBillablePreference:
         assert sum(v for (p, _), v in kpi.items() if p == "GTO1") == \
             pytest.approx(25380.1, abs=0.01)
 
+    def test_blank_billable_cell_falls_back_to_energy_per_row(self):
+        # v91 regression: the billable_kwh COLUMN exists, but a row's
+        # billable cell is blank (not yet stamped). That day must fall
+        # back to energy_kwh, NOT be silently dropped to nothing.
+        header = ["date_iso", "plant_key", "energy_kwh", "billable_kwh"]
+        rows = [
+            ["2026-07-03", "MEX2", 300.0, 2972.43],   # billable populated
+            ["2026-07-04", "MEX2", 305.0, ""],        # billable BLANK
+        ]
+        sheets = MagicMock(spec=SheetsClient)
+        sheets.read_range.return_value = [header] + rows
+        kpi = load_kpi_energy(sheets, JULY_MTD)
+        assert kpi[("MEX2", "2026-07-03")] == pytest.approx(2972.43)
+        assert kpi[("MEX2", "2026-07-04")] == pytest.approx(305.0)
+
 
 class TestDebtServiceAndOm:
     def test_full_month_matches_loan_layer(self):

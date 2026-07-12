@@ -117,13 +117,40 @@ COLUMN_NOTES: Dict[str, Dict[str, str]] = {
         "show_financial": "FALSE hides this plant from the financial "
                           "web report and investor PDF. Blank/TRUE = "
                           "visible. Never affects data capture.",
-        "om_cost_monthly_mxn": "MANUAL INPUT: average monthly O&M cost "
-                               "per plant, MXN (Argia estimate, not an "
-                               "invoice feed). Feeds the investor "
-                               "report opex line, prorated for partial "
-                               "periods. Updating it recomputes past "
-                               "on-demand reports — treat regenerated "
-                               "history accordingly.",
+        "om_cost_monthly_mxn": "MANUAL INPUT (SUPERSEDED v91): a fixed "
+                               "monthly O&M retainer, MXN. As of v91 O&M "
+                               "is the sum of approved Maintenance_Events "
+                               "costs; this column survives only as an "
+                               "OPTIONAL additive baseline and is blank "
+                               "on every plant (no plant has a recurring "
+                               "retainer). Prorated for partial periods "
+                               "when set.",
+    },
+    "Maintenance_Events": {
+        "plant_key": "Plant the event applies to. Deemed billing only "
+                     "resolves for plants with a Contract_Monthly "
+                     "contract_kwh (PPA plants); others compute 0.",
+        "start_ts": "Event window start, MX local. Manual entry.",
+        "end_ts": "Event window end, MX local. BLANK = ongoing (bounded "
+                  "at 'now' for any calculation, never infinite).",
+        "category": "customer / argia / force_majeure. Responsibility "
+                    "axis: ONLY 'customer' produces deemed (billable) "
+                    "energy. argia = our O&M (self-report), "
+                    "force_majeure = not billable by default. An "
+                    "unrecognized value is kept but treated as "
+                    "non-billable.",
+        "cost_type": "cleaning / repair / parts / inspection / other. "
+                     "Cost axis, so cleaning spend is reportable on its "
+                     "own. Does NOT replace Cleaning_Costs (that tab "
+                     "keeps its own expected-cost break-even input).",
+        "cost_mxn": "ACTUAL cost of this event, MXN (a lump attributed "
+                    "to the start day, not prorated). Sum of approved "
+                    "events in a period IS the financial report's O&M "
+                    "line. Blank = no cost.",
+        "note": "Free text; appears verbatim on the invoice annex line "
+                "and financial report.",
+        "approved_by": "FAIL-CLOSED gate: blank = draft. Deemed energy "
+                       "AND cost enter reports only when this is set.",
     },
 }
 
@@ -162,11 +189,21 @@ NOTES_SECTION: List[str] = [
     "  - fixed_income_ccy: LaaS fees from service contracts, "
     "USD-indexed; MXN conversion uses the loan schedule's XR for the "
     "same month so income and debt service share an FX basis.",
-    "Plants.om_cost_monthly_mxn: MANUAL average monthly O&M per plant "
-    "(MXN). Not invoice-fed by design.",
-    "Maintenance-day billing ('energia compensada'): contract_kwh / "
-    "days-in-month is the agreed basis (settled 2026-07; v1's "
-    "efficiency-factor de-rating is deliberately NOT carried over).",
+    "O&M (v91): the financial report opex line is the sum of APPROVED "
+    "Maintenance_Events costs in the period (actual spend, attributed to "
+    "the day work started). Plants.om_cost_monthly_mxn is superseded — "
+    "kept only as an optional additive baseline, blank on every plant "
+    "(no recurring retainers).",
+    "Maintenance-day billing ('energia compensada'): deemed_day = "
+    "max(0, contract_daily x daylight_fraction - measured_in_window), "
+    "computed per calendar day and summed. contract_daily = "
+    "Contract_Monthly.contract_kwh / days-in-month for that day's month "
+    "(the agreed basis, settled 2026-07; v1's efficiency-factor "
+    "de-rating is deliberately NOT carried over). daylight_fraction is "
+    "the window's overlap with 06:00-20:00 MX (14 h). measured_in_window "
+    "(from Dashboard_Plant buckets, measured data) is subtracted so a "
+    "plant that limped is not double-billed; a full outage collapses to "
+    "contract_daily. Only APPROVED customer-category events bill.",
     "Reports: every generated report carries these same source "
     "statements in its audit footer (argia/finance/provenance.py is "
     "the single source; sheet notes and report footers are generated "

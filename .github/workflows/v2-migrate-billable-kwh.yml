@@ -1,0 +1,67 @@
+name: v2-migrate billable_kwh (manual)
+
+# One-off, manual-only migration: adds a `billable_kwh` column to
+# KPI_Daily and back-fills billable_kwh = energy_kwh on every existing
+# row (there were no maintenance events before v91, so billable == energy
+# for all history). Idempotent; never overwrites an existing value; a
+# no-data (blank energy) day is left blank. Dry-run by DEFAULT.
+#
+#   1. Run the setup workflow for Maintenance_Events first (recommended).
+#   2. Run this with apply = false; confirm the header add + row count.
+#   3. Re-run with apply = true. After this, kpi_eod stamps billable_kwh.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply (write). OFF = dry run, reports only."
+        type: boolean
+        required: true
+        default: false
+      log_level:
+        description: "Log level"
+        required: true
+        default: "INFO"
+        type: choice
+        options:
+          - DEBUG
+          - INFO
+          - WARNING
+          - ERROR
+
+concurrency:
+  group: v2-migrate-billable-kwh
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run migration
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS="--log-level ${{ inputs.log_level }}"
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="$ARGS --apply"
+          fi
+          echo "Running with args: $ARGS"
+          PYTHONPATH=. python scripts/migrate_add_billable_kwh_col.py $ARGS

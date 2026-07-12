@@ -39,6 +39,7 @@ from argia.finance.income import (
 )
 from argia.finance.loans import load_loan_schedule, load_loans
 from argia.finance.report import LOGO_PATH, _footer_sources
+from argia.maintenance.events import load_maintenance_events
 
 LOG = logging.getLogger(__name__)
 
@@ -51,6 +52,18 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
     loans = load_loans(sheets)
     schedule = load_loan_schedule(sheets)
     kpi = load_kpi_energy(sheets, window)
+    events = load_maintenance_events(sheets)
+
+    # v91: approved maintenance-event costs, attributed to the day the
+    # work started (a lump, not smeared across the month). Same
+    # attribution rule as report.om_cost_from_events, so the webreport's
+    # Σ daily O&M for a plant matches the investor PDF's asset O&M.
+    event_cost_by_day: Dict[tuple, float] = {}
+    for e in events:
+        if not e.approved or e.cost_mxn is None:
+            continue
+        key = (e.plant_key, e.cost_date_iso())
+        event_cost_by_day[key] = event_cost_by_day.get(key, 0.0) + e.cost_mxn
 
     ppa = {p.plant_key.upper(): p for p in portfolio.financial_plants()}
     contract_plants = {k[0] for k in contracts}
@@ -61,12 +74,18 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
     usd_plants = {l.plant_key for l in loans.values()
                   if l.currency == "USD"}
 
+    plants_with_event_cost = {pk for (pk, _iso) in event_cost_by_day}
+
     plants: List[Dict] = []
     for pk, p in sorted(ppa.items()):
+        # v91: "no O&M source at all" = no baseline AND no approved event
+        # cost anywhere in the selectable window. Honest 0, not an error.
+        no_om = (p.om_cost_monthly_mxn is None
+                 and pk not in plants_with_event_cost)
         plants.append({"key": pk, "name": p.customer or pk, "typ": "PPA",
                        "usd": pk in usd_plants,
                        "kwp": p.kwp_dc,
-                       "om_missing": p.om_cost_monthly_mxn is None})
+                       "om_missing": no_om})
     for pk in laas_keys:
         plants.append({"key": pk, "name": loan_names.get(pk, pk),
                        "typ": "LaaS", "usd": pk in usd_plants,
@@ -115,12 +134,15 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
                 t = tariff(pk, y, m)
                 rev_d = (kwh * t if kwh is not None and t is not None
                          else None)
-            om_m = (ppa[pk].om_cost_monthly_mxn
-                    if pk in ppa else None) or 0.0
+            # O&M for the day = this day's approved event cost (lump) +
+            # the optional fixed baseline prorated across the month.
+            baseline = (ppa[pk].om_cost_monthly_mxn
+                        if pk in ppa else None) or 0.0
+            om_d = event_cost_by_day.get((pk, iso), 0.0) + baseline / dim
             atoms[pk].append([
                 round(rev_d, 2) if rev_d is not None else None,
                 round(exp_d, 2) if exp_d is not None else None,
-                round(svc_d, 2), round(om_m / dim, 2)])
+                round(svc_d, 2), round(om_d, 2)])
         cursor += timedelta(days=1)
 
     # loan position labels per plant-month ("22/84", "24/24 · 2/12",
@@ -384,9 +406,10 @@ function recompute() {{
   }}
   const missing = D.plants.filter(p=>p.om_missing).map(p=>p.key);
   if (missing.length)
-    notes += '<div class="note">O&amp;M missing for '+missing.join(", ")
-      + ' &mdash; Plants.om_cost_monthly_mxn is blank; opex shows 0 for '
-      + 'these plants.</div>';
+    notes += '<div class="note">No O&amp;M recorded for '+missing.join(", ")
+      + ' &mdash; opex is the sum of approved Maintenance_Events costs; '
+      + '0 means no maintenance events in the selection, not missing '
+      + 'data.</div>';
   const usdSvc = D.plants.filter(p=>p.usd)
       .reduce((acc,p)=>acc+sumRange(p.key,a,b).svc, 0);
   document.getElementById("fxline").innerHTML = T.svc>0

@@ -36,6 +36,9 @@ from argia.finance.loans import (
     installment_label, load_loan_schedule, load_loans,
 )
 from argia.finance.provenance import report_sources
+from argia.maintenance.events import (
+    load_maintenance_events, om_cost_from_events,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -135,6 +138,7 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
     loans = load_loans(sheets)
     schedule = load_loan_schedule(sheets)
     kpi = load_kpi_energy(sheets, period)
+    events = load_maintenance_events(sheets)
 
     data = FinanceReportData(period=period, kpi_days_found=len(kpi))
 
@@ -155,9 +159,13 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
     end_ym = period.end.strftime("%Y-%m")
     for pk, plant in sorted(ppa_plants.items()):
         svc = debt_service_for_period(schedule, pk, period)
-        om = om_cost_for_period(plant.om_cost_monthly_mxn, period)
-        if plant.om_cost_monthly_mxn is None:
-            data.om_plants_missing.append(pk)
+        # v91: O&M is now the sum of APPROVED maintenance-event costs in
+        # the period. om_cost_monthly_mxn survives only as an OPTIONAL
+        # additive baseline (a fixed retainer, if any plant ever has one);
+        # it is blank on every plant today, so it prorates to 0. A plant
+        # with no events shows an honest 0 — not "missing".
+        om = (om_cost_from_events(events, pk, period)
+              + om_cost_for_period(plant.om_cost_monthly_mxn, period))
         data.assets.append(AssetFinance(
             plant_key=pk, name=plant.customer or pk, typ="PPA",
             expected_mxn=_expected_for_period(contracts, schedule, pk,
@@ -206,7 +214,7 @@ def _dscr_span(v: Optional[float]) -> str:
 
 def _footer_sources() -> str:
     src = report_sources("Loans", "Loan_Schedule", "Contract_Monthly",
-                         "Plants")
+                         "Plants", "Maintenance_Events")
     picks = [
         ("Revenue (PPA)", "KPI_Daily billable energy × Contract_Monthly "
          "tariff for the month in force."),
@@ -224,7 +232,7 @@ def _footer_sources() -> str:
          "(an average would let a small loan's high ratio mask a large "
          "loan's shortfall). An asset with no debt has no DSCR."),
         ("FX", src["Loan_Schedule"]["xr"]),
-        ("O&M", src["Plants"]["om_cost_monthly_mxn"]),
+        ("O&M", src["Maintenance_Events"]["cost_mxn"]),
         ("Interest split", src["Loan_Schedule"]["due_after_mxn"]),
     ]
     lines = "".join("<b>%s:</b> %s<br>" % (html.escape(k), html.escape(v))
@@ -277,12 +285,15 @@ def render_html(data: FinanceReportData) -> str:
                   '</b> — accrued income below debt service for the '
                   'period.</div>' % (html.escape(a.name), a.plant_key,
                                      (a.dscr_actual or 0) * 100))
+    # v91: O&M is event-driven (Maintenance_Events). A period-wide 0 is
+    # honest — it means no approved maintenance cost occurred, not missing
+    # data. Say so once when the whole portfolio shows 0.
     om_note = ""
-    if data.om_plants_missing:
-        om_note = ('<div class="gap"><b>O&amp;M missing for %s</b> — '
-                   'Plants.om_cost_monthly_mxn is blank; opex shows 0 for '
-                   'these plants.</div>'
-                   % html.escape(", ".join(data.om_plants_missing)))
+    if data.om_total <= 0:
+        om_note = ('<div class="gap"><b>O&amp;M 0 for the period</b> — '
+                   'opex is the sum of approved Maintenance_Events costs; '
+                   '0 means no maintenance events were recorded in this '
+                   'period, not missing data.</div>')
 
     usd_share = data.usd_service_share
     logo = _logo_data_uri()

@@ -90,6 +90,21 @@ JULY_MTD = Period.from_iso("2026-07-01", "2026-07-07")
 JULY_FULL = Period.from_iso("2026-07-01", "2026-07-31")
 
 
+def _sheets_with_events(event_rows):
+    """Like _sheets() but Maintenance_Events serves ``event_rows`` (list
+    of dicts keyed by MAINTENANCE_EVENTS_HEADER)."""
+    base = _sheets()
+    inner_table = base.read_table.side_effect
+
+    def read_table(tab, a1="A1:Z"):
+        if tab == "Maintenance_Events":
+            return event_rows
+        return inner_table(tab, a1)
+
+    base.read_table.side_effect = read_table
+    return base
+
+
 class TestBuilder:
     def test_eight_assets_resolved(self):
         data = build_finance_report_data(_sheets(), _portfolio(), JULY_MTD)
@@ -128,11 +143,57 @@ class TestBuilder:
         slp1 = next(a for a in data.assets if a.plant_key == "SLP1")
         assert slp1.service_mxn == pytest.approx(12500.00)
 
-    def test_missing_om_listed_not_fatal(self):
+    def test_no_om_is_honest_zero(self):
+        # v91: O&M is event-driven. No baseline + no events → honest 0,
+        # and the retired om_plants_missing list stays empty (not an error).
         data = build_finance_report_data(_sheets(), _portfolio(om=None),
                                          JULY_MTD)
-        assert sorted(data.om_plants_missing) == sorted(JULY_MTD_ENERGY)
         assert data.om_total == 0.0
+        assert data.om_plants_missing == []
+
+    def test_om_is_sum_of_approved_events(self):
+        # Two approved events in-period (GTO1 repair 20000, SLP1 cleaning
+        # 15000) + one DRAFT (no approved_by, 99999 — must NOT count) +
+        # one approved but OUT of period (Aug). O&M = 35000, no baseline.
+        events = [
+            {"plant_key": "GTO1", "start_ts": "2026-07-03 09:00:00",
+             "end_ts": "2026-07-03 17:00:00", "category": "argia",
+             "cost_type": "repair", "cost_mxn": "20000",
+             "note": "protection parts", "approved_by": "tomasz"},
+            {"plant_key": "SLP1", "start_ts": "2026-07-05 08:00:00",
+             "end_ts": "", "category": "argia", "cost_type": "cleaning",
+             "cost_mxn": "15000", "note": "module wash", "approved_by": "t"},
+            {"plant_key": "MEX1", "start_ts": "2026-07-04 08:00:00",
+             "end_ts": "2026-07-04 12:00:00", "category": "argia",
+             "cost_type": "repair", "cost_mxn": "99999",
+             "note": "DRAFT", "approved_by": ""},
+            {"plant_key": "SLP2", "start_ts": "2026-08-02 08:00:00",
+             "end_ts": "2026-08-02 12:00:00", "category": "argia",
+             "cost_type": "repair", "cost_mxn": "7000",
+             "note": "next month", "approved_by": "t"},
+        ]
+        data = build_finance_report_data(
+            _sheets_with_events(events), _portfolio(om=None), JULY_MTD)
+        assert data.om_total == pytest.approx(35000.0)
+        by_plant = {a.plant_key: a.om_mxn for a in data.assets}
+        assert by_plant["GTO1"] == pytest.approx(20000.0)
+        assert by_plant["SLP1"] == pytest.approx(15000.0)
+        assert by_plant["MEX1"] == pytest.approx(0.0)  # draft ignored
+        assert by_plant["SLP2"] == pytest.approx(0.0)  # out of period
+
+    def test_event_cost_adds_to_optional_baseline(self):
+        # A plant with BOTH an approved event (10000) AND a fixed retainer
+        # baseline (8000/mo, full month) sums to 18000 for that plant.
+        events = [
+            {"plant_key": "NL1", "start_ts": "2026-07-10 09:00:00",
+             "end_ts": "2026-07-10 15:00:00", "category": "argia",
+             "cost_type": "inspection", "cost_mxn": "10000",
+             "note": "annual inspection", "approved_by": "t"},
+        ]
+        data = build_finance_report_data(
+            _sheets_with_events(events), _portfolio(om=8000.0), JULY_FULL)
+        nl1 = next(a for a in data.assets if a.plant_key == "NL1")
+        assert nl1.om_mxn == pytest.approx(18000.0)
 
 
 class TestRenderer:
@@ -154,7 +215,7 @@ class TestRenderer:
         # verbatim registry fragments — if provenance.py changes, the
         # footer changes with it (and vice versa this test breaks on
         # hand-edited footer text)
-        assert COLUMN_NOTES["Plants"]["om_cost_monthly_mxn"][:30] in h
+        assert COLUMN_NOTES["Maintenance_Events"]["cost_mxn"][:30] in h
         assert "projection, not a commitment" in h.replace("\n", " ")
         assert "principal+interest combined" in h
 
@@ -163,9 +224,10 @@ class TestRenderer:
         # MEX1 MTD runs below 1.0x on real numbers
         assert "Watch: MEX1" in h or "Watch:" in h and "MEX1" in h
 
-    def test_om_missing_note(self):
+    def test_om_honest_zero_note(self):
         h = self._html(om=None)
-        assert "om_cost_monthly_mxn is blank" in h
+        assert "O&amp;M 0 for the period" in h
+        assert "Maintenance_Events" in h
 
     def test_prorated_label_on_partial_period(self):
         assert "prorated" in self._html(period=JULY_MTD)

@@ -107,8 +107,9 @@ def load_kpi_energy(sheets, period: Period) -> Dict[Tuple[str, str], float]:
     if "date_iso" not in idx or "plant_key" not in idx:
         LOG.warning("%s: header lacks date_iso/plant_key", KPI_DAILY_TAB)
         return {}
-    energy_col = idx.get("billable_kwh", idx.get("energy_kwh"))
-    if energy_col is None:
+    bill_col = idx.get("billable_kwh")
+    energy_col = idx.get("energy_kwh")
+    if bill_col is None and energy_col is None:
         LOG.warning("%s: no billable_kwh/energy_kwh column", KPI_DAILY_TAB)
         return {}
 
@@ -117,12 +118,20 @@ def load_kpi_energy(sheets, period: Period) -> Dict[Tuple[str, str], float]:
         try:
             d_iso = date_key(row[idx["date_iso"]])
             pk = str(row[idx["plant_key"]]).strip().upper()
-            raw = row[energy_col] if energy_col < len(row) else None
         except IndexError:
             continue
         if not pk or not d_iso or not period.contains_iso(d_iso):
             continue
-        kwh = safe_float(raw)   # comma-tolerant; see v64 incident
+        # v91: prefer billable_kwh PER ROW, but a blank billable cell must
+        # NOT zero a day — fall back to energy_kwh for that row. The
+        # migration back-fills history and kpi_eod stamps billable going
+        # forward, so this is belt-and-suspenders: a manually inserted or
+        # half-stamped row silently dropped its income before this.
+        kwh = None
+        if bill_col is not None and bill_col < len(row):
+            kwh = safe_float(row[bill_col])   # comma-tolerant; v64 incident
+        if kwh is None and energy_col is not None and energy_col < len(row):
+            kwh = safe_float(row[energy_col])
         if kwh is None:
             continue
         out[(pk, d_iso)] = kwh

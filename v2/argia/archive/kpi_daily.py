@@ -74,6 +74,11 @@ the reconcile; a false 'full' would let an undercounted day pass as a match."""
 
 DATA_CLASS_COL_NAME = "data_class"
 
+#: v91 — billable energy = measured energy_kwh + approved customer-deemed
+#: energy for the day. The finance layer prefers this column over
+#: energy_kwh (per-row) when computing PPA income.
+BILLABLE_KWH_COL_NAME = "billable_kwh"
+
 KPI_DAILY_HEADER = [
     "date_iso", "plant_key",
     "energy_kwh", "irradiance_kwh_m2", "irradiance_source",

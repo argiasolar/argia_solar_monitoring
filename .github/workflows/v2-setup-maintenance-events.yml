@@ -1,0 +1,66 @@
+name: v2-setup Maintenance_Events (manual)
+
+# One-off, manual-only: creates the Maintenance_Events tab with the v91
+# header and attaches the provenance notes. Idempotent (never overwrites
+# an existing header or rows). Dry-run by DEFAULT — flip `apply` ON to
+# create the tab.
+#
+#   1. Run with apply = false. Confirm the header + note count it reports.
+#   2. Re-run with apply = true.
+#   3. Enter events by hand; they are rare and contractual.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply (write). OFF = dry run, reports only."
+        type: boolean
+        required: true
+        default: false
+      log_level:
+        description: "Log level"
+        required: true
+        default: "INFO"
+        type: choice
+        options:
+          - DEBUG
+          - INFO
+          - WARNING
+          - ERROR
+
+concurrency:
+  group: v2-setup-maintenance-events
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./v2
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run setup
+        working-directory: ./v2
+        env:
+          GOOGLE_SHEET_ID_V2: ${{ secrets.GOOGLE_SHEET_ID_V2 }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          ARGS="--log-level ${{ inputs.log_level }}"
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="$ARGS --apply"
+          fi
+          echo "Running with args: $ARGS"
+          PYTHONPATH=. python scripts/maintenance_events_setup.py $ARGS

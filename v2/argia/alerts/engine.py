@@ -25,7 +25,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from argia.alerts.explanations import explain
 from argia.core.alerts_state import (
@@ -54,6 +54,45 @@ ENGINE_METRICS = frozenset({
     "energy_daily_pct",
     "plant_twin_yield",
 })
+
+# v92 — metrics a maintenance window EXPLAINS. When a plant is in a logged
+# maintenance window, these plant-level "it's down / underproducing"
+# conditions are expected, so their candidates are dropped before
+# reconcile: the plant does not open (or re-open) a critical, and the
+# daily report shows a maintenance badge instead. Hardware-specific faults
+# (inverter_fault / inverter_temp_high / string_fault / inverter_relative)
+# are intentionally NOT here — a genuine fault during maintenance is still
+# worth surfacing.
+MAINTENANCE_SUPPRESSED_METRICS = frozenset({
+    "energy_daily_pct",
+    "plant_offline",
+    "data_stale",
+    "plant_twin_yield",
+})
+
+
+def apply_maintenance_suppression(
+    candidates: List["Candidate"],
+    maintenance_plants,
+    metrics=MAINTENANCE_SUPPRESSED_METRICS,
+):
+    """Split candidates into (kept, suppressed) for plants under
+    maintenance. A candidate is suppressed only when BOTH its plant is in
+    ``maintenance_plants`` AND its metric is in ``metrics``. Pure; the
+    caller reconciles ``kept`` and logs ``suppressed``.
+
+    Dropping a suppressed candidate means: no new alert opens for it, and
+    on the DAILY tier (resolve_missing=True) any existing open alert for
+    that key resolves — correct, the condition is acknowledged as
+    maintenance, and the event tab is the record of why.
+    """
+    kept, suppressed = [], []
+    for c in candidates:
+        if c.plant_key in maintenance_plants and c.metric in metrics:
+            suppressed.append(c)
+        else:
+            kept.append(c)
+    return kept, suppressed
 
 
 @dataclass(frozen=True)

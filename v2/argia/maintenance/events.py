@@ -38,7 +38,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from argia.core.cells import coerce_ts
 from argia.core.normalize import normalize_text, safe_float
@@ -114,6 +114,19 @@ class MaintenanceEvent:
         """Date the cost is attributed to for period membership — the day
         work started (a lump cost is realized when the event occurs)."""
         return self.start_ts.astimezone(MX_TZ).date().isoformat()
+
+    def covers_date(self, date_iso: str,
+                    now: Optional[dt.datetime] = None) -> bool:
+        """True when the event's window overlaps the given MX calendar day
+        (any part of it). Self-contained (no deemed dependency) so the
+        alerts/report layers can ask "is this plant under maintenance
+        today?" cheaply. An ongoing event is bounded at ``now``."""
+        d = dt.date.fromisoformat(date_iso)
+        day_start = dt.datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=MX_TZ)
+        day_end = day_start + dt.timedelta(days=1)
+        start = self.start_ts.astimezone(MX_TZ)
+        end = self.effective_end(now).astimezone(MX_TZ)
+        return start < day_end and end > day_start
 
 
 def _parse_category(value, plant_key: str) -> str:
@@ -214,3 +227,49 @@ def om_cost_from_events(events: List[MaintenanceEvent], plant_key: str,
         if period.contains_iso(e.cost_date_iso()):
             total += e.cost_mxn
     return total
+
+
+# ---------------------------------------------------------------------------
+# Operational view (v92): which plants are under maintenance, for alert
+# suppression and the daily-report badge. Approval-INDEPENDENT: a logged
+# window (draft or approved) means the operator knows the plant is down,
+# so the alert must annotate rather than scream. Approval still gates
+# BILLING (deemed energy + cost) — a separate concern.
+# ---------------------------------------------------------------------------
+
+CATEGORY_BADGE_LABEL = {
+    CATEGORY_CUSTOMER: "customer maintenance",
+    CATEGORY_ARGIA: "known maintenance",
+    CATEGORY_FORCE_MAJEURE: "force majeure",
+}
+
+
+def plant_maintenance_on_date(events: List[MaintenanceEvent], date_iso: str,
+                              now: Optional[dt.datetime] = None
+                              ) -> Dict[str, MaintenanceEvent]:
+    """{plant_key: covering event} for plants whose window overlaps the MX
+    calendar day ``date_iso``. Approval-independent. If several events
+    cover the same plant-day, the first (earliest-listed) is returned —
+    enough to raise the badge and suppress the redundant alarm."""
+    out: Dict[str, MaintenanceEvent] = {}
+    for e in events:
+        if e.plant_key in out:
+            continue
+        if e.covers_date(date_iso, now=now):
+            out[e.plant_key] = e
+    return out
+
+
+def maintenance_badge_text(event: MaintenanceEvent,
+                           max_note: int = 60) -> str:
+    """Short human label for the daily-report badge / status line, e.g.
+    ``"known maintenance — awaiting protection parts (ongoing)"``."""
+    label = CATEGORY_BADGE_LABEL.get(event.category, "maintenance")
+    note = event.note.strip()
+    if note:
+        if len(note) > max_note:
+            note = note[: max_note - 1].rstrip() + "\u2026"
+        label += " \u2014 " + note
+    if event.is_ongoing:
+        label += " (ongoing)"
+    return label

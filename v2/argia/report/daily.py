@@ -27,6 +27,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from argia.kpi.design import design_kwh_for_day, load_design_monthly
+from argia.maintenance.events import (
+    load_maintenance_events, plant_maintenance_on_date, maintenance_badge_text,
+)
 from argia.analytics.acute import TEMP_CRIT_C, TEMP_WARN_C
 from argia.analytics.inverter_health import (
     InverterReading,
@@ -50,6 +53,7 @@ from argia.report.dashboard_html import LOGO_B64
 LOG = logging.getLogger("argia.report.daily")
 
 GREEN, AMBER, RED, GRAY = "green", "amber", "red", "gray"
+MAINT = "maint"   # v92: plant in a logged maintenance window (not a fault)
 # Dashboard-family palette — one visual language across page and PDF
 COLORS = {GREEN: "#0E8A6D", AMBER: "#B7791F", RED: "#A32D2D", GRAY: "#9aa39e"}
 
@@ -84,6 +88,10 @@ class PlantDay:
     kwp_dc: Optional[float] = None
     tariff_mxn_per_kwh: Optional[float] = None
     design_kwh: Optional[float] = None
+    # v92: badge text when the plant is in a logged maintenance window on
+    # the report date (None otherwise). Distinguishes "known maintenance"
+    # from a fault so the plant reads neutral, not red.
+    maintenance_note: Optional[str] = None
     # v88: (hour_label, production_kwh, theoretical_kwh) per completed
     # 60-min bucket, from Dashboard_Plant — rendered as the hourly
     # chart on small (client) reports
@@ -102,6 +110,8 @@ class ReportData:
 def plant_semaphore(p: PlantDay, has_critical_alert: bool,
                     has_any_alert: bool) -> str:
     """Status lamp for a plant. Mirrors the alert engine's bands."""
+    if p.maintenance_note:
+        return MAINT   # v92: known maintenance reads neutral, never red
     if p.data_class != "full" or p.production_pct is None:
         return GRAY
     if p.production_pct < 0.85 or (p.availability or 1.0) < 0.90 \
@@ -181,9 +191,9 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
     # raw sums anyway and the report shouted 183%% two lines under an
     # INCOMPLETE DAY verdict).
     ge = sum(p.energy_kwh or 0 for p in plants
-             if p.production_pct is not None)
+             if p.production_pct is not None and not p.maintenance_note)
     gx = sum(p.expected_kwh or 0 for p in plants
-             if p.production_pct is not None)
+             if p.production_pct is not None and not p.maintenance_note)
     kwp = sum(p.kwp_dc or 0 for p in plants)
     aw = [(p.availability, p.kwp_dc or 0) for p in plants
           if p.availability is not None and (p.kwp_dc or 0) > 0]
@@ -191,8 +201,9 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
              if aw else None)
     income = sum((p.energy_kwh or 0) * p.tariff_mxn_per_kwh
                  for p in plants if p.tariff_mxn_per_kwh)
-    de = sum(p.energy_kwh or 0 for p in plants if p.design_kwh)
-    dx = sum(p.design_kwh or 0 for p in plants)
+    de = sum(p.energy_kwh or 0 for p in plants
+             if p.design_kwh and not p.maintenance_note)
+    dx = sum(p.design_kwh or 0 for p in plants if not p.maintenance_note)
     return {
         "production_kwh": fe,
         "expected_kwh": fx,
@@ -405,7 +416,7 @@ def svg_inverter_bars(p: PlantDay) -> str:
 
 _CSS = """
 :root{--ink:#1a1a19;--paper:#f4f3ef;--card:#ffffff;--mut:#6b6a64;
---line:#e4e3dc;--green:#0E8A6D;--amber:#B7791F;--red:#A32D2D}
+--line:#e4e3dc;--green:#0E8A6D;--amber:#B7791F;--red:#A32D2D;--maint:#2F6DB0}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);
 font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif}
@@ -426,6 +437,7 @@ border-radius:10px;padding:10px 6px;text-align:center;min-width:0}
 .lamp{width:14px;height:14px;border-radius:50%;margin:0 auto 6px}
 .lamp.green{background:var(--green)}.lamp.amber{background:var(--amber)}
 .lamp.red{background:var(--red)}.lamp.gray{background:#9aa39e}
+.lamp.maint{background:var(--maint)}
 .stopk{font-weight:600;font-size:12px;line-height:1.25}
 .stopv{font-size:13px;color:var(--mut)}
 .fleetline{color:var(--ink);font-size:16px;margin:8px 0 24px;
@@ -437,6 +449,7 @@ margin-bottom:6px}
 .portlamp{width:18px;height:18px;border-radius:50%;flex:0 0 auto}
 .portlamp.green{background:var(--green)}.portlamp.amber{background:var(--amber)}
 .portlamp.red{background:var(--red)}.portlamp.gray{background:#9aa39e}
+.portlamp.maint{background:var(--maint)}
 .porttitle{font-weight:700;font-size:15px;letter-spacing:2px}
 .portwhy{color:var(--mut);font-size:13px}
 .portnums{font-size:14px;color:var(--ink)}
@@ -475,6 +488,7 @@ padding:12px 14px;margin-bottom:10px}
 .badge{font-weight:700;font-size:10px;letter-spacing:.08em;
 padding:2px 8px;border-radius:9px;color:#fff}
 .badge.critical{background:var(--red)}.badge.warning{background:var(--amber)}
+.badge.maint{background:var(--maint)}
 .awho{font-weight:600}
 .ametric{font-size:12px;color:var(--mut)}
 .afact{margin-top:4px;font-weight:600}
@@ -659,14 +673,17 @@ def render_html(data: ReportData) -> str:
                    f'{p.soiling*100:.0f}<span class="fu">%</span>'
                    if p.soiling is not None else "&#8212;")
         )
+        maint_badge = ('<span class="badge maint">MAINTENANCE</span>'
+                       if p.maintenance_note else '')
+        head_note = p.maintenance_note or p.status_note
         plants_html += (
             f'<section class="plant">'
             f'<div class="phead"><div class="lamp {sem_of[p.plant_key]}">'
             f'</div><h3>{p.plant_key} '
             f'<span class="pname">{_esc(p.name)}'
             f'{" &#183; %d kWp DC" % round(p.kwp_dc) if p.kwp_dc else ""}'
-            f'</span></h3>'
-            f'<div class="pnote">{_esc(p.status_note)}</div></div>'
+            f'</span>{maint_badge}</h3>'
+            f'<div class="pnote">{_esc(head_note)}</div></div>'
             f'<div class="pgrid"><div class="pfacts">{facts}</div>'
             f'<div class="pchart">{svg_inverter_bars(p)}</div></div>'
             f'{hourly_chart(p) if len(data.plants) <= 3 else ""}'
@@ -887,6 +904,11 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
     # tab directly. Static data, so this is exact, not an estimate.
     design_map = load_design_monthly(sheets)
 
+    # v92: which plants are in a logged maintenance window on this date —
+    # drives the badge and the neutral (non-red) lamp.
+    maint_by_plant = plant_maintenance_on_date(
+        load_maintenance_events(sheets), date_iso)
+
     # per-inverter from telemetry
     bundle = read_day_bundle(sheets, date_iso)
     rated = {i.inverter_sn: i.rated_kw
@@ -995,6 +1017,9 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             design_kwh=(k.get("design")
                         or design_kwh_for_day(design_map,
                                               plant.plant_key, date_iso)),
+            maintenance_note=(
+                maintenance_badge_text(maint_by_plant[plant.plant_key])
+                if plant.plant_key in maint_by_plant else None),
             buckets=buckets_by_plant.get(plant.plant_key, [])))
 
     ledger = load_alerts_ledger(sheets)

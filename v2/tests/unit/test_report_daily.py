@@ -19,6 +19,7 @@ from argia.report.daily import (
     allocate_theoretical,
     inverter_dot,
     plant_semaphore,
+    MAINT,
     render_html,
     svg_inverter_bars,
     short_name,
@@ -41,6 +42,7 @@ def _plant(pk="SLP1", pp=1.05, av=1.0, dc="full", **kw):
                     kwp_dc=kw.get("kwp_dc"),
                     tariff_mxn_per_kwh=kw.get("tariff_mxn_per_kwh"),
                     design_kwh=kw.get("design_kwh"),
+                    maintenance_note=kw.get("maint"),
                     buckets=kw.get("buckets", []))
 
 
@@ -65,6 +67,12 @@ class TestPlantSemaphore:
     def test_untrustworthy_day_is_gray(self):
         assert plant_semaphore(_plant(pp=None), False, False) == GRAY
         assert plant_semaphore(_plant(dc="partial"), False, False) == GRAY
+
+    def test_maintenance_overrides_to_neutral(self):
+        # a plant in a logged window reads MAINT even when production is
+        # deep red and even with a critical alert — it is not a fault
+        assert plant_semaphore(
+            _plant(pp=0.10, maint="known maintenance"), True, True) == MAINT
 
 
 class TestInverterDot:
@@ -115,6 +123,18 @@ class TestRenderSmoke:
                         "a fault code.")
         return ReportData(date_iso="2026-07-02", plants=[gto],
                           alerts=[alert])
+
+    def test_maintenance_badge_and_neutral_lamp(self):
+        # GTO1 deep below plan but under a logged window: badge shows,
+        # lamp is the neutral maint colour, and the window note leads.
+        gto = _plant("GTO1", pp=0.30, av=0.4, e=800.0, x=2955.0,
+                     note="Below plan.",
+                     maint="known maintenance \u2014 awaiting parts (ongoing)")
+        html = render_html(ReportData(date_iso="2026-07-14", plants=[gto],
+                                      alerts=[]))
+        assert ">MAINTENANCE<" in html
+        assert 'class="lamp maint"' in html
+        assert "awaiting parts (ongoing)" in html
 
     def test_html_contains_every_layer(self):
         html = render_html(self._data())
@@ -330,6 +350,21 @@ class TestPortfolioSummary20260707:
         assert st["income_mxn"] == pytest.approx(
             2559 * 1.975 + 1006 * 2.596, rel=1e-6)
         assert st["co2_kg"] == pytest.approx(3565 * 0.444, rel=1e-6)
+
+    def test_maintenance_plant_excluded_from_of_plan(self):
+        # v92: a plant under maintenance must not drag the fleet of-plan %.
+        # GTO1 down for maintenance (pp 0.20), SLP1 fine (pp 0.94).
+        plants = [
+            _plant(pk="GTO1", e=500.0, x=2955.0, pp=0.20, av=1.0,
+                   kwp_dc=818.0, maint="known maintenance"),
+            _plant(pk="SLP1", e=1006.0, x=1068.0, pp=0.94, av=1.0,
+                   kwp_dc=189.0),
+        ]
+        st = fleet_stats(plants)
+        # of-plan uses ONLY SLP1: 1006/1068, GTO1 excluded
+        assert st["pct"] == pytest.approx(1006 / 1068, rel=1e-6)
+        # but total production and CO2 still count the real energy produced
+        assert st["production_kwh"] == 1506.0
 
     def test_income_skips_missing_tariff_not_energy(self):
         plants = self._plants()

@@ -33,7 +33,6 @@ import datetime as dt
 import logging
 import os
 import sys
-from collections import defaultdict
 from typing import Dict, List, Optional
 
 from argia.alerts.digest import apply_daily_digest
@@ -45,7 +44,11 @@ from argia.alerts.engine import (
     candidate_from_string_breach,
     candidate_from_relative_breach,
     candidate_from_twin_breach,
+    apply_maintenance_suppression,
     reconcile_alerts,
+)
+from argia.maintenance.events import (
+    load_maintenance_events, plant_maintenance_on_date,
 )
 from argia.analytics.inverter_health import (
     InverterReading,
@@ -351,6 +354,24 @@ def main(argv=None) -> int:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
     if not candidates:
         log.info("no breaches today")
+
+    # v92: suppress plant-level "down / underproducing" candidates for
+    # plants in a logged maintenance window — the plant does not open (or
+    # re-open) a critical; the daily report shows a maintenance badge
+    # instead. Approval-independent: a logged window (draft or approved)
+    # means the operator already knows.
+    events = load_maintenance_events(sheets)
+    maint = plant_maintenance_on_date(events, date_iso)
+    if maint:
+        candidates, suppressed = apply_maintenance_suppression(
+            candidates, maint)
+        for c in suppressed:
+            log.info("SUPPRESS(maint) [%s] %s %s", c.severity,
+                     c.plant_key, c.metric)
+        if suppressed:
+            log.info("Suppressed %d candidate(s) for %d plant(s) under "
+                     "maintenance: %s", len(suppressed), len(maint),
+                     ", ".join(sorted(maint)))
 
     # --- reconcile against ledger ---
     create_alerts_tab_if_missing(sheets)

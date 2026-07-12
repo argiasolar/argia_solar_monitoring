@@ -35,7 +35,13 @@ import logging
 import os
 import sys
 
-from argia.alerts.engine import candidate_from_acute_breach, reconcile_alerts
+from argia.alerts.engine import (
+    candidate_from_acute_breach, apply_maintenance_suppression,
+    reconcile_alerts,
+)
+from argia.maintenance.events import (
+    load_maintenance_events, plant_maintenance_on_date,
+)
 from argia.analytics.acute import (
     DAYLIGHT_END_HOUR,
     DAYLIGHT_START_HOUR,
@@ -160,6 +166,18 @@ def main(argv=None) -> int:
         log.info("ACUTE [%s] %s", c.severity, c.message)
     if not candidates:
         log.info("no acute conditions")
+
+    # v92: same maintenance suppression as the daily tier — a plant in a
+    # logged window won't open an acute plant_offline/data_stale (it is
+    # intentionally down). Hardware faults still fire.
+    events = load_maintenance_events(sheets)
+    maint = plant_maintenance_on_date(events, mx.date().isoformat(), now=mx)
+    if maint:
+        candidates, suppressed = apply_maintenance_suppression(
+            candidates, maint)
+        for c in suppressed:
+            log.info("SUPPRESS(maint) [%s] %s %s", c.severity,
+                     c.plant_key, c.metric)
 
     create_alerts_tab_if_missing(sheets)
     ledger = load_alerts_ledger(sheets)

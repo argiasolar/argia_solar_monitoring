@@ -42,5 +42,12 @@
 # report_invoice_annex.py --plant MEX2 --year 2026).
 #30 7 1 * * /home/zemel/argia_v2/v2/pi/run_job.sh invoice report_invoice_annex.py --last-month --out-dir /home/zemel/argia_invoices
 
+# telemetry archive + retention — daily 03:00 (quiet: outside the
+# 05:00-21:55 polling window). Archives raw telemetry older than 10 days
+# to Drive as daily CSVs, then prunes it from the sheet. Keeps the
+# workbook well under the 10M-cell ceiling. Run once by hand WITHOUT
+# --apply first to read the plan, then enable this line.
+#0 3 * * * /home/zemel/argia_v2/v2/pi/run_job.sh telemetry-archive telemetry_archive.py --apply --include-argia
+
 # log hygiene — SD cards die of log diarrhea; keep 14 days
 17 3 * * * find /home/zemel/argia_logs -name '*.log' -size +5M -exec truncate -s 1M {} \;

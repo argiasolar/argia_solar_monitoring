@@ -73,6 +73,18 @@ class TestStampedDatesFromKpi:
         rows = [["date_iso", "plant_key"], ["2026-07-01", "MEX2"]]
         assert stamped_dates_from_kpi(rows)["MEX2"] == {"2026-07-01"}
 
+    def test_serial_date_cells_normalized(self):
+        # REGRESSION (Pi, 2026-07-13): the live Sheets API returns a
+        # date-typed date_iso as a SERIAL number, not "2026-07-01". Before
+        # the date_key fix the stamped set was serial strings that never
+        # matched the telemetry MX date, so the interlock reported every
+        # mature plant "unstamped" and pruned nothing.
+        rows = [self.HEADER,
+                [46204, "MEX2", "100", "full"],    # 2026-07-01
+                [46205, "MEX2", "50", "full"]]     # 2026-07-02
+        got = stamped_dates_from_kpi(rows)
+        assert got["MEX2"] == {"2026-07-01", "2026-07-02"}
+
 
 def _dr(*items):
     return [(dt.date.fromisoformat(d), row) for d, row in items]

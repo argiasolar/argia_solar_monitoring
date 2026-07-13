@@ -31,6 +31,8 @@ import io
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
+from argia.kpi.reconcile import date_key
+
 
 @dataclass
 class PrunePlan:
@@ -119,7 +121,10 @@ def stamped_dates_from_kpi(kpi_rows: List[list]) -> Dict[str, Set[str]]:
         if pi >= len(row) or di >= len(row):
             continue
         pk = str(row[pi]).strip().upper()
-        d = str(row[di]).strip()[:10]
+        # date_iso reads back as a SERIAL number from UNFORMATTED_VALUE when
+        # the cell is date-typed; date_key normalizes serial/iso/datetime to
+        # a canonical YYYY-MM-DD so it matches the telemetry MX date.
+        d = date_key(row[di])
         if not pk or not d:
             continue
         dc = str(row[dci]).strip().lower() if (

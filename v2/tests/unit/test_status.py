@@ -7,7 +7,6 @@ tokens benign), and (c) delegate peer judgement to inverter_health's
 per-kW, leave-one-out detector (GTO1 MWKNE9500D false-positive fix).
 """
 
-import pytest
 
 from argia.analytics import status as S
 from argia.analytics.status import InverterBucket, classify_plant_bucket
@@ -147,3 +146,30 @@ class TestPeerJudgement:
     def test_single_inverter_plant_never_underperforming(self):
         st, _ = one(b("A", 10.0))
         assert st == S.ONLINE
+
+
+class TestDisplayStatusRecovery:
+    """v96: an inverter that was OFFLINE/FAULT earlier today but is
+    producing in its latest bucket reads RECOVERED, not a stale OFFLINE.
+    This is the tested reference the dashboard JS mirrors."""
+
+    def test_offline_then_producing_is_recovered(self):
+        assert S.display_status(S.OFFLINE, S.ONLINE) == S.RECOVERED
+        assert S.display_status(S.OFFLINE, S.UNDERPERFORMING) == S.RECOVERED
+        assert S.display_status(S.OFFLINE, S.DERATED) == S.RECOVERED
+
+    def test_fault_then_producing_is_recovered(self):
+        assert S.display_status(S.FAULT, S.ONLINE) == S.RECOVERED
+
+    def test_still_down_stays_down(self):
+        assert S.display_status(S.OFFLINE, S.OFFLINE) == S.OFFLINE
+        assert S.display_status(S.FAULT, S.FAULT) == S.FAULT
+        # latest bucket not a producing state -> not recovered
+        assert S.display_status(S.OFFLINE, S.IDLE_NIGHT) == S.OFFLINE
+        assert S.display_status(S.OFFLINE, S.NO_DATA) == S.OFFLINE
+
+    def test_healthy_and_soft_states_pass_through(self):
+        assert S.display_status(S.ONLINE, S.ONLINE) == S.ONLINE
+        assert S.display_status(S.UNDERPERFORMING, S.ONLINE) == \
+            S.UNDERPERFORMING   # only hard-down recovers
+        assert S.display_status(S.DERATED, S.ONLINE) == S.DERATED

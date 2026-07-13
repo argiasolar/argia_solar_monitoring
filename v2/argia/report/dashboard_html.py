@@ -42,6 +42,7 @@ STATUS_COLORS = {
     "FAULT": ("#FCEBEB", "#791F1F"),
     "DERATED": ("#FAEEDA", "#633806"),
     "OFFLINE": ("#F1EFE8", "#444441"),
+    "RECOVERED": ("#E7EEF7", "#2F5C8F"),
     "IDLE_NIGHT": ("#F1EFE8", "#888780"),
     "NO_DATA": ("#F1EFE8", "#B4B2A9"),
 }
@@ -300,8 +301,10 @@ _TEMPLATE = """<!DOCTYPE html>
                 '#639922','#9FE1CB'];
   var ALL = '__ALL__';
   // statuses that count as "needing attention" on the cards / Issues column
+  // RECOVERED (v96): was OFFLINE/FAULT earlier today, producing now — still
+  // listed, because the availability loss it took is real.
   var ISSUE_STATUSES = { FAULT: 1, OFFLINE: 1, DERATED: 1,
-                         UNDERPERFORMING: 1 };
+                         UNDERPERFORMING: 1, RECOVERED: 1 };
   var plantSel = document.getElementById('plantSel');
   var daySel = document.getElementById('daySel');
   var chart = null;
@@ -515,13 +518,25 @@ _TEMPLATE = """<!DOCTYPE html>
     return ev;
   }
 
+  // v96: consolidated status. worst = worst bucket of the day; last =
+  // most recent completed bucket. If worst is hard-down (OFFLINE/FAULT)
+  // but the inverter is producing in its latest bucket, it RECOVERED —
+  // show that, not a stale OFFLINE. Mirrors argia.analytics.status.
+  // display_status (the tested reference).
+  var PROD_NOW = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
+  var HARD_DOWN = { OFFLINE: 1, FAULT: 1 };
+  function displayStatus(worst, last) {
+    return (HARD_DOWN[worst] && PROD_NOW[last]) ? 'RECOVERED' : worst;
+  }
+
   function aggInverters(irows, producingHours) {
     var agg = {};
     irows.forEach(function (r) {
       var a = agg[r.inverter_sn] || (agg[r.inverter_sn] = {
         sn: r.inverter_sn, label: r.inverter_label || r.inverter_sn,
         kwh: 0, temp: null, status: 'NO_DATA', reason: '', rank: -1,
-        loss: 0, availOk: 0, availN: 0 });
+        loss: 0, availOk: 0, availN: 0,
+        lastHour: '', lastStatus: 'NO_DATA' });
       a.kwh += r.energy_kwh || 0;
       a.loss += r.est_loss_kwh || 0;
       if (producingHours && producingHours[r.hour_label]
@@ -535,8 +550,19 @@ _TEMPLATE = """<!DOCTYPE html>
                    ONLINE: 1, IDLE_NIGHT: 0, NO_DATA: 0 }[r.status] || 0;
       if (rank > a.rank) { a.rank = rank; a.status = r.status;
                            a.reason = r.status_reason || ''; }
+      if ((r.hour_label || '') >= a.lastHour) {
+        a.lastHour = r.hour_label || ''; a.lastStatus = r.status;
+      }
     });
     var list = Object.keys(agg).map(function (k) { return agg[k]; });
+    list.forEach(function (a) {
+      var disp = displayStatus(a.status, a.lastStatus);
+      if (disp === 'RECOVERED' && a.status !== 'RECOVERED') {
+        a.reason = 'recovered \u2014 was ' + a.status.toLowerCase()
+                 + ' earlier today';
+        a.status = 'RECOVERED';
+      }
+    });
     list.sort(function (a, b) {
       var ka = invSortKey(a.label, a.sn), kb = invSortKey(b.label, b.sn);
       return ka[0] - kb[0] || (ka[1] < kb[1] ? -1 : 1);
@@ -726,7 +752,7 @@ _TEMPLATE = """<!DOCTYPE html>
         if ((r.total_kwh || 0) > 0) producing[r.hour_label] = 1;
       });
       var t = null;
-      var worst = {};
+      var worst = {}, lastSt = {}, lastHr = {};
       var AVAIL_OK = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
       irows.forEach(function (r) {
         if (producing[r.hour_label] && AVAIL_ASSESS[r.status]) {
@@ -740,6 +766,15 @@ _TEMPLATE = """<!DOCTYPE html>
         var w = worst[r.inverter_sn];
         if (!w || rank > w.rank) worst[r.inverter_sn] =
           { rank: rank, status: r.status };
+        if ((r.hour_label || '') >= (lastHr[r.inverter_sn] || '')) {
+          lastHr[r.inverter_sn] = r.hour_label || '';
+          lastSt[r.inverter_sn] = r.status;
+        }
+      });
+      // v96: fold recovery in — a hard-down inverter now producing is
+      // RECOVERED (still an issue, but not a HARD/red one).
+      Object.keys(worst).forEach(function (sn) {
+        worst[sn].status = displayStatus(worst[sn].status, lastSt[sn]);
       });
       var issues = 0, hardIssues = 0;
       Object.keys(worst).forEach(function (sn) {

@@ -29,7 +29,6 @@ Status vocabulary (stable strings, Looker-friendly), first match wins:
 
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -49,6 +48,27 @@ DERATED = "DERATED"
 OFFLINE = "OFFLINE"
 IDLE_NIGHT = "IDLE_NIGHT"
 NO_DATA = "NO_DATA"
+RECOVERED = "RECOVERED"   # v96: was OFFLINE/FAULT earlier today, producing now
+
+#: Hard-down states an inverter can "recover" from within a day.
+_RECOVERABLE_FROM = frozenset({OFFLINE, FAULT})
+#: States that mean the inverter is currently producing.
+_PRODUCING_STATES = frozenset({ONLINE, UNDERPERFORMING, DERATED})
+
+
+def display_status(worst_status: str, latest_status: str) -> str:
+    """Consolidated day status for one inverter.
+
+    The per-bucket ``worst_status`` alone mislabels an inverter that was
+    OFFLINE/FAULT this morning but is producing now as still OFFLINE all
+    day (the 2026-07-13 SAG confusion). When the worst bucket was a
+    hard-down state but the LATEST bucket is producing, report RECOVERED
+    instead — it stays an issue (its availability loss is real and kept),
+    but it reads as "came back", not "currently down".
+    """
+    if worst_status in _RECOVERABLE_FROM and latest_status in _PRODUCING_STATES:
+        return RECOVERED
+    return worst_status
 
 # Below this an inverter counts as "producing nothing" (kWh in the window
 # under judgement — a bucket or a day; same constant the dashboard used).

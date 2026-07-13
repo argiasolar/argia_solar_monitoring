@@ -35,5 +35,12 @@
 # evening report (today) — 20:45
 #45 20 * * * /home/zemel/argia_v2/v2/pi/run_job.sh report-pm report_daily.py --when today
 
+# monthly customer invoices — 1st of the month, 07:30 (AFTER kpi_eod at
+# 06:00 stamps the last day of the closed month). One invoice_<plant>_
+# <YYYY-MM>.html per PPA plant for the month that just ended, written to
+# the served directory. On-demand annual annex is separate (run by hand:
+# report_invoice_annex.py --plant MEX2 --year 2026).
+#30 7 1 * * /home/zemel/argia_v2/v2/pi/run_job.sh invoice report_invoice_annex.py --last-month --out-dir /home/zemel/argia_invoices
+
 # log hygiene — SD cards die of log diarrhea; keep 14 days
 17 3 * * * find /home/zemel/argia_logs -name '*.log' -size +5M -exec truncate -s 1M {} \;

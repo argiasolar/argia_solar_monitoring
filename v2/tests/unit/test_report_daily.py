@@ -325,7 +325,9 @@ class TestPortfolioSemaphore20260707:
 
     def test_rendered_block_present(self):
         html = render_html(TestRenderSmoke()._data())
-        assert "PORTFOLIO:" in html and 'class="portlamp' in html
+        # the summary block renders; the exact label (PORTFOLIO vs a
+        # company name) is asserted in the scope-label tests below
+        assert 'class="porttitle"' in html and 'class="portlamp' in html
 
 
 class TestPortfolioSummary20260707:
@@ -387,8 +389,34 @@ class TestPortfolioSummary20260707:
         html = render_html(TestRenderSmoke()._data())
         assert 'class="portsummary"' in html
         assert html.index('class="portsummary"') < html.index('class="rail"')
-        for label in ("Portfolio size", "Income (est.)", "CO&#8322; avoided"):
+        # _data() is a single plant → "Plant size", not "Portfolio size"
+        for label in ("Plant size", "Income (est.)", "CO&#8322; avoided"):
             assert label in html
+
+    def test_single_client_uses_company_name(self):
+        # v97: a single-client (CAPEX) page labels the header + sentence
+        # with the company, and the size card reads "Plant size".
+        p = _plant(pk="QRO1", name="TETRA PAK (Queretaro, QRO)",
+                   e=6868.0, x=6360.0, pp=1.08, av=1.0, kwp_dc=550.0)
+        html = render_html(ReportData(date_iso="2026-07-13", plants=[p],
+                                      alerts=[]))
+        assert "TETRA PAK:" in html
+        assert "PORTFOLIO:" not in html
+        assert "TETRA PAK produced" in html
+        assert "Plant size" in html
+        assert "the portfolio produced" not in html
+
+    def test_multi_customer_stays_portfolio(self):
+        plants = [
+            _plant(pk="GTO1", name="TAIGENE PPA", e=2559.0, x=2955.0,
+                   pp=0.87, av=1.0, kwp_dc=818.0),
+            _plant(pk="SLP1", name="QUIMICA PPA", e=1006.0, x=1068.0,
+                   pp=0.94, av=1.0, kwp_dc=189.0)]
+        html = render_html(ReportData(date_iso="2026-07-13", plants=plants,
+                                      alerts=[]))
+        assert "PORTFOLIO:" in html
+        assert "the portfolio produced" in html
+        assert "Portfolio size" in html
 
 
 def test_rail_is_single_row_grid():

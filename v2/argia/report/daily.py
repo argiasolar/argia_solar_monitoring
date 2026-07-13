@@ -217,11 +217,14 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
 
 
 def summary_sentence(stats: Dict[str, Optional[float]],
-                     port_title: str, port_why: str) -> str:
+                     port_title: str, port_why: str,
+                     subject: str = "the portfolio") -> str:
     """One human sentence: the whole day for someone who reads nothing
     else. Verdict first, numbers after, offenders (from the semaphore's
-    why-line) only when the day wasn't clean."""
-    bits = [f"the portfolio produced {stats['production_kwh']:,.0f} kWh"]
+    why-line) only when the day wasn't clean. ``subject`` is "the
+    portfolio" for the internal report, or the company name on a
+    single-client page (e.g. "TETRA PAK")."""
+    bits = [f"{subject} produced {stats['production_kwh']:,.0f} kWh"]
     if stats["pct"] is not None:
         bits.append(f"{stats['pct'] * 100:.0f}% of expected")
     if stats["design_pct"] is not None:
@@ -568,7 +571,18 @@ def render_html(data: ReportData) -> str:
         data.plants, sem_of, n_crit, n_warn, fleet_pct, live=live)
     subtitle = ("live evening estimate" if live else "KPI-final numbers")
     stats = fleet_stats(data.plants)
-    sentence = summary_sentence(stats, port_title, port_why)
+    # v97: on a single-client page (all plants share one customer — the
+    # CAPEX per-client reports, e.g. Tetra Pak = one plant) the header
+    # and sentence use the COMPANY name, not "PORTFOLIO" — it isn't a
+    # portfolio, it's one client. The internal report (many customers)
+    # stays "PORTFOLIO".
+    companies = {short_name(p) for p in data.plants}
+    single_client = len(companies) == 1
+    scope_label = next(iter(companies)).upper() if single_client \
+        else "PORTFOLIO"
+    subject = next(iter(companies)) if single_client else "the portfolio"
+    size_label = "Plant size" if len(data.plants) == 1 else "Portfolio size"
+    sentence = summary_sentence(stats, port_title, port_why, subject=subject)
 
     def stat(label, value, unit=""):
         return (f'<div class="pstat"><div class="pstatv">{value}'
@@ -583,7 +597,7 @@ def render_html(data: ReportData) -> str:
         + stat("Availability",
                f"{stats['availability'] * 100:.0f}"
                if stats["availability"] is not None else "&#8212;", "%")
-        + stat("Portfolio size", f"{stats['kwp']:,.0f}", " kWp DC")
+        + stat(size_label, f"{stats['kwp']:,.0f}", " kWp DC")
         + (stat("Income (est.)", f"${stats['income_mxn']:,.0f}",
                 " MXN") if stats["income_mxn"] else "")
         + stat("Of design",
@@ -598,7 +612,7 @@ def render_html(data: ReportData) -> str:
     summary_block = (
         f'<section class="portsummary">'
         f'<div class="portrow"><span class="portlamp {port_color}"></span>'
-        f'<span class="porttitle">PORTFOLIO: {port_title}</span></div>'
+        f'<span class="porttitle">{scope_label}: {port_title}</span></div>'
         f'<div class="portsentence">{sentence}</div>'
         f'<div class="pstats n{n_cards}">{cards}</div>'
         f'</section>')

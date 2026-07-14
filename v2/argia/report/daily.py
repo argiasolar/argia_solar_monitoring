@@ -619,11 +619,22 @@ def render_html(data: ReportData) -> str:
     fleetline = (f'<div class="portnums"><b>{n_crit}</b> critical / '
                  f'<b>{n_warn}</b> warning alerts open</div>')
 
+    # v98: alerts lead with the company name so a bare plant CODE isn't
+    # the only identifier — "PLASTIC OMNIUM (NL1)" instead of just "NL1",
+    # so a reader unfamiliar with the codes knows the plant at a glance.
+    # Same short_name the rail/scope use; covers the PDF email and the
+    # HTML report (the only surfaces with alert cards).
+    alert_name_of = {p.plant_key: short_name(p) for p in data.plants}
+
+    def _alert_who(key):
+        nm = alert_name_of.get(key)
+        return f"{nm} ({key})" if (nm and key) else (key or "")
+
     alerts_html = "".join(
         f'<div class="alert {a.severity.lower()}">'
         f'<div class="ahead">'
         f'<span class="badge {a.severity.lower()}">{a.severity}</span>'
-        f'<span class="awho">{_esc(a.plant_key)}'
+        f'<span class="awho">{_esc(_alert_who(a.plant_key))}'
         f'{(" &#183; " + _esc(a.inverter_sn)) if a.inverter_sn else ""}</span>'
         f'<span class="ametric">{_esc(a.metric)}</span></div>'
         f'<div class="afact">{_esc(a.message)}</div>'

@@ -940,3 +940,34 @@ class TestLiveConditions:
                                    "NL1", "MEX2")]
         html6 = TestClientPagePresentation()._render(six)
         assert "Production vs theoretical &#8212; per plant" in html6
+
+
+class TestAlertCompanyName20260713:
+    """v98: alert cards lead with the company name so a plant CODE isn't
+    the only identifier — 'PLASTIC OMNIUM (NL1)', not just 'NL1'."""
+
+    def _report(self, sn=""):
+        nl1 = _plant(pk="NL1", name="PLASTIC OMNIUM PPA land (Monterrey, NL)",
+                     e=2649.0, x=2401.0, pp=1.10, av=0.94, kwp_dc=617.0)
+        gto = _plant(pk="GTO1", name="TAIGENE PPA roof (Leon, GTO)",
+                     e=1235.0, x=4112.0, pp=0.30, av=0.28, kwp_dc=818.0)
+        a = AlertRecord(
+            alert_id="A1", alert_key="nl1:plant:energy_daily_pct",
+            plant_key="NL1", inverter_sn=sn, metric="energy_daily_pct",
+            severity="WARNING", state=AlertState.OPEN, opened_utc="",
+            last_seen_utc="", resolved_utc="", value=None, threshold=None,
+            message="[NL1] produced 2419 kWh vs 3130 expected (77%)",
+            channels_sent="", explanation="Worth watching.")
+        return ReportData(date_iso="2026-07-12", plants=[nl1, gto],
+                          alerts=[a])
+
+    def test_plant_alert_leads_with_company(self):
+        html = render_html(self._report())
+        assert "PLASTIC OMNIUM (NL1)" in html
+        # the bare key on its own (in the header span) is gone
+        assert '<span class="awho">NL1' not in html
+
+    def test_inverter_alert_keeps_sn_after_company(self):
+        html = render_html(self._report(sn="JGMAE65009"))
+        assert "PLASTIC OMNIUM (NL1)" in html
+        assert "JGMAE65009" in html

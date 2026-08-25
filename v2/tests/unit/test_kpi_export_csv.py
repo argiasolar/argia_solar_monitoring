@@ -57,3 +57,20 @@ def test_normalize_more_locale_formats():
     assert normalize_date_iso("2026/08/24") == "2026-08-24"
     assert normalize_date_iso("2026-08-24 0:00:00") == "2026-08-24"
     assert normalize_date_iso("2026-08-24T05:00:00Z") == "2026-08-24"
+
+
+def test_normalize_google_serial_numbers():
+    # Live failure #2 (2026-08-25): read_range returned serials like '46204'
+    assert normalize_date_iso("46204") == "2026-07-01"
+    assert normalize_date_iso("46259") == "2026-08-25"
+    assert normalize_date_iso(46204) == "2026-07-01"
+    assert normalize_date_iso("46204.0") == "2026-07-01"
+    # numbers far outside the date range are not dates
+    assert normalize_date_iso("3100.5") is None
+    assert normalize_date_iso("0") is None
+
+
+def test_window_with_serial_dates():
+    values = [HDR, ["46259", "GTO1", "3100.5"], ["46204", "SLP1", "800.0"]]
+    _, rows = window_rows(values, days=20, today=TODAY)
+    assert [(r[0], r[1]) for r in rows] == [("2026-08-25", "GTO1")]

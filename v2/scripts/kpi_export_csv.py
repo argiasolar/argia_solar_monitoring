@@ -31,6 +31,15 @@ def normalize_date_iso(value: Any) -> Optional[str]:
     s = str(value or "").strip()
     if not s:
         return None
+    # Google serial number (days since 1899-12-30) — what read_range actually
+    # returned live 2026-08-25: date cells came back as '46204' (= 2026-07-01)
+    try:
+        serial = float(s)
+        if 30000 <= serial <= 80000:      # ~1982..2119, anything else is not a date
+            return (dt.date(1899, 12, 30) + dt.timedelta(days=int(serial))).isoformat()
+        return None
+    except ValueError:
+        pass
     # drop a time component ("2026-08-24 0:00:00", "2026-08-24T05:00:00Z")
     s = s.split("T")[0].split(" ")[0]
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y/%m/%d"):

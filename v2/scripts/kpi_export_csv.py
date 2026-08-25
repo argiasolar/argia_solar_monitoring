@@ -31,10 +31,11 @@ def normalize_date_iso(value: Any) -> Optional[str]:
     s = str(value or "").strip()
     if not s:
         return None
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"):
+    # drop a time component ("2026-08-24 0:00:00", "2026-08-24T05:00:00Z")
+    s = s.split("T")[0].split(" ")[0]
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y/%m/%d"):
         try:
-            d = dt.datetime.strptime(s[:10] if fmt == "%Y-%m-%d" else s, fmt).date()
-            return d.isoformat()
+            return dt.datetime.strptime(s, fmt).date().isoformat()
         except ValueError:
             continue
     return None
@@ -85,6 +86,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     header, rows = window_rows(values, args.days)
     if not rows:
         print("No rows in window — refusing to write an empty export", file=sys.stderr)
+        print(f"diagnostics: read {len(values)} raw rows from KPI_Daily", file=sys.stderr)
+        if values:
+            print(f"header row: {values[0]}", file=sys.stderr)
+            cells = [repr(r[0]) for r in values[1:6] if r]
+            print(f"first date cells: {cells}", file=sys.stderr)
         return 3
     with open(args.out, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, lineterminator="\n")

@@ -47,3 +47,13 @@ def test_window_keeps_extra_columns():
     values = [HDR + ["data_class"], ["2026-08-25", "NL1", "5", "full"]]
     _, rows = window_rows(values, 20, TODAY)
     assert rows[0][3] == "full"
+
+
+def test_normalize_more_locale_formats():
+    # es-MX / cs-CZ locales and datetime-carrying cells (live failure 2026-08-25:
+    # the first Actions run matched zero rows — every date cell was formatted)
+    assert normalize_date_iso("24/08/2026") == "2026-08-24"
+    assert normalize_date_iso("24.08.2026") == "2026-08-24"
+    assert normalize_date_iso("2026/08/24") == "2026-08-24"
+    assert normalize_date_iso("2026-08-24 0:00:00") == "2026-08-24"
+    assert normalize_date_iso("2026-08-24T05:00:00Z") == "2026-08-24"

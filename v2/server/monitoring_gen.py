@@ -77,6 +77,16 @@ for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
         PLANTS[r[0]] = {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]) or 0,
                         'portfolio': r[4], 'pr': f(r[6]) or 0.80}
 
+# configured ACTIVE inverters — the honest denominator. Counting only
+# inverters that answer hides a dead one inside a green plant (GTO2
+# Inverter 2, found 2026-08-26).
+CONFIG_INV = {}   # plant -> [(sn, label, rated_kw)]
+for r in q("SELECT plant_key, inverter_sn,"
+           " coalesce(inverter_label, inverter_sn), rated_kw"
+           " FROM inverter WHERE active ORDER BY 1, 3;"):
+    if len(r) >= 4:
+        CONFIG_INV.setdefault(r[0], []).append((r[1], r[2], f(r[3])))
+
 # Dates with REAL collection (newest first, capped). Vendors sometimes
 # return rows carrying stale timestamps, which would create hollow
 # archive days — a real fleet collection day has hundreds of rows.
@@ -239,9 +249,13 @@ def semaphore(pk):
     faults = [i for i in invs if i['status'] == 3]
     powered = [i for i in fresh if i['power_w'] is not None]
     zero_power = [i for i in powered if i['power_w'] < 10]
+    conf_n = len(CONFIG_INV.get(pk, [])) or len(invs)
+    silent = conf_n - len(invs)
     if in_window:
         if not fresh:
             return 'bad', f'stale > {STALE_MIN} min', f'sin señal > {STALE_MIN} min'
+        if silent > 0:
+            return 'warn', f'{silent}/{conf_n} inverter(s) SILENT today', f'{silent}/{conf_n} inversor(es) SIN DATOS hoy'
         if faults:
             return 'warn', f'{len(faults)} inverter(s) flag fault', f'{len(faults)} inversor(es) con falla'
         if len(fresh) < len(invs):
@@ -412,7 +426,8 @@ def plant_now(pk):
     power = sum(powers) / 1000.0 if powers else None
     etoday = sum(etodays) if etodays else None
     fresh = [i for i in invs if i['age_min'] <= STALE_MIN]
-    return power, etoday, len(fresh), len(invs)
+    total = len(CONFIG_INV.get(pk, [])) or len(invs)
+    return power, etoday, len(fresh), total
 
 
 def _tile(pk, meta):
@@ -563,6 +578,20 @@ def plant_page(pk, d):
             f'{(" <span class=note>" + esc(detail) + "</span>") if detail else ""}</td>'
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'
             f'<td>{temp}</td><td>{esc(i["last_mx"])}</td></tr>')
+    # configured inverters that never answered this day — the dead ones
+    seen_sns = {i['sn'] for i in invs}
+    for sn, label, rated in CONFIG_INV.get(pk, []):
+        if sn in seen_sns:
+            continue
+        inv_cells.append(
+            f'<tr><td>{esc(label)}</td>'
+            '<td><span class="pill bad" data-en="SILENT — no data this day"'
+            ' data-es="SIN DATOS este día">SILENT — no data this day</span>'
+            ' <span class=note data-en="configured active'
+            f' ({(rated or 0):,.0f} kW) but never reported" data-es="configurado'
+            ' activo pero sin reportar">configured active'
+            f' ({(rated or 0):,.0f} kW) but never reported</span></td>'
+            '<td>—</td><td>—</td><td>—</td><td>—</td></tr>')
     recon_rows = ''.join(
         f'<tr><td>{esc(r[0])}</td><td>{fmt_kwh(f(r[1]))}</td>'
         f'<td>{fmt_kwh(f(r[2]))}</td><td>{fmt_kwh(f(r[3]))}</td>'
@@ -587,12 +616,13 @@ def plant_page(pk, d):
         powers = [i['power_w'] for i in invs if i['power_w'] is not None]
         power = sum(powers) / 1000.0 if powers else None
         fresh = len([i for i in invs if i['age_min'] <= STALE_MIN])
+        conf_total = len(CONFIG_INV.get(pk, [])) or len(invs)
         cls, len_, les = semaphore(pk)
         kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{fmt1(power)} kW</div><div class="l" data-en="Power now" data-es="Potencia ahora">Power now</div></div>
 <div class="kpi"><div class="v">{fmt_kwh(day_kwh)} kWh</div><div class="l" data-en="Energy today (interval)" data-es="Energía hoy (intervalos)">Energy today (interval)</div></div>
 <div class="kpi"><div class="v">{fmt_kwh(vend)} kWh</div><div class="l" data-en="Vendor counter (last snapshot)" data-es="Contador del fabricante">Vendor counter (last snapshot)</div></div>
-<div class="kpi"><div class="v">{fresh}/{len(invs)}</div><div class="l" data-en="Inverters live" data-es="Inversores en línea">Inverters live</div></div>
+<div class="kpi"><div class="v">{fresh}/{conf_total}</div><div class="l" data-en="Inverters live / configured" data-es="Inversores en línea / configurados">Inverters live / configured</div></div>
 <div class="kpi"><div class="v"><span class="pill {cls}" data-en="{esc(len_)}" data-es="{esc(les)}">{esc(len_)}</span></div><div class="l">Status</div></div>
 </div>'''
         sub = f'{pk} · {meta["kwp"]:,.1f} kWp · {esc(meta["brand"])} · live monitoring'

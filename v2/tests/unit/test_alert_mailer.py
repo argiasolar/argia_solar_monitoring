@@ -8,6 +8,7 @@ from argia.alerts.monitor import (
     SEV_WARN,
     Alert,
     infra_alerts,
+    inverter_alerts,
     plan_sends,
     plant_alerts,
     recon_alerts,
@@ -67,6 +68,15 @@ def test_infra_alerts():
     assert keys == {"unit-failed:argia-kpi.service", "disk-full",
                     "postgres-down"}
     assert not infra_alerts([], 50.0, True)
+
+
+def test_inverter_alerts():
+    silent = [("GTO2", "7E05142F-C6", "Inverter 2")]
+    assert inverter_alerts(silent, in_window=False) == []
+    out = inverter_alerts(silent, in_window=True)
+    assert out[0].key == "inverter-silent:GTO2:7E05142F-C6"
+    assert out[0].severity == SEV_WARN
+    assert "Inverter 2" in out[0].title
 
 
 def test_recon_alerts():

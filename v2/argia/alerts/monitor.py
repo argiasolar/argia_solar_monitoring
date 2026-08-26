@@ -53,6 +53,23 @@ def plant_alerts(freshness: Dict[str, Optional[float]],
     return out
 
 
+def inverter_alerts(silent: List[Tuple[str, str, str]],
+                    in_window: bool) -> List[Alert]:
+    """silent: [(plant, sn, label)] — inverters configured ACTIVE that
+    produced no usable sample today while their plant reports. This is
+    the GTO2 lesson (2026-08-26): a dead inverter hides inside a plant
+    that still looks green if you only count what answers."""
+    if not in_window:
+        return []
+    return [Alert(f"inverter-silent:{pk}:{sn}", SEV_WARN,
+                  f"{pk}: inverter {label} silent",
+                  f"Inverter {label} ({sn}) at {pk} is configured active "
+                  "but produced no usable telemetry today while the rest "
+                  "of the plant reports — dead, disconnected, or "
+                  "unmonitored.")
+            for pk, sn, label in sorted(silent)]
+
+
 def infra_alerts(failed_units: List[Tuple[str, str]],
                  disk_used_pct: Optional[float],
                  pg_ok: bool) -> List[Alert]:

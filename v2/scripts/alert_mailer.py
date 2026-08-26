@@ -93,6 +93,24 @@ def gather_failed_units() -> List[Tuple[str, str]]:
     return out
 
 
+def gather_silent_inverters() -> List[Tuple[str, str, str]]:
+    """Configured-active inverters with no usable sample today while
+    their plant DOES report (a fully-dark plant is the plant alert's
+    job, not a per-inverter storm)."""
+    mx_day = ("(ts_utc AT TIME ZONE 'America/Mexico_City')::date"
+              " = (now() AT TIME ZONE 'America/Mexico_City')::date")
+    usable = "(etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
+    return [(r[0], r[1], r[2]) for r in psql_rows(
+        "SELECT i.plant_key, i.inverter_sn,"
+        " coalesce(i.inverter_label, i.inverter_sn) FROM inverter i"
+        " WHERE i.active"
+        " AND EXISTS (SELECT 1 FROM telemetry t"
+        f"  WHERE t.plant_key = i.plant_key AND {mx_day} AND {usable})"
+        " AND NOT EXISTS (SELECT 1 FROM telemetry t"
+        f"  WHERE t.inverter_sn = i.inverter_sn AND {mx_day} AND {usable});")
+        if len(r) >= 3]
+
+
 def gather_recon_fails() -> List[Tuple[str, str, str]]:
     return [(r[0], r[1], r[2][:120]) for r in psql_rows(
         "SELECT plant_key, prod_date::text, coalesce(note,'')"
@@ -190,7 +208,10 @@ def main(argv=None) -> int:
     p_alerts = [a for a in monitor.plant_alerts(gather_freshness(),
                                                 in_window)
                 if a.key.split(":", 1)[1] not in in_maint]
-    active = (p_alerts
+    i_alerts = [a for a in monitor.inverter_alerts(
+                    gather_silent_inverters(), in_window)
+                if a.key.split(":")[1] not in in_maint]
+    active = (p_alerts + i_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
               + monitor.recon_alerts(gather_recon_fails()))
     to_send, recovered = monitor.plan_sends(active, load_state(), now)

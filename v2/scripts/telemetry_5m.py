@@ -1045,6 +1045,12 @@ def main(argv=None) -> int:
 
     # ----- Write the aggregated Argia tab in one batch -----
     if all_common:
+        # server-only PostgreSQL mirror (ARGIA_PG_MIRROR=1); never fatal
+        try:
+            from argia.store.pg_mirror import mirror_common_rows
+            mirror_common_rows(all_common, dry_run=args.dry_run, log=log)
+        except Exception as e:  # noqa: BLE001
+            log.warning("PG mirror failed (sheets unaffected): %s", e)
         try:
             ensure_telemetry_tab(sheets, ARGIA_TAB_NAME, ARGIA_SCHEMA)
             stats = write_telemetry_rows(

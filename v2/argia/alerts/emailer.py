@@ -12,10 +12,28 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import socket
 from email.message import EmailMessage
 from typing import Dict, List, Optional
 
 LOG = logging.getLogger("argia.alerts.emailer")
+
+
+class _SMTP4(smtplib.SMTP):
+    """SMTP that connects over IPv4 only. Google's IP-authorized relay
+    checks the CONNECTING address: pio06 prefers IPv6, but only its
+    IPv4 (37.235.105.173) is registered — an IPv6 connection gets
+    '550 5.7.1 Invalid credentials for relay' (live, 2026-08-26)."""
+
+    def _get_socket(self, host, port, timeout):
+        infos = socket.getaddrinfo(host, port, socket.AF_INET,
+                                   socket.SOCK_STREAM)
+        af, st, pr, _cn, sa = infos[0]
+        s = socket.socket(af, st, pr)
+        if timeout is not None:
+            s.settimeout(timeout)
+        s.connect(sa)
+        return s
 
 DEFAULT_CONFIG_PATH = "/root/.argia_mail"
 REQUIRED_KEYS = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER")
@@ -64,9 +82,10 @@ def send(msg: EmailMessage, cfg: Dict[str, str],
          timeout: int = 30) -> bool:
     """Deliver via STARTTLS. Returns True on success; logs (without
     secrets) and returns False on any failure."""
+    cls = _SMTP4 if cfg.get("SMTP_FORCE_IPV4", "1") == "1" else smtplib.SMTP
     try:
-        with smtplib.SMTP(cfg["SMTP_HOST"], int(cfg["SMTP_PORT"]),
-                          timeout=timeout) as s:
+        with cls(cfg["SMTP_HOST"], int(cfg["SMTP_PORT"]),
+                 timeout=timeout) as s:
             s.starttls()
             if cfg.get("SMTP_AUTH", "").lower() != "none":
                 s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])

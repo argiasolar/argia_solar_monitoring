@@ -195,13 +195,15 @@ PERF = {}
 for r in q("SELECT plant_key, round(avg(pr)::numeric, 3),"
            " round(avg(availability)::numeric, 3),"
            " sum(energy_kwh), sum(expected_kwh),"
-           " count(*) FILTER (WHERE pr IS NOT NULL)"
+           " count(*) FILTER (WHERE pr IS NOT NULL),"
+           " round(avg(pr_stc)::numeric, 3)"
            " FROM daily_production"
            f" WHERE prod_date >= DATE '{TODAY}' - 30"
            " GROUP BY 1;"):
-    if len(r) >= 6:
+    if len(r) >= 7:
         PERF[r[0]] = {'pr': f(r[1]), 'avail': f(r[2]), 'prod': f(r[3]),
-                      'exp': f(r[4]), 'pr_days': int(f(r[5]) or 0)}
+                      'exp': f(r[4]), 'pr_days': int(f(r[5]) or 0),
+                      'pr_stc': f(r[6])}
 
 PR_TREND = {}   # plant -> [(date, pr)] last 30d, for sparklines
 for r in q("SELECT plant_key, prod_date::text, pr FROM daily_production"
@@ -709,7 +711,7 @@ def performance_page():
             ('CAPEX', [k for k in sorted(PLANTS)
                        if PLANTS[k]['portfolio'] == 'CAPEX'])):
         if keys:
-            rows.append(f'<tr><td colspan="8" style="font-weight:700;'
+            rows.append(f'<tr><td colspan="9" style="font-weight:700;'
                         f'background:#fafbfc">{section}</td></tr>')
         for pk in keys:
             meta = PLANTS[pk]
@@ -727,11 +729,13 @@ def performance_page():
                       (' class="st-PASS"' if av >= 0.98 else
                        (' class="st-REVIEW"' if av >= 0.95
                         else ' class="st-FAIL"')))
+            prstc = p.get('pr_stc')
             rows.append(
                 f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}'
                 f'</a> <span class="tkey">{pk}</span></td>'
                 f'<td>{meta["kwp"]:,.0f}</td>'
                 f'<td{pr_cls}>{"—" if pr is None else f"{pr:.3f}"}</td>'
+                f'<td>{"—" if prstc is None else f"{prstc:.3f}"}</td>'
                 f'<td>{pr_sparkline(pk)}</td>'
                 f'<td{av_cls}>{"—" if av is None else f"{100*av:,.1f}%"}</td>'
                 f'<td>{"—" if prod is None else f"{prod:,.0f}"}</td>'
@@ -741,14 +745,15 @@ def performance_page():
 <div class="card"><h2 data-en="Performance — last 30 days" data-es="Desempeño — últimos 30 días">Performance — last 30 days</h2>
 <table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>
 <th data-en="Avg PR" data-es="PR prom.">Avg PR</th>
+<th title="temperature-corrected to 25°C cells" data-en="PR_STC" data-es="PR_STC">PR_STC</th>
 <th data-en="PR trend (30d)" data-es="Tendencia PR (30d)">PR trend (30d)</th>
 <th data-en="Availability" data-es="Disponibilidad">Availability</th>
 <th data-en="Production kWh" data-es="Producción kWh">Production kWh</th>
 <th data-en="Expected kWh" data-es="Esperado kWh">Expected kWh</th>
 <th data-en="vs exp." data-es="vs esp.">vs exp.</th></tr>
 {''.join(rows)}</table>
-<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). Color bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019 target), amber 95–98%. Weather-normalized PR_STC trending and degradation-vs-warranty (≤0.4%/yr) come next in Phase F."
- data-es="PR y disponibilidad provienen del pipeline diario de KPI. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019), ámbar 95–98%. El PR_STC normalizado por clima y la degradación vs garantía llegan después.">
+<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature — only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. Next: degradation vs the ≤0.4%/yr warranty."
+ data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia — solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Sigue: degradación vs garantía ≤0.4%/año.">
 PR and availability come from the daily KPI pipeline.</p></div>'''
     return page('Performance', body,
                 '30-day PR · availability · production vs expected')

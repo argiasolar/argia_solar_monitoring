@@ -70,6 +70,33 @@ def _setup_logging(level: str = "INFO") -> None:
         datefmt="%Y-%m-%d %H:%M:%S")
 
 
+def reconciliation_gate(ym: str, plants: list) -> tuple:
+    """(allowed, blocked) for invoice mode — v3 item 12: no invoice annex
+    for a month whose reconciliation is not CLOSED (PASS auto-closes on
+    the 1st at 06:10 MX; REVIEW/FAIL need a manual close).
+
+    On the server the gate FAILS CLOSED: if the close table cannot be
+    read, nothing is invoiced (the alert mailer will already be
+    complaining). Off-server (Pi/CI, no PG) the gate is inert.
+    """
+    try:
+        from argia.store import pg_mirror
+        if not pg_mirror.enabled():
+            return list(plants), []
+        from argia.store.pgq import psql_rows
+        closed = {r[0] for r in psql_rows(
+            "SELECT plant_key FROM reconciliation_monthly"
+            f" WHERE ref_month = DATE '{ym}-01'"
+            " AND closed_at IS NOT NULL;") if r and r[0]}
+    except Exception as e:  # noqa: BLE001
+        LOG.error("reconciliation gate unreadable (%s) — refusing to "
+                  "invoice ANY plant for %s (fail-closed)", e, ym)
+        return [], list(plants)
+    allowed = [p for p in plants if p in closed]
+    blocked = [p for p in plants if p not in closed]
+    return allowed, blocked
+
+
 def _target_plants(portfolio, args) -> list:
     if args.plant:
         pk = args.plant.upper()
@@ -135,6 +162,12 @@ def main(argv=None) -> int:
         mode = "annex"
 
     plants = _target_plants(portfolio, args)
+    if mode == "invoice":
+        plants, blocked = reconciliation_gate(ym, plants)
+        for pk in blocked:
+            LOG.warning("[%s] %s reconciliation NOT closed — invoice "
+                        "annex BLOCKED (close the month on the recon "
+                        "board first)", pk, ym)
     if not plants:
         LOG.warning("no plants matched — nothing to render")
         return 2

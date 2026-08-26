@@ -26,6 +26,7 @@ from argia.core.time_utils import MX_TZ
 from argia.recon import backfill as B
 from argia.recon import counters as C
 from argia.recon import engine as E
+from argia.recon import perf as P
 from argia.store import pg_mirror
 from argia.store.pgq import psql_exec, psql_rows
 
@@ -242,6 +243,46 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
     return len(values)
 
 
+def stamp_pr_stc(gamma_by_plant: Dict[str, Optional[float]],
+                 window_days: int = 35, dry_run: bool = False) -> int:
+    """Stamp daily_production.pr_stc (AGS-701 R2) for every plant-day in
+    the window that has BOTH a KPI PR and measured irradiance-weighted
+    module temperature. Idempotent; days without measurements stay NULL
+    — a correction is computed from data or not at all."""
+    temps = psql_rows(
+        f"SELECT {MX_DATE_SQL}::text, plant_key,"
+        " round((sum(irradiance_wm2 * module_temp_c)"
+        "  / nullif(sum(irradiance_wm2), 0))::numeric, 2)"
+        " FROM telemetry"
+        " WHERE irradiance_wm2 > 50 AND module_temp_c IS NOT NULL"
+        f" AND ts_utc > now() - interval '{window_days} days'"
+        " GROUP BY 1, 2;")
+    prs = {(r[1], r[0]): _f(r[2]) for r in psql_rows(
+        "SELECT prod_date::text, plant_key, pr FROM daily_production"
+        f" WHERE prod_date > current_date - {window_days};")
+        if len(r) >= 3}
+    values = []
+    for r in temps:
+        if len(r) < 3:
+            continue
+        d, pk, t_eff = r[0], r[1], _f(r[2])
+        v = P.pr_stc(prs.get((pk, d)), t_eff, gamma_by_plant.get(pk))
+        if v is not None:
+            values.append(f"({_txt(pk)}, DATE '{d}', {v})")
+    if not values or dry_run:
+        LOG.info("PR_STC: %d plant-day(s) computable (dry_run=%s)",
+                 len(values), dry_run)
+        return 0
+    psql_exec(
+        "UPDATE daily_production dp SET pr_stc = v.val"
+        " FROM (VALUES " + ", ".join(values) +
+        ") AS v(pk, d, val)"
+        " WHERE dp.plant_key = v.pk AND dp.prod_date = v.d"
+        " AND (dp.pr_stc IS DISTINCT FROM v.val);")
+    LOG.info("PR_STC stamped for %d plant-day(s)", len(values))
+    return len(values)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="nightly counter snapshot "
                                      "+ daily reconciliation")
@@ -293,6 +334,15 @@ def main(argv=None) -> int:
     for back in range(args.days_back):
         d = (base - dt.timedelta(days=back)).isoformat()
         total += reconcile_day(d, brand_by_plant, args.dry_run)
+
+    # AGS-701 R2: weather-normalized PR_STC wherever module temperature
+    # was measured (whole telemetry window — heals late KPI arrivals)
+    gamma_by_plant = {p.plant_key: p.gamma_pmax for p in active}
+    try:
+        stamp_pr_stc(gamma_by_plant, dry_run=args.dry_run)
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("PR_STC stamping failed (recon unaffected): %s", e)
+
     LOG.info("DONE: reconciliation rows upserted=%d dry_run=%s",
              total, args.dry_run)
     return 0

@@ -172,3 +172,47 @@ def build_snapshot_upsert_sql(snaps: Sequence[CounterSnapshot]
         "lifetime_kwh=EXCLUDED.lifetime_kwh, note=EXCLUDED.note, "
         "captured_at=now();"
     )
+
+
+# ---------------------------------------------------------------------------
+# Historical daily series (for backfill — vendors DO let us go back in time).
+# ---------------------------------------------------------------------------
+def solaredge_daily_series(response: Any) -> Dict[str, Optional[float]]:
+    """{'YYYY-MM-DD': kwh} from /site/{id}/energy timeUnit=DAY over a
+    range. Dates with a null value map to None (day genuinely unknown)."""
+    energy = (response or {}).get("energy") or {}
+    unit = str(energy.get("unit", "Wh"))
+    out: Dict[str, Optional[float]] = {}
+    for entry in energy.get("values") or []:
+        if not isinstance(entry, dict):
+            continue
+        d = str(entry.get("date", ""))[:10]
+        if len(d) != 10:
+            continue
+        v = safe_float(entry.get("value"))
+        kwh = _unit_to_kwh(v, unit) if v is not None else None
+        out[d] = round(kwh, 3) if kwh is not None else None
+    return out
+
+
+def huawei_daily_series(result: Any) -> Dict[Tuple[str, str], Optional[float]]:
+    """{(stationCode, 'YYYY-MM-DD'): kwh} from getKpiStationDay (one call
+    covers a whole month). collectTime is epoch ms in station-local time;
+    the date is taken from it in UTC-6 (all our plants are MX)."""
+    import datetime as _dt
+    out: Dict[Tuple[str, str], Optional[float]] = {}
+    if not isinstance(result, dict) or not result.get("success"):
+        return out
+    tz = _dt.timezone(_dt.timedelta(hours=-6))
+    for item in result.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("stationCode") or "").strip()
+        ct = safe_float(item.get("collectTime"))
+        m = item.get("dataItemMap")
+        if not code or ct is None or not isinstance(m, dict):
+            continue
+        d = _dt.datetime.fromtimestamp(ct / 1000.0, tz).date().isoformat()
+        out[(code, d)] = _pick_float(
+            m, ("inverter_power", "product_power", "ongrid_power"))
+    return out

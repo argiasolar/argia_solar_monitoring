@@ -60,12 +60,15 @@ TODAY = NOW_MX.date().isoformat()
 # ---------------------------------------------------------------- data
 PLANTS = {}
 for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
-           " active FROM plant ORDER BY plant_key;"):
-    if len(r) >= 6 and r[5] == 't':
+           " active, pr_baseline FROM plant ORDER BY plant_key;"):
+    if len(r) >= 7 and r[5] == 't':
         PLANTS[r[0]] = {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]) or 0,
-                        'portfolio': r[4]}
+                        'portfolio': r[4], 'pr': f(r[6]) or 0.80}
 
-# latest sample per inverter today
+# Latest USABLE sample per inverter today. Vendors (Huawei especially)
+# intermittently answer with an empty data map — a tick with neither
+# power nor energy is a data gap, not "the plant stopped": we show the
+# last real sample and let its age drive the staleness pill instead.
 LATEST = {}
 for r in q("SELECT DISTINCT ON (plant_key, inverter_sn) plant_key,"
            " inverter_sn, coalesce(inverter_label, inverter_sn), status,"
@@ -75,6 +78,7 @@ for r in q("SELECT DISTINCT ON (plant_key, inverter_sn) plant_key,"
            " FROM telemetry"
            " WHERE (ts_utc AT TIME ZONE 'America/Mexico_City')::date"
            f" = DATE '{TODAY}'"
+           " AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
            " ORDER BY plant_key, inverter_sn, ts_utc DESC;"):
     if len(r) >= 10:
         LATEST.setdefault(r[0], []).append({
@@ -94,6 +98,46 @@ for r in q("SELECT plant_key,"
            " GROUP BY 1, 2 ORDER BY 1, 2;"):
     if len(r) >= 3:
         SERIES.setdefault(r[0], []).append((r[1], f(r[2]) or 0.0))
+
+# per-inverter cumulative etoday per hour -> hourly energy (stacked bars)
+_HOUR_MAX = {}
+for r in q("SELECT plant_key, inverter_sn,"
+           " extract(hour FROM ts_utc AT TIME ZONE"
+           " 'America/Mexico_City')::int, max(etoday_kwh)"
+           " FROM telemetry"
+           " WHERE (ts_utc AT TIME ZONE 'America/Mexico_City')::date"
+           f" = DATE '{TODAY}' AND etoday_kwh IS NOT NULL"
+           " GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;"):
+    if len(r) >= 4:
+        _HOUR_MAX.setdefault(r[0], {}).setdefault(r[1], {})[int(r[2])] = f(r[3])
+
+HOURLY = {}   # plant -> inverter_sn -> {hour: kwh produced in that hour}
+for pk, invs in _HOUR_MAX.items():
+    for sn, by_h in invs.items():
+        prev = None
+        out = {}
+        for h in sorted(by_h):
+            v = by_h[h]
+            if v is None:
+                continue
+            out[h] = max(0.0, v - prev) if prev is not None else v
+            prev = v
+        HOURLY.setdefault(pk, {})[sn] = out
+
+# hourly weather context: cloud cover % + irradiance W/m2 (where sensed)
+CLOUD_H, IRR_H = {}, {}
+for r in q("SELECT plant_key,"
+           " extract(hour FROM ts_utc AT TIME ZONE"
+           " 'America/Mexico_City')::int,"
+           " avg(cloud_cover_pct), avg(irradiance_wm2) FROM telemetry"
+           " WHERE (ts_utc AT TIME ZONE 'America/Mexico_City')::date"
+           f" = DATE '{TODAY}' GROUP BY 1, 2;"):
+    if len(r) >= 4:
+        h = int(r[1])
+        if f(r[2]) is not None:
+            CLOUD_H.setdefault(r[0], {})[h] = f(r[2])
+        if f(r[3]) is not None:
+            IRR_H.setdefault(r[0], {})[h] = f(r[3])
 
 # vendor day counter (today's snapshot, if tonight's ran) for cross-check
 VENDOR_DAY = {r[0]: f(r[1]) for r in q(
@@ -135,16 +179,19 @@ def semaphore(pk):
             return 'bad', 'no data today', 'sin datos hoy'
         return 'off', 'night — no data yet', 'noche — aún sin datos'
     fresh = [i for i in invs if i['age_min'] <= STALE_MIN]
-    faults = [i for i in invs if i['fault']]
-    zero_power = [i for i in fresh if (i['power_w'] or 0) < 10]
+    # A fault is the vendor's own status flag (3) — NOT the raw state
+    # string (Huawei's "IS=512,RS=1" is normal grid-connected operation).
+    faults = [i for i in invs if i['status'] == 3]
+    powered = [i for i in fresh if i['power_w'] is not None]
+    zero_power = [i for i in powered if i['power_w'] < 10]
     if in_window:
         if not fresh:
             return 'bad', f'stale > {STALE_MIN} min', f'sin señal > {STALE_MIN} min'
         if faults:
-            return 'warn', f'{len(faults)} fault code(s)', f'{len(faults)} código(s) de falla'
+            return 'warn', f'{len(faults)} inverter(s) flag fault', f'{len(faults)} inversor(es) con falla'
         if len(fresh) < len(invs):
             return 'warn', f'{len(invs)-len(fresh)}/{len(invs)} inverters stale', f'{len(invs)-len(fresh)}/{len(invs)} inversores sin señal'
-        if len(zero_power) == len(fresh) and NOW_MX.hour in range(9, 17):
+        if powered and len(zero_power) == len(powered) and NOW_MX.hour in range(9, 17):
             return 'warn', 'zero power midday', 'potencia cero a mediodía'
         return 'good', 'all reporting', 'todo reportando'
     return 'off', 'night', 'noche'
@@ -184,6 +231,7 @@ td:first-child,th:first-child{{text-align:left;}}
 .note{{font-size:13px;color:#80868b;}}
 .st-PASS{{color:#137333;font-weight:600;}} .st-REVIEW{{color:#a05c00;font-weight:600;}}
 .st-FAIL{{color:#c5221f;font-weight:600;}} .st-NO_DATA{{color:#80868b;}}
+h2.sect{{font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#1c2733;margin:22px 0 4px;}}
 .kpis{{display:flex;gap:26px;flex-wrap:wrap;margin:10px 0 2px;}}
 .kpi .v{{font-size:27px;font-weight:700;color:#1c2733;}}
 .kpi .l{{font-size:12.5px;color:#5f6368;margin-top:2px;}}
@@ -241,35 +289,144 @@ def fmt_kw(v, dash='—'):
 # ------------------------------------------------------- fleet overview
 def plant_now(pk):
     invs = LATEST.get(pk, [])
-    power = sum(i['power_w'] or 0 for i in invs) / 1000.0 if invs else None
-    etoday = sum(i['etoday'] or 0 for i in invs) if invs else None
+    powers = [i['power_w'] for i in invs if i['power_w'] is not None]
+    etodays = [i['etoday'] for i in invs if i['etoday'] is not None]
+    power = sum(powers) / 1000.0 if powers else None
+    etoday = sum(etodays) if etodays else None
     fresh = [i for i in invs if i['age_min'] <= STALE_MIN]
     return power, etoday, len(fresh), len(invs)
 
 
-def fleet_page():
-    tiles = []
-    tot_p = tot_e = 0.0
-    for pk, meta in sorted(PLANTS.items()):
-        cls, len_, les = semaphore(pk)
-        power, etoday, fresh, total = plant_now(pk)
-        tot_p += power or 0
-        tot_e += etoday or 0
-        tiles.append(f'''<a class="tile {cls}" href="/{pk.lower()}/">
+def _tile(pk, meta):
+    cls, len_, les = semaphore(pk)
+    power, etoday, fresh, total = plant_now(pk)
+    return power, etoday, f'''<a class="tile {cls}" href="/{pk.lower()}/">
 <div><span class="tname">{esc(meta['customer'])}</span><span class="tkey">{pk} · {meta['kwp']:,.0f} kWp</span></div>
 <div class="trow"><span data-en="Power now" data-es="Potencia">Power now</span><b>{fmt1(power)} kW</b></div>
 <div class="trow"><span data-en="Today" data-es="Hoy">Today</span><b>{fmt_kwh(etoday)} kWh</b></div>
 <div class="trow"><span data-en="Inverters live" data-es="Inversores">Inverters live</span><b>{fresh}/{total}</b></div>
 <div class="trow"><span class="pill {cls}" data-en="{esc(len_)}" data-es="{esc(les)}">{esc(len_)}</span></div>
-</a>''')
+</a>'''
+
+
+def fleet_page():
+    tot_p = tot_e = 0.0
+    sections = []
+    for label_en, label_es, keys in (
+            ('PPA plants', 'Plantas PPA',
+             [k for k in sorted(PLANTS) if PLANTS[k]['portfolio'] == 'PPA']),
+            ('CAPEX plants', 'Plantas CAPEX',
+             [k for k in sorted(PLANTS) if PLANTS[k]['portfolio'] == 'CAPEX']),
+            ('Other', 'Otras',
+             [k for k in sorted(PLANTS)
+              if PLANTS[k]['portfolio'] not in ('PPA', 'CAPEX')])):
+        if not keys:
+            continue
+        tiles = []
+        for pk in keys:
+            power, etoday, tile = _tile(pk, PLANTS[pk])
+            tot_p += power or 0
+            tot_e += etoday or 0
+            tiles.append(tile)
+        sections.append(
+            f'<h2 class="sect" data-en="{label_en}" data-es="{label_es}">'
+            f'{label_en}</h2><div class="grid">{"".join(tiles)}</div>')
     kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="Fleet power right now" data-es="Potencia de flota ahora">Fleet power right now</div></div>
 <div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="Fleet energy today" data-es="Energía de flota hoy">Fleet energy today</div></div>
 <div class="kpi"><div class="v">{len(PLANTS)}</div><div class="l" data-en="Active plants" data-es="Plantas activas">Active plants</div></div>
 </div>'''
-    return page('Fleet Monitoring', controls() + kpis +
-                f'<div class="grid">{"".join(tiles)}</div>',
+    return page('Fleet Monitoring', controls() + kpis + ''.join(sections),
                 'Live O&amp;M view · 5-minute data · all vendors')
+
+
+# ------------------------------------- intraday chart (like v2 dashboard)
+def _inv_color(i, n):
+    """Green ramp, dark -> light, one shade per inverter."""
+    n = max(n, 1)
+    light = 26 + int(38 * (i / max(n - 1, 1))) if n > 1 else 38
+    return f'hsl(152,42%,{light}%)'
+
+
+def intraday_svg(pk, kwp, pr):
+    """60-min stacked production per inverter + cloud cover % (right axis)
+    + theoretical line (irradiance x kWp x PR) where a sensor exists."""
+    invs = HOURLY.get(pk, {})
+    label_by_sn = {i['sn']: i['label'] for i in LATEST.get(pk, [])}
+    sns = sorted(invs, key=lambda s: label_by_sn.get(s, s))
+    hours = list(range(6, 21))
+    if not sns:
+        return ('<p class="note" data-en="No production samples today yet." '
+                'data-es="Aún no hay muestras de producción hoy.">'
+                'No production samples today yet.</p>')
+    stack = {h: [invs[sn].get(h, 0.0) for sn in sns] for h in hours}
+    totals = {h: sum(stack[h]) for h in hours}
+    theo = {h: (IRR_H.get(pk, {}).get(h) or 0) * kwp * pr / 1000.0
+            for h in hours if IRR_H.get(pk, {}).get(h) is not None}
+    vmax = max(list(totals.values()) + list(theo.values()) + [1.0]) * 1.12
+    cloud = CLOUD_H.get(pk, {})
+
+    W, H, PL, PR_, PB, PT = 940, 260, 52, 46, 30, 14
+    plot_w, plot_h = W - PL - PR_, H - PB - PT
+    slot = plot_w / len(hours)
+
+    def x(h):
+        return PL + (h - 6) * slot
+
+    def y(v):
+        return PT + plot_h - (v / vmax) * plot_h
+
+    def yr(pct):
+        return PT + plot_h - (pct / 100.0) * plot_h
+
+    parts = []
+    for gv in (0.25, 0.5, 0.75, 1.0):
+        vy = y(vmax * gv / 1.12)
+        parts.append(f'<line x1="{PL}" y1="{vy:.1f}" x2="{W-PR_}" y2="{vy:.1f}" stroke="#eceef0"/>'
+                     f'<text x="{PL-6}" y="{vy+4:.1f}" text-anchor="end" font-size="11" fill="#80868b">{vmax*gv/1.12:,.0f}</text>')
+    for gp in (0, 50, 100):
+        parts.append(f'<text x="{W-PR_+6}" y="{yr(gp)+4:.1f}" font-size="11" fill="#b9bec4">{gp}</text>')
+    # stacked bars
+    bw = slot * 0.62
+    for h in hours:
+        x0 = x(h) + (slot - bw) / 2
+        acc = 0.0
+        for idx, v in enumerate(stack[h]):
+            if v <= 0:
+                continue
+            y1 = y(acc + v)
+            y0 = y(acc)
+            parts.append(f'<rect x="{x0:.1f}" y="{y1:.1f}" width="{bw:.1f}" '
+                         f'height="{max(y0-y1,0.5):.1f}" fill="{_inv_color(idx, len(sns))}"/>')
+            acc += v
+        parts.append(f'<text x="{x(h)+slot/2:.1f}" y="{H-10}" text-anchor="middle" font-size="11" fill="#80868b">{h:02d}</text>')
+    # cloud cover dashed line, right axis
+    cpts = [(x(h) + slot / 2, yr(cloud[h])) for h in hours if h in cloud]
+    if len(cpts) >= 2:
+        d = ' '.join(f'{"M" if i == 0 else "L"}{px:.1f},{py:.1f}'
+                     for i, (px, py) in enumerate(cpts))
+        parts.append(f'<path d="{d}" fill="none" stroke="#9aa1a8" stroke-width="1.6" stroke-dasharray="5 4"/>')
+    # theoretical line (only where irradiance was sensed)
+    tpts = [(x(h) + slot / 2, y(theo[h])) for h in sorted(theo)]
+    if len(tpts) >= 2:
+        d = ' '.join(f'{"M" if i == 0 else "L"}{px:.1f},{py:.1f}'
+                     for i, (px, py) in enumerate(tpts))
+        parts.append(f'<path d="{d}" fill="none" stroke="#1c2733" stroke-width="1.8" stroke-dasharray="7 4"/>')
+    svg = (f'<svg viewBox="0 0 {W} {H}" style="width:100%;height:auto">'
+           + ''.join(parts) + '</svg>')
+    leg = ['<span class="note" style="margin-right:14px">'
+           '<span style="color:#9aa1a8">╌╌</span> '
+           '<span data-en="Cloud cover % (right)" data-es="Nubosidad % (der.)">Cloud cover % (right)</span></span>']
+    if tpts:
+        leg.append('<span class="note" style="margin-right:14px">'
+                   '<span style="color:#1c2733">╌╌</span> '
+                   '<span data-en="Theoretical (irr × kWp × PR)" data-es="Teórico (irr × kWp × PR)">Theoretical (irr × kWp × PR)</span></span>')
+    for idx, sn in enumerate(sns):
+        leg.append(f'<span class="note" style="margin-right:12px">'
+                   f'<span style="display:inline-block;width:10px;height:10px;'
+                   f'background:{_inv_color(idx, len(sns))};border-radius:2px"></span> '
+                   f'{esc(label_by_sn.get(sn, sn))}</span>')
+    return svg + '<div style="margin-top:6px">' + ''.join(leg) + '</div>'
 
 
 # ---------------------------------------------------------- power curve
@@ -311,12 +468,18 @@ def plant_page(pk):
     inv_cells = []
     for i in sorted(LATEST.get(pk, []), key=lambda v: v['label']):
         stale = i['age_min'] > STALE_MIN
-        pill_cls = 'bad' if stale else ('warn' if i['fault'] else 'good')
-        pill_txt = i['fault'] or ('stale' if stale else 'OK')
+        # fault = the vendor's normalized status flag; the raw state
+        # string is shown as detail, not treated as an alarm by itself.
+        fault = i['status'] == 3
+        pill_cls = 'bad' if stale else ('warn' if fault else 'good')
+        pill_txt = ('stale' if stale else
+                    ((i['fault'] or 'fault') if fault else 'OK'))
+        detail = i['fault'] if (i['fault'] and not fault) else ''
         temp = '—' if i['temp'] is None else f"{i['temp']:.0f}"
         inv_cells.append(
             f'<tr><td>{esc(i["label"])}</td>'
-            f'<td><span class="pill {pill_cls}">{esc(pill_txt)}</span></td>'
+            f'<td><span class="pill {pill_cls}">{esc(pill_txt)}</span>'
+            f'{(" <span class=note>" + esc(detail) + "</span>") if detail else ""}</td>'
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'
             f'<td>{temp}</td><td>{esc(i["last_mx"])}</td></tr>')
     inv_rows = ''.join(inv_cells)
@@ -341,6 +504,7 @@ def plant_page(pk):
 <div class="kpi"><div class="v">{fresh}/{total}</div><div class="l" data-en="Inverters live" data-es="Inversores en línea">Inverters live</div></div>
 <div class="kpi"><div class="v"><span class="pill {cls}" data-en="{esc(len_)}" data-es="{esc(les)}">{esc(len_)}</span></div><div class="l">Status</div></div>
 </div>
+<div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'])}</div>
 <div class="card"><h2 data-en="Power today (kW, 5-min)" data-es="Potencia hoy (kW, 5 min)">Power today (kW, 5-min)</h2>{power_svg(pk, meta['kwp'])}</div>
 <div class="card"><h2 data-en="Inverters — latest sample" data-es="Inversores — última muestra">Inverters — latest sample</h2>
 <table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EToday kWh</th><th>°C</th><th data-en="Last seen MX" data-es="Última señal MX">Last seen MX</th></tr>{inv_rows}</table></div>

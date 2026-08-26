@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple
 from argia.core.config import PlantConfig, load_portfolio
 from argia.core.sheets import SheetsClient
 from argia.core.time_utils import MX_TZ
+from argia.recon import backfill as B
 from argia.recon import counters as C
 from argia.recon import engine as E
 from argia.store import pg_mirror
@@ -210,6 +211,16 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
             completeness = min(completeness, 100.0)
         r = E.daily_recon(ikwh, vendor_daily, kpi, completeness)
         LOG.info("recon %s %s: %s (%s)", date_iso, pk, r.status, r.note)
+        # Self-heal: a KPI day missing or below the vendor counter is
+        # filled/raised (never lowered) so a later sheet re-sync cannot
+        # re-introduce an undercount. Provenance lands in status_note.
+        if not dry_run and vendor_daily is not None:
+            cls, _delta = B.classify_day(kpi, vendor_daily)
+            if cls in (B.CLASS_MISSING, B.CLASS_UNDER):
+                psql_exec(B.build_fix_sql(pk, date_iso, vendor_daily, kpi))
+                LOG.info("recon %s %s: daily_production %s -> corrected "
+                         "to vendor %.1f kWh", date_iso, pk, cls,
+                         vendor_daily)
         values.append(
             f"({_txt(pk)}, DATE '{date_iso}', {_num(r.interval_kwh)},"
             f" {_num(r.vendor_daily_kwh)}, {_num(r.kpi_kwh)},"

@@ -25,6 +25,17 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argia_logo import LOGO_URI
 
+# fault-code catalog from the repo checkout (documented vendor states)
+sys.path.insert(0, '/root/argia_v2/v2')
+try:
+    from argia.alerts.fault_catalog import explain_fault, is_normal_state
+except Exception:                                     # noqa: BLE001
+    def explain_fault(vendor, raw):
+        return raw or None
+
+    def is_normal_state(vendor, raw):
+        return (raw or '').strip() in ('', '0')
+
 OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/monitoring.argia.com.mx/www'
 MX = ZoneInfo('America/Mexico_City')
 STALE_MIN = 30
@@ -179,6 +190,26 @@ RECON_M = [r for r in q(
     " coalesce(note,'') FROM reconciliation_monthly"
     " ORDER BY ref_month DESC, plant_key LIMIT 60;") if len(r) >= 7]
 
+# performance, last 30 days (Phase F v1): PR, availability, vs expected
+PERF = {}
+for r in q("SELECT plant_key, round(avg(pr)::numeric, 3),"
+           " round(avg(availability)::numeric, 3),"
+           " sum(energy_kwh), sum(expected_kwh),"
+           " count(*) FILTER (WHERE pr IS NOT NULL)"
+           " FROM daily_production"
+           f" WHERE prod_date >= DATE '{TODAY}' - 30"
+           " GROUP BY 1;"):
+    if len(r) >= 6:
+        PERF[r[0]] = {'pr': f(r[1]), 'avail': f(r[2]), 'prod': f(r[3]),
+                      'exp': f(r[4]), 'pr_days': int(f(r[5]) or 0)}
+
+PR_TREND = {}   # plant -> [(date, pr)] last 30d, for sparklines
+for r in q("SELECT plant_key, prod_date::text, pr FROM daily_production"
+           f" WHERE prod_date >= DATE '{TODAY}' - 30 AND pr IS NOT NULL"
+           " ORDER BY 1, 2;"):
+    if len(r) >= 3 and f(r[2]) is not None:
+        PR_TREND.setdefault(r[0], []).append((r[1], f(r[2])))
+
 # active maintenance events (PG table; portal badge + invoicing input)
 MAINT_TODAY = {}
 try:
@@ -292,6 +323,7 @@ def controls(extra=''):
     return (f'<div class="controls"><a class="btn" href="/" data-en="Fleet"'
             ' data-es="Flota">Fleet</a>'
             '<a class="btn" href="/ppa/" data-en="All PPA" data-es="Todo PPA">All PPA</a>'
+            '<a class="btn" href="/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
             '<a class="btn" href="/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
             f'<a class="btn" href="{REPORT_BASE}/" data-en="Reports ↗" data-es="Reportes ↗">Reports ↗</a>'
             '<button class="btn" onclick="setLang(\'en\')">EN</button>'
@@ -516,7 +548,12 @@ def plant_page(pk, d):
         fault = i['status'] == 3
         pill_cls = 'bad' if stale else ('warn' if fault else 'good')
         pill_txt = ('stale' if stale else ((i['fault'] or 'fault') if fault else 'OK'))
-        detail = i['fault'] if (i['fault'] and not fault) else ''
+        # Reason column: the catalog's human explanation; normal
+        # operating states stay quiet, unknown codes say so honestly.
+        detail = ''
+        if i['fault'] and (fault or not is_normal_state(meta['brand'],
+                                                        i['fault'])):
+            detail = explain_fault(meta['brand'], i['fault']) or ''
         temp = '—' if i['temp'] is None else f"{i['temp']:.0f}"
         inv_cells.append(
             f'<tr><td>{esc(i["label"])}</td>'
@@ -649,6 +686,74 @@ def ppa_page():
                 'All PPA plants · live + cumulative month view')
 
 
+def pr_sparkline(pk, w=140, h=30):
+    pts = [v for _d, v in PR_TREND.get(pk, [])][-30:]
+    if len(pts) < 2:
+        return '<span class="note">—</span>'
+    lo, hi = min(pts), max(pts)
+    rng = (hi - lo) or 0.01
+    step = w / (len(pts) - 1)
+    d = ' '.join(f'{"M" if i == 0 else "L"}{i*step:.1f},'
+                 f'{h - 3 - (v - lo) / rng * (h - 6):.1f}'
+                 for i, v in enumerate(pts))
+    return (f'<svg viewBox="0 0 {w} {h}" style="width:{w}px;height:{h}px;'
+            f'vertical-align:middle"><path d="{d}" fill="none" '
+            'stroke="#1e8e3e" stroke-width="1.6"/></svg>')
+
+
+def performance_page():
+    rows = []
+    for section, keys in (
+            ('PPA', [k for k in sorted(PLANTS)
+                     if PLANTS[k]['portfolio'] == 'PPA']),
+            ('CAPEX', [k for k in sorted(PLANTS)
+                       if PLANTS[k]['portfolio'] == 'CAPEX'])):
+        if keys:
+            rows.append(f'<tr><td colspan="8" style="font-weight:700;'
+                        f'background:#fafbfc">{section}</td></tr>')
+        for pk in keys:
+            meta = PLANTS[pk]
+            p = PERF.get(pk, {})
+            pr = p.get('pr')
+            av = p.get('avail')
+            prod, exp = p.get('prod'), p.get('exp')
+            ratio = ('—' if not prod or not exp
+                     else f'{100*prod/exp:,.0f}%')
+            pr_cls = ('' if pr is None else
+                      (' class="st-PASS"' if pr >= 0.75 else
+                       (' class="st-REVIEW"' if pr >= 0.65
+                        else ' class="st-FAIL"')))
+            av_cls = ('' if av is None else
+                      (' class="st-PASS"' if av >= 0.98 else
+                       (' class="st-REVIEW"' if av >= 0.95
+                        else ' class="st-FAIL"')))
+            rows.append(
+                f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}'
+                f'</a> <span class="tkey">{pk}</span></td>'
+                f'<td>{meta["kwp"]:,.0f}</td>'
+                f'<td{pr_cls}>{"—" if pr is None else f"{pr:.3f}"}</td>'
+                f'<td>{pr_sparkline(pk)}</td>'
+                f'<td{av_cls}>{"—" if av is None else f"{100*av:,.1f}%"}</td>'
+                f'<td>{"—" if prod is None else f"{prod:,.0f}"}</td>'
+                f'<td>{"—" if exp is None else f"{exp:,.0f}"}</td>'
+                f'<td>{ratio}</td></tr>')
+    body = controls() + f'''
+<div class="card"><h2 data-en="Performance — last 30 days" data-es="Desempeño — últimos 30 días">Performance — last 30 days</h2>
+<table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>
+<th data-en="Avg PR" data-es="PR prom.">Avg PR</th>
+<th data-en="PR trend (30d)" data-es="Tendencia PR (30d)">PR trend (30d)</th>
+<th data-en="Availability" data-es="Disponibilidad">Availability</th>
+<th data-en="Production kWh" data-es="Producción kWh">Production kWh</th>
+<th data-en="Expected kWh" data-es="Esperado kWh">Expected kWh</th>
+<th data-en="vs exp." data-es="vs esp.">vs exp.</th></tr>
+{''.join(rows)}</table>
+<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). Color bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019 target), amber 95–98%. Weather-normalized PR_STC trending and degradation-vs-warranty (≤0.4%/yr) come next in Phase F."
+ data-es="PR y disponibilidad provienen del pipeline diario de KPI. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019), ámbar 95–98%. El PR_STC normalizado por clima y la degradación vs garantía llegan después.">
+PR and availability come from the daily KPI pipeline.</p></div>'''
+    return page('Performance', body,
+                '30-day PR · availability · production vs expected')
+
+
 def recon_page():
     d_rows = []
     for pk in sorted(RECON_D):
@@ -694,6 +799,7 @@ def write(rel, content):
 n = 0
 write('index.html', fleet_page()); n += 1
 write('ppa/index.html', ppa_page()); n += 1
+write('performance/index.html', performance_page()); n += 1
 write('recon/index.html', recon_page()); n += 1
 for pk in PLANTS:
     write(f'{pk.lower()}/index.html', plant_page(pk, TODAY)); n += 1

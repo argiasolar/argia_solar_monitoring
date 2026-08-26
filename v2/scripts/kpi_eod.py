@@ -37,7 +37,10 @@ from typing import Dict, List, Tuple
 from argia.vendors import growatt_token
 from argia.kpi.design import design_kwh_for_day, load_design_monthly
 from argia.finance.contract import load_contract_monthly
-from argia.maintenance.events import load_maintenance_events
+from argia.maintenance.events import (
+    load_maintenance_events,
+    load_maintenance_events_pg,
+)
 from argia.maintenance.deemed import (
     daylight_fraction, deemed_for_date, measured_in_window_from_buckets,
 )
@@ -434,7 +437,9 @@ def main(argv=None) -> int:
     import datetime as _dt
 
     contracts = load_contract_monthly(sheets)
-    events = load_maintenance_events(sheets)
+    # Two sources, same fail-closed rules: the legacy sheet tab and the
+    # /setup/ UI's PostgreSQL table (pio06). Both flow into deemed.
+    events = load_maintenance_events(sheets) + load_maintenance_events_pg()
 
     def _contract_daily_for(pk, y, m):
         row = contracts.get((str(pk).upper(), y, m))

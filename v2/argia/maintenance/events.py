@@ -207,6 +207,72 @@ def load_maintenance_events(sheets) -> List[MaintenanceEvent]:
     return out
 
 
+def events_from_pg_rows(rows) -> List[MaintenanceEvent]:
+    """Typed events from psql tab-rows (the /setup/ maintenance UI,
+    pio06 table ``maintenance_event``): [plant_key, start_mx_iso,
+    end_mx_iso_or_'', category, cost_type, cost, note, approved_by].
+    Timestamps arrive as MX-local ISO strings (to_char with the MX zone)
+    and get MX_TZ attached — identical semantics to the sheet loader.
+    Malformed rows are skipped, like the sheet path. PURE."""
+    out: List[MaintenanceEvent] = []
+    for r in rows or []:
+        if not r or len(r) < 8:
+            continue
+        plant_key = normalize_text(r[0]).upper()
+        if not plant_key:
+            continue
+        try:
+            start = dt.datetime.fromisoformat(str(r[1]).strip())
+        except ValueError:
+            LOG.warning("maintenance_event[%s]: bad start_ts %r — skipped",
+                        plant_key, r[1])
+            continue
+        end = None
+        if str(r[2]).strip():
+            try:
+                end = dt.datetime.fromisoformat(str(r[2]).strip())
+            except ValueError:
+                end = None
+        out.append(MaintenanceEvent(
+            plant_key=plant_key,
+            start_ts=_mx_aware(start),
+            end_ts=_mx_aware(end),
+            category=_parse_category(r[3], plant_key),
+            cost_type=_parse_cost_type(r[4], plant_key),
+            cost_mxn=safe_float(r[5]),
+            note=normalize_text(r[6]),
+            approved_by=normalize_text(r[7]),
+        ))
+    return out
+
+
+def load_maintenance_events_pg() -> List[MaintenanceEvent]:
+    """Events from the pio06 PostgreSQL table (the /setup/ UI). Empty
+    list anywhere PG isn't available — a Pi/CI run is unaffected."""
+    try:
+        from argia.store import pg_mirror
+        from argia.store.pgq import psql_rows
+        if not pg_mirror.enabled():
+            return []
+        rows = psql_rows(
+            "SELECT plant_key,"
+            " to_char(start_ts AT TIME ZONE 'America/Mexico_City',"
+            "  'YYYY-MM-DD\"T\"HH24:MI:SS'),"
+            " coalesce(to_char(end_ts AT TIME ZONE 'America/Mexico_City',"
+            "  'YYYY-MM-DD\"T\"HH24:MI:SS'), ''),"
+            " coalesce(category,''), coalesce(cost_type,''),"
+            " coalesce(cost_mxn::text,''), coalesce(note,''),"
+            " coalesce(approved_by,'') FROM maintenance_event;")
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("maintenance_event PG read failed: %s — sheet events "
+                    "only", e)
+        return []
+    events = events_from_pg_rows(rows)
+    LOG.info("maintenance_event (PG): %d event(s) (%d approved)",
+             len(events), sum(1 for e in events if e.approved))
+    return events
+
+
 def om_cost_from_events(events: List[MaintenanceEvent], plant_key: str,
                         period) -> float:
     """Σ actual ``cost_mxn`` of APPROVED events for ``plant_key`` whose cost

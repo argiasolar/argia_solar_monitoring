@@ -66,9 +66,12 @@ for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
         PLANTS[r[0]] = {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]) or 0,
                         'portfolio': r[4], 'pr': f(r[6]) or 0.80}
 
-# dates that actually have telemetry (newest first, capped)
+# Dates with REAL collection (newest first, capped). Vendors sometimes
+# return rows carrying stale timestamps, which would create hollow
+# archive days — a real fleet collection day has hundreds of rows.
 DATES = [r[0] for r in q(
-    f"SELECT DISTINCT {MX_D} AS d FROM telemetry ORDER BY d DESC "
+    f"SELECT {MX_D} AS d FROM telemetry GROUP BY 1"
+    " HAVING count(*) >= 60 ORDER BY d DESC "
     f"LIMIT {DAY_PAGES};") if r and r[0]]
 FIRST_DATE = DATES[-1] if DATES else TODAY
 

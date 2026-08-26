@@ -33,6 +33,17 @@ def test_parse_smtp_config_incomplete_is_none():
                              "SMTP_USER=u\nSMTP_PASS=\n") is None
 
 
+def test_parse_smtp_config_ip_relay_needs_no_password():
+    # Google Workspace SMTP relay: server IP is the credential.
+    cfg = parse_smtp_config(
+        "SMTP_HOST=smtp-relay.gmail.com\nSMTP_PORT=587\n"
+        "SMTP_USER=service@argia.com.mx\nSMTP_AUTH=none\n")
+    assert cfg is not None and cfg["SMTP_AUTH"] == "none"
+    # ...but auth mode without a password stays invalid
+    assert parse_smtp_config(
+        "SMTP_HOST=x\nSMTP_PORT=587\nSMTP_USER=u\n") is None
+
+
 def test_build_email():
     msg = build_email("subject", "body", "service@argia.com.mx",
                       ["a@x.mx", "b@x.mx"])

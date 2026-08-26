@@ -18,12 +18,15 @@ from typing import Dict, List, Optional
 LOG = logging.getLogger("argia.alerts.emailer")
 
 DEFAULT_CONFIG_PATH = "/root/.argia_mail"
-REQUIRED_KEYS = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS")
+REQUIRED_KEYS = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER")
 
 
 def parse_smtp_config(text: str) -> Optional[Dict[str, str]]:
-    """KEY=VALUE lines -> config dict; None unless every key is present
-    and non-empty. Pure."""
+    """KEY=VALUE lines -> config dict; None unless valid. Pure.
+
+    Two modes: password auth (SMTP_PASS present) or IP-authorized relay
+    (SMTP_AUTH=none — e.g. Google Workspace smtp-relay.gmail.com with
+    the server IP registered; no credential exists at all)."""
     cfg: Dict[str, str] = {}
     for ln in text.splitlines():
         ln = ln.strip()
@@ -31,7 +34,9 @@ def parse_smtp_config(text: str) -> Optional[Dict[str, str]]:
             continue
         k, _, v = ln.partition("=")
         cfg[k.strip()] = v.strip()
-    if all(cfg.get(k) for k in REQUIRED_KEYS):
+    if not all(cfg.get(k) for k in REQUIRED_KEYS):
+        return None
+    if cfg.get("SMTP_PASS") or cfg.get("SMTP_AUTH", "").lower() == "none":
         return cfg
     return None
 
@@ -63,7 +68,8 @@ def send(msg: EmailMessage, cfg: Dict[str, str],
         with smtplib.SMTP(cfg["SMTP_HOST"], int(cfg["SMTP_PORT"]),
                           timeout=timeout) as s:
             s.starttls()
-            s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])
+            if cfg.get("SMTP_AUTH", "").lower() != "none":
+                s.login(cfg["SMTP_USER"], cfg["SMTP_PASS"])
             s.send_message(msg)
         return True
     except Exception as e:  # noqa: BLE001

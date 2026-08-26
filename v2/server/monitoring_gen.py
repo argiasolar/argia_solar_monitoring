@@ -77,6 +77,37 @@ for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
         PLANTS[r[0]] = {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]) or 0,
                         'portfolio': r[4], 'pr': f(r[6]) or 0.80}
 
+# ------------------------------------------- reference links + photos
+# Public reference pages on argia.com.mx (NL1 and QRO1 have none yet —
+# they simply render without the link/photo, never a broken one).
+REF_LINKS = {
+    'GTO1': 'https://argia.com.mx/es/references/-guanajuato-taigene',
+    'GTO2': 'https://argia.com.mx/es/references/'
+            '-san-miguel-de-allende-hirschmann-automotive',
+    'MEX1': 'https://argia.com.mx/es/references/-san-pedro-sag-mexico',
+    'MEX2': 'https://argia.com.mx/es/references/-cdmx-vitalmex',
+    'MEX3': 'https://argia.com.mx/es/references/'
+            '-tlalnepantla-service-management-solutions',
+    'NL2': 'https://argia.com.mx/es/references/-monterrey-budenheim',
+    'SLP1': 'https://argia.com.mx/es/references/coyoacan',
+    'SLP2': 'https://argia.com.mx/es/references/holiday-inn',
+}
+
+
+def photo_uri(pk, thumb=False):
+    """Site photo (fetched once from the reference page into
+    assets/<pk>.jpg in the web root; <pk>_t.jpg is the ~520px thumbnail
+    for fleet tiles). Missing file -> None; every page must render fine
+    without it."""
+    name = f'{pk.lower()}_t.jpg' if thumb else f'{pk.lower()}.jpg'
+    p = os.path.join(OUTROOT, 'monitoring', 'assets', name)
+    if os.path.exists(p):
+        return f'/assets/{name}'
+    if thumb:                       # thumbnail missing -> try the full one
+        return photo_uri(pk, thumb=False)
+    return None
+
+
 # configured ACTIVE inverters — the honest denominator. Counting only
 # inverters that answer hides a dead one inside a green plant (GTO2
 # Inverter 2, found 2026-08-26).
@@ -307,6 +338,10 @@ h2.sect{font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:upperc
 .kpi .v{font-size:27px;font-weight:700;color:#1c2733;}
 .kpi .l{font-size:12.5px;color:#5f6368;margin-top:2px;}
 input[type=date]{background:#fff;border:1px solid #dadce0;border-radius:8px;padding:5px 10px;font-size:13.5px;font-family:inherit;}
+.tphoto{width:100%;height:88px;object-fit:cover;border-radius:10px;margin-bottom:8px;display:block;}
+.pphoto{width:100%;max-height:190px;object-fit:cover;border-radius:14px;margin:10px 0 4px;display:block;}
+.kgroup{display:flex;gap:26px;align-items:flex-end;padding-right:26px;}
+.kgroup+.kgroup{border-left:1px solid #e3e6e9;padding-left:26px;}
 @media print{.controls{display:none}body{background:#fff}}
 '''
 
@@ -368,8 +403,10 @@ def fmt_kw(v, dash='—'):
     return dash if v is None else f'{v/1000.0:,.1f}'
 
 
-def gauge_svg(pct, lo=70, hi=90):
-    """Semicircle meter like the v2 dashboard: red<lo, amber lo-hi, green>hi."""
+def gauge_svg(pct, lo=70, hi=90, width=150):
+    """Semicircle meter like the v2 dashboard: red<lo, amber lo-hi, green>hi.
+    ``width`` keeps it the size of a KPI tile so it sits IN the row
+    instead of towering over it (user feedback 2026-08-26)."""
     import math
     color = '#c5221f' if pct < lo else ('#e8a13d' if pct < hi else '#1e8e3e')
     frac = max(0.0, min(pct / 130.0, 1.0))
@@ -377,7 +414,7 @@ def gauge_svg(pct, lo=70, hi=90):
     x0, y0 = 90 + 70 * math.cos(a0), 88 + -70 * math.sin(a0) * -1
     x1, y1 = 90 + 70 * math.cos(a1), 88 - 70 * math.sin(a1)
     large = 1 if frac > 0.5 else 0
-    return f'''<svg viewBox="0 0 180 100" style="width:190px;height:auto">
+    return f'''<svg viewBox="0 0 180 100" style="width:{width}px;height:auto">
 <path d="M20,88 A70,70 0 0 1 160,88" fill="none" stroke="#eceef0" stroke-width="13" stroke-linecap="round"/>
 <path d="M{x0:.1f},88 A70,70 0 {large} 1 {x1:.1f},{y1:.1f}" fill="none" stroke="{color}" stroke-width="13" stroke-linecap="round"/>
 <text x="90" y="80" text-anchor="middle" font-size="26" font-weight="700" fill="#1c2733">{pct:,.0f}%</text>
@@ -436,8 +473,11 @@ def _tile(pk, meta):
     maint = ('<div class="trow"><span class="pill off" data-en="maintenance logged" '
              'data-es="mantenimiento registrado">maintenance logged</span></div>'
              if MAINT_TODAY.get(pk) else '')
+    ph = photo_uri(pk, thumb=True)
+    photo = (f'<img class="tphoto" src="{ph}" alt="" loading="lazy">'
+             if ph else '')
     return power, etoday, f'''<a class="tile {cls}" href="/{pk.lower()}/">
-<div><span class="tname">{esc(meta['customer'])}</span><span class="tkey">{pk} · {meta['kwp']:,.0f} kWp</span></div>
+{photo}<div><span class="tname">{esc(meta['customer'])}</span><span class="tkey">{pk} · {meta['kwp']:,.0f} kWp</span></div>
 <div class="trow"><span data-en="Power now" data-es="Potencia">Power now</span><b>{fmt1(power)} kW</b></div>
 <div class="trow"><span data-en="Today" data-es="Hoy">Today</span><b>{fmt_kwh(etoday)} kWh</b></div>
 <div class="trow"><span data-en="Inverters live" data-es="Inversores">Inverters live</span><b>{fresh}/{total}</b></div>
@@ -446,7 +486,10 @@ def _tile(pk, meta):
 
 
 def fleet_page():
-    tot_p = tot_e = 0.0
+    # summary numbers per portfolio — PPA money and CAPEX plants are
+    # different businesses; a blended fleet total hides both (user
+    # feedback 2026-08-26)
+    sums = {}   # label -> [power, energy, n_plants]
     sections = []
     for label_en, label_es, keys in (
             ('PPA plants', 'Plantas PPA',
@@ -459,19 +502,24 @@ def fleet_page():
         if not keys:
             continue
         tiles = []
+        s = sums.setdefault(label_en.split()[0], [0.0, 0.0, 0])
         for pk in keys:
             power, etoday, tile = _tile(pk, PLANTS[pk])
-            tot_p += power or 0
-            tot_e += etoday or 0
+            s[0] += power or 0
+            s[1] += etoday or 0
+            s[2] += 1
             tiles.append(tile)
         sections.append(
             f'<h2 class="sect" data-en="{label_en}" data-es="{label_es}">'
             f'{label_en}</h2><div class="grid">{"".join(tiles)}</div>')
-    kpis = f'''<div class="kpis">
-<div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="Fleet power right now" data-es="Potencia de flota ahora">Fleet power right now</div></div>
-<div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="Fleet energy today" data-es="Energía de flota hoy">Fleet energy today</div></div>
-<div class="kpi"><div class="v">{len(PLANTS)}</div><div class="l" data-en="Active plants" data-es="Plantas activas">Active plants</div></div>
-</div>'''
+    groups = []
+    for grp, (p_, e_, n_) in sums.items():
+        groups.append(f'''<div class="kgroup">
+<div class="kpi"><div class="v">{p_:,.1f} kW</div><div class="l" data-en="{grp} power now" data-es="Potencia {grp} ahora">{grp} power now</div></div>
+<div class="kpi"><div class="v">{e_:,.0f} kWh</div><div class="l" data-en="{grp} energy today" data-es="Energía {grp} hoy">{grp} energy today</div></div>
+<div class="kpi"><div class="v">{n_}</div><div class="l" data-en="{grp} plants" data-es="Plantas {grp}">{grp} plants</div></div>
+</div>''')
+    kpis = '<div class="kpis">' + ''.join(groups) + '</div>'
     banner = ''
     ft = FIRST_TICK.get(TODAY, {})
     if ft and min(ft.values()) > 7:
@@ -634,12 +682,21 @@ def plant_page(pk, d):
 </div>'''
         sub = f'{pk} · {meta["kwp"]:,.1f} kWp · {esc(meta["brand"])} · {d} (archived day)'
 
+    ref = REF_LINKS.get(pk)
+    ref_btn = (f'<a class="btn" href="{ref}" target="_blank" rel="noopener" '
+               'title="Project reference on argia.com.mx" '
+               'data-en="⧉ Reference ↗" data-es="⧉ Referencia ↗">'
+               '⧉ Reference ↗</a>') if ref else ''
+    ph = photo_uri(pk)
+    photo = (f'<img class="pphoto" src="{ph}" alt="{esc(meta["customer"])}"'
+             ' loading="lazy">') if ph and live else ''
     body = controls(
         date_picker(pk, d)
         + (f'<a class="btn" href="/{pk.lower()}/" data-en="Live" data-es="En vivo">Live</a>' if not live else '')
+        + ref_btn
         + f'<a class="btn primary" href="{REPORT_BASE}/{pk.lower()}/" '
           'data-en="Open report ↗" data-es="Abrir reporte ↗">Open report ↗</a>')
-    body += maint_html + completeness_banner(pk, d) + kpis
+    body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
 <div class="card"><h2 data-en="Inverters — {'latest sample' if live else 'last sample of the day'}" data-es="Inversores — última muestra">Inverters — latest sample</h2>
@@ -699,7 +756,7 @@ def ppa_page():
 <div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="PPA energy today" data-es="Energía PPA hoy">PPA energy today</div></div>
 <div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production — month to date" data-es="Producción — mes en curso">Production — month to date</div></div>
 <div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected — month to date{'' if exp_known else ' (partial)'}" data-es="Esperado — mes en curso">Expected — month to date</div></div>
-<div class="kpi">{gauge_svg(pct) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
+<div class="kpi" style="display:flex;flex-direction:column;align-items:center;align-self:flex-end">{gauge_svg(pct, width=150) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
 </div>'''
     note = ('<p class="note" data-en="Month-to-date sums come from vendor-counter-verified daily production. Expected is the sum of daily expected values where the KPI pipeline computed them; days without an expected value are excluded from the ratio."'
             ' data-es="Los acumulados del mes provienen de producción diaria verificada contra el contador del fabricante. El esperado suma los valores diarios disponibles.">'
@@ -735,6 +792,12 @@ def pr_sparkline(pk, w=140, h=30):
 
 def performance_page():
     rows = []
+    # fleet summary: production/expected are straight sums; PR, PR_STC
+    # and availability are kWp-weighted means (a 155 kWp plant must not
+    # pull the fleet number as hard as an 818 kWp one)
+    t_kwp = t_prod = t_exp = 0.0
+    w_pr = w_prstc = w_av = 0.0
+    kwp_pr = kwp_prstc = kwp_av = 0.0
     for section, keys in (
             ('PPA', [k for k in sorted(PLANTS)
                      if PLANTS[k]['portfolio'] == 'PPA']),
@@ -760,6 +823,16 @@ def performance_page():
                        (' class="st-REVIEW"' if av >= 0.95
                         else ' class="st-FAIL"')))
             prstc = p.get('pr_stc')
+            kwp = meta['kwp']
+            t_kwp += kwp
+            t_prod += prod or 0
+            t_exp += exp or 0
+            if pr is not None:
+                w_pr += pr * kwp; kwp_pr += kwp
+            if prstc is not None:
+                w_prstc += prstc * kwp; kwp_prstc += kwp
+            if av is not None:
+                w_av += av * kwp; kwp_av += kwp
             rows.append(
                 f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}'
                 f'</a> <span class="tkey">{pk}</span></td>'
@@ -771,6 +844,19 @@ def performance_page():
                 f'<td>{"—" if prod is None else f"{prod:,.0f}"}</td>'
                 f'<td>{"—" if exp is None else f"{exp:,.0f}"}</td>'
                 f'<td>{ratio}</td></tr>')
+    t_ratio = '—' if not t_prod or not t_exp else f'{100*t_prod/t_exp:,.0f}%'
+    rows.append(
+        '<tr style="font-weight:700;background:#fafbfc">'
+        '<td data-en="FLEET TOTAL / kWp-weighted avg"'
+        ' data-es="TOTAL FLOTA / prom. ponderado por kWp">'
+        'FLEET TOTAL / kWp-weighted avg</td>'
+        f'<td>{t_kwp:,.0f}</td>'
+        f'<td>{"—" if not kwp_pr else f"{w_pr/kwp_pr:.3f}"}</td>'
+        f'<td>{"—" if not kwp_prstc else f"{w_prstc/kwp_prstc:.3f}"}</td>'
+        '<td></td>'
+        f'<td>{"—" if not kwp_av else f"{100*w_av/kwp_av:,.1f}%"}</td>'
+        f'<td>{t_prod:,.0f}</td><td>{t_exp:,.0f}</td>'
+        f'<td>{t_ratio}</td></tr>')
     body = controls() + f'''
 <div class="card"><h2 data-en="Performance — last 30 days" data-es="Desempeño — últimos 30 días">Performance — last 30 days</h2>
 <table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>

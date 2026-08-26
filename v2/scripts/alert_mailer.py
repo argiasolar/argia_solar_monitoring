@@ -29,7 +29,7 @@ UNITS = ("argia-telemetry", "argia-telemetry-se", "argia-kpi",
          "argia-alerts-daily", "argia-alerts-snap", "argia-finreport",
          "argia-report-am", "argia-report-pm", "argia-dash-update",
          "argia-client-pages", "argia-archive", "argia-recon",
-         "argia-sync", "argia-monitoring-gen")
+         "argia-sync", "argia-monitoring-gen", "argia-satcheck")
 
 
 def _txt(s: str) -> str:
@@ -109,6 +109,22 @@ def gather_silent_inverters() -> List[Tuple[str, str, str]]:
         " AND NOT EXISTS (SELECT 1 FROM telemetry t"
         f"  WHERE t.inverter_sn = i.inverter_sn AND {mx_day} AND {usable});")
         if len(r) >= 3]
+
+
+def gather_satellite_drift() -> List[Tuple[str, str, str, str]]:
+    """Latest satellite_check verdict per plant, recent runs only (a
+    check that stopped running must not nag forever from stale rows).
+    Table may not exist before the first satcheck run — that's a clean
+    empty, not an error."""
+    try:
+        return [(r[0], r[1], r[2], r[3][:200]) for r in psql_rows(
+            "SELECT DISTINCT ON (plant_key) plant_key, status,"
+            " coalesce(drift_pct::text, '?'), coalesce(note, '')"
+            " FROM satellite_check"
+            " WHERE check_date >= current_date - 2"
+            " ORDER BY plant_key, check_date DESC;") if len(r) >= 4]
+    except RuntimeError:
+        return []
 
 
 def gather_recon_fails() -> List[Tuple[str, str, str]]:
@@ -211,7 +227,10 @@ def main(argv=None) -> int:
     i_alerts = [a for a in monitor.inverter_alerts(
                     gather_silent_inverters(), in_window)
                 if a.key.split(":")[1] not in in_maint]
-    active = (p_alerts + i_alerts
+    s_alerts = [a for a in monitor.satellite_alerts(
+                    gather_satellite_drift())
+                if a.key.split(":")[1] not in in_maint]
+    active = (p_alerts + i_alerts + s_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
               + monitor.recon_alerts(gather_recon_fails()))
     to_send, recovered = monitor.plan_sends(active, load_state(), now)

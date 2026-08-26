@@ -100,6 +100,24 @@ def recon_alerts(fail_rows: List[Tuple[str, str, str]]) -> List[Alert]:
             for pk, d, note in sorted(fail_rows)]
 
 
+def satellite_alerts(rows: List[Tuple[str, str, str, str]]) -> List[Alert]:
+    """rows: (plant, status, drift_pct, note) from the latest
+    satellite_check run. Only REVIEW alarms — OK and NO_DATA are the
+    check's own bookkeeping. Key is per-plant (no date): a persisting
+    drift stays ONE alert that re-sends, then recovers when the sensor
+    is fixed."""
+    out: List[Alert] = []
+    for r in rows:
+        if not r or len(r) < 4 or r[1] != "REVIEW":
+            continue
+        pk, drift, note = r[0], r[2], r[3]
+        out.append(Alert(f"satellite-drift:{pk}", SEV_WARN,
+                         f"{pk}: irradiance sensor drift suspected",
+                         f"{pk}: measured/satellite irradiance ratio "
+                         f"moved {drift}% vs baseline. {note}"))
+    return sorted(out, key=lambda a: a.key)
+
+
 # ----------------------------------------------------------- send logic
 def plan_sends(active: List[Alert],
                state: Dict[str, Tuple[dt.datetime, bool]],

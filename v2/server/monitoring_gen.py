@@ -120,7 +120,13 @@ for pk, invs in _HOUR_MAX.items():
             v = by_h[h]
             if v is None:
                 continue
-            out[h] = max(0.0, v - prev) if prev is not None else v
+            if prev is not None:
+                out[h] = max(0.0, v - prev)
+            elif h <= 7:
+                # dawn: the first cumulative IS that hour's production
+                out[h] = v
+            # else: sampling started mid-day (cutover/outage) — the first
+            # cumulative is a catch-up, not one hour's output: no bar.
             prev = v
         HOURLY.setdefault(pk, {})[sn] = out
 

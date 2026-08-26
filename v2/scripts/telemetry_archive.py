@@ -172,6 +172,12 @@ def main(argv=None) -> int:
                    help="also window-prune the shared %s tab" % ARGIA_TAB)
     p.add_argument("--apply", action="store_true",
                    help="archive + delete. Default is a dry run.")
+    p.add_argument("--ignore-stamps", action="store_true",
+                   help="EMERGENCY: prune by window alone, skipping the KPI "
+                        "full-stamp interlock. Rows are STILL archived to Drive "
+                        "before deletion. Exists for the cell-limit deadlock: a "
+                        "full workbook makes days stamp partial, and partial "
+                        "days block pruning (live incident 2026-08-18..26).")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
     _setup_logging(args.log_level)
@@ -207,10 +213,15 @@ def main(argv=None) -> int:
              "APPLY" if args.apply else "DRY RUN", keep_from.isoformat(),
              args.window_days)
 
+    if args.ignore_stamps:
+        LOG.warning("--ignore-stamps: pruning by window alone; the KPI "
+                    "full-stamp interlock is OFF for this run")
+
     tot_arch = tot_del = 0
     for pk in plants:
+        interlock = None if args.ignore_stamps else stamped.get(pk, set())
         a, d = process_tab(sheets, drive, folders, "Telemetry_%s" % pk, pk,
-                           stamped.get(pk, set()), keep_from, args.apply)
+                           interlock, keep_from, args.apply)
         tot_arch += a
         tot_del += d
 

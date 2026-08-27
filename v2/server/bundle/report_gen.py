@@ -1058,17 +1058,19 @@ def landing_page():
     # (portal-verified) rates cover the current month
     cfe_cov = ''
     try:
-        cfe_cov = (q("SELECT max(month)::text FROM cfe_tariff"
-                     " WHERE source='cfe_scrape';") or '').strip()
+        _rows = q("SELECT max(month)::text FROM cfe_tariff"
+                  " WHERE source='cfe_scrape';")
+        cfe_cov = _rows[0][0] if _rows and _rows[0] else ''
     except Exception:
         cfe_cov = ''
     cfe_fresh = bool(cfe_cov) and cfe_cov[:7] >= asof[:7]
     cfe_style = ' style="color:#e3a008"' if cfe_fresh else ''
-    cfe_title = (t(f'CFE rates verified through {cfe_cov[:7]}',
-                   f'Tarifas CFE verificadas hasta {cfe_cov[:7]}')
+    # plain text: title attributes cannot carry the t() span markup
+    cfe_title = (f'CFE rates verified through {cfe_cov[:7]} · '
+                 f'Tarifas verificadas hasta {cfe_cov[:7]}'
                  if cfe_fresh else
-                 t('CFE rates not yet verified for the current month',
-                   'Tarifas CFE aún no verificadas para el mes actual'))
+                 'CFE rates not yet verified for the current month · '
+                 'Tarifas aún no verificadas para el mes actual')
     body.append(f'''<div class="flinks">
 <a href="setup/">{ic_set}{t("User &amp; access setup","Gestión de usuarios y accesos")}</a>
 <a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>

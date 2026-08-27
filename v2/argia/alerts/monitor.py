@@ -14,6 +14,10 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 RESEND_HOURS = 6
+WARN_RESEND_HOURS = 24.0
+"""WARNINGs never interrupt: they ride the once-daily digest tick and
+re-send at most daily. (2026-08-27 harness — the first server night put
+13 mails in Tomasz's inbox, mostly WARN churn.)"""
 PLANT_STALE_MIN = 45          # in-window silence that raises an alert
 DISK_ALERT_PCT = 85.0
 
@@ -122,25 +126,54 @@ def satellite_alerts(rows: List[Tuple[str, str, str, str]]) -> List[Alert]:
 def plan_sends(active: List[Alert],
                state: Dict[str, Tuple[dt.datetime, bool]],
                now: dt.datetime,
-               resend_hours: float = RESEND_HOURS
+               resend_hours: float = RESEND_HOURS,
+               warn_digest: Optional[bool] = None,
+               warn_resend_hours: float = WARN_RESEND_HOURS
                ) -> Tuple[List[Alert], List[str]]:
-    """(alerts to email now, recovered keys to email).
+    """(alerts to email now, recovered keys — ALL of them, for state).
 
     ``state``: {key: (last_sent_utc, active_flag)} from alert_state.
-    A new key or one past the resend window is emailed; a state key
-    marked active whose condition vanished is a recovery.
+
+    Severity policy (2026-08-27 anti-noise harness):
+    - CRITICAL: mails when new or past ``resend_hours``; recovery mailed.
+    - WARNING: only mails on the digest tick (``warn_digest=True``,
+      which the mailer passes once a day at 07:07 MX) and at most every
+      ``warn_resend_hours``. A WARNING never interrupts the night.
+    - ``warn_digest=None`` keeps the historic behavior (all severities
+      treated alike) — old callers and tests are unaffected.
+
+    The returned ``recovered`` list is EVERY cleared key (persist must
+    flip them inactive); the mailer decides which recoveries are worth
+    a line in the mail via recoveries_to_mail().
     """
     active_keys = {a.key for a in active}
     to_send: List[Alert] = []
     for a in active:
         st = state.get(a.key)
-        if st is None or not st[1]:
-            to_send.append(a)
-        elif (now - st[0]).total_seconds() >= resend_hours * 3600:
-            to_send.append(a)
-    recovered = [k for k, (_ls, act) in sorted(state.items())
-                 if act and k not in active_keys]
+        is_new = st is None or not st[1]
+        # state rows may be (ts, active) or (ts, active, ever_sent);
+        # a tracked-but-never-mailed WARN must still make its first digest
+        ever_sent = st[2] if (st is not None and len(st) > 2) else True
+        age_h = None if is_new else (now - st[0]).total_seconds() / 3600.0
+        if warn_digest is None or a.severity == SEV_CRIT:
+            if is_new or age_h >= resend_hours:
+                to_send.append(a)
+        else:                                   # WARNING under the policy
+            if warn_digest and (is_new or not ever_sent
+                                or age_h >= warn_resend_hours):
+                to_send.append(a)
+    recovered = [k for k, st in sorted(state.items())
+                 if st[1] and k not in active_keys]
     return to_send, recovered
+
+
+def recoveries_to_mail(recovered: List[str],
+                       severity_by_key: Dict[str, str]) -> List[str]:
+    """Only CRITICAL recoveries earn a mail line; a WARNING quietly
+    clearing is tomorrow's digest simply not mentioning it. Unknown
+    severity mails (safe side)."""
+    return [k for k in recovered
+            if severity_by_key.get(k, SEV_CRIT) == SEV_CRIT]
 
 
 def render_body(to_send: List[Alert], recovered: List[str],

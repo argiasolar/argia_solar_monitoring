@@ -62,6 +62,14 @@ def main(argv=None) -> int:
                  len(rows), len(sql))
         return 0
     psql_exec(sql)
+    # vendor-protected rows keep their pr; re-derive it now from the
+    # corrected energy + the irradiance this very mirror just delivered
+    # (otherwise healed-day PR waits for the 23:50 recon pass)
+    try:
+        from argia.recon.backfill import build_pr_resync_sql
+        psql_exec(build_pr_resync_sql())
+    except RuntimeError as e:
+        LOG.warning("pr resync failed (mirror unaffected): %s", e)
     r = psql_rows("SELECT count(*), max(prod_date) FROM daily_production;")
     LOG.info("mirrored %d rows (window >= %s); daily_production now %s",
              len(rows), min_date, r[0] if r else "?")

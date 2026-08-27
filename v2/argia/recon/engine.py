@@ -252,3 +252,26 @@ def monthly_close(interval_sum_kwh: Optional[float],
                         vendor_monthly_kwh, ld, completeness_pct,
                         c1, c2, c4, billing, basis, status,
                         "; ".join(notes))
+
+
+def effective_completeness(tick_pct: Optional[float],
+                           reporting: Optional[int],
+                           configured: Optional[int]) -> Optional[float]:
+    """Tick completeness scaled by the share of CONFIGURED inverters
+    that actually reported that day.
+
+    The GTO2 lesson, round two (2026-08-27): with Inverter 2's
+    monitoring comms dead, tick completeness read 100% while the
+    interval sum was guaranteed ~25% under the vendor counter — recon
+    FAILed every single day for a cause that was already known, alerted
+    and tracked. Scaling by reporting/configured turns that into an
+    honest sub-95% REVIEW ("undercount expected") without hiding
+    anything: the silent inverter still has its own alert.
+    Pure; None in -> None out; factor clamped to [0, 1].
+    """
+    if tick_pct is None:
+        return None
+    if not configured or configured <= 0 or reporting is None:
+        return round(tick_pct, 2)
+    factor = max(0.0, min(1.0, float(reporting) / float(configured)))
+    return round(tick_pct * factor, 2)

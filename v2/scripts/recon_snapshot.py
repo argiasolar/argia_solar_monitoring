@@ -222,11 +222,33 @@ def _num(v: Optional[float]) -> str:
     return "NULL" if v is None else f"{v:.3f}"
 
 
+def inverter_coverage(date_iso: str) -> Dict[str, Tuple[int, int]]:
+    """{plant: (reporting, configured)} for one MX date — configured
+    ACTIVE inverters vs those with any usable sample. Feeds the
+    completeness scaling (a comms-dead inverter guarantees an interval
+    undercount that perfect ticks can't see)."""
+    out: Dict[str, Tuple[int, int]] = {}
+    for r in psql_rows(
+            "SELECT i.plant_key, count(*),"
+            " count(*) FILTER (WHERE EXISTS (SELECT 1 FROM telemetry t"
+            "  WHERE t.inverter_sn = i.inverter_sn"
+            f"  AND {MX_DATE_SQL} = DATE '{date_iso}'"
+            "  AND (t.etoday_kwh IS NOT NULL OR t.power_w IS NOT NULL)))"
+            " FROM inverter i WHERE i.active GROUP BY 1;"):
+        if len(r) >= 3:
+            try:
+                out[r[0]] = (int(r[2]), int(r[1]))
+            except ValueError:
+                continue
+    return out
+
+
 def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
                   dry_run: bool) -> int:
     """(Re)compute reconciliation_daily for one date. Returns row count."""
     interval = interval_by_plant(date_iso)
     stored = stored_daily(date_iso)
+    coverage = inverter_coverage(date_iso)
     plants = sorted(set(interval) | set(stored) | set(brand_by_plant))
     values = []
     for pk in plants:
@@ -236,6 +258,12 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
         completeness = round(100.0 * ticks / expected, 2) if expected else None
         if completeness is not None:
             completeness = min(completeness, 100.0)
+        rep, conf = coverage.get(pk, (None, None))
+        completeness = E.effective_completeness(completeness, rep, conf)
+        if (rep is not None and conf and rep < conf):
+            LOG.info("recon %s %s: %d/%d configured inverters reported"
+                     " — completeness scaled to %s", date_iso, pk,
+                     rep, conf, completeness)
         r = E.daily_recon(ikwh, vendor_daily, kpi, completeness)
         LOG.info("recon %s %s: %s (%s)", date_iso, pk, r.status, r.note)
         # Self-heal: a KPI day missing or below the vendor counter is

@@ -135,17 +135,22 @@ def gather_recon_fails() -> List[Tuple[str, str, str]]:
         " AND prod_date >= current_date - 3;") if len(r) >= 3]
 
 
-def load_state() -> Dict[str, Tuple[dt.datetime, bool]]:
-    out: Dict[str, Tuple[dt.datetime, bool]] = {}
+def load_state() -> Tuple[Dict[str, tuple], Dict[str, str]]:
+    """({key: (ts, active, ever_sent)}, {key: severity})."""
+    state: Dict[str, tuple] = {}
+    sev: Dict[str, str] = {}
     for r in psql_rows("SELECT key, coalesce(last_sent, first_seen),"
-                       " active FROM alert_state;"):
-        if len(r) >= 3:
+                       " active, (last_sent IS NOT NULL),"
+                       " coalesce(severity, 'CRITICAL')"
+                       " FROM alert_state;"):
+        if len(r) >= 5:
             try:
                 ts = dt.datetime.fromisoformat(r[1])
             except ValueError:
                 continue
-            out[r[0]] = (ts, r[2] == "t")
-    return out
+            state[r[0]] = (ts, r[2] == "t", r[3] == "t")
+            sev[r[0]] = r[4]
+    return state, sev
 
 
 def persist(active: List[monitor.Alert], sent_keys: List[str],
@@ -234,22 +239,31 @@ def main(argv=None) -> int:
     active = (p_alerts + i_alerts + s_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
               + monitor.recon_alerts(gather_recon_fails()))
-    to_send, recovered = monitor.plan_sends(active, load_state(), now)
-    LOG.info("active=%d to_send=%d recovered=%d recipients=%d mail_cfg=%s",
-             len(active), len(to_send), len(recovered), len(rcpt),
-             bool(cfg))
+    # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest —
+    # the 07:07 MX tick, after the whole morning chain has run.
+    digest = now_mx.hour == 7 and now_mx.minute < 30
+    state, sev_by_key = load_state()
+    to_send, recovered = monitor.plan_sends(active, state, now,
+                                            warn_digest=digest)
+    mail_recovered = monitor.recoveries_to_mail(recovered, sev_by_key)
+    LOG.info("active=%d to_send=%d recovered=%d (mailable=%d) digest=%s"
+             " recipients=%d mail_cfg=%s",
+             len(active), len(to_send), len(recovered),
+             len(mail_recovered), digest, len(rcpt), bool(cfg))
     for a in active:
         LOG.info("ACTIVE %s [%s] %s", a.key, a.severity, a.title)
 
-    if (to_send or recovered) and not args.dry_run:
+    if (to_send or mail_recovered) and not args.dry_run:
         if cfg and rcpt:
             n_crit = sum(1 for a in to_send
                          if a.severity == monitor.SEV_CRIT)
             subject = (f"[ARGIA] {len(to_send)} alert(s)"
                        + (f", {n_crit} critical" if n_crit else "")
-                       + (f", {len(recovered)} recovered" if recovered
+                       + (f", {len(mail_recovered)} recovered"
+                          if mail_recovered else "")
+                       + (" — daily digest" if digest and not n_crit
                           else ""))
-            body = monitor.render_body(to_send, recovered,
+            body = monitor.render_body(to_send, mail_recovered,
                                        now_mx.strftime("%Y-%m-%d %H:%M"))
             ok = emailer.send(emailer.build_email(
                 subject, body, cfg["SMTP_USER"], rcpt), cfg)

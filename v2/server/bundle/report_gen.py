@@ -1058,8 +1058,12 @@ def landing_page():
     # (portal-verified) rates cover the current month
     cfe_cov = ''
     try:
-        _rows = q("SELECT max(month)::text FROM cfe_tariff"
-                  " WHERE source='cfe_scrape';")
+        # a month counts as verified only when ALL 10 scrapeable
+        # tariffs are in (partial loads must not turn the tile yellow)
+        _rows = q("SELECT month::text FROM cfe_tariff"
+                  " WHERE source='cfe_scrape' GROUP BY month"
+                  " HAVING count(DISTINCT tariff_code) >= 10"
+                  " ORDER BY month DESC LIMIT 1;")
         cfe_cov = _rows[0][0] if _rows and _rows[0] else ''
     except Exception:
         cfe_cov = ''

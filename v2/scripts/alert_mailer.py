@@ -140,8 +140,10 @@ def gather_cfe_status() -> Optional[dict]:
             "SELECT round(extract(epoch FROM (now() - heartbeat_ts))"
             " / 3600.0, 1), coalesce(probe_status, ''),"
             " coalesce(last_csv_result, ''),"
-            " coalesce((SELECT max(month)::text FROM cfe_tariff"
-            "           WHERE source = 'cfe_scrape'), '')"
+            " coalesce((SELECT month::text FROM cfe_tariff"
+            "           WHERE source = 'cfe_scrape' GROUP BY month"
+            "           HAVING count(DISTINCT tariff_code) >= 10"
+            "           ORDER BY month DESC LIMIT 1), '')"
             " FROM cfe_pipeline_status WHERE id = 1;")
     except RuntimeError:
         return None

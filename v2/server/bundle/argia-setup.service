@@ -1,0 +1,12 @@
+[Unit]
+Description=ARGIA report access manager (user/password/per-report ACL)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/argia/bundle/setup_app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

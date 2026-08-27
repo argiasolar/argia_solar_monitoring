@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily ARGIA KPI sync at 07:40 UTC (after the v2-kpi-export Action)
+
+[Timer]
+OnCalendar=*-*-* 07:40:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

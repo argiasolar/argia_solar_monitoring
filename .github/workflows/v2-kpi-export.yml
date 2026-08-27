@@ -6,7 +6,9 @@ name: v2-kpi-export
 
 on:
   schedule:
-    - cron: "10 7 * * *"   # 07:10 UTC = 01:10 MX, well after the Pi's EOD run
+    - cron: "40 13 * * *"  # 13:40 UTC = 07:40 MX — after pio06's argia-kpi
+                           # (06:00 MX) stamps yesterday; was 07:10 UTC from
+                           # the Pi era and exported a stale day
   workflow_dispatch:
     inputs:
       days:

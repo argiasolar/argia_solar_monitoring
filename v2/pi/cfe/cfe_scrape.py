@@ -60,6 +60,9 @@ MES_TAG = {1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN",
 P = "ctl00$ContentPlaceHolder1$"
 SEL_ANIO = f"select[name='{P}Fecha$ddAnio']"
 SEL_MES = f"select[name='{P}Fecha2$ddMes']"
+# past years render a DIFFERENT month control (found 2026-08-27:
+# current year = Fecha2$ddMes, earlier years = MesVerano3$ddMesConsulta)
+SEL_MES_PAST = f"select[name='{P}MesVerano3$ddMesConsulta']"
 SEL_EDO = f"select[name='{P}EdoMpoDiv$ddEstado']"
 SEL_MPO = f"select[name='{P}EdoMpoDiv$ddMunicipio']"
 SEL_DIV = f"select[name='{P}EdoMpoDiv$ddDivision']"
@@ -143,6 +146,7 @@ class CfePage:
     def __init__(self, page, url):
         self.page = page
         self.url = url
+        self._year = None
         self.page.goto(url, wait_until="domcontentloaded", timeout=90000)
         self.page.wait_for_timeout(9000)   # Incapsula JS challenge
         self.page.goto(url, wait_until="networkidle", timeout=90000)
@@ -179,10 +183,19 @@ class CfePage:
         raise last
 
     def set_year(self, year):
+        if self._year == year:
+            return          # same-value select still fires a postback
         self._pb(SEL_ANIO, str(year))
+        self._year = year
 
     def set_month(self, month):
-        self._pb(SEL_MES, str(month))
+        """Current year uses Fecha2$ddMes; past years swap it for
+        MesVerano3$ddMesConsulta. Pick whichever is on the page."""
+        self.page.wait_for_selector(f"{SEL_MES}, {SEL_MES_PAST}",
+                                    timeout=20000)
+        sel = (SEL_MES if self.page.query_selector(SEL_MES)
+               else SEL_MES_PAST)
+        self._pb(sel, str(month))
 
     def set_location(self, estado_v, muni_v):
         self._pb(SEL_EDO, str(estado_v))

@@ -122,6 +122,46 @@ def satellite_alerts(rows: List[Tuple[str, str, str, str]]) -> List[Alert]:
     return sorted(out, key=lambda a: a.key)
 
 
+def cfe_alerts(status: Optional[dict],
+               today: Optional[dt.date] = None) -> List[Alert]:
+    """CFE tariff pipeline watchdog (Pi fetcher + pio06 ingest).
+    status keys: heartbeat_age_h, probe_status, last_csv_result,
+    coverage_month ('YYYY-MM-01' or ''). status None = pipeline not
+    deployed yet -> silent. All WARNING (ride the daily digest)."""
+    if not status:
+        return []
+    today = today or dt.date.today()
+    out: List[Alert] = []
+    age = status.get("heartbeat_age_h")
+    if age is None or age > 72:
+        shown = "never" if age is None else f"{age:.0f}h ago"
+        out.append(Alert("cfe-heartbeat", SEV_WARN,
+                         "CFE Pi heartbeat stale",
+                         f"Last heartbeat from the CFE fetcher Pi: "
+                         f"{shown} (expected daily). Check the Pi in "
+                         f"Zapopan (argiapi.local, ~/cfe/logs/)."))
+    elif status.get("probe_status") != "ok":
+        out.append(Alert("cfe-probe", SEV_WARN,
+                         "CFE portal probe failing on the Pi",
+                         "Daily GDMTH probe did not complete — WAF "
+                         "block, page change, or browser issue. See "
+                         "~/cfe/logs/ on the Pi."))
+    if status.get("last_csv_result") == "rejected":
+        out.append(Alert("cfe-reject", SEV_WARN,
+                         "CFE tariff CSV rejected by ingest",
+                         "Last pushed CSV failed validation on pio06 "
+                         "— see /opt/argia/cfe_inbox/rejected/."))
+    cov = (status.get("coverage_month") or "")[:7]
+    if today.day >= 10 and cov < today.strftime("%Y-%m"):
+        out.append(Alert("cfe-coverage", SEV_WARN,
+                         "CFE tariffs not updated this month",
+                         f"Newest scraped tariff month is "
+                         f"{cov or 'none'}; expected "
+                         f"{today.strftime('%Y-%m')} by day 10. The "
+                         f"/cfe page may be showing stale rates."))
+    return sorted(out, key=lambda a: a.key)
+
+
 # ----------------------------------------------------------- send logic
 def plan_sends(active: List[Alert],
                state: Dict[str, Tuple[dt.datetime, bool]],

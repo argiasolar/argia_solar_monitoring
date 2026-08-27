@@ -1,0 +1,9 @@
+[Unit]
+Description=ARGIA CFE tariff ingest (CSVs + heartbeat pushed by the Pi)
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/argia/bundle/cfe_ingest.py
+TimeoutStartSec=600

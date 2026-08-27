@@ -132,6 +132,30 @@ def gather_satellite_drift() -> List[Tuple[str, str, str, str]]:
         return []
 
 
+def gather_cfe_status() -> Optional[dict]:
+    """CFE pipeline status for monitor.cfe_alerts(). None while the
+    pipeline is not deployed (table absent or empty) — silent."""
+    try:
+        rows = psql_rows(
+            "SELECT round(extract(epoch FROM (now() - heartbeat_ts))"
+            " / 3600.0, 1), coalesce(probe_status, ''),"
+            " coalesce(last_csv_result, ''),"
+            " coalesce((SELECT max(month)::text FROM cfe_tariff"
+            "           WHERE source = 'cfe_scrape'), '')"
+            " FROM cfe_pipeline_status WHERE id = 1;")
+    except RuntimeError:
+        return None
+    if not rows or len(rows[0]) < 4:
+        return None
+    r = rows[0]
+    try:
+        age = float(r[0]) if r[0] else None
+    except ValueError:
+        age = None
+    return {"heartbeat_age_h": age, "probe_status": r[1],
+            "last_csv_result": r[2], "coverage_month": r[3]}
+
+
 def gather_recon_fails() -> List[Tuple[str, str, str]]:
     return [(r[0], r[1], r[2][:120]) for r in psql_rows(
         "SELECT plant_key, prod_date::text, coalesce(note,'')"
@@ -242,7 +266,9 @@ def main(argv=None) -> int:
                 if a.key.split(":")[1] not in in_maint]
     active = (p_alerts + i_alerts + s_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
-              + monitor.recon_alerts(gather_recon_fails()))
+              + monitor.recon_alerts(gather_recon_fails())
+              + monitor.cfe_alerts(gather_cfe_status(),
+                                   today=now_mx.date()))
     # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest —
     # the 07:07 MX tick, after the whole morning chain has run.
     digest = now_mx.hour == 7 and now_mx.minute < 30

@@ -1054,9 +1054,24 @@ def landing_page():
 <p><b>{t("Revenue generated:","Ingreso generado:")}</b> {t("accrued PPA revenue (measured energy × contract tariff of each month) + LaaS fees at the loan-schedule FX of each month. An accrual estimate, not invoiced amounts; no IVA.","ingreso PPA devengado (energía medida × tarifa contractual de cada mes) + cuotas LaaS al tipo de cambio mensual de la tabla del crédito. Estimado devengado, no facturado; sin IVA.")}</p>
 <p>{t("Access is restricted to authorized ARGIA users. Data through","Acceso restringido a usuarios autorizados de ARGIA. Datos hasta")} {asof}.</p>
 </details></div>''')
+    # CFE freshness: the lightning goes CFE-yellow only when scraped
+    # (portal-verified) rates cover the current month
+    cfe_cov = ''
+    try:
+        cfe_cov = (q("SELECT max(month)::text FROM cfe_tariff"
+                     " WHERE source='cfe_scrape';") or '').strip()
+    except Exception:
+        cfe_cov = ''
+    cfe_fresh = bool(cfe_cov) and cfe_cov[:7] >= asof[:7]
+    cfe_style = ' style="color:#e3a008"' if cfe_fresh else ''
+    cfe_title = (t(f'CFE rates verified through {cfe_cov[:7]}',
+                   f'Tarifas CFE verificadas hasta {cfe_cov[:7]}')
+                 if cfe_fresh else
+                 t('CFE rates not yet verified for the current month',
+                   'Tarifas CFE aún no verificadas para el mes actual'))
     body.append(f'''<div class="flinks">
 <a href="setup/">{ic_set}{t("User &amp; access setup","Gestión de usuarios y accesos")}</a>
-<a href="cfe/">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
+<a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
 </div>''')
     body.append(pdf_bottom())
     return page(''.join(body), 'ARGIA — Reports')

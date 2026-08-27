@@ -617,9 +617,6 @@ def plant_page(k):
     is_ppa = p['portfolio'] == 'PPA'
     mrows = sorted((ym, v) for (kk, ym), v in monthly_kwh.items() if kk == k)
     life = sum(v for _, v in mrows)
-    l30 = [(d, daily.get((k, d), 0.0)) for d in
-           [(dt.date.fromisoformat(asof) - dt.timedelta(days=i)).isoformat()
-            for i in range(29, -1, -1)]]
     pr = pr30.get(k)
     stale = last_seen.get(k, asof) < asof
 
@@ -982,7 +979,6 @@ HOME_KWH_YR = 2000.0       # avg Mexican household consumption per year, approx.
 def landing_page():
     life = sum(monthly_kwh.values())                       # kWh
     fleet_kwp = sum(p['kwp'] for p in plants.values())
-    mrows = sorted({(ym) for (_, ym) in monthly_kwh})
     this_m = asof[:7]
     mtd = sum(v for (k2, m2), v in monthly_kwh.items() if m2 == this_m)
     rev_life = sum(a[2] for a in atoms)                    # actual MXN, PPA + LaaS

@@ -241,6 +241,10 @@ h1.sect{font-size:19px;font-weight:700;margin:28px 0 10px;color:#1c2733;}
  border-left:3px solid var(--s1);}
 .navbig svg{width:30px;height:30px;stroke:var(--s1);flex-shrink:0;}
 .navbig .nb b{font-size:14.5px;} .navbig .nb{display:block;}
+.flinks{display:flex;gap:22px;margin:18px 2px 6px;font-size:12.5px;flex-wrap:wrap;}
+.flinks a{color:var(--ink2);text-decoration:none;display:inline-flex;gap:6px;align-items:center;}
+.flinks a:hover{color:var(--s1);}
+.flinks svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0;}
 .tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 16px;}
 .tlabel{font-size:13px;color:var(--ink2);}
@@ -1015,8 +1019,8 @@ def landing_page():
               '<path d="M3 21h18M6 21V10M11 21V4M16 21v-8M21 21V7"/></svg>')
     ic_cap = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
               '<path d="M3 21V9l6 4V9l6 4V5h6v16H3z"/></svg>')
-    ic_set = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round">'
-              '<circle cx="12" cy="8" r="3.2"/><path d="M5 20c1.4-3 4-4.5 7-4.5s5.6 1.5 7 4.5"/></svg>')
+    ic_set = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+              '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.47V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.47 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.47-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.47-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.01A1.6 1.6 0 0 0 9.8 4.1V4a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76v.01c.26.6.85.99 1.5.99H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.47.97z"/></svg>')
     ic_cfe = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
               '<path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>')
     ic_mon = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
@@ -1027,10 +1031,6 @@ def landing_page():
  <span>{t("PPA + LaaS · revenue, debt service, DSCR","PPA + LaaS · ingreso, deuda, DSCR")}</span></span></a>
 <a href="capex/">{ic_cap}<span class="nb"><b>{t("CAPEX Plants — Overview","Plantas CAPEX — Resumen")}</b>
  <span>{t("portfolio overview + status","resumen del portafolio + estado")}</span></span></a>
-<a href="setup/">{ic_set}<span class="nb"><b>{t("User & access setup","Gestión de usuarios y accesos")}</b>
- <span>{t("admins only · users, passwords, per-report access","solo admins · usuarios, contraseñas, acceso por reporte")}</span></span></a>
-<a href="cfe/">{ic_cfe}<span class="nb"><b>{t("CFE Tariffs","Tarifas CFE")}</b>
- <span>{t("all industrial tariffs · every charge · 12 months","todas las tarifas industriales · todos los cargos · 12 meses")}</span></span></a>
 <a href="https://monitoring.argia.com.mx/">{ic_mon}<span class="nb"><b>{t("Live Monitoring","Monitoreo en Vivo")}</b>
  <span>{t("5-minute fleet view · inverters · reconciliation","vista de flota cada 5 min · inversores · conciliación")}</span></span></a>
 </div>''')
@@ -1054,6 +1054,10 @@ def landing_page():
 <p><b>{t("Revenue generated:","Ingreso generado:")}</b> {t("accrued PPA revenue (measured energy × contract tariff of each month) + LaaS fees at the loan-schedule FX of each month. An accrual estimate, not invoiced amounts; no IVA.","ingreso PPA devengado (energía medida × tarifa contractual de cada mes) + cuotas LaaS al tipo de cambio mensual de la tabla del crédito. Estimado devengado, no facturado; sin IVA.")}</p>
 <p>{t("Access is restricted to authorized ARGIA users. Data through","Acceso restringido a usuarios autorizados de ARGIA. Datos hasta")} {asof}.</p>
 </details></div>''')
+    body.append(f'''<div class="flinks">
+<a href="setup/">{ic_set}{t("User &amp; access setup","Gestión de usuarios y accesos")}</a>
+<a href="cfe/">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
+</div>''')
     body.append(pdf_bottom())
     return page(''.join(body), 'ARGIA — Reports')
 

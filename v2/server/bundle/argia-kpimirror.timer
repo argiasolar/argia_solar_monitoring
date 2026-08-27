@@ -1,0 +1,7 @@
+[Unit]
+Description=Daily KPI->PG mirror, 06:15 MX (after argia-kpi 06:00)
+[Timer]
+OnCalendar=*-*-* 06:15:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

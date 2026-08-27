@@ -102,9 +102,24 @@ def main():
             'pr_stc', 'billable_kwh', 'expected_kwh', 'availability',
             'cloud_cover_pct', 'data_class', 'inverters_reporting',
             'status_note', 'source']
-    upd = ', '.join(
-        f'{c}=COALESCE(EXCLUDED.{c}, daily_production.{c})'
-        for c in cols if c not in ('plant_key', 'prod_date', 'source'))
+    # Protected upsert (2026-08-27, mirrors argia/store/kpi_mirror.py):
+    # a row whose status_note carries vendor-counter provenance keeps
+    # its energy_kwh, pr, pr_stc and status_note — a sheet re-sync can
+    # never re-introduce an undercount or a stale PR.
+    guard = ("daily_production.status_note LIKE "
+             "'energy from vendor daily counter%'")
+    protected = {'energy_kwh', 'pr', 'pr_stc', 'status_note'}
+    parts = []
+    for c in cols:
+        if c in ('plant_key', 'prod_date', 'source'):
+            continue
+        base = f'COALESCE(EXCLUDED.{c}, daily_production.{c})'
+        if c in protected:
+            parts.append(f'{c}=CASE WHEN {guard} '
+                         f'THEN daily_production.{c} ELSE {base} END')
+        else:
+            parts.append(f'{c}={base}')
+    upd = ', '.join(parts)
     tuples = ',\n'.join('(' + ','.join(v[c] for c in cols) + ')' for v in values)
     before = psql('SELECT count(*), max(prod_date) FROM daily_production;')
     psql(f'INSERT INTO daily_production ({",".join(cols)}) VALUES\n{tuples}\n'

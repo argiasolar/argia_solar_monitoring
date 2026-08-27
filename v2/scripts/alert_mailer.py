@@ -29,7 +29,8 @@ UNITS = ("argia-telemetry", "argia-telemetry-se", "argia-kpi",
          "argia-alerts-daily", "argia-alerts-snap", "argia-finreport",
          "argia-report-am", "argia-report-pm", "argia-dash-update",
          "argia-client-pages", "argia-archive", "argia-recon",
-         "argia-sync", "argia-monitoring-gen", "argia-satcheck")
+         "argia-sync", "argia-monitoring-gen", "argia-satcheck",
+         "argia-kpimirror")
 
 
 def _txt(s: str) -> str:

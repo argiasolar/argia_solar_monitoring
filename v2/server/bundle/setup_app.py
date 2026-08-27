@@ -26,7 +26,7 @@ import sqlite3
 import subprocess
 import time as _time
 
-from flask import Flask, request, redirect, make_response
+from flask import Flask, request, make_response
 
 sys_dir = os.path.dirname(os.path.abspath(__file__))
 import sys

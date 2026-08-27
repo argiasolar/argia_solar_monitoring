@@ -650,10 +650,18 @@ def plant_page(pk, d):
     for sn, label, rated in CONFIG_INV.get(pk, []):
         if sn in seen_sns:
             continue
+        silent_pill = ('<span class="pill bad"'
+                       ' data-en="SILENT — no data this day"'
+                       ' data-es="SIN DATOS este día">'
+                       'SILENT — no data this day</span>')
+        if portal:
+            silent_pill = (f'<a class="statlink" href="{esc(portal)}"'
+                           f' target="_blank" rel="noopener"'
+                           f' title="Open {esc(meta["brand"])} portal">'
+                           f'{silent_pill}</a>')
         inv_cells.append(
             f'<tr><td>{esc(label)}</td>'
-            '<td><span class="pill bad" data-en="SILENT — no data this day"'
-            ' data-es="SIN DATOS este día">SILENT — no data this day</span>'
+            f'<td>{silent_pill}'
             ' <span class=note data-en="configured active'
             f' ({(rated or 0):,.0f} kW) but never reported" data-es="configurado'
             ' activo pero sin reportar">configured active'

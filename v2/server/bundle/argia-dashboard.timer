@@ -1,0 +1,7 @@
+[Unit]
+Description=Daily ARGIA report regeneration
+[Timer]
+OnCalendar=*-*-* 12:20:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target

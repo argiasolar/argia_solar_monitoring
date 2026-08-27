@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA end-of-day KPI stamping (yesterday)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+SuccessExitStatus=1
+ExecStart=/root/argia_v2/v2/pi/run_job.sh kpi kpi_eod.py --dense-irradiance

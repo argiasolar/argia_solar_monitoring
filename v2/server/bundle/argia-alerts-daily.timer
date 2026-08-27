@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA alerts daily tier (full evaluation + resolution)
+[Timer]
+OnCalendar=*-*-* 06:30:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA financial web report publish
+[Timer]
+OnCalendar=*-*-* 06:50:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

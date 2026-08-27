@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA dashboard tabs rebuild + HTML publish
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/bin/bash -c '/root/argia_v2/v2/pi/run_job.sh dashboard dashboard_update.py --apply && /root/argia_v2/v2/pi/run_job.sh dashpub dashboard_html_publish.py --apply'

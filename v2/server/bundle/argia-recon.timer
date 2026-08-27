@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA reconciliation snapshot, 23:50 MX daily
+[Timer]
+OnCalendar=*-*-* 23:50:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

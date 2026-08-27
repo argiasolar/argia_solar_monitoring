@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA internal daily report (today, live)
+[Timer]
+OnCalendar=*-*-* 20:45:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

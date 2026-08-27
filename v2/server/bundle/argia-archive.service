@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA telemetry archive + retention
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh telemetry-archive telemetry_archive.py --apply --include-argia --window-days 4

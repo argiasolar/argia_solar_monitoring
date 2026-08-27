@@ -86,10 +86,14 @@ def gather_failed_units() -> List[Tuple[str, str]]:
             capture_output=True, text=True, timeout=20)
         props = dict(ln.split("=", 1) for ln in r.stdout.splitlines()
                      if "=" in ln)
-        status = props.get("ExecMainStatus", "0")
-        if status not in ("", "0"):
+        # Judge by systemd's verdict, not the raw exit code — units may
+        # declare SuccessExitStatus (argia-kpi exits 1 on a partial day
+        # by design, e.g. QRO1 dark; that is not a failure).
+        result = props.get("Result", "success")
+        if result not in ("", "success"):
+            status = props.get("ExecMainStatus", "?")
             out.append((f"{u}.service",
-                        f"exit {status} at "
+                        f"{result} (exit {status}) at "
                         f"{props.get('ExecMainExitTimestamp', '?')}"))
     return out
 

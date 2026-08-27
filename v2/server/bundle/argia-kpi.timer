@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA end-of-day KPI stamping (yesterday)
+[Timer]
+OnCalendar=*-*-* 06:00:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

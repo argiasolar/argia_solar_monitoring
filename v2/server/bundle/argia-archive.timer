@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA telemetry archive + retention
+[Timer]
+OnCalendar=*-*-* 03:00:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

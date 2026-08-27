@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA monitoring portal, every 5 min 05-22h MX
+[Timer]
+OnCalendar=*-*-* 05..22:02/5:00 America/Mexico_City
+Persistent=false
+[Install]
+WantedBy=timers.target

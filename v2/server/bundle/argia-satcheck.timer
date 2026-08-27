@@ -1,0 +1,7 @@
+[Unit]
+Description=Daily satellite irradiance cross-check, 06:20 MX
+[Timer]
+OnCalendar=*-*-* 06:20:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

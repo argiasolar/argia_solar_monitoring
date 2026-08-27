@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA monthly invoice annex generation
+[Timer]
+OnCalendar=*-*-01 07:30:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

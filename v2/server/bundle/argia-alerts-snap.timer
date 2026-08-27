@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA alerts acute tier (open/touch only)
+[Timer]
+OnCalendar=*-*-* 07..19:00/30:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

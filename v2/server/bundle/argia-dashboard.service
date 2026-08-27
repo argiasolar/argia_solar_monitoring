@@ -1,0 +1,5 @@
+[Unit]
+Description=Regenerate ARGIA report pages from PostgreSQL
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/argia/bundle/report_gen.py /www/hosting/monitoring.argia.com.mx/www

@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA dashboard tabs rebuild + HTML publish
+[Timer]
+OnCalendar=*-*-* 06..20:02/10:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

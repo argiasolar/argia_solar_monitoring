@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA telemetry every 5 min, 05-21h MX
+[Timer]
+OnCalendar=*-*-* 05..21:00/5:00 America/Mexico_City
+Persistent=false
+[Install]
+WantedBy=timers.target

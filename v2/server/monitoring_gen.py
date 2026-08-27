@@ -262,6 +262,42 @@ for r in q("SELECT plant_key, prod_date::text, pr FROM daily_production"
     if len(r) >= 3 and f(r[2]) is not None:
         PR_TREND.setdefault(r[0], []).append((r[1], f(r[2])))
 
+
+def perf_avail_tiles(keys, grp=''):
+    """Two KPI tiles — Performance (30-day PR) and Availability (30d) —
+    kWp-weighted across `keys` (a single plant gives its own values).
+    Bands match the performance page: PR >=0.75 green / >=0.65 amber;
+    availability >=98% green / >=95% amber (IEC 63019). Missing data
+    renders an em dash, never 0."""
+    w_pr = kwp_pr = w_av = kwp_av = 0.0
+    for k in keys:
+        p = PERF.get(k, {})
+        kwp = PLANTS[k]['kwp']
+        if p.get('pr') is not None:
+            w_pr += p['pr'] * kwp; kwp_pr += kwp
+        if p.get('avail') is not None:
+            w_av += p['avail'] * kwp; kwp_av += kwp
+    pr = (w_pr / kwp_pr) if kwp_pr else None
+    av = (w_av / kwp_av) if kwp_av else None
+    pr_cls = ('' if pr is None else
+              (' class="st-PASS"' if pr >= 0.75 else
+               (' class="st-REVIEW"' if pr >= 0.65 else ' class="st-FAIL"')))
+    av_cls = ('' if av is None else
+              (' class="st-PASS"' if av >= 0.98 else
+               (' class="st-REVIEW"' if av >= 0.95 else ' class="st-FAIL"')))
+    g = (grp + ' ') if grp else ''
+    return (
+        f'<div class="kpi"><div class="v"><span{pr_cls}>'
+        f'{"—" if pr is None else f"{pr:.3f}"}</span></div>'
+        f'<div class="l" data-en="{g}performance · PR 30d"'
+        f' data-es="Desempeño {grp} · PR 30d">{g}performance · PR 30d'
+        '</div></div>'
+        f'<div class="kpi"><div class="v"><span{av_cls}>'
+        f'{"—" if av is None else f"{100 * av:,.1f}%"}</span></div>'
+        f'<div class="l" data-en="{g}availability · 30d"'
+        f' data-es="Disponibilidad {grp} · 30d">{g}availability · 30d'
+        '</div></div>')
+
 # active maintenance events (PG table; portal badge + invoicing input)
 MAINT_TODAY = {}
 try:
@@ -527,6 +563,7 @@ def fleet_page():
 <div class="kpi"><div class="v">{p_:,.1f} kW</div><div class="l" data-en="{grp} power now" data-es="Potencia {grp} ahora">{grp} power now</div></div>
 <div class="kpi"><div class="v">{e_:,.0f} kWh</div><div class="l" data-en="{grp} energy today" data-es="Energía {grp} hoy">{grp} energy today</div></div>
 <div class="kpi"><div class="v">{len(keys)}</div><div class="l" data-en="{grp} plants" data-es="Plantas {grp}">{grp} plants</div></div>
+{perf_avail_tiles(keys, grp)}
 </div>'''
         sections.append(
             f'<h2 class="sect" data-en="{label_en}" data-es="{label_es}">'
@@ -698,6 +735,7 @@ def plant_page(pk, d):
 <div class="kpi"><div class="v">{fmt_kwh(day_kwh)} kWh</div><div class="l" data-en="Energy today (interval)" data-es="Energía hoy (intervalos)">Energy today (interval)</div></div>
 <div class="kpi"><div class="v">{fmt_kwh(vend)} kWh</div><div class="l" data-en="Vendor counter (last snapshot)" data-es="Contador del fabricante">Vendor counter (last snapshot)</div></div>
 <div class="kpi"><div class="v">{fresh}/{conf_total}</div><div class="l" data-en="Inverters live / configured" data-es="Inversores en línea / configurados">Inverters live / configured</div></div>
+{perf_avail_tiles([pk])}
 <div class="kpi"><div class="v"><span class="pill {cls}" data-en="{esc(len_)}" data-es="{esc(les)}">{esc(len_)}</span></div><div class="l">Status</div></div>
 </div>'''
         sub = f'{pk} · {meta["kwp"]:,.1f} kWp · {esc(meta["brand"])} · live monitoring'

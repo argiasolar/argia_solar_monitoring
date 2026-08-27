@@ -49,6 +49,10 @@ def corrections():
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--allow-lower", action="store_true",
+                        help="also apply corrections that LOWER a sheet "
+                             "value — only when PG carries a vendor-"
+                             "authoritative export (never the default)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: "
@@ -113,9 +117,22 @@ def main(argv=None) -> int:
             same += 1
             continue
         if old is not None and old > kwh:
+            if not args.allow_lower:
+                lowered += 1
+                LOG.warning("SKIP %s %s: sheet %.1f > vendor %.1f — never "
+                            "lowering automatically", pk, d, old, kwh)
+                continue
+            # --allow-lower: the operator holds a vendor-authoritative
+            # export that says the stored value is too HIGH (day-boundary
+            # swap, SLP2 03/08 case). Explicit human decision, logged.
             lowered += 1
-            LOG.warning("SKIP %s %s: sheet %.1f > vendor %.1f — never "
-                        "lowering automatically", pk, d, old, kwh)
+            LOG.warning("LOWER %s %s: %.1f -> %.1f (vendor-authoritative "
+                        "export, --allow-lower)", pk, d, old, kwh)
+            cells.append((idx, c_energy + 1, kwh))
+            if c_note >= 0:
+                cells.append((idx, c_note + 1,
+                              "energy corrected DOWN from vendor portal "
+                              f"export (was {old:.1f})"))
             continue
         raised += 1
         LOG.info("FIX %s %s: %s -> %.1f kWh", pk, d,

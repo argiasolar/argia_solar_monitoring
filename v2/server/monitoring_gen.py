@@ -93,6 +93,15 @@ REF_LINKS = {
     'SLP2': 'https://argia.com.mx/es/references/holiday-inn',
 }
 
+# Vendor monitoring portals — clicking an inverter Status pill opens the
+# brand's own portal in a new tab (login is the vendor's, not ours).
+VENDOR_PORTAL = {
+    'GROWATT': 'https://server.growatt.com/',
+    'HUAWEI': 'https://la5.fusionsolar.huawei.com/'
+              'pvmswebsite/login/build/index.html',
+    'SOLAREDGE': 'https://monitoring.solaredge.com/mfe/auth/',
+}
+
 
 def photo_uri(pk, thumb=False):
     """Site photo (fetched once from the reference page into
@@ -324,6 +333,8 @@ h1{font-size:23px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
 .pill.warn{background:#fdf0dc;color:#a05c00;}
 .pill.bad{background:#fde7e9;color:#c5221f;}
 .pill.off{background:#eceef0;color:#5f6368;}
+a.statlink{text-decoration:none;}
+a.statlink .pill:hover{outline:1px solid #1a73e8;cursor:pointer;}
 .card{background:#fff;border:1px solid #e4e7ea;border-radius:10px;padding:16px 18px;margin:14px 0;overflow-x:auto;}
 .card h2{font-size:14.5px;margin:0 0 10px;}
 table{border-collapse:collapse;width:100%;font-size:13.5px;}
@@ -358,6 +369,8 @@ def page(title, body, subtitle='', refresh=True):
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">{meta_r}
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="shortcut icon" href="/favicon.ico">
 <title>{esc(title)} — ARGIA Monitoring</title>
 <style>{STYLE}</style></head><body><div class="wrap">
 <div class="top"><div><h1>{esc(title)}</h1>
@@ -374,6 +387,7 @@ def controls(extra=''):
     return (f'<div class="controls"><a class="btn" href="/" data-en="Fleet"'
             ' data-es="Flota">Fleet</a>'
             '<a class="btn" href="/ppa/" data-en="All PPA" data-es="Todo PPA">All PPA</a>'
+            '<a class="btn" href="/capex/" data-en="CAPEX" data-es="CAPEX">CAPEX</a>'
             '<a class="btn" href="/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
             '<a class="btn" href="/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
             f'<a class="btn" href="{REPORT_BASE}/" data-en="Reports ↗" data-es="Reportes ↗">Reports ↗</a>'
@@ -486,10 +500,10 @@ def _tile(pk, meta):
 
 
 def fleet_page():
-    # summary numbers per portfolio — PPA money and CAPEX plants are
-    # different businesses; a blended fleet total hides both (user
-    # feedback 2026-08-26)
-    sums = {}   # label -> [power, energy, n_plants]
+    # PPA and CAPEX are different businesses and must never blend: each
+    # portfolio gets its OWN summary row directly above its own grid
+    # (user feedback 2026-08-26 + 2026-08-27). PPA is internal to Argia;
+    # CAPEX plant pages carry client-grade access (see nginx vhost).
     sections = []
     for label_en, label_es, keys in (
             ('PPA plants', 'Plantas PPA',
@@ -501,25 +515,23 @@ def fleet_page():
               if PLANTS[k]['portfolio'] not in ('PPA', 'CAPEX')])):
         if not keys:
             continue
+        grp = label_en.split()[0]
         tiles = []
-        s = sums.setdefault(label_en.split()[0], [0.0, 0.0, 0])
+        p_ = e_ = 0.0
         for pk in keys:
             power, etoday, tile = _tile(pk, PLANTS[pk])
-            s[0] += power or 0
-            s[1] += etoday or 0
-            s[2] += 1
+            p_ += power or 0
+            e_ += etoday or 0
             tiles.append(tile)
-        sections.append(
-            f'<h2 class="sect" data-en="{label_en}" data-es="{label_es}">'
-            f'{label_en}</h2><div class="grid">{"".join(tiles)}</div>')
-    groups = []
-    for grp, (p_, e_, n_) in sums.items():
-        groups.append(f'''<div class="kgroup">
+        kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{p_:,.1f} kW</div><div class="l" data-en="{grp} power now" data-es="Potencia {grp} ahora">{grp} power now</div></div>
 <div class="kpi"><div class="v">{e_:,.0f} kWh</div><div class="l" data-en="{grp} energy today" data-es="Energía {grp} hoy">{grp} energy today</div></div>
-<div class="kpi"><div class="v">{n_}</div><div class="l" data-en="{grp} plants" data-es="Plantas {grp}">{grp} plants</div></div>
-</div>''')
-    kpis = '<div class="kpis">' + ''.join(groups) + '</div>'
+<div class="kpi"><div class="v">{len(keys)}</div><div class="l" data-en="{grp} plants" data-es="Plantas {grp}">{grp} plants</div></div>
+</div>'''
+        sections.append(
+            f'<h2 class="sect" data-en="{label_en}" data-es="{label_es}">'
+            f'{label_en}</h2>{kpis}<div class="grid">{"".join(tiles)}</div>')
+    kpis = ''
     banner = ''
     ft = FIRST_TICK.get(TODAY, {})
     if ft and min(ft.values()) > 7:
@@ -608,6 +620,7 @@ def plant_page(pk, d):
     stored = next((e for dd, e, _x in DAILY.get(pk, []) if dd == d), None)
 
     inv_cells = []
+    portal = VENDOR_PORTAL.get(str(meta.get('brand', '')).upper())
     for i in sorted(invs, key=lambda v: v['label']):
         stale = live and i['age_min'] > STALE_MIN
         fault = i['status'] == 3
@@ -620,9 +633,15 @@ def plant_page(pk, d):
                                                         i['fault'])):
             detail = explain_fault(meta['brand'], i['fault']) or ''
         temp = '—' if i['temp'] is None else f"{i['temp']:.0f}"
+        pill_html = f'<span class="pill {pill_cls}">{esc(pill_txt)}</span>'
+        if portal:
+            pill_html = (f'<a class="statlink" href="{esc(portal)}"'
+                         f' target="_blank" rel="noopener"'
+                         f' title="Open {esc(meta["brand"])} portal">'
+                         f'{pill_html}</a>')
         inv_cells.append(
             f'<tr><td>{esc(i["label"])}</td>'
-            f'<td><span class="pill {pill_cls}">{esc(pill_txt)}</span>'
+            f'<td>{pill_html}'
             f'{(" <span class=note>" + esc(detail) + "</span>") if detail else ""}</td>'
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'
             f'<td>{temp}</td><td>{esc(i["last_mx"])}</td></tr>')
@@ -775,6 +794,66 @@ def ppa_page():
                 'All PPA plants · live + cumulative month view')
 
 
+def capex_page():
+    """CAPEX mirror of the PPA page. Deliberately a SEPARATE page:
+    CAPEX belongs to the customers and may be shared with them; PPA is
+    Argia's own business and stays internal (user rule 2026-08-27)."""
+    capex = [k for k in sorted(PLANTS) if PLANTS[k]['portfolio'] == 'CAPEX']
+    rows = []
+    tot_p = tot_e = tot_kwp = 0.0
+    mtd_prod = mtd_exp = 0.0
+    for pk in capex:
+        meta = PLANTS[pk]
+        power, etoday, fresh, total = plant_now(pk)
+        cls, len_, les = semaphore(pk)
+        tot_p += power or 0
+        tot_e += etoday or 0
+        tot_kwp += meta['kwp']
+        m = MTD.get(pk, {})
+        mtd_prod += m.get('prod', 0.0)
+        m_exp = m.get('exp')
+        if m_exp is not None:
+            mtd_exp += m_exp
+        m_pct = '—' if not m_exp else f"{100*m.get('prod', 0)/m_exp:,.0f}%"
+        rows.append(
+            f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}</a> '
+            f'<span class="tkey">{pk}</span></td>'
+            f'<td>{meta["kwp"]:,.0f}</td><td>{fmt1(power)}</td>'
+            f'<td>{fmt_kwh(etoday)}</td>'
+            f'<td>{m.get("prod", 0):,.0f}</td>'
+            f'<td>{"—" if m_exp is None else f"{m_exp:,.0f}"}</td>'
+            f'<td>{m_pct}</td><td>{fresh}/{total}</td>'
+            f'<td><span class="pill {cls}">{esc(len_)}</span></td></tr>')
+    pct = (100.0 * mtd_prod / mtd_exp) if mtd_exp else None
+    rows.append(
+        f'<tr style="font-weight:700;background:#fafbfc"><td>TOTAL</td>'
+        f'<td>{tot_kwp:,.0f}</td><td>{tot_p:,.1f}</td><td>{tot_e:,.0f}</td>'
+        f'<td>{mtd_prod:,.0f}</td><td>{mtd_exp:,.0f}</td>'
+        f'<td>{"—" if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
+    kpis = f'''<div class="kpis">
+<div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="CAPEX power right now" data-es="Potencia CAPEX ahora">CAPEX power right now</div></div>
+<div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="CAPEX energy today" data-es="Energía CAPEX hoy">CAPEX energy today</div></div>
+<div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production — month to date" data-es="Producción — mes en curso">Production — month to date</div></div>
+<div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected — month to date" data-es="Esperado — mes en curso">Expected — month to date</div></div>
+<div class="kpi" style="display:flex;flex-direction:column;align-items:center;align-self:flex-end">{gauge_svg(pct, width=150) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
+</div>'''
+    note = ('<p class="note" data-en="CAPEX plants belong to their owners; these figures are the owners\' production. Month-to-date sums come from vendor-counter-verified daily production."'
+            ' data-es="Las plantas CAPEX pertenecen a sus dueños; estas cifras son su producción. Los acumulados del mes provienen de producción diaria verificada contra el contador del fabricante.">'
+            'CAPEX plants belong to their owners; these figures are the owners\' production.</p>')
+    body = controls() + kpis + (
+        '<div class="card"><h2 data-en="CAPEX plants — live + month to date" data-es="Plantas CAPEX — en vivo + mes en curso">CAPEX plants — live + month to date</h2>'
+        '<table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>'
+        '<th data-en="Power kW" data-es="Potencia kW">Power kW</th>'
+        '<th data-en="Today kWh" data-es="Hoy kWh">Today kWh</th>'
+        '<th data-en="MTD kWh" data-es="Mes kWh">MTD kWh</th>'
+        '<th data-en="MTD expected" data-es="Mes esperado">MTD expected</th>'
+        '<th data-en="vs exp." data-es="vs esp.">vs exp.</th>'
+        '<th data-en="Inverters" data-es="Inversores">Inverters</th><th>Status</th></tr>'
+        + ''.join(rows) + '</table>' + note + '</div>')
+    return page('CAPEX Portfolio — Live', body,
+                'All CAPEX plants · live + cumulative month view')
+
+
 def pr_sparkline(pk, w=140, h=30):
     pts = [v for _d, v in PR_TREND.get(pk, [])][-30:]
     if len(pts) < 2:
@@ -920,6 +999,7 @@ def write(rel, content):
 n = 0
 write('index.html', fleet_page()); n += 1
 write('ppa/index.html', ppa_page()); n += 1
+write('capex/index.html', capex_page()); n += 1
 write('performance/index.html', performance_page()); n += 1
 write('recon/index.html', recon_page()); n += 1
 for pk in PLANTS:

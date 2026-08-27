@@ -3,7 +3,7 @@
 from argia.kpi.reconcile import date_key
 from argia.store.kpi_mirror import (
     PROTECTED,
-    VENDOR_NOTE_PREFIX,
+    VENDOR_NOTE_MARK,
     build_upsert_sql,
     normalize_rows,
 )
@@ -43,10 +43,11 @@ def test_upsert_sql_protects_vendor_rows():
     sql = build_upsert_sql(normalize_rows([_rec()], date_key))
     assert sql.startswith("INSERT INTO daily_production")
     assert "ON CONFLICT (plant_key, prod_date) DO UPDATE SET" in sql
-    # every protected column keeps the stored value on vendor rows
+    # every protected column keeps the stored value on vendor rows;
+    # the guard is a SUBSTRING match so both note flavors are covered
     for c in PROTECTED:
         assert (f"{c} = CASE WHEN daily_production.status_note LIKE "
-                f"'{VENDOR_NOTE_PREFIX}%' THEN daily_production.{c}") in sql
+                f"'%{VENDOR_NOTE_MARK}%' THEN daily_production.{c}") in sql
     # unprotected columns still COALESCE normally
     assert ("expected_kwh = COALESCE(EXCLUDED.expected_kwh,"
             " daily_production.expected_kwh)") in sql

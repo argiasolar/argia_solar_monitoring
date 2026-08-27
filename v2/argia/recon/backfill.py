@@ -98,7 +98,7 @@ def build_pr_resync_sql(plausible_max: float = PR_RESYNC_PLAUSIBLE_MAX
         " ELSE NULL END"
         " FROM plant p"
         " WHERE p.plant_key = d.plant_key"
-        " AND d.status_note LIKE 'energy from vendor daily counter%'"
+        " AND d.status_note LIKE '%vendor daily counter%'"
         " AND d.energy_kwh IS NOT NULL"
         " AND d.irradiance_kwh_m2 > 0.5"
         " AND p.kwp_dc > 0"

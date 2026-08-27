@@ -107,7 +107,7 @@ def main():
     # its energy_kwh, pr, pr_stc and status_note — a sheet re-sync can
     # never re-introduce an undercount or a stale PR.
     guard = ("daily_production.status_note LIKE "
-             "'energy from vendor daily counter%'")
+             "'%vendor daily counter%'")   # substring: both note flavors
     protected = {'energy_kwh', 'pr', 'pr_stc', 'status_note'}
     parts = []
     for c in cols:

@@ -36,7 +36,7 @@ def corrections():
     for r in psql_rows(
             "SELECT plant_key, prod_date::text, energy_kwh"
             " FROM daily_production"
-            " WHERE status_note LIKE 'energy from vendor daily counter%'"
+            " WHERE status_note LIKE '%vendor daily counter%'"
             " AND energy_kwh IS NOT NULL;"):
         if len(r) >= 3:
             try:

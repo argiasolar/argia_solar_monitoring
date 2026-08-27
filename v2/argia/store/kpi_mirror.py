@@ -18,7 +18,12 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
-VENDOR_NOTE_PREFIX = "energy from vendor daily counter"
+# Substring, not prefix: provenance notes come in two flavors ("energy
+# from vendor daily counter (…)" written by the recon self-heal/backfill
+# and "energy corrected from vendor daily counter (was …)" echoed back
+# from the sheet by kpi_sheet_fix). Both mark a vendor-authoritative row.
+VENDOR_NOTE_MARK = "vendor daily counter"
+VENDOR_NOTE_PREFIX = VENDOR_NOTE_MARK  # backward-compat alias
 
 # sheet header -> daily_production column (mirrors bundle/sync_kpi.py)
 COLMAP = {
@@ -98,7 +103,7 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
         return None
     cols = ["plant_key", "prod_date"] + sorted(set(COLMAP.values())) + ["source"]
     vendor_guard = (f"daily_production.status_note LIKE "
-                    f"'{VENDOR_NOTE_PREFIX}%'")
+                    f"'%{VENDOR_NOTE_MARK}%'")
     sets = []
     for c in cols:
         if c in ("plant_key", "prod_date", "source"):

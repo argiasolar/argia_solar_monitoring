@@ -81,8 +81,9 @@ def test_huawei_daily_series_failed():
 def test_pr_resync_sql_scoped_and_guarded():
     from argia.recon.backfill import build_pr_resync_sql
     sql = build_pr_resync_sql()
-    # strictly scoped to self-healed rows
-    assert "status_note LIKE 'energy from vendor daily counter%'" in sql
+    # strictly scoped to vendor-authoritative rows (substring: covers
+    # both the backfill note and the sheet-echoed note flavor)
+    assert "status_note LIKE '%vendor daily counter%'" in sql
     # implausible PR (broken irradiance) must go NULL, never a lie
     assert "<= 1.05" in sql and "ELSE NULL END" in sql
     # never divides by a dark day or a zero capacity

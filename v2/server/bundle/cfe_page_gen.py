@@ -39,13 +39,16 @@ def q(sql):
     return [ln.split('\t') for ln in r.stdout.strip().splitlines() if ln.strip()]
 
 
+# industrial/business tariffs only (2026-08-27): DB1/DB2 (domestic)
+# are out of scope for offer & savings work and are not shown
 months = sorted({r[0] for r in q('SELECT DISTINCT month FROM cfe_tariff;')})[-13:]
 mlist = "','".join(months)
 data = {}          # tariff -> region -> charge -> {month: value}
 units = {}         # charge -> unit
 for tc, reg, mo, ch, un, val in q(
         f"SELECT tariff_code, region, month, charge_type, coalesce(unit,''), value_mxn "
-        f"FROM cfe_tariff WHERE month IN ('{mlist}');"):
+        f"FROM cfe_tariff WHERE month IN ('{mlist}')"
+        f" AND tariff_code NOT IN ('DB1','DB2');"):
     data.setdefault(tc, {}).setdefault(reg, {}).setdefault(ch, {})[mo[:7]] = float(val)
     units[ch] = un
 srcinfo = q("SELECT source, max(month), max(loaded_at)::date FROM cfe_tariff GROUP BY source;")

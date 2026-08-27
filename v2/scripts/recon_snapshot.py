@@ -43,6 +43,32 @@ def _today_mx() -> dt.date:
     return dt.datetime.now(MX_TZ).date()
 
 
+def now_mx() -> dt.datetime:
+    return dt.datetime.now(MX_TZ)
+
+
+RECON_TODAY_FROM_HOUR = 22
+"""Reconciling TODAY before the day is over produces garbage rows
+(midday vendor counter vs midday interval sum — the 2026-08-26 false
+FAIL). The nightly timer fires 23:50 MX; a manual daytime run starts
+from yesterday instead."""
+
+
+def recon_dates(base: dt.date, days_back: int, hour_mx: int,
+                today: dt.date = None) -> List[str]:
+    """The dates one run reconciles, newest first. ``base`` (and only
+    ``base``) is skipped when it IS today and the MX clock says the day
+    is still in progress — historical dates are always fair game."""
+    today = today or _today_mx()
+    out = []
+    for back in range(days_back):
+        d = base - dt.timedelta(days=back)
+        if d == today and hour_mx < RECON_TODAY_FROM_HOUR:
+            continue
+        out.append(d.isoformat())
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Counter capture, one function per vendor. Each degrades to note-only —
 # a vendor outage must never sink the whole snapshot run.
@@ -331,9 +357,17 @@ def main(argv=None) -> int:
 
     base = dt.date.fromisoformat(snap_date)
     total = 0
-    for back in range(args.days_back):
-        d = (base - dt.timedelta(days=back)).isoformat()
+    for d in recon_dates(base, args.days_back, now_mx().hour):
         total += reconcile_day(d, brand_by_plant, args.dry_run)
+
+    # Re-derive pr on the days the self-heal corrected: the stamped PR
+    # still reflected the undercounted interval energy (2026-08-27
+    # finding). Implausible results (>1.05: broken irradiance) go NULL.
+    if not args.dry_run:
+        try:
+            psql_exec(B.build_pr_resync_sql())
+        except RuntimeError as e:
+            LOG.warning("pr resync failed (recon unaffected): %s", e)
 
     # AGS-701 R2: weather-normalized PR_STC wherever module temperature
     # was measured (whole telemetry window — heals late KPI arrivals)

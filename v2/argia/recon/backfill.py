@@ -66,3 +66,46 @@ def build_fix_sql(plant_key: str, date_iso: str, vendor_kwh: float,
         " WHERE daily_production.energy_kwh IS NULL"
         f" OR daily_production.energy_kwh < {vendor_kwh:.3f};"
     )
+
+
+PR_RESYNC_PLAUSIBLE_MAX = 1.05
+"""Recomputed PR above this is physically implausible — the day's stored
+irradiance undercounts (partial collection or a sick sensor: the CDMX
+Aug-24 case recomputed to 1.20). Such a day gets pr = NULL, never a lie."""
+
+
+def build_pr_resync_sql(plausible_max: float = PR_RESYNC_PLAUSIBLE_MAX
+                        ) -> str:
+    """One idempotent UPDATE re-deriving ``pr`` on vendor-healed days.
+
+    The self-heal raises ``energy_kwh`` from the vendor counter but the
+    day's ``pr`` was stamped earlier from the UNDERCOUNTED interval
+    energy — found in the 2026-08-27 due diligence: every healed day
+    carried a PR that no longer matched energy/(kWp x H). This statement
+    re-derives PR from the corrected energy and the stored irradiance,
+    and blanks it (NULL) when the result exceeds ``plausible_max`` —
+    an implausible PR means the IRRADIANCE side is broken, and an honest
+    NULL beats a wrong number. pr_stc follows automatically on the next
+    stamp_pr_stc pass, which always recomputes from the current pr.
+    Scoped strictly to rows the self-heal touched (status_note match).
+    """
+    return (
+        "UPDATE daily_production d SET pr = CASE"
+        f" WHEN d.energy_kwh / (p.kwp_dc * d.irradiance_kwh_m2)"
+        f" <= {plausible_max}"
+        " THEN round((d.energy_kwh"
+        " / (p.kwp_dc * d.irradiance_kwh_m2))::numeric, 4)"
+        " ELSE NULL END"
+        " FROM plant p"
+        " WHERE p.plant_key = d.plant_key"
+        " AND d.status_note LIKE 'energy from vendor daily counter%'"
+        " AND d.energy_kwh IS NOT NULL"
+        " AND d.irradiance_kwh_m2 > 0.5"
+        " AND p.kwp_dc > 0"
+        " AND (d.pr IS DISTINCT FROM CASE"
+        f" WHEN d.energy_kwh / (p.kwp_dc * d.irradiance_kwh_m2)"
+        f" <= {plausible_max}"
+        " THEN round((d.energy_kwh"
+        " / (p.kwp_dc * d.irradiance_kwh_m2))::numeric, 4)"
+        " ELSE NULL END);"
+    )

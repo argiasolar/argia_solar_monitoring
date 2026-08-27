@@ -75,3 +75,56 @@ def test_huawei_daily_series():
 
 def test_huawei_daily_series_failed():
     assert huawei_daily_series({"success": False}) == {}
+
+
+# ------------------------------------------------------------- pr resync
+def test_pr_resync_sql_scoped_and_guarded():
+    from argia.recon.backfill import build_pr_resync_sql
+    sql = build_pr_resync_sql()
+    # strictly scoped to self-healed rows
+    assert "status_note LIKE 'energy from vendor daily counter%'" in sql
+    # implausible PR (broken irradiance) must go NULL, never a lie
+    assert "<= 1.05" in sql and "ELSE NULL END" in sql
+    # never divides by a dark day or a zero capacity
+    assert "irradiance_kwh_m2 > 0.5" in sql
+    assert "kwp_dc > 0" in sql
+    # idempotent: only rows whose pr actually changes
+    assert "IS DISTINCT FROM" in sql
+
+
+def test_pr_resync_sql_custom_threshold():
+    from argia.recon.backfill import build_pr_resync_sql
+    assert "<= 1.2" in build_pr_resync_sql(plausible_max=1.2)
+
+
+# ---------------------------------------------------------- recon dates
+import sys as _sys
+from pathlib import Path as _Path
+
+_SCRIPTS = _Path(__file__).resolve().parents[2] / "scripts"
+if str(_SCRIPTS) not in _sys.path:
+    _sys.path.insert(0, str(_SCRIPTS))
+
+
+def test_recon_dates_skips_today_midday():
+    import datetime as dt
+    import recon_snapshot as RS
+    today = dt.date(2026, 8, 26)
+    ds = RS.recon_dates(today, 3, hour_mx=12, today=today)
+    assert ds == ["2026-08-25", "2026-08-24"]
+
+
+def test_recon_dates_includes_today_at_night():
+    import datetime as dt
+    import recon_snapshot as RS
+    today = dt.date(2026, 8, 26)
+    ds = RS.recon_dates(today, 3, hour_mx=23, today=today)
+    assert ds == ["2026-08-26", "2026-08-25", "2026-08-24"]
+
+
+def test_recon_dates_historical_base_unaffected():
+    import datetime as dt
+    import recon_snapshot as RS
+    base = dt.date(2026, 8, 20)
+    ds = RS.recon_dates(base, 2, hour_mx=9, today=dt.date(2026, 8, 26))
+    assert ds == ["2026-08-20", "2026-08-19"]

@@ -411,7 +411,7 @@ def gauge_svg(pct, lo=70, hi=90, width=150):
     color = '#c5221f' if pct < lo else ('#e8a13d' if pct < hi else '#1e8e3e')
     frac = max(0.0, min(pct / 130.0, 1.0))
     a0, a1 = math.pi, math.pi * (1 - frac)
-    x0, y0 = 90 + 70 * math.cos(a0), 88 + -70 * math.sin(a0) * -1
+    x0 = 90 + 70 * math.cos(a0)
     x1, y1 = 90 + 70 * math.cos(a1), 88 - 70 * math.sin(a1)
     large = 1 if frac > 0.5 else 0
     return f'''<svg viewBox="0 0 180 100" style="width:{width}px;height:auto">

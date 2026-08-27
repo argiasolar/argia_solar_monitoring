@@ -41,7 +41,7 @@ import requests
 from argia.core.config import InverterConfig, PlantConfig
 from argia.core.normalize import normalize_sn, pick, safe_float
 from argia.core.time_utils import MX_TZ, UTC, now_utc, parse_provider_datetime
-from argia.vendors.base import InverterSnapshot, normalize_status
+from argia.vendors.base import InverterSnapshot
 
 LOG = logging.getLogger("argia.vendors.sma")
 

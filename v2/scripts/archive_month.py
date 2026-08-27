@@ -29,7 +29,6 @@ EXIT CODES
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import logging
 import os
 import sys

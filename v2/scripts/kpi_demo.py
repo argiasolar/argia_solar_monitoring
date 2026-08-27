@@ -26,7 +26,6 @@ import argparse
 import logging
 import os
 import sys
-from typing import Optional
 
 from argia.core.config import load_portfolio
 from argia.core.sheets import SheetsClient

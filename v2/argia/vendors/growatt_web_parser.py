@@ -41,11 +41,10 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from argia.core.normalize import normalize_sn, pick, safe_float, safe_int
 from argia.core.time_utils import (
-    MX_TZ,
     parse_growatt_calendar,
     parse_provider_datetime,
 )
-from argia.vendors.base import InverterSnapshot, normalize_status
+from argia.vendors.base import InverterSnapshot
 
 
 __all__ = [

@@ -50,7 +50,6 @@ Honest limitations
 from __future__ import annotations
 
 import logging
-import statistics
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 

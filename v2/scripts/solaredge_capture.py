@@ -31,7 +31,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 from argia.core.config import PlantConfig, load_portfolio
 from argia.core.sheets import SheetsClient

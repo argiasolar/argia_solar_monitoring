@@ -43,7 +43,6 @@ trapezoidal integration over 5-minute samples which compounds drift; if
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional

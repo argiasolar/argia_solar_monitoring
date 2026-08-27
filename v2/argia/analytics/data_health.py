@@ -15,14 +15,14 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from argia.analytics.inverter_health import Severity
 from argia.archive.kpi_daily import (
     CLOUD_DAYLIGHT_END_HOUR,
     CLOUD_DAYLIGHT_START_HOUR,
 )
-from argia.core.time_utils import MX_TZ, utc_to_mx
+from argia.core.time_utils import MX_TZ
 
 LOG = logging.getLogger("argia.analytics.data_health")
 

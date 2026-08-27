@@ -25,7 +25,7 @@ import socket
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 from argia.core.config import Portfolio
 from argia.core.sheets import SheetsClient

@@ -52,8 +52,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from argia.core.config import (
-    INVERTERS_HEADER,
-    PLANTS_HEADER,
     PlantConfig,
     load_portfolio,
 )

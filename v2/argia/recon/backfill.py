@@ -53,7 +53,7 @@ def build_fix_sql(plant_key: str, date_iso: str, vendor_kwh: float,
     a concurrent sheet sync can never make this statement lower a value.
     """
     pk = str(plant_key).strip().upper()
-    note = (f"energy from vendor daily counter (history backfill"
+    note = ("energy from vendor daily counter (history backfill"
             + (f"; kpi had {old_kpi_kwh:.1f}" if old_kpi_kwh is not None
                else "; kpi was missing") + ")")
     return (

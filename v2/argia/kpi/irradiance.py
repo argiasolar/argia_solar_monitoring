@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
 
-from argia.core.time_utils import MX_TZ, UTC
+from argia.core.time_utils import MX_TZ
 from argia.kpi.reader import InverterRow
 
 LOG = logging.getLogger("argia.kpi.irradiance")

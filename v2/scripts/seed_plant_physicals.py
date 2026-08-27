@@ -62,11 +62,10 @@ from __future__ import annotations
 
 import argparse
 import logging
-import math
 import os
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from argia.core.config import PlantConfig, load_portfolio
 from argia.core.sheets import SheetsClient

@@ -27,7 +27,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests

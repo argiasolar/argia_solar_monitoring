@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, Iterable, List, Optional, TypeVar
+from typing import Any, List, Optional, TypeVar
 
 T = TypeVar("T")
 

@@ -41,7 +41,14 @@ MX = ZoneInfo('America/Mexico_City')
 STALE_MIN = 30
 WINDOW = (6, 20)
 DAY_PAGES = 30          # how many past days get an archive page
-REPORT_BASE = 'https://report.argia.com.mx'
+# Everything lives on ONE host now (report.argia.com.mx): reports at
+# the root, live monitoring under /monitoring/. One basic-auth prompt
+# instead of two — browsers cache credentials per hostname, so two
+# hostnames could never share a login. monitoring.argia.com.mx 301s
+# here. BASE prefixes every monitoring link; REPORT_BASE is now
+# same-origin, so the per-plant "Open report" button needs no host.
+BASE = os.environ.get('ARGIA_MON_BASE', '/monitoring')
+REPORT_BASE = os.environ.get('ARGIA_REPORT_BASE', '')
 
 
 def q(sql):
@@ -111,7 +118,7 @@ def photo_uri(pk, thumb=False):
     name = f'{pk.lower()}_t.jpg' if thumb else f'{pk.lower()}.jpg'
     p = os.path.join(OUTROOT, 'monitoring', 'assets', name)
     if os.path.exists(p):
-        return f'/assets/{name}'
+        return f'{BASE}/assets/{name}'
     if thumb:                       # thumbnail missing -> try the full one
         return photo_uri(pk, thumb=False)
     return None
@@ -435,7 +442,7 @@ def page(title, body, subtitle='', refresh=True):
 <style>{STYLE}</style></head><body><div class="wrap">
 <div class="top"><div><h1>{esc(title)}</h1>
 <div class="sub">{subtitle}</div></div>
-<img class="logo" src="{LOGO_URI}" alt="ARGIA SOLAR"></div>
+<a href="/" title="ARGIA reports"><img class="logo" src="{LOGO_URI}" alt="ARGIA SOLAR"></a></div>
 {body}
 <p class="note" data-en="Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pio06.{' Live pages auto-refresh every 5 minutes.' if refresh else ' Archived day — static.'}"
  data-es="Generado {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX desde PostgreSQL en pio06.{' Las páginas en vivo se actualizan cada 5 minutos.' if refresh else ' Día archivado — estático.'}">
@@ -444,13 +451,12 @@ Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pi
 
 
 def controls(extra=''):
-    return (f'<div class="controls"><a class="btn" href="/" data-en="Fleet"'
+    return (f'<div class="controls"><a class="btn" href="{BASE}/" data-en="Fleet"'
             ' data-es="Flota">Fleet</a>'
-            '<a class="btn" href="/ppa/" data-en="All PPA" data-es="Todo PPA">All PPA</a>'
-            '<a class="btn" href="/capex/" data-en="CAPEX" data-es="CAPEX">CAPEX</a>'
-            '<a class="btn" href="/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
-            '<a class="btn" href="/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
-            f'<a class="btn" href="{REPORT_BASE}/" data-en="Reports ↗" data-es="Reportes ↗">Reports ↗</a>'
+            f'<a class="btn" href="{BASE}/ppa/" data-en="All PPA" data-es="Todo PPA">All PPA</a>'
+            f'<a class="btn" href="{BASE}/capex/" data-en="CAPEX" data-es="CAPEX">CAPEX</a>'
+            f'<a class="btn" href="{BASE}/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
+            f'<a class="btn" href="{BASE}/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
             '<button class="btn" onclick="setLang(\'en\')">EN</button>'
             '<button class="btn" onclick="setLang(\'es\')">ES</button>'
             f'{extra}'
@@ -463,8 +469,8 @@ def controls(extra=''):
 def date_picker(pk, current):
     return (f'<input type="date" min="{FIRST_DATE}" max="{TODAY}" '
             f'value="{current}" onchange="location.href='
-            f'(this.value==\'{TODAY}\')?\'/{pk.lower()}/\''
-            f':\'/{pk.lower()}/d/\'+this.value+\'.html\'" '
+            f'(this.value==\'{TODAY}\')?\'{BASE}/{pk.lower()}/\''
+            f':\'{BASE}/{pk.lower()}/d/\'+this.value+\'.html\'" '
             'title="5-minute data exists from '
             f'{FIRST_DATE} (server collection start)">')
 
@@ -576,7 +582,7 @@ def _tile(pk, meta):
     ph = photo_uri(pk, thumb=True)
     photo = (f'<img class="tphoto" src="{ph}" alt="" loading="lazy">'
              if ph else '')
-    return power, etoday, f'''<a class="tile {cls}" href="/{pk.lower()}/">
+    return power, etoday, f'''<a class="tile {cls}" href="{BASE}/{pk.lower()}/">
 {photo}<div><span class="tname">{esc(meta['customer'])}</span><span class="tkey">{pk} · {meta['kwp']:,.0f} kWp</span></div>
 <div class="trow"><span data-en="Power now" data-es="Potencia">Power now</span><b>{fmt1(power)} kW</b></div>
 <div class="trow"><span data-en="Today" data-es="Hoy">Today</span><b>{fmt_kwh(etoday)} kWh</b></div>
@@ -762,7 +768,7 @@ def plant_page(pk, d):
         f'<td class="st-{esc(r[6])}">{esc(r[6])}</td></tr>'
         for r in RECON_D.get(pk, [])[:7])
     daily_rows = ''.join(
-        f'<tr><td><a href="{"/" + pk.lower() + "/" if dd == TODAY else f"/{pk.lower()}/d/{dd}.html"}">{esc(dd)}</a></td>'
+        f'<tr><td><a href="{BASE + "/" + pk.lower() + "/" if dd == TODAY else f"{BASE}/{pk.lower()}/d/{dd}.html"}">{esc(dd)}</a></td>'
         f'<td>{fmt_kwh(e)}</td><td>{fmt_kwh(xx)}</td>'
         f'<td>{"—" if not e or not xx else f"{100*e/xx:,.0f}%"}</td></tr>'
         for dd, e, xx in reversed(DAILY.get(pk, [])[-7:]))
@@ -807,7 +813,7 @@ def plant_page(pk, d):
              ' loading="lazy">') if ph and live else ''
     body = controls(
         date_picker(pk, d)
-        + (f'<a class="btn" href="/{pk.lower()}/" data-en="Live" data-es="En vivo">Live</a>' if not live else '')
+        + (f'<a class="btn" href="{BASE}/{pk.lower()}/" data-en="Live" data-es="En vivo">Live</a>' if not live else '')
         + ref_btn
         + f'<a class="btn primary" href="{REPORT_BASE}/{pk.lower()}/" '
           'data-en="Open report ↗" data-es="Abrir reporte ↗">Open report ↗</a>')
@@ -852,7 +858,7 @@ def ppa_page():
         m_pct = '—' if not m_exp else f"{100*m['prod']/m_exp:,.0f}%"
         exp_str = '—' if m_exp is None else f'{m_exp:,.0f}'
         rows.append(
-            f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}</a> '
+            f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}</a> '
             f'<span class="tkey">{pk}</span></td>'
             f'<td>{meta["kwp"]:,.0f}</td><td>{fmt1(power)}</td>'
             f'<td>{fmt_kwh(etoday)}</td>'
@@ -912,7 +918,7 @@ def capex_page():
             mtd_exp += m_exp
         m_pct = '—' if not m_exp else f"{100*m.get('prod', 0)/m_exp:,.0f}%"
         rows.append(
-            f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}</a> '
+            f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}</a> '
             f'<span class="tkey">{pk}</span></td>'
             f'<td>{meta["kwp"]:,.0f}</td><td>{fmt1(power)}</td>'
             f'<td>{fmt_kwh(etoday)}</td>'
@@ -1009,7 +1015,7 @@ def performance_page():
             if av is not None:
                 w_av += av * kwp; kwp_av += kwp
             rows.append(
-                f'<tr><td><a href="/{pk.lower()}/">{esc(meta["customer"])}'
+                f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}'
                 f'</a> <span class="tkey">{pk}</span></td>'
                 f'<td>{meta["kwp"]:,.0f}</td>'
                 f'<td{pr_cls}>{"—" if pr is None else f"{pr:.3f}"}</td>'

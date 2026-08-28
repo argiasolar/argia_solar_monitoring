@@ -726,7 +726,7 @@ def plant_page(k):
  <button class="btn" onclick="preset('prev')">{t("Previous month","Mes anterior")}</button>
  <button class="btn" onclick="preset('ytd')">{t("Year to date","Año en curso")}</button>
  <button class="btn" onclick="preset('all')">{t("Full range","Rango completo")}</button>
- <a class="btn" href="https://monitoring.argia.com.mx/{k.lower()}/">{t("Live monitoring ↗","Monitoreo en vivo ↗")}</a>
+ <a class="btn" href="/monitoring/{k.lower()}/">{t("Live monitoring","Monitoreo en vivo")}</a>
  <span class="sub rdays"></span>
 </div>'''
 
@@ -1054,7 +1054,7 @@ def landing_page():
  <span>{t("PPA + LaaS · revenue, debt service, DSCR","PPA + LaaS · ingreso, deuda, DSCR")}</span></span></a>
 <a href="capex/">{ic_cap}<span class="nb"><b>{t("CAPEX Plants — Overview","Plantas CAPEX — Resumen")}</b>
  <span>{t("portfolio overview + status","resumen del portafolio + estado")}</span></span></a>
-<a href="https://monitoring.argia.com.mx/">{ic_mon}<span class="nb"><b>{t("Live Monitoring","Monitoreo en Vivo")}</b>
+<a href="monitoring/">{ic_mon}<span class="nb"><b>{t("Live Monitoring","Monitoreo en Vivo")}</b>
  <span>{t("5-minute fleet view · inverters · reconciliation","vista de flota cada 5 min · inversores · conciliación")}</span></span></a>
 </div>''')
     body.append(f'<h1 class="sect" style="margin-top:14px">{t("Plant performance","Desempeño por planta")}</h1>')

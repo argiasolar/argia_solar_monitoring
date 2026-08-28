@@ -178,29 +178,38 @@ class TestNginxExposure:
     REPORT = NGINX.read_text(encoding="utf-8")
     MON = MON_NGINX.read_text(encoding="utf-8")
 
-    def test_account_served_on_both_sites(self):
-        for conf in (self.REPORT, self.MON):
-            assert "location /account/" in conf
-            assert "proxy_pass http://127.0.0.1:8511/account/" in conf
+    def test_account_served_on_the_one_host(self):
+        """Since the 2026-08-28 consolidation everything lives on
+        report.argia.com.mx; the old monitoring host only redirects."""
+        assert "location /account/" in self.REPORT
+        assert "proxy_pass http://127.0.0.1:8511/account/" in self.REPORT
+
+    def test_old_host_redirects_the_account_page(self):
+        block = self.MON[self.MON.index("location /account/"):]
+        block = block[:block.index("}")]
+        assert "return 301" in block
+        assert "report.argia.com.mx$request_uri" in block
 
     def test_account_open_to_every_signed_in_user(self):
         """No admin htpasswd on the /account/ location — otherwise
         exactly the people who need it most could not reach it."""
-        for conf in (self.REPORT, self.MON):
-            block = conf[conf.index("location /account/"):]
-            block = block[:block.index("}")]
-            assert "admin.htpasswd" not in block
-
-    def test_monitoring_account_uses_all_htpasswd(self):
-        block = self.MON[self.MON.index("location /account/"):]
+        block = self.REPORT[self.REPORT.index("location /account/"):]
         block = block[:block.index("}")]
-        assert "all.htpasswd" in block
+        assert "admin.htpasswd" not in block
+
+    def test_account_inherits_the_all_user_gate(self):
+        """The location sets no auth_basic_user_file of its own, so it
+        inherits the vhost default (all.htpasswd) — every user."""
+        block = self.REPORT[self.REPORT.index("location /account/"):]
+        block = block[:block.index("}")]
+        assert "auth_basic_user_file" not in block
+        assert "auth_basic_user_file /opt/argia/auth/all.htpasswd" \
+            in self.REPORT
 
     def test_identity_header_forwarded(self):
-        for conf in (self.REPORT, self.MON):
-            block = conf[conf.index("location /account/"):]
-            block = block[:block.index("}")]
-            assert "X-Remote-User $remote_user" in block
+        block = self.REPORT[self.REPORT.index("location /account/"):]
+        block = block[:block.index("}")]
+        assert "X-Remote-User $remote_user" in block
 
     def test_setup_stays_admin_only(self):
         block = self.REPORT[self.REPORT.index("location /setup/"):]

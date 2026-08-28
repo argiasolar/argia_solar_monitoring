@@ -462,7 +462,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   .catch(()=>{el.remove();});});
 // straight to the public page — a pre-flight fetch that returns 401
 // makes the browser pop its own sign-in dialog (reported 2026-08-28)
-function argiaLogout(){location.href='/logged-out.html';}
+function argiaLogout(){location.href='/logout';}  // server ends the session, then redirects
 '''
 
 

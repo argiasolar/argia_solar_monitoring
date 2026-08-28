@@ -337,7 +337,7 @@ I18N_JS = '''
 // 2026-08-28 (a prompt no password could satisfy, right before the
 // redirect). Basic auth has no server-side logout, so the page below
 // says plainly what actually ends the session.
-function argiaLogout(){location.href='/logged-out.html';}
+function argiaLogout(){location.href='/logout';}  // server ends the session, then redirects
 function argiaMenu(ev){ev.stopPropagation();
  const m=document.getElementById('umenu'),b=document.getElementById('whoami');
  const open=m.classList.toggle('open');b.setAttribute('aria-expanded',open);}
@@ -1198,27 +1198,29 @@ def write(rel, content):
 
 print(f'generating into {OUTROOT} (asof {asof})')
 def logged_out_page():
+    """Shown after /logout has already deleted the session row.
+
+    Until v153 this page had to apologise: under HTTP Basic there was
+    no session to end and the browser re-sent the password on the next
+    click, so the honest advice was "close all your windows".  With a
+    server-side session that is over — the sign-out has happened before
+    this page renders, and the only thing left to offer is the way back
+    in.
+    """
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            '<meta name="robots" content="noindex,nofollow"><title>Logged out — ARGIA</title>'
+            '<meta name="robots" content="noindex,nofollow">'
+            '<title>Signed out \u2014 ARGIA</title>'
             f'<style>{STYLE}</style></head><body><div class="wrap" style="max-width:520px;'
             'text-align:center;padding-top:80px">'
-            f'{LOGO}<h1 style="margin:26px 0 10px">You are logged out / Sesión cerrada</h1>'
-            # Honest about what HTTP basic auth can and cannot do: the
-            # server has no session to end, and the browser will hand
-            # the same password back the moment you open a page again.
-            '<p class="sub">This page is outside the login. Your browser, '
-            'however, still remembers the password and will use it again '
-            'on the next page — to be sure the next person cannot '
-            'continue as you, <b>close all browser windows</b>, or open '
-            'the site in a private window.<br><br>'
-            'Esta página está fuera del acceso. Su navegador todavía '
-            'recuerda la contraseña y la volverá a usar en la siguiente '
-            'página — para asegurarse de que nadie continúe con su '
-            'sesión, <b>cierre todas las ventanas del navegador</b> o '
-            'abra el sitio en una ventana privada.</p>'
-            '<p style="margin-top:24px"><a class="btn" href="/">Back to '
-            'reports / Volver a reportes</a></p></div></body></html>')
+            f'{LOGO}<h1 style="margin:26px 0 10px">'
+            'You are signed out / Sesi\u00f3n cerrada</h1>'
+            '<p class="sub">Your session has ended on the server. Nobody '
+            'can continue as you from this browser.<br><br>'
+            'Su sesi\u00f3n ha terminado en el servidor. Nadie puede '
+            'continuar con su cuenta desde este navegador.</p>'
+            '<p style="margin-top:24px"><a class="btn" href="/login">'
+            'Sign in again / Volver a entrar</a></p></div></body></html>')
 
 
 def no_access_page():

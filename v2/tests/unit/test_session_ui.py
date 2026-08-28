@@ -74,10 +74,13 @@ class TestLogoutRaisesNoPrompt:
                               "Promise.allSettled"):
                 assert forbidden not in body, (forbidden, body[:90])
 
-    def test_logout_navigates_straight_to_the_public_page(self):
+    def test_logout_navigates_straight_to_the_service(self):
+        """v153: /logout deletes the session row and then redirects to
+        the public page itself. Still one plain navigation — the rule
+        above (no request that can answer 401) is what matters."""
         for src in (REP, MON, SET):
             i = src.index("function argiaLogout")
-            assert "/logged-out.html" in src[i:i + 200]
+            assert "location.href='/logout'" in src[i:i + 200]
 
     def test_logged_out_page_is_outside_the_login(self):
         auth = (ROOT / "server" / "bundle" /
@@ -86,11 +89,20 @@ class TestLogoutRaisesNoPrompt:
         i = auth.index("location = /logged-out.html")
         assert "auth_basic off" in auth[i:i + 120]
 
-    def test_page_is_honest_about_basic_auth(self):
-        """No false 'you are signed out everywhere' claim: the browser
-        keeps the credential until its windows close."""
-        assert "close all browser windows" in REP
-        assert "private window" in REP
+    def test_the_page_no_longer_has_to_apologise(self):
+        """Under Basic auth this page had to say "close all browser
+        windows", because the browser kept the password. With a
+        server-side session the sign-out has already happened, and
+        repeating the old advice would be misleading in the other
+        direction."""
+        assert "close all browser windows" not in REP
+        assert "cierre todas las ventanas" not in REP
+        assert "Your session has ended on the server." in REP
+
+    def test_it_offers_the_way_back_in(self):
+        i = REP.index("def logged_out_page")
+        body = REP[i:i + 1600]
+        assert 'href="/login"' in body
 
     def test_monitoring_pages_have_a_logout_button(self):
         assert 'onclick="argiaLogout()"' in MON

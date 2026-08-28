@@ -1,0 +1,31 @@
+[Unit]
+# Session login for report.argia.com.mx. nginx asks this service on
+# EVERY request (auth_request), so if it is down the whole site fails
+# closed — hence Restart=always and a two-second backoff.
+#
+# It runs the same way argia-setup does (python3 straight to Flask,
+# threaded, bound to loopback). If throughput ever becomes the issue,
+# the drop-in replacement is gunicorn on the same port:
+#   ExecStart=/usr/bin/python3 -m gunicorn --bind 127.0.0.1:8512 \
+#             --workers 2 --threads 4 --timeout 20 auth_app:app
+# Rollback to HTTP Basic is a config swap, documented at the top of
+# nginx-argia_session.conf.
+Description=ARGIA session login (nginx auth_request backend)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=ARGIA_AUTH_DIR=/opt/argia/auth
+Environment=ARGIA_AUTH_PORT=8512
+ExecStart=/usr/bin/python3 /opt/argia/bundle/auth_app.py
+Restart=always
+RestartSec=2
+# The session key is the whole security of the cookie: anyone who can
+# read it can mint a session for any user. Keep new files owner-only.
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

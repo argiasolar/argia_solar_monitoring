@@ -561,9 +561,10 @@ Users, passwords and per-report access. Changes apply immediately.</div></div>
  data-es="← Reportes">← Reports</a>{who_html}</div>
 {once_html}{msg_html}{body}
 <script>
-// straight to the public page — a pre-flight fetch that returns 401
-// makes the browser pop its own sign-in dialog (reported 2026-08-28)
-function argiaLogout(){{location.href='/logged-out.html';}}
+// /logout deletes the session row, then redirects. Plain navigation:
+// a pre-flight fetch that returns 401 makes the browser pop its own
+// sign-in dialog (reported 2026-08-28).
+function argiaLogout(){{location.href='/logout';}}
 function argiaMenu(ev){{ev.stopPropagation();
  const m=document.getElementById('umenu');m.classList.toggle('open');}}
 document.addEventListener('click',()=>{{

@@ -118,20 +118,29 @@ def parse_charge_table(html: str):
         return None, None, []
     header = [strip_tags(c) for c in CELL_RE.findall(trs[0])]
     month_tag = header[-1] if header else None
+    # two layouts: hourly tariffs (GDMTH/DIST/DIT) carry an extra
+    # "Int. Horario" column; the flat tariffs (PDBT, GDMTO, RABT, ...)
+    # go straight to Cargo/Unidades/value
+    has_horario = any(h.startswith("Int") for h in header)
+    full = 6 if has_horario else 5
+    data = 4 if has_horario else 3
     tariff_tag = None
     rows = []
-    horario = ""
     for tr in trs[1:]:
         cells = [strip_tags(c) for c in CELL_RE.findall(tr)]
         if not cells:
             continue
         # first data row carries tariff code + description (rowspan)
-        if len(cells) >= 6:
+        if len(cells) >= full:
             tariff_tag = cells[0]
             cells = cells[2:]
-        if len(cells) != 4:
+        if len(cells) != data:
             continue
-        horario, cargo, unit_text, val = cells
+        if has_horario:
+            horario, cargo, unit_text, val = cells
+        else:
+            horario = "-"
+            cargo, unit_text, val = cells
         val = val.replace(",", "").replace("$", "").strip()
         try:
             rows.append((horario, cargo, unit_text, float(val)))

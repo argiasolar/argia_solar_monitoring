@@ -40,6 +40,28 @@ class TestParseChargeTable:
         assert cfe_scrape.parse_charge_table("<html></html>") == \
             (None, None, [])
 
+    # flat layout (no "Int. Horario" column) — PDBT/GDMTO/RABT/RAMT/
+    # APBT/APMT/GDBT; structure mirrors the live page, values from the
+    # rendered PDBT/GDMTO JALISCO AGO-26 pages (captured 2026-08-28)
+    FLAT = (
+        '<table class="table table-bordered table-striped"><tbody>'
+        "<tr><th>Tarifa</th><th>Descripción</th><th>Cargo</th>"
+        "<th>Unidades</th><th>AGO-26</th></tr>"
+        '<tr><th rowspan="2">PDBT</th><th rowspan="2">Pequeña demanda'
+        "</th><td>Fijo </td><td>$/mes</td><td>33.07</td></tr>"
+        "<tr><td>Variable (Energía)</td><td>$/kWh</td><td>4.255</td>"
+        "</tr></tbody></table>")
+
+    def test_flat_layout_pdbt(self):
+        tag, mtag, rows = cfe_scrape.parse_charge_table(self.FLAT)
+        assert tag == "PDBT"
+        assert mtag == "AGO-26"
+        assert rows == [("-", "Fijo", "$/mes", 33.07),
+                        ("-", "Variable (Energía)", "$/kWh", 4.255)]
+        mapped = [cfe_scrape.map_charge(h, c) for h, c, _u, _v in rows]
+        assert mapped == [("SUMINISTRO BASICO", "MXN/MONTH"),
+                          ("ENERGIA BASE", "MXN/KWH")]
+
 
 class TestMapCharge:
     def test_gdmth_set(self):

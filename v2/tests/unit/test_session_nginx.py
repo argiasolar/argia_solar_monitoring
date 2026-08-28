@@ -99,6 +99,17 @@ class TestTheWayIn:
             i = NEW.index(loc)
             assert "auth_request off;" in NEW[i:i + 300], loc
 
+    def test_the_login_page_cannot_become_a_redirect_loop(self):
+        """/login answers 401 — it IS the wall. If error_page 401 ever
+        applied to that upstream status, /login would redirect to
+        /login for ever and nobody could sign in. proxy_intercept_errors
+        defaults to off, but a total lockout is too expensive to rest
+        on a default."""
+        for loc in ("location = /login", "location = /logout",
+                    "location = /session/whoami"):
+            i = NEW.index(loc)
+            assert "proxy_intercept_errors off;" in NEW[i:i + 300], loc
+
     def test_the_public_pages_skip_the_check(self):
         for loc in ("location = /logged-out.html",
                     "location = /no-access.html"):

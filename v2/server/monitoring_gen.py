@@ -486,12 +486,10 @@ Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pi
 
 
 def controls(extra=''):
-    # "← Reports" first: same host now, so it is one click and no
-    # second login (the button was removed in v147 and immediately
-    # missed — there was no way back to the reports).
+    # "← Reports" LAST (v152): it leaves this portal, so it belongs
+    # at the end of the row next to the person's own menu, not in
+    # front of the views this page is actually made of.
     return (f'<div class="controls">'
-            '<a class="btn" href="/" data-en="← Reports"'
-            ' data-es="← Reportes">← Reports</a>'
             f'<a class="btn" href="{BASE}/" data-en="Fleet"'
             ' data-es="Flota">Fleet</a>'
             f'<a class="btn" href="{BASE}/ppa/" data-en="All PPA" data-es="Todo PPA">All PPA</a>'
@@ -499,6 +497,8 @@ def controls(extra=''):
             f'<a class="btn" href="{BASE}/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
             f'<a class="btn" href="{BASE}/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
             f'{extra}'
+            '<a class="btn" href="/" data-en="← Reports"'
+            ' data-es="← Reportes">← Reports</a>'
             # identity + language + log out, one menu (filled by whoami)
             '<div class="usermenu">'
             '<button class="whoami" id="whoami" onclick="argiaMenu(event)"'

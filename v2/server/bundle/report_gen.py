@@ -224,6 +224,16 @@ h1.sect{font-size:19px;font-weight:700;margin:28px 0 10px;color:#1c2733;}
 .audit b{color:#3c4043;}
 .sub{color:var(--ink2);font-size:13.5px;margin-top:4px;}
 .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0;}
+/* Date-range bar: two tight groups with air between them, and the
+   link that leaves the page pushed to the far edge, so the row reads
+   as "dates · shortcuts … elsewhere" instead of a wall of buttons. */
+.rangebar{gap:18px;}
+.rgroup{display:flex;align-items:center;gap:6px;}
+.seg .btn{border-radius:0;margin-left:-1px;}
+.seg .btn:first-child{border-radius:6px 0 0 6px;margin-left:0;}
+.seg .btn:last-child{border-radius:0 6px 6px 0;}
+.rangebar .live{margin-left:auto;}
+@media (max-width:720px){.rangebar .live{margin-left:0;}}
 .btn{background:var(--surface);border:1px solid #dadce0;border-radius:8px;
  padding:6px 13px;font-size:13.5px;color:var(--ink);cursor:pointer;text-decoration:none;}
 .btn:hover{border-color:#b9bec4;}
@@ -775,16 +785,23 @@ def plant_page(k):
                 f'{t("Data ends " + last_seen.get(k, "?") + " — collection for this plant is currently interrupted.", "Datos hasta " + last_seen.get(k, "?") + " — la captura de datos de esta planta está interrumpida.")}'
                 '</b></div>')
 
-    controls = f'''<div class="controls noprint">
- <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn"></label>
- <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn"></label>
- <button class="btn" onclick="preset('30d')">{t("Last 30 days","Últimos 30 días")}</button>
- <button class="btn" onclick="preset('mtd')">{t("Month to date","Mes en curso")}</button>
- <button class="btn" onclick="preset('prev')">{t("Previous month","Mes anterior")}</button>
- <button class="btn" onclick="preset('ytd')">{t("Year to date","Año en curso")}</button>
- <button class="btn" onclick="preset('all')">{t("Full range","Rango completo")}</button>
- <a class="btn" href="/monitoring/{k.lower()}/">{t("Live monitoring","Monitoreo en vivo")}</a>
+    # Three groups instead of nine loose buttons: the dates you type,
+    # the shortcuts that fill them (one segmented control), and — pushed
+    # to the far right because it leaves the page — live monitoring.
+    # "Last 30 days" and "Full range" are gone: 30 days is what the page
+    # already opens on, and the full range is what From/To empty means.
+    controls = f'''<div class="controls rangebar noprint">
+ <div class="rgroup">
+  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn"></label>
+  <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn"></label>
+ </div>
+ <div class="rgroup seg">
+  <button class="btn" onclick="preset('mtd')">{t("Month to date","Mes en curso")}</button>
+  <button class="btn" onclick="preset('prev')">{t("Previous month","Mes anterior")}</button>
+  <button class="btn" onclick="preset('ytd')">{t("Year to date","Año en curso")}</button>
+ </div>
  <span class="sub rdays"></span>
+ <a class="btn live" href="/monitoring/{k.lower()}/">{t("Live monitoring","Monitoreo en vivo")}</a>
 </div>'''
 
     body = [chrome_top(p['customer'], p['customer'],
@@ -893,12 +910,16 @@ def financial_page():
                        right_sub=f'{t("generated","generado")} {gen_at} · '
                                  f'{t("actuals through","reales hasta")} {asof}')]
     body.append(f'''
-<div class="controls noprint">
- <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn"></label>
- <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn"></label>
- <button class="btn" onclick="preset('mtd')">{t("Month to date","Mes en curso")}</button>
- <button class="btn" onclick="preset('prev')">{t("Previous month","Mes anterior")}</button>
- <button class="btn" onclick="preset('all')">{t("Full range","Rango completo")}</button>
+<div class="controls rangebar noprint">
+ <div class="rgroup">
+  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn"></label>
+  <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn"></label>
+ </div>
+ <div class="rgroup seg">
+  <button class="btn" onclick="preset('mtd')">{t("Month to date","Mes en curso")}</button>
+  <button class="btn" onclick="preset('prev')">{t("Previous month","Mes anterior")}</button>
+  <button class="btn" onclick="preset('ytd')">{t("Year to date","Año en curso")}</button>
+ </div>
  <span class="sub" id="ndays"></span>
 </div>
 <div class="tiles">
@@ -989,6 +1010,7 @@ function preset(w){{
  else if(w==='prev'){{const fd2=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
   d0.value=fd2(new Date(end.getFullYear(),end.getMonth()-1,1));
   d1.value=fd2(new Date(end.getFullYear(),end.getMonth(),0));}}
+ else if(w==='ytd'){{d0.value=ASOF.slice(0,4)+'-01-01';d1.value=ASOF;}}
  else{{d0.value=FIRST;d1.value=ASOF;}}
  compute();
 }}

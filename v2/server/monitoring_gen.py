@@ -384,6 +384,10 @@ h2.sect{font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:upperc
 .kpis{display:flex;gap:26px;flex-wrap:wrap;margin:10px 0 2px;align-items:flex-end;}
 .kpi .v{font-size:27px;font-weight:700;color:#1c2733;}
 .kpi .l{font-size:12.5px;color:#5f6368;margin-top:2px;}
+/* gauge tile: column, bottom-aligned so its caption sits on the same
+   line as the other KPI labels (svg is display:block, no descender gap) */
+.kpi.gauge{display:flex;flex-direction:column;align-items:center;align-self:flex-end;}
+.kpi.gauge .l{margin-top:3px;text-align:center;}
 input[type=date]{background:#fff;border:1px solid #dadce0;border-radius:8px;padding:5px 10px;font-size:13.5px;font-family:inherit;}
 .tphoto{width:100%;height:88px;object-fit:cover;border-radius:10px;margin-bottom:8px;display:block;}
 .pphoto{width:100%;max-height:190px;object-fit:cover;border-radius:14px;margin:10px 0 4px;display:block;}
@@ -453,22 +457,44 @@ def fmt_kw(v, dash='—'):
     return dash if v is None else f'{v/1000.0:,.1f}'
 
 
-def gauge_svg(pct, lo=70, hi=90, width=150):
-    """Semicircle meter like the v2 dashboard: red<lo, amber lo-hi, green>hi.
-    ``width`` keeps it the size of a KPI tile so it sits IN the row
-    instead of towering over it (user feedback 2026-08-26)."""
+GAUGE_CX, GAUGE_CY, GAUGE_R = 76.0, 74.0, 58.0
+GAUGE_MAX = 130.0          # full sweep of the scale, in %
+
+
+def gauge_svg(pct, lo=70, hi=90, width=132):
+    """Semicircle meter: red<lo, amber lo-hi, green>hi, scale 0-130%.
+
+    The value arc spans at most 180 degrees, so the SVG large-arc flag
+    is ALWAYS 0. The old code used ``1 if frac > 0.5``, which made every
+    gauge above 65% draw the MAJOR arc the long way round — the broken,
+    clipped segments Tomasz reported on /ppa (108%) and /capex (69%) on
+    2026-08-28. Regression-tested in tests/unit/test_gauge.py.
+
+    Geometry is sized so the drawing fills the viewBox with no dead
+    margin, and the svg is display:block so no inline-text descender
+    gap shifts the caption out of line with the other KPI tiles.
+    """
     import math
     color = '#c5221f' if pct < lo else ('#e8a13d' if pct < hi else '#1e8e3e')
-    frac = max(0.0, min(pct / 130.0, 1.0))
-    a0, a1 = math.pi, math.pi * (1 - frac)
-    x0 = 90 + 70 * math.cos(a0)
-    x1, y1 = 90 + 70 * math.cos(a1), 88 - 70 * math.sin(a1)
-    large = 1 if frac > 0.5 else 0
-    return f'''<svg viewBox="0 0 180 100" style="width:{width}px;height:auto">
-<path d="M20,88 A70,70 0 0 1 160,88" fill="none" stroke="#eceef0" stroke-width="13" stroke-linecap="round"/>
-<path d="M{x0:.1f},88 A70,70 0 {large} 1 {x1:.1f},{y1:.1f}" fill="none" stroke="{color}" stroke-width="13" stroke-linecap="round"/>
-<text x="90" y="80" text-anchor="middle" font-size="26" font-weight="700" fill="#1c2733">{pct:,.0f}%</text>
-<text x="90" y="97" text-anchor="middle" font-size="9" fill="#80868b">red &lt;{lo} · amber {lo}–{hi} · green &gt;{hi} %</text></svg>'''
+    frac = max(0.0, min(pct / GAUGE_MAX, 1.0))
+    cx, cy, r = GAUGE_CX, GAUGE_CY, GAUGE_R
+    a1 = math.pi * (1 - frac)                 # 180 deg (empty) -> 0 (full)
+    x1, y1 = cx + r * math.cos(a1), cy - r * math.sin(a1)
+    val = (f'<path d="M{cx - r:.1f},{cy:.1f} A{r:.0f},{r:.0f} 0 0 1'
+           f' {x1:.1f},{y1:.1f}" fill="none" stroke="{color}"'
+           ' stroke-width="12" stroke-linecap="round"/>') if frac > 0.004 else ''
+    # The colour-band legend lives in the tile's tooltip, not in the
+    # svg: at this scale it rendered ~6px tall and clipped on both
+    # edges, and being svg text it was never translated by the ES
+    # toggle (which only rewrites data-en/data-es elements).
+    return f'''<svg viewBox="0 0 152 84" style="width:{width}px;height:auto;display:block" role="img" aria-label="{pct:,.0f}% of expected ({GAUGE_MAX:.0f}% full scale)">
+<path d="M{cx - r:.1f},{cy:.1f} A{r:.0f},{r:.0f} 0 0 1 {cx + r:.1f},{cy:.1f}" fill="none" stroke="#eceef0" stroke-width="12" stroke-linecap="round"/>
+{val}
+<text x="{cx:.0f}" y="{cy - 6:.0f}" text-anchor="middle" font-size="25" font-weight="700" fill="#1c2733">{pct:,.0f}%</text></svg>'''
+
+
+GAUGE_TIP = ('&lt;70 % red · 70–90 % amber · &gt;90 % green'
+             ' · rojo / ámbar / verde · full scale 130 %')
 
 
 def completeness_banner(pk, d):
@@ -821,7 +847,7 @@ def ppa_page():
 <div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="PPA energy today" data-es="Energía PPA hoy">PPA energy today</div></div>
 <div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production — month to date" data-es="Producción — mes en curso">Production — month to date</div></div>
 <div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected — month to date{'' if exp_known else ' (partial)'}" data-es="Esperado — mes en curso">Expected — month to date</div></div>
-<div class="kpi" style="display:flex;flex-direction:column;align-items:center;align-self:flex-end">{gauge_svg(pct, width=150) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
+<div class="kpi gauge" title="{GAUGE_TIP}">{gauge_svg(pct) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
 </div>'''
     note = ('<p class="note" data-en="Month-to-date sums come from vendor-counter-verified daily production. Expected is the sum of daily expected values where the KPI pipeline computed them; days without an expected value are excluded from the ratio."'
             ' data-es="Los acumulados del mes provienen de producción diaria verificada contra el contador del fabricante. El esperado suma los valores diarios disponibles.">'
@@ -881,7 +907,7 @@ def capex_page():
 <div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="CAPEX energy today" data-es="Energía CAPEX hoy">CAPEX energy today</div></div>
 <div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production — month to date" data-es="Producción — mes en curso">Production — month to date</div></div>
 <div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected — month to date" data-es="Esperado — mes en curso">Expected — month to date</div></div>
-<div class="kpi" style="display:flex;flex-direction:column;align-items:center;align-self:flex-end">{gauge_svg(pct, width=150) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
+<div class="kpi gauge" title="{GAUGE_TIP}">{gauge_svg(pct) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
 </div>'''
     note = ('<p class="note" data-en="CAPEX plants belong to their owners; these figures are the owners\' production. Month-to-date sums come from vendor-counter-verified daily production."'
             ' data-es="Las plantas CAPEX pertenecen a sus dueños; estas cifras son su producción. Los acumulados del mes provienen de producción diaria verificada contra el contador del fabricante.">'

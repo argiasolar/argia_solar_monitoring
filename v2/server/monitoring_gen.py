@@ -430,13 +430,9 @@ window.addEventListener('DOMContentLoaded',()=>{
     document.querySelectorAll('.adminonly')
      .forEach(x=>x.style.display='inline-flex');}})
   .catch(()=>{el.remove();});});
-// log out of every protected scope, not just '/'
-const ARGIA_SCOPES=['/','/setup/','/account/','/monitoring/','/financial/','/cfe/'];
-function argiaLogout(){
- Promise.allSettled(ARGIA_SCOPES.map(u=>fetch(u,{
-   headers:{Authorization:'Basic bG9nZ2VkLW91dDpsb2dnZWQtb3V0'},
-   cache:'no-store'})))
-  .finally(()=>{location.href='/logged-out.html';});}
+// straight to the public page — a pre-flight fetch that returns 401
+// makes the browser pop its own sign-in dialog (reported 2026-08-28)
+function argiaLogout(){location.href='/logged-out.html';}
 '''
 
 

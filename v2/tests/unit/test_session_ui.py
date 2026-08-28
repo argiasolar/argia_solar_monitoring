@@ -61,24 +61,54 @@ class TestAdminOnlyLinks:
         assert "admin.htpasswd" in block[:block.index("}")]
 
 
-class TestLogoutClearsEveryRealm:
-    def test_all_three_pages_share_the_scope_list(self):
-        for src in (REP, MON, SET):
-            for scope in SCOPES:
-                assert scope in src, scope
+class TestLogoutRaisesNoPrompt:
+    """A logout must never issue a request that can answer 401: the
+    browser turns that into its own sign-in dialog, which no password
+    can satisfy (the page it guards is public). Reported 2026-08-28."""
 
-    def test_logout_no_longer_hits_only_the_root(self):
+    def test_logout_makes_no_request_at_all(self):
         for src in (REP, MON, SET):
-            assert "fetch('/',{headers:{Authorization:'Basic eDp4'}})" \
-                not in src.replace(" ", "")
+            i = src.index("function argiaLogout")
+            body = src[i:i + 200]
+            for forbidden in ("fetch(", "XMLHttpRequest", "Authorization",
+                              "Promise.allSettled"):
+                assert forbidden not in body, (forbidden, body[:90])
 
-    def test_uses_allsettled_so_one_404_cannot_abort_it(self):
+    def test_logout_navigates_straight_to_the_public_page(self):
         for src in (REP, MON, SET):
-            assert "Promise.allSettled" in src
+            i = src.index("function argiaLogout")
+            assert "/logged-out.html" in src[i:i + 200]
 
-    def test_lands_on_the_public_page(self):
-        for src in (REP, MON, SET):
-            assert "/logged-out.html" in src
+    def test_logged_out_page_is_outside_the_login(self):
+        auth = (ROOT / "server" / "bundle" /
+                "nginx-argia_auth.conf").read_text(encoding="utf-8")
+        assert "location = /logged-out.html" in auth
+        i = auth.index("location = /logged-out.html")
+        assert "auth_basic off" in auth[i:i + 120]
+
+    def test_page_is_honest_about_basic_auth(self):
+        """No false 'you are signed out everywhere' claim: the browser
+        keeps the credential until its windows close."""
+        assert "close all browser windows" in REP
+        assert "private window" in REP
 
     def test_monitoring_pages_have_a_logout_button(self):
         assert 'onclick="argiaLogout()"' in MON
+
+
+class TestOneRealm:
+    AUTH = (ROOT / "server" / "bundle" /
+            "nginx-argia_auth.conf").read_text(encoding="utf-8")
+
+    def test_single_realm_across_the_whole_site(self):
+        """Browsers cache one credential per realm, so a second realm
+        means a second prompt when moving between sections."""
+        import re
+        realms = set(re.findall(r'auth_basic "([^"]+)"', self.AUTH))
+        assert realms == {"ARGIA"}, realms
+
+    def test_setup_and_monitoring_no_longer_split_the_realm(self):
+        """Only the directives matter — the section comments may still
+        say 'ARGIA reporting'."""
+        for old in ("ARGIA reporting", "ARGIA setup", "ARGIA monitoring"):
+            assert f'auth_basic "{old}"' not in self.AUTH

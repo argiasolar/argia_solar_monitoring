@@ -303,16 +303,13 @@ a{color:var(--s1);}
 
 I18N_JS = '''
 <script>
-// Log out of EVERY protected scope, not just '/'. Browsers keep one
-// cached credential per realm+path, so poisoning only the root left
-// the old session alive under /setup/ — you came back as whoever was
-// signed in before. Reported 2026-08-28.
-const ARGIA_SCOPES=['/','/setup/','/account/','/monitoring/','/financial/','/cfe/'];
-function argiaLogout(){
- Promise.allSettled(ARGIA_SCOPES.map(u=>fetch(u,{
-   headers:{Authorization:'Basic bG9nZ2VkLW91dDpsb2dnZWQtb3V0'},
-   cache:'no-store'})))
-  .finally(()=>{location.href='/logged-out.html';});}
+// Log out = go straight to the public logged-out page. It must NOT
+// fetch anything first: any request that comes back 401 makes the
+// browser raise its own sign-in dialog, which is what happened on
+// 2026-08-28 (a prompt no password could satisfy, right before the
+// redirect). Basic auth has no server-side logout, so the page below
+// says plainly what actually ends the session.
+function argiaLogout(){location.href='/logged-out.html';}
 // Name the signed-in account. The browser keeps re-sending cached
 // basic-auth credentials, so the page you are on may belong to a
 // different user than the one you last typed a password for.
@@ -1140,10 +1137,21 @@ def logged_out_page():
             f'<style>{STYLE}</style></head><body><div class="wrap" style="max-width:520px;'
             'text-align:center;padding-top:80px">'
             f'{LOGO}<h1 style="margin:26px 0 10px">You are logged out / Sesión cerrada</h1>'
-            '<p class="sub">Your browser may keep the session until every window is closed.<br>'
-            'El navegador puede conservar la sesión hasta cerrar todas las ventanas.</p>'
-            '<p style="margin-top:24px"><a class="btn" href="/">Log in again / '
-            'Iniciar sesión</a></p></div></body></html>')
+            # Honest about what HTTP basic auth can and cannot do: the
+            # server has no session to end, and the browser will hand
+            # the same password back the moment you open a page again.
+            '<p class="sub">This page is outside the login. Your browser, '
+            'however, still remembers the password and will use it again '
+            'on the next page — to be sure the next person cannot '
+            'continue as you, <b>close all browser windows</b>, or open '
+            'the site in a private window.<br><br>'
+            'Esta página está fuera del acceso. Su navegador todavía '
+            'recuerda la contraseña y la volverá a usar en la siguiente '
+            'página — para asegurarse de que nadie continúe con su '
+            'sesión, <b>cierre todas las ventanas del navegador</b> o '
+            'abra el sitio en una ventana privada.</p>'
+            '<p style="margin-top:24px"><a class="btn" href="/">Back to '
+            'reports / Volver a reportes</a></p></div></body></html>')
 
 
 write('index.html', landing_page())

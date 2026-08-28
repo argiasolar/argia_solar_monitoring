@@ -260,6 +260,21 @@ def active_admins(c):
             c.execute('SELECT username FROM users WHERE is_admin=1 AND disabled=0')]
 
 
+# Generated passwords are read off a screen and retyped by hand or
+# dictated over the phone, so the alphabet drops every glyph pair that
+# is ambiguous in common fonts: l/I/1, O/0, and the URL-safe '-_' that
+# vanish at the end of a copied line. 57 symbols x 14 chars = ~81 bits,
+# a shade more than the token_urlsafe(10) it replaces.
+PW_ALPHABET = ('abcdefghijkmnopqrstuvwxyz'
+               'ABCDEFGHJKLMNPQRSTUVWXYZ'
+               '23456789')
+PW_LENGTH = 14
+
+
+def make_password(n=PW_LENGTH):
+    return ''.join(secrets.choice(PW_ALPHABET) for _ in range(n))
+
+
 def clean_username(raw):
     """Usernames are stored — and written to htpasswd — in lowercase.
     nginx compares the basic-auth username byte for byte, so 'Eduardo'
@@ -993,7 +1008,7 @@ def add():
     pw = clean_password(request.form.get('password'))
     once = None
     if not pw:
-        pw = secrets.token_urlsafe(10)
+        pw = make_password()
         once = pw
     padm = 1 if request.form.get('plant_admin') else 0
     if is_global:
@@ -1078,7 +1093,7 @@ def password():
     u = (request.form.get('username') or '').strip()
     if not can_manage(u):
         return render(msg='Not allowed.')
-    pw = secrets.token_urlsafe(10)
+    pw = make_password()
     c = db()
     n = c.execute('UPDATE users SET hash=? WHERE username=?', (hash_pw(u, pw), u)).rowcount
     c.commit()

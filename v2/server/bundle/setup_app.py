@@ -275,6 +275,68 @@ def make_password(n=PW_LENGTH):
     return ''.join(secrets.choice(PW_ALPHABET) for _ in range(n))
 
 
+def verify_pw(user, pw):
+    """True when pw matches the user's stored hash.
+
+    bcrypt when the library is present (the hashes htpasswd -B writes
+    are $2y$, which it accepts); otherwise htpasswd -vb, which also
+    covers the apr1 fallback hashes. python's crypt module is gone in
+    3.13, so there is no stdlib path here."""
+    if not pw or not user:
+        return False
+    c = db()
+    row = c.execute('SELECT hash FROM users WHERE username=? '
+                    'AND disabled=0', (user,)).fetchone()
+    c.close()
+    if not row:
+        return False
+    stored = row[0]
+    try:
+        import bcrypt
+        if stored.startswith('$2'):
+            return bcrypt.checkpw(pw.encode(), stored.encode())
+    except Exception:                                     # noqa: BLE001
+        pass
+    try:
+        r = subprocess.run(
+            ['htpasswd', '-vb', os.path.join(AUTH_DIR, 'all.htpasswd'),
+             user, pw], capture_output=True, text=True)
+        return r.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+# Wrong-current-password throttle. The page already sits behind basic
+# auth, so this is not the main defence — it stops someone poking at a
+# colleague's unlocked browser from grinding through guesses.
+PW_FAIL_MAX = 5
+PW_FAIL_WINDOW = 600.0
+_PW_FAILS = {}
+
+
+def pw_lock_left(user, now=None, fails=None):
+    """Seconds the user must wait, 0 when not throttled."""
+    fails = _PW_FAILS if fails is None else fails
+    now = _time.time() if now is None else now
+    n, first = fails.get(user, (0, 0.0))
+    if n >= PW_FAIL_MAX and now - first < PW_FAIL_WINDOW:
+        return int(PW_FAIL_WINDOW - (now - first)) + 1
+    return 0
+
+
+def pw_note_fail(user, now=None, fails=None):
+    fails = _PW_FAILS if fails is None else fails
+    now = _time.time() if now is None else now
+    n, first = fails.get(user, (0, 0.0))
+    if now - first >= PW_FAIL_WINDOW:
+        n, first = 0, now
+    fails[user] = (n + 1, first)
+
+
+def pw_clear_fails(user, fails=None):
+    (_PW_FAILS if fails is None else fails).pop(user, None)
+
+
 def clean_username(raw):
     """Usernames are stored — and written to htpasswd — in lowercase.
     nginx compares the basic-auth username byte for byte, so 'Eduardo'
@@ -288,6 +350,23 @@ def clean_password(raw):
     space used to be hashed WITH the space, so every later login got a
     401 while everything else looked correct (diagnosed 2026-08-28)."""
     return (raw or '').strip()
+
+
+PW_MIN = 10
+
+
+def password_problem(new, again, current):
+    """Reason the new password is unacceptable, or None. Kept separate
+    from the route so the rules are testable."""
+    if not new:
+        return 'Enter a new password.'
+    if len(new) < PW_MIN:
+        return f'Use at least {PW_MIN} characters.'
+    if new != again:
+        return 'The two new passwords do not match.'
+    if new == current:
+        return 'The new password is the same as the current one.'
+    return None
 
 
 def hash_pw(user, pw):
@@ -1121,6 +1200,80 @@ def delete():
     c.close()
     sync()
     return render(msg=f'User {u} deleted.')
+
+
+# ---------------------------------------------------------------- self
+# Any signed-in user changes their OWN password here. Mounted at
+# /account/ behind all.htpasswd (see snippets/argia_auth.conf), so it
+# needs no admin rights — unlike /setup/, which stays admin-only.
+
+def account_page(msg='', ok=False, user=''):
+    tone = '#137333' if ok else '#c5221f'
+    note = (f'<div class="card" style="border-color:{tone}">'
+            f'<b>{html.escape(msg)}</b></div>') if msg else ''
+    if ok:      # nothing left to fill in — the form would just confuse
+        return page(note + '<div class="card"><p data-en="Your browser '
+                    'still holds the old password. The next page you '
+                    'open will ask for it again — enter the new one, '
+                    'and tick &quot;remember&quot; if your browser '
+                    'offers it." data-es="Su navegador aún guarda la '
+                    'contraseña anterior. La próxima página le '
+                    'preguntará de nuevo — escriba la nueva.">'
+                    'Your browser still holds the old password. The '
+                    'next page you open will ask for it again — enter '
+                    'the new one.</p></div>')
+    return page(note + f'''<div class="card">
+<h2 data-en="Change my password" data-es="Cambiar mi contraseña">Change my password</h2>
+<p class="note" data-en="Signed in as {html.escape(user)}. This changes only your own password."
+ data-es="Sesión de {html.escape(user)}. Cambia únicamente su propia contraseña.">
+Signed in as {html.escape(user)}. This changes only your own password.</p>
+<form method="post" action="change">
+<input type="hidden" name="csrf" value="{CSRF}">
+<p><input type="password" name="current" placeholder="current password" required autocomplete="current-password"></p>
+<p><input type="password" name="new" placeholder="new password ({PW_MIN}+ characters)" required autocomplete="new-password">
+ <input type="password" name="again" placeholder="repeat new password" required autocomplete="new-password"></p>
+<p><button class="btn" data-en="Change password" data-es="Cambiar contraseña">Change password</button></p>
+</form>
+<p class="note" data-en="Spaces at the start or end are trimmed. Forgot the current one? Ask an ARGIA admin for a reset."
+ data-es="Los espacios al inicio o final se eliminan. ¿Olvidó la actual? Pida a un administrador de ARGIA que la restablezca.">
+Spaces at the start or end are trimmed. Forgot the current one? Ask an ARGIA admin for a reset.</p></div>''')
+
+
+@app.get('/account/')
+def account():
+    u = clean_username(request.headers.get('X-Remote-User'))
+    return account_page(user=u)
+
+
+@app.post('/account/change')
+def account_change():
+    if not check_csrf():
+        return stale_page()
+    u = clean_username(request.headers.get('X-Remote-User'))
+    if not u:
+        return account_page('Not signed in.', user=u), 401
+    wait = pw_lock_left(u)
+    if wait:
+        return account_page(f'Too many wrong attempts — try again in '
+                            f'{wait // 60 + 1} minute(s).', user=u), 429
+    current = clean_password(request.form.get('current'))
+    if not verify_pw(u, current):
+        pw_note_fail(u)
+        return account_page('Current password is not correct.',
+                            user=u), 403
+    new = clean_password(request.form.get('new'))
+    problem = password_problem(
+        new, clean_password(request.form.get('again')), current)
+    if problem:
+        return account_page(problem, user=u), 400
+    c = db()
+    c.execute('UPDATE users SET hash=? WHERE username=? AND disabled=0',
+              (hash_pw(u, new), u))
+    c.commit()
+    c.close()
+    sync()
+    pw_clear_fails(u)
+    return account_page(f'Password changed for {u}.', ok=True, user=u)
 
 
 @app.get('/healthz')

@@ -1098,10 +1098,9 @@ def landing_page():
                  if cfe_fresh else
                  'CFE rates not yet verified for the current month · '
                  'Tarifas aún no verificadas para el mes actual')
-    ic_key = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
-              '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3m-3 3 2 2m-4 0 2 2"/></svg>')
+    # No account link down here: the identity chip at the top right is
+    # the single entry point to /account/ (user feedback 2026-08-28).
     body.append(f'''<div class="flinks">
-<a href="account/">{ic_key}{t("Change my password","Cambiar mi contraseña")}</a>
 <a href="setup/">{ic_set}{t("User &amp; access setup","Gestión de usuarios y accesos")}</a>
 <a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
 </div>''')

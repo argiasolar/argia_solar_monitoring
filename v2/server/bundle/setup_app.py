@@ -1288,11 +1288,13 @@ def delete():
 # /account/ behind all.htpasswd (see snippets/argia_auth.conf), so it
 # needs no admin rights — unlike /setup/, which stays admin-only.
 
-def account_page(msg='', ok=False, user=''):
+def account_page(msg='', ok=False, user='', pw_done=False):
+    """My account: profile (name, surname, email) + password. One page,
+    the only place a user manages their own login."""
     tone = '#137333' if ok else '#c5221f'
     note = (f'<div class="card" style="border-color:{tone}">'
             f'<b>{html.escape(msg)}</b></div>') if msg else ''
-    if ok:      # nothing left to fill in — the form would just confuse
+    if pw_done:   # password just changed — the form would only confuse
         return page(note + '<div class="card"><p data-en="Your browser '
                     'still holds the old password. The next page you '
                     'open will ask for it again — enter the new one, '
@@ -1303,11 +1305,35 @@ def account_page(msg='', ok=False, user=''):
                     'Your browser still holds the old password. The '
                     'next page you open will ask for it again — enter '
                     'the new one.</p></div>')
-    return page(note + f'''<div class="card">
+    c = db()
+    row = c.execute('SELECT first_name,last_name,email,level,is_admin'
+                    ' FROM users WHERE username=?', (user,)).fetchone()
+    c.close()
+    fname, lname, email, level, adm = row or ('', '', '', '', 0)
+    access = ('argia — all reports' if level == 'argia'
+              else 'limited to the reports granted to you')
+    access_es = ('argia — todos los reportes' if level == 'argia'
+                 else 'limitado a los reportes que le fueron asignados')
+    profile = f'''<div class="card">
+<h2 data-en="My details" data-es="Mis datos">My details</h2>
+<p class="note" data-en="Signed in as {html.escape(user)} · {access}{' · admin' if adm else ''}. Your username cannot be changed — ask an ARGIA admin."
+ data-es="Sesión de {html.escape(user)} · {access_es}{' · admin' if adm else ''}. El usuario no se puede cambiar — pida a un administrador de ARGIA.">
+Signed in as {html.escape(user)} · {access}{' · admin' if adm else ''}.</p>
+<form method="post" action="profile">
+<input type="hidden" name="csrf" value="{CSRF}">
+<p><input type="text" name="first_name" placeholder="first name" maxlength="60"
+    value="{html.escape(fname or '')}">
+ <input type="text" name="last_name" placeholder="surname" maxlength="60"
+    value="{html.escape(lname or '')}">
+ <input type="text" name="email" placeholder="email" maxlength="120"
+    value="{html.escape(email or '')}"></p>
+<p><button class="btn" data-en="Save my details" data-es="Guardar mis datos">Save my details</button></p>
+</form>
+<p class="note" data-en="Your name is what every page shows in the top-right corner, so anyone can see which account they are using."
+ data-es="Su nombre es lo que cada página muestra en la esquina superior derecha, para saber qué cuenta se está usando.">
+Your name is what every page shows in the top-right corner.</p></div>'''
+    return page(note + profile + f'''<div class="card">
 <h2 data-en="Change my password" data-es="Cambiar mi contraseña">Change my password</h2>
-<p class="note" data-en="Signed in as {html.escape(user)}. This changes only your own password."
- data-es="Sesión de {html.escape(user)}. Cambia únicamente su propia contraseña.">
-Signed in as {html.escape(user)}. This changes only your own password.</p>
 <form method="post" action="change">
 <input type="hidden" name="csrf" value="{CSRF}">
 <p><input type="password" name="current" placeholder="current password" required autocomplete="current-password"></p>
@@ -1370,7 +1396,36 @@ def account_change():
     c.close()
     sync()
     pw_clear_fails(u)
-    return account_page(f'Password changed for {u}.', ok=True, user=u)
+    return account_page(f'Password changed for {u}.', ok=True, user=u,
+                        pw_done=True)
+
+
+@app.post('/account/profile')
+def account_profile():
+    """A user edits their own name / surname / email. Same identity
+    rule as the password route: the account comes from the proxy
+    header, never from the form, so nobody can edit anyone else."""
+    if not check_csrf():
+        return stale_page()
+    u = clean_username(request.headers.get('X-Remote-User'))
+    if not u:
+        return account_page('Not signed in.', user=u), 401
+    raw_mail = (request.form.get('email') or '').strip()
+    email = clean_email(raw_mail)
+    if raw_mail and not email:
+        return account_page('That email address does not look valid.',
+                            user=u), 400
+    c = db()
+    n = c.execute('UPDATE users SET first_name=?, last_name=?, email=?'
+                  ' WHERE username=? AND disabled=0',
+                  (clean_name(request.form.get('first_name')),
+                   clean_name(request.form.get('last_name')),
+                   email, u)).rowcount
+    c.commit()
+    c.close()
+    if not n:
+        return account_page('Account not found.', user=u), 404
+    return account_page('Your details were saved.', ok=True, user=u)
 
 
 @app.get('/healthz')

@@ -482,11 +482,29 @@ def page(body, msg='', once=None):
     _me = clean_username(request.headers.get('X-Remote-User'))
     _name, _mail, _adm, _lvl = profile_of(_me) if _me else ('', '', 0, '')
     who_html = (
-        f'<span class="whoami">{html.escape(_name)}'
+        '<div class="usermenu">'
+        '<button class="whoami" onclick="argiaMenu(event)"'
+        ' aria-haspopup="true" aria-expanded="false">'
+        + html.escape(_name)
         + (f' <span class="wu">({html.escape(_me)})</span>'
            if _name != _me else '')
         + (' <span class="pill adm">admin</span>' if _adm else '')
-        + '</span>') if _me else ''
+        + ' <span class="car">▾</span></button>'
+        '<div class="umenu" id="umenu">'
+        '<a href="/account/" data-en="My account" data-es="Mi cuenta">'
+        'My account</a>'
+        '<div class="umsep"></div>'
+        '<div class="umlabel" data-en="Language" data-es="Idioma">'
+        'Language</div>'
+        '<div class="umrow">'
+        '<button class="lang-btn" data-l="en" onclick="setLang(\'en\')">'
+        'EN</button>'
+        '<button class="lang-btn" data-l="es" onclick="setLang(\'es\')">'
+        'ES</button></div>'
+        '<div class="umsep"></div>'
+        '<button onclick="argiaLogout()" data-en="Log out"'
+        ' data-es="Cerrar sesión">Log out</button>'
+        '</div></div>') if _me else ''
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Setup — ARGIA</title>
@@ -508,29 +526,52 @@ input[type=text],input[type=password]{{border:1px solid #dadce0;border-radius:8p
 .pill{{display:inline-block;padding:2px 9px;border-radius:11px;font-size:12px;background:#e6f4ea;color:#137333;}}
 .pill.adm{{background:#ecebf6;color:#4f4a94;}}
 .areas{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:4px;font-size:13px;}}
+.controls{{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0;}}
+.controls .usermenu{{margin-left:auto;}}
 .note{{font-size:13px;color:#80868b;}}
 label{{font-size:13.5px;}}
-.whoami{{display:inline-block;background:#eef1f4;border:1px solid #dadce0;
- border-radius:20px;padding:5px 12px;font-size:13px;color:#1c2733;font-weight:600;}}
+.usermenu{{display:inline-block;position:relative;}}
+.whoami{{background:#eef1f4;border:1px solid #dadce0;border-radius:20px;
+ padding:5px 12px;font-size:13px;color:#1c2733;font-weight:600;
+ cursor:pointer;font-family:inherit;}}
 .whoami .wu{{font-weight:400;color:#5f6368;}}
+.whoami .car{{margin-left:6px;color:#5f6368;font-size:10px;}}
+.umenu{{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;
+ min-width:210px;background:#fff;border:1px solid #e4e7ea;border-radius:10px;
+ box-shadow:0 6px 24px rgba(0,0,0,.12);padding:6px;text-align:left;}}
+.umenu.open{{display:block;}}
+.umenu a,.umenu button{{display:block;width:100%;box-sizing:border-box;
+ text-align:left;background:none;border:0;border-radius:7px;padding:8px 10px;
+ font-size:13.5px;color:#202124;text-decoration:none;cursor:pointer;
+ font-family:inherit;}}
+.umenu a:hover,.umenu button:hover{{background:#f1f3f5;}}
+.umenu .umsep{{border-top:1px solid #e4e7ea;margin:5px 2px;}}
+.umenu .umrow{{display:flex;gap:6px;padding:4px 6px 2px;}}
+.umenu .umrow button{{border:1px solid #dadce0;text-align:center;padding:5px 0;}}
+.umenu .umrow button.active{{border-color:#2a78d6;box-shadow:inset 0 0 0 1px #2a78d6;}}
+.umenu .umlabel{{font-size:11px;color:#80868b;padding:6px 10px 0;
+ text-transform:uppercase;letter-spacing:.08em;}}
 </style></head><body><div class="wrap">
 <div class="top"><div><h1 data-en="Report access setup" data-es="Gestión de accesos">Report access setup</h1>
 <div class="sub" data-en="Users, passwords and per-report access. Changes apply immediately."
  data-es="Usuarios, contraseñas y acceso por reporte. Los cambios aplican de inmediato.">
 Users, passwords and per-report access. Changes apply immediately.</div></div>
 <img src="{LOGO_URI}" alt="ARGIA SOLAR" style="height:26px;width:auto;margin-top:2px"></div>
-<p><a class="btn" href="../">&#8592; Reports</a>
-<button class="btn" onclick="setLang('en')">EN</button>
-<button class="btn" onclick="setLang('es')">ES</button>
-<button class="btn" onclick="argiaLogout()" data-en="Log out" data-es="Cerrar sesión">Log out</button>
-<a class="btn" href="/account/" data-en="My password" data-es="Mi contraseña">My password</a>
-{who_html}</p>
+<div class="controls"><a class="btn" href="/" data-en="← Reports"
+ data-es="← Reportes">← Reports</a>{who_html}</div>
 {once_html}{msg_html}{body}
 <script>
 // straight to the public page — a pre-flight fetch that returns 401
 // makes the browser pop its own sign-in dialog (reported 2026-08-28)
 function argiaLogout(){{location.href='/logged-out.html';}}
+function argiaMenu(ev){{ev.stopPropagation();
+ const m=document.getElementById('umenu');m.classList.toggle('open');}}
+document.addEventListener('click',()=>{{
+ const m=document.getElementById('umenu');if(m)m.classList.remove('open');}});
+document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{
+ const m=document.getElementById('umenu');if(m)m.classList.remove('open');}}}});
 function setLang(l){{document.querySelectorAll('[data-en]').forEach(e=>{{e.textContent=e.dataset[l]||e.dataset.en;}});
+document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.l===l));
 try{{localStorage.setItem('argia_lang',l);}}catch(e){{}}}}
 window.addEventListener('DOMContentLoaded',()=>{{let l='en';
 try{{l=localStorage.getItem('argia_lang')||'en';}}catch(e){{}};setLang(l);}});

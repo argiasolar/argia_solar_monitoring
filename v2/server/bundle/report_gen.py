@@ -285,13 +285,31 @@ details summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--ink);}
 details[open] summary{margin-bottom:6px;}
 /* revealed by the whoami fetch only for admins — see I18N_JS */
 .adminonly{display:none;}
-.whoami{margin-left:auto;background:var(--surface);border:1px solid var(--border);
+/* user menu: identity chip + everything that belongs to the person
+   (account, language, log out) in one place instead of loose buttons */
+.usermenu{margin-left:auto;position:relative;}
+.whoami{background:var(--surface);border:1px solid var(--border);
  border-radius:20px;padding:5px 12px;font-size:13px;color:var(--ink);
- font-weight:600;text-decoration:none;}
+ font-weight:600;text-decoration:none;cursor:pointer;font-family:inherit;}
 .whoami:hover{border-color:#b9bec4;}
 .whoami .wu{font-weight:400;color:var(--ink2);}
 .whoami .wa{margin-left:6px;padding:1px 7px;border-radius:9px;font-size:11px;
  font-weight:600;background:#ecebf6;color:#4f4a94;}
+.whoami .car{margin-left:6px;color:var(--ink2);font-size:10px;}
+.umenu{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;
+ min-width:210px;background:var(--surface);border:1px solid var(--border);
+ border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.12);padding:6px;text-align:left;}
+.umenu.open{display:block;}
+.umenu a,.umenu button{display:block;width:100%;box-sizing:border-box;text-align:left;
+ background:none;border:0;border-radius:7px;padding:8px 10px;font-size:13.5px;
+ color:var(--ink);text-decoration:none;cursor:pointer;font-family:inherit;}
+.umenu a:hover,.umenu button:hover{background:#f1f3f5;}
+.umenu .umsep{border-top:1px solid var(--border);margin:5px 2px;}
+.umenu .umrow{display:flex;gap:6px;padding:4px 6px 2px;}
+.umenu .umrow button{border:1px solid var(--border);text-align:center;padding:5px 0;}
+.umenu .umrow button.active{border-color:var(--s1);box-shadow:inset 0 0 0 1px var(--s1);}
+.umenu .umlabel{font-size:11px;color:var(--muted);padding:6px 10px 0;
+ text-transform:uppercase;letter-spacing:.08em;}
 .pdfrow{text-align:center;margin:22px 0 4px;}
 footer{font-size:12px;color:var(--muted);margin-top:20px;line-height:1.6;}
 a{color:var(--s1);}
@@ -310,6 +328,15 @@ I18N_JS = '''
 // redirect). Basic auth has no server-side logout, so the page below
 // says plainly what actually ends the session.
 function argiaLogout(){location.href='/logged-out.html';}
+function argiaMenu(ev){ev.stopPropagation();
+ const m=document.getElementById('umenu'),b=document.getElementById('whoami');
+ const open=m.classList.toggle('open');b.setAttribute('aria-expanded',open);}
+document.addEventListener('click',()=>{
+ const m=document.getElementById('umenu');
+ if(m&&m.classList.contains('open')){m.classList.remove('open');
+  document.getElementById('whoami').setAttribute('aria-expanded','false');}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){
+ const m=document.getElementById('umenu');if(m)m.classList.remove('open');}});
 // Name the signed-in account. The browser keeps re-sending cached
 // basic-auth credentials, so the page you are on may belong to a
 // different user than the one you last typed a password for.
@@ -327,7 +354,9 @@ window.addEventListener('DOMContentLoaded',()=>{
     // as a non-admin only triggered a fresh password prompt, and the
     // browser answered it with the previous admin's cached login
     document.querySelectorAll('.adminonly')
-     .forEach(x=>x.style.display='inline-flex');}})
+     .forEach(x=>x.style.display='inline-flex');}
+   const c=document.createElement('span');c.className='car';
+   c.textContent='▾';el.appendChild(c);})
   .catch(()=>{el.remove();});});
 function setLang(l){
  document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
@@ -446,6 +475,27 @@ def t(en, es):
 LOGO = f'<img class="logo" src="{LOGO_URI}" alt="ARGIA SOLAR">'
 
 
+def user_menu():
+    """Identity chip that opens everything belonging to the person:
+    account, language, log out. Keeping them in one menu stops the
+    control row from being a row of loose global buttons."""
+    return f'''<div class="usermenu noprint">
+ <button class="whoami" id="whoami" onclick="argiaMenu(event)"
+   aria-haspopup="true" aria-expanded="false">…</button>
+ <div class="umenu" id="umenu">
+  <a href="/account/">{t("My account","Mi cuenta")}</a>
+  <div class="umsep"></div>
+  <div class="umlabel">{t("Language","Idioma")}</div>
+  <div class="umrow">
+   <button class="lang-btn" data-l="en" onclick="setLang('en')">EN</button>
+   <button class="lang-btn" data-l="es" onclick="setLang('es')">ES</button>
+  </div>
+  <div class="umsep"></div>
+  <button onclick="argiaLogout()">{t("Log out","Cerrar sesión")}</button>
+ </div>
+</div>'''
+
+
 def chrome_top(title_en, title_es, sub, home='.', show_home=True, range_id=None,
                right_sub=''):
     home_btn = f'<a class="btn" href="{home}/">{t("Home", "Inicio")}</a>' if show_home else ''
@@ -456,13 +506,8 @@ def chrome_top(title_en, title_es, sub, home='.', show_home=True, range_id=None,
  {LOGO}</div>
 <div class="controls noprint">
  {home_btn}
- <button class="btn lang-btn" data-l="en" onclick="setLang('en')">EN</button>
- <button class="btn lang-btn" data-l="es" onclick="setLang('es')">ES</button>
- <button class="btn" onclick="window.print()">{t('Download PDF','Descargar PDF')}</button>
- <button class="btn" onclick="argiaLogout()">{t('Log out','Cerrar sesión')}</button>
  {right}
- <a class="whoami" id="whoami" href="/account/"
-    title="{t('Your account — change password','Su cuenta — cambiar contraseña')}">…</a>
+ {user_menu()}
 </div>'''
 
 
@@ -1154,8 +1199,30 @@ def logged_out_page():
             'reports / Volver a reportes</a></p></div></body></html>')
 
 
+def no_access_page():
+    """Body nginx serves with any 401 — i.e. what you see after
+    cancelling the browser's sign-in box. Without it you landed on
+    the bare 'Authorization Required' wall with no way back."""
+    return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            '<meta name="robots" content="noindex,nofollow">'
+            '<meta http-equiv="refresh" content="6;url=/">'
+            '<title>No access — ARGIA</title>'
+            f'<style>{STYLE}</style></head><body><div class="wrap" '
+            'style="max-width:520px;text-align:center;padding-top:80px">'
+            f'{LOGO}<h1 style="margin:26px 0 10px">No access / Sin acceso</h1>'
+            '<p class="sub">This part of the site is not open to your '
+            'account, or no password was entered. Taking you back to the '
+            'reports…<br><br>'
+            'Esta sección no está disponible para su cuenta, o no se '
+            'introdujo una contraseña. Volviendo a los reportes…</p>'
+            '<p style="margin-top:24px"><a class="btn" href="/">Back to '
+            'reports / Volver a reportes</a></p></div></body></html>')
+
+
 write('index.html', landing_page())
 write('logged-out.html', logged_out_page())
+write('no-access.html', no_access_page())
 write('financial/index.html', financial_page())
 write('capex/index.html', capex_index())
 for k in PPA + CAPEX:

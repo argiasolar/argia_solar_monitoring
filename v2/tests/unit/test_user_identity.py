@@ -153,10 +153,14 @@ class TestChipOnEveryPortal:
             assert 'id="whoami"' in src
             assert "/account/whoami" in src
 
-    def test_chip_links_to_the_account_page(self):
+    def test_chip_opens_a_menu_that_reaches_the_account_page(self):
+        """The chip stopped being a link in v150: it opens the user
+        menu, and My account is the first row of that menu."""
         for src in (self.MON, self.REP):
             i = src.index('id="whoami"')
-            assert 'href="/account/"' in src[i - 120:i + 120]
+            assert "argiaMenu(" in src[i - 120:i + 200]
+            j = src.index('class="umenu"')
+            assert 'href="/account/"' in src[j:j + 400]
 
     def test_chip_shows_username_when_name_differs(self):
         for src in (self.MON, self.REP):

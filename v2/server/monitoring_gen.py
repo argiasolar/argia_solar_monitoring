@@ -400,18 +400,46 @@ input[type=date]{background:#fff;border:1px solid #dadce0;border-radius:8px;padd
 .pphoto{width:100%;max-height:190px;object-fit:cover;border-radius:14px;margin:10px 0 4px;display:block;}
 .kgroup{display:flex;gap:26px;align-items:flex-end;padding-right:26px;}
 .kgroup+.kgroup{border-left:1px solid #e3e6e9;padding-left:26px;}
-.whoami{margin-left:auto;background:#eef1f4;border:1px solid #dadce0;border-radius:20px;
- padding:5px 12px;font-size:13px;color:#1c2733;font-weight:600;text-decoration:none;}
+.usermenu{margin-left:auto;position:relative;}
+.whoami{background:#eef1f4;border:1px solid #dadce0;border-radius:20px;
+ padding:5px 12px;font-size:13px;color:#1c2733;font-weight:600;
+ text-decoration:none;cursor:pointer;font-family:inherit;}
 .whoami:hover{border-color:#b9bec4;}
 .whoami .wu{font-weight:400;color:#5f6368;}
 .whoami .wa{margin-left:6px;padding:1px 7px;border-radius:9px;font-size:11px;
  font-weight:600;background:#ecebf6;color:#4f4a94;}
+.whoami .car{margin-left:6px;color:#5f6368;font-size:10px;}
+.umenu{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;
+ min-width:210px;background:#fff;border:1px solid #e4e7ea;border-radius:10px;
+ box-shadow:0 6px 24px rgba(0,0,0,.12);padding:6px;text-align:left;}
+.umenu.open{display:block;}
+.umenu a,.umenu button{display:block;width:100%;box-sizing:border-box;text-align:left;
+ background:none;border:0;border-radius:7px;padding:8px 10px;font-size:13.5px;
+ color:#202124;text-decoration:none;cursor:pointer;font-family:inherit;}
+.umenu a:hover,.umenu button:hover{background:#f1f3f5;}
+.umenu .umsep{border-top:1px solid #e4e7ea;margin:5px 2px;}
+.umenu .umrow{display:flex;gap:6px;padding:4px 6px 2px;}
+.umenu .umrow button{border:1px solid #dadce0;text-align:center;padding:5px 0;}
+.umenu .umrow button.active{border-color:#2a78d6;box-shadow:inset 0 0 0 1px #2a78d6;}
+.umenu .umlabel{font-size:11px;color:#80868b;padding:6px 10px 0;
+ text-transform:uppercase;letter-spacing:.08em;}
+.adminonly{display:none;}
 @media print{.controls{display:none}body{background:#fff}}
 '''
 
 LANGJS = '''
 function setLang(l){document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
+document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.l===l));
 try{localStorage.setItem('argia_lang',l);}catch(e){}}
+function argiaMenu(ev){ev.stopPropagation();
+ const m=document.getElementById('umenu'),b=document.getElementById('whoami');
+ const open=m.classList.toggle('open');b.setAttribute('aria-expanded',open);}
+document.addEventListener('click',()=>{
+ const m=document.getElementById('umenu');
+ if(m&&m.classList.contains('open')){m.classList.remove('open');
+  document.getElementById('whoami').setAttribute('aria-expanded','false');}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){
+ const m=document.getElementById('umenu');if(m)m.classList.remove('open');}});
 window.addEventListener('DOMContentLoaded',()=>{let l='en';
 try{l=localStorage.getItem('argia_lang')||'en';}catch(e){};setLang(l);});
 // Name the signed-in account on every page. nginx re-sends cached
@@ -428,7 +456,9 @@ window.addEventListener('DOMContentLoaded',()=>{
    if(d.admin){const a=document.createElement('span');
     a.className='wa';a.textContent='admin';el.appendChild(a);
     document.querySelectorAll('.adminonly')
-     .forEach(x=>x.style.display='inline-flex');}})
+     .forEach(x=>x.style.display='inline-flex');}
+   const c=document.createElement('span');c.className='car';
+   c.textContent='▾';el.appendChild(c);})
   .catch(()=>{el.remove();});});
 // straight to the public page — a pre-flight fetch that returns 401
 // makes the browser pop its own sign-in dialog (reported 2026-08-28)
@@ -456,20 +486,34 @@ Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pi
 
 
 def controls(extra=''):
-    return (f'<div class="controls"><a class="btn" href="{BASE}/" data-en="Fleet"'
+    # "← Reports" first: same host now, so it is one click and no
+    # second login (the button was removed in v147 and immediately
+    # missed — there was no way back to the reports).
+    return (f'<div class="controls">'
+            '<a class="btn" href="/" data-en="← Reports"'
+            ' data-es="← Reportes">← Reports</a>'
+            f'<a class="btn" href="{BASE}/" data-en="Fleet"'
             ' data-es="Flota">Fleet</a>'
             f'<a class="btn" href="{BASE}/ppa/" data-en="All PPA" data-es="Todo PPA">All PPA</a>'
             f'<a class="btn" href="{BASE}/capex/" data-en="CAPEX" data-es="CAPEX">CAPEX</a>'
             f'<a class="btn" href="{BASE}/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
             f'<a class="btn" href="{BASE}/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
-            '<button class="btn" onclick="setLang(\'en\')">EN</button>'
-            '<button class="btn" onclick="setLang(\'es\')">ES</button>'
-            '<button class="btn" onclick="argiaLogout()" data-en="Log out"'
-            ' data-es="Cerrar sesión">Log out</button>'
             f'{extra}'
-            # who is signed in — filled by whoami.js from /account/whoami
-            '<a class="whoami" id="whoami" href="/account/" title="'
-            'Your account — change password">…</a>'
+            # identity + language + log out, one menu (filled by whoami)
+            '<div class="usermenu">'
+            '<button class="whoami" id="whoami" onclick="argiaMenu(event)"'
+            ' aria-haspopup="true" aria-expanded="false">…</button>'
+            '<div class="umenu" id="umenu">'
+            '<a href="/account/" data-en="My account" data-es="Mi cuenta">My account</a>'
+            '<div class="umsep"></div>'
+            '<div class="umlabel" data-en="Language" data-es="Idioma">Language</div>'
+            '<div class="umrow">'
+            '<button class="lang-btn" data-l="en" onclick="setLang(\'en\')">EN</button>'
+            '<button class="lang-btn" data-l="es" onclick="setLang(\'es\')">ES</button>'
+            '</div><div class="umsep"></div>'
+            '<button onclick="argiaLogout()" data-en="Log out"'
+            ' data-es="Cerrar sesión">Log out</button>'
+            '</div></div>'
             '</div>')
 
 

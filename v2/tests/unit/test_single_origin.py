@@ -32,14 +32,18 @@ class TestMonitoringLinksArePrefixed:
             in MONGEN
 
     def test_no_root_absolute_page_links_left(self):
-        """Anything starting href="/ other than the shared account page
-        and the favicons would escape the /monitoring prefix."""
+        """A monitoring PAGE link must carry the prefix. The only
+        allowed bare "/" links are the deliberate ways out of the
+        monitoring tree: the logo and the "← Reports" button."""
         import re
         bad = [ln.strip() for ln in MONGEN.splitlines()
-               if re.search(r'href="/(?!account/|favicon)', ln)]
-        assert bad == [] or bad == ['<a href="/" title="ARGIA reports">'
-                                    '<img class="logo" src="{LOGO_URI}" '
-                                    'alt="ARGIA SOLAR"></a></div>'], bad
+               if re.search(r'href="/(?!account/|favicon|"|\s)', ln)]
+        assert bad == [], bad
+        out = [ln.strip() for ln in MONGEN.splitlines()
+               if re.search(r'href="/"', ln)]
+        assert len(out) == 2, out
+        assert any("logo" in ln for ln in out)
+        assert any("Reports" in ln for ln in out)
 
     def test_nav_buttons_prefixed(self):
         for path in ("/", "/ppa/", "/capex/", "/performance/", "/recon/"):

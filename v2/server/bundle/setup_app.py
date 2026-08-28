@@ -527,8 +527,15 @@ Users, passwords and per-report access. Changes apply immediately.</div></div>
 {who_html}</p>
 {once_html}{msg_html}{body}
 <script>
-function argiaLogout(){{fetch('/',{{headers:{{Authorization:'Basic eDp4'}}}}).catch(()=>{{}})
- .finally(()=>{{location.href='/logged-out.html';}});}}
+// every protected scope, not just '/': one cached credential per
+// realm+path means poisoning the root alone left the old admin
+// session alive here under /setup/ (reported 2026-08-28)
+const ARGIA_SCOPES=['/','/setup/','/account/','/monitoring/','/financial/','/cfe/'];
+function argiaLogout(){{
+ Promise.allSettled(ARGIA_SCOPES.map(u=>fetch(u,{{
+   headers:{{Authorization:'Basic bG9nZ2VkLW91dDpsb2dnZWQtb3V0'}},
+   cache:'no-store'}})))
+  .finally(()=>{{location.href='/logged-out.html';}});}}
 function setLang(l){{document.querySelectorAll('[data-en]').forEach(e=>{{e.textContent=e.dataset[l]||e.dataset.en;}});
 try{{localStorage.setItem('argia_lang',l);}}catch(e){{}}}}
 window.addEventListener('DOMContentLoaded',()=>{{let l='en';

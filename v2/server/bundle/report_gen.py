@@ -283,6 +283,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 details{font-size:13px;color:var(--ink2);}
 details summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--ink);}
 details[open] summary{margin-bottom:6px;}
+/* revealed by the whoami fetch only for admins — see I18N_JS */
+.adminonly{display:none;}
 .whoami{margin-left:auto;background:var(--surface);border:1px solid var(--border);
  border-radius:20px;padding:5px 12px;font-size:13px;color:var(--ink);
  font-weight:600;text-decoration:none;}
@@ -301,8 +303,16 @@ a{color:var(--s1);}
 
 I18N_JS = '''
 <script>
-function argiaLogout(){fetch('/',{headers:{Authorization:'Basic eDp4'}}).catch(()=>{})
- .finally(()=>{location.href='/logged-out.html';});}
+// Log out of EVERY protected scope, not just '/'. Browsers keep one
+// cached credential per realm+path, so poisoning only the root left
+// the old session alive under /setup/ — you came back as whoever was
+// signed in before. Reported 2026-08-28.
+const ARGIA_SCOPES=['/','/setup/','/account/','/monitoring/','/financial/','/cfe/'];
+function argiaLogout(){
+ Promise.allSettled(ARGIA_SCOPES.map(u=>fetch(u,{
+   headers:{Authorization:'Basic bG9nZ2VkLW91dDpsb2dnZWQtb3V0'},
+   cache:'no-store'})))
+  .finally(()=>{location.href='/logged-out.html';});}
 // Name the signed-in account. The browser keeps re-sending cached
 // basic-auth credentials, so the page you are on may belong to a
 // different user than the one you last typed a password for.
@@ -315,7 +325,12 @@ window.addEventListener('DOMContentLoaded',()=>{
    if(d.name!==d.user){const s=document.createElement('span');
     s.className='wu';s.textContent=' ('+d.user+')';el.appendChild(s);}
    if(d.admin){const a=document.createElement('span');
-    a.className='wa';a.textContent='admin';el.appendChild(a);}})
+    a.className='wa';a.textContent='admin';el.appendChild(a);
+    // admin-only links stay hidden for everyone else: clicking one
+    // as a non-admin only triggered a fresh password prompt, and the
+    // browser answered it with the previous admin's cached login
+    document.querySelectorAll('.adminonly')
+     .forEach(x=>x.style.display='inline-flex');}})
   .catch(()=>{el.remove();});});
 function setLang(l){
  document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
@@ -1101,7 +1116,7 @@ def landing_page():
     # No account link down here: the identity chip at the top right is
     # the single entry point to /account/ (user feedback 2026-08-28).
     body.append(f'''<div class="flinks">
-<a href="setup/">{ic_set}{t("User &amp; access setup","Gestión de usuarios y accesos")}</a>
+<a href="setup/" class="adminonly">{ic_set}{t("Setup","Configuración")}</a>
 <a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
 </div>''')
     body.append(pdf_bottom())

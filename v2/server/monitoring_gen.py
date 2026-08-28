@@ -426,8 +426,17 @@ window.addEventListener('DOMContentLoaded',()=>{
    if(d.name!==d.user){const s=document.createElement('span');
     s.className='wu';s.textContent=' ('+d.user+')';el.appendChild(s);}
    if(d.admin){const a=document.createElement('span');
-    a.className='wa';a.textContent='admin';el.appendChild(a);}})
+    a.className='wa';a.textContent='admin';el.appendChild(a);
+    document.querySelectorAll('.adminonly')
+     .forEach(x=>x.style.display='inline-flex');}})
   .catch(()=>{el.remove();});});
+// log out of every protected scope, not just '/'
+const ARGIA_SCOPES=['/','/setup/','/account/','/monitoring/','/financial/','/cfe/'];
+function argiaLogout(){
+ Promise.allSettled(ARGIA_SCOPES.map(u=>fetch(u,{
+   headers:{Authorization:'Basic bG9nZ2VkLW91dDpsb2dnZWQtb3V0'},
+   cache:'no-store'})))
+  .finally(()=>{location.href='/logged-out.html';});}
 '''
 
 
@@ -459,6 +468,8 @@ def controls(extra=''):
             f'<a class="btn" href="{BASE}/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
             '<button class="btn" onclick="setLang(\'en\')">EN</button>'
             '<button class="btn" onclick="setLang(\'es\')">ES</button>'
+            '<button class="btn" onclick="argiaLogout()" data-en="Log out"'
+            ' data-es="Cerrar sesión">Log out</button>'
             f'{extra}'
             # who is signed in — filled by whoami.js from /account/whoami
             '<a class="whoami" id="whoami" href="/account/" title="'

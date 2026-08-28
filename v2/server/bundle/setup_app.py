@@ -260,6 +260,21 @@ def active_admins(c):
             c.execute('SELECT username FROM users WHERE is_admin=1 AND disabled=0')]
 
 
+def clean_username(raw):
+    """Usernames are stored — and written to htpasswd — in lowercase.
+    nginx compares the basic-auth username byte for byte, so 'Eduardo'
+    never matches the 'eduardo' line. Normalising here keeps what the
+    admin sees identical to what the user must type."""
+    return (raw or '').strip().lower()
+
+
+def clean_password(raw):
+    """Trim surrounding whitespace. A password pasted with a trailing
+    space used to be hashed WITH the space, so every later login got a
+    401 while everything else looked correct (diagnosed 2026-08-28)."""
+    return (raw or '').strip()
+
+
 def hash_pw(user, pw):
     """bcrypt via htpasswd when available, else openssl apr1 (nginx-compatible)."""
     try:
@@ -430,7 +445,10 @@ def add_form(org=None):
     common = f'''<input type="hidden" name="csrf" value="{CSRF}">
 <p><input type="text" name="username" placeholder="username or email" required
     pattern="[a-z0-9.@_-]{{2,64}}" title="lowercase letters, digits, . _ - @">
- <input type="password" name="password" placeholder="password (blank = generate)"></p>'''
+ <input type="password" name="password" placeholder="password (blank = generate)"></p>
+<p class="note" data-en="Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed."
+ data-es="Los usuarios se guardan en minúsculas y el acceso distingue mayúsculas — debe escribirse exactamente como aparece en la lista. Los espacios alrededor de una contraseña pegada se eliminan.">
+Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed.</p>'''
     if org:
         return f'''<div class="card"><h2 data-en="Add user — your company" data-es="Agregar usuario — su empresa">Add user — your company</h2>
 <form method="post" action="add">{common}
@@ -969,10 +987,10 @@ def add():
     me, is_global, org = actor()
     if not is_global and not org:
         return render(msg='No management rights.')
-    u = (request.form.get('username') or '').strip().lower()
+    u = clean_username(request.form.get('username'))
     if not re.fullmatch(r'[a-z0-9.@_-]{2,64}', u):
         return render(msg='Invalid username.')
-    pw = request.form.get('password') or ''
+    pw = clean_password(request.form.get('password'))
     once = None
     if not pw:
         pw = secrets.token_urlsafe(10)
@@ -999,7 +1017,10 @@ def add():
         return render(msg=f'User {u} already exists.')
     c.close()
     sync()
-    return render(msg=f'User {u} created.', once=once)
+    return render(msg=f'User {u} created. They must type the username '
+                      f'exactly as "{u}" — logins are case-sensitive, '
+                      f'and the password carries no leading or '
+                      f'trailing spaces.', once=once)
 
 
 @app.post('/settings')

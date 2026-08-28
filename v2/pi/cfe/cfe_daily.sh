@@ -9,7 +9,12 @@
 set -u
 CFE=~/cfe
 PY=$CFE/venv/bin/python
-INBOX="argia-cfe@37.235.105.173"     # alias in ~/.ssh/config (rrsync)
+# Bare ssh-config alias, NOT user@host: rsync only consults the Host
+# block in ~/.ssh/config when the target has no explicit user@, and the
+# alias is what carries the IdentityFile for the rrsync-restricted key.
+# Written as "argia-cfe@37.235.105.173" this resolved to a literal user
+# named argia-cfe and every push died with "Permission denied".
+INBOX="argia-cfe"                    # Host block in ~/.ssh/config
 mkdir -p $CFE/state $CFE/logs $CFE/outbox
 LOG=$CFE/logs/daily_$(date +%Y%m%d).log
 exec >>"$LOG" 2>&1
@@ -18,8 +23,15 @@ YM=$(date +%Y-%m)
 DOM=$(date +%-d)
 
 push() {  # push file to pio06 inbox; rrsync jail = /opt/argia/cfe_inbox
-    rsync -t --timeout=60 "$1" "$INBOX:$(basename "$1")" \
-        && echo "pushed $(basename "$1")" || echo "PUSH FAILED $1"
+    # Must return rsync's own status: the caller chains
+    # push "$FULL" && ... && touch "$MARK", so a push() that always
+    # succeeded marked the month as sent while nothing had arrived.
+    if rsync -t --timeout=60 "$1" "$INBOX:$(basename "$1")"; then
+        echo "pushed $(basename "$1")"
+        return 0
+    fi
+    echo "PUSH FAILED $1"
+    return 1
 }
 
 # --- 1) probe ---------------------------------------------------------
@@ -36,13 +48,21 @@ FULL=$CFE/outbox/cfe_${YM}_full.csv
 MARK=$CFE/state/sent_$YM
 if [ "$PROBE_STATUS" = ok ] && [ ! -f "$MARK" ] \
         && [ "$DOM" -ge 3 ] && [ "$DOM" -le 27 ]; then
-    echo "monthly fetch for $YM starting"
-    if timeout 7200 $PY $CFE/cfe_scrape.py --months "$YM" \
-            --out "$FULL"; then
+    if [ -s "$FULL" ]; then
+        # Scraped on an earlier day but the push failed.  Re-send the
+        # file we already have — the scrape costs two hours, the push
+        # costs seconds, and the two fail for unrelated reasons.
+        echo "monthly CSV for $YM already scraped — retrying the push"
         push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
     else
-        echo "monthly fetch FAILED (see manifest)"
-        [ -f "$FULL.manifest.json" ] && push "$FULL.manifest.json"
+        echo "monthly fetch for $YM starting"
+        if timeout 7200 $PY $CFE/cfe_scrape.py --months "$YM" \
+                --out "$FULL"; then
+            push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
+        else
+            echo "monthly fetch FAILED (see manifest)"
+            [ -f "$FULL.manifest.json" ] && push "$FULL.manifest.json"
+        fi
     fi
 fi
 

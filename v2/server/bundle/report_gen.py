@@ -283,6 +283,13 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 details{font-size:13px;color:var(--ink2);}
 details summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--ink);}
 details[open] summary{margin-bottom:6px;}
+.whoami{margin-left:auto;background:var(--surface);border:1px solid var(--border);
+ border-radius:20px;padding:5px 12px;font-size:13px;color:var(--ink);
+ font-weight:600;text-decoration:none;}
+.whoami:hover{border-color:#b9bec4;}
+.whoami .wu{font-weight:400;color:var(--ink2);}
+.whoami .wa{margin-left:6px;padding:1px 7px;border-radius:9px;font-size:11px;
+ font-weight:600;background:#ecebf6;color:#4f4a94;}
 .pdfrow{text-align:center;margin:22px 0 4px;}
 footer{font-size:12px;color:var(--muted);margin-top:20px;line-height:1.6;}
 a{color:var(--s1);}
@@ -296,6 +303,20 @@ I18N_JS = '''
 <script>
 function argiaLogout(){fetch('/',{headers:{Authorization:'Basic eDp4'}}).catch(()=>{})
  .finally(()=>{location.href='/logged-out.html';});}
+// Name the signed-in account. The browser keeps re-sending cached
+// basic-auth credentials, so the page you are on may belong to a
+// different user than the one you last typed a password for.
+window.addEventListener('DOMContentLoaded',()=>{
+ const el=document.getElementById('whoami'); if(!el) return;
+ fetch('/account/whoami',{credentials:'same-origin'})
+  .then(r=>r.ok?r.json():null)
+  .then(d=>{if(!d||!d.user){el.remove();return;}
+   el.textContent=d.name;
+   if(d.name!==d.user){const s=document.createElement('span');
+    s.className='wu';s.textContent=' ('+d.user+')';el.appendChild(s);}
+   if(d.admin){const a=document.createElement('span');
+    a.className='wa';a.textContent='admin';el.appendChild(a);}})
+  .catch(()=>{el.remove();});});
 function setLang(l){
  document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.l===l));
@@ -428,6 +449,8 @@ def chrome_top(title_en, title_es, sub, home='.', show_home=True, range_id=None,
  <button class="btn" onclick="window.print()">{t('Download PDF','Descargar PDF')}</button>
  <button class="btn" onclick="argiaLogout()">{t('Log out','Cerrar sesión')}</button>
  {right}
+ <a class="whoami" id="whoami" href="/account/"
+    title="{t('Your account — change password','Su cuenta — cambiar contraseña')}">…</a>
 </div>'''
 
 

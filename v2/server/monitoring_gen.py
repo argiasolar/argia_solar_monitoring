@@ -393,6 +393,12 @@ input[type=date]{background:#fff;border:1px solid #dadce0;border-radius:8px;padd
 .pphoto{width:100%;max-height:190px;object-fit:cover;border-radius:14px;margin:10px 0 4px;display:block;}
 .kgroup{display:flex;gap:26px;align-items:flex-end;padding-right:26px;}
 .kgroup+.kgroup{border-left:1px solid #e3e6e9;padding-left:26px;}
+.whoami{margin-left:auto;background:#eef1f4;border:1px solid #dadce0;border-radius:20px;
+ padding:5px 12px;font-size:13px;color:#1c2733;font-weight:600;text-decoration:none;}
+.whoami:hover{border-color:#b9bec4;}
+.whoami .wu{font-weight:400;color:#5f6368;}
+.whoami .wa{margin-left:6px;padding:1px 7px;border-radius:9px;font-size:11px;
+ font-weight:600;background:#ecebf6;color:#4f4a94;}
 @media print{.controls{display:none}body{background:#fff}}
 '''
 
@@ -401,6 +407,20 @@ function setLang(l){document.querySelectorAll('[data-en]').forEach(e=>{e.textCon
 try{localStorage.setItem('argia_lang',l);}catch(e){}}
 window.addEventListener('DOMContentLoaded',()=>{let l='en';
 try{l=localStorage.getItem('argia_lang')||'en';}catch(e){};setLang(l);});
+// Name the signed-in account on every page. nginx re-sends cached
+// basic-auth credentials silently, so without this you cannot tell
+// which user the page in front of you actually belongs to.
+window.addEventListener('DOMContentLoaded',()=>{
+ const el=document.getElementById('whoami'); if(!el) return;
+ fetch('/account/whoami',{credentials:'same-origin'})
+  .then(r=>r.ok?r.json():null)
+  .then(d=>{if(!d||!d.user){el.remove();return;}
+   el.textContent=d.name;
+   if(d.name!==d.user){const s=document.createElement('span');
+    s.className='wu';s.textContent=' ('+d.user+')';el.appendChild(s);}
+   if(d.admin){const a=document.createElement('span');
+    a.className='wa';a.textContent='admin';el.appendChild(a);}})
+  .catch(()=>{el.remove();});});
 '''
 
 
@@ -433,7 +453,11 @@ def controls(extra=''):
             f'<a class="btn" href="{REPORT_BASE}/" data-en="Reports ↗" data-es="Reportes ↗">Reports ↗</a>'
             '<button class="btn" onclick="setLang(\'en\')">EN</button>'
             '<button class="btn" onclick="setLang(\'es\')">ES</button>'
-            f'{extra}</div>')
+            f'{extra}'
+            # who is signed in — filled by whoami.js from /account/whoami
+            '<a class="whoami" id="whoami" href="/account/" title="'
+            'Your account — change password">…</a>'
+            '</div>')
 
 
 def date_picker(pk, current):

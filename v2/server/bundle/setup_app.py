@@ -19,6 +19,7 @@ never stored in plain text; a generated password is shown exactly once.
 import glob
 import gzip
 import html
+import json
 import os
 import re
 import secrets
@@ -220,7 +221,12 @@ def db():
         created TEXT NOT NULL DEFAULT (datetime('now')))''')
     for ddl in ('ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0',
                 "ALTER TABLE users ADD COLUMN org TEXT NOT NULL DEFAULT ''",
-                'ALTER TABLE users ADD COLUMN plant_admin INTEGER NOT NULL DEFAULT 0'):
+                'ALTER TABLE users ADD COLUMN plant_admin INTEGER NOT NULL DEFAULT 0',
+                # who the account belongs to — shown in the header of
+                # every page so nobody has to guess who is signed in
+                "ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''"):
         try:
             c.execute(ddl)
         except sqlite3.OperationalError:
@@ -273,6 +279,37 @@ PW_LENGTH = 14
 
 def make_password(n=PW_LENGTH):
     return ''.join(secrets.choice(PW_ALPHABET) for _ in range(n))
+
+
+def display_name(first, last, username):
+    """'Eduardo Ramirez' when we know it, else the username. Never
+    empty — this string is what identifies the session on screen."""
+    full = ' '.join(p for p in ((first or '').strip(),
+                                (last or '').strip()) if p)
+    return full or (username or '')
+
+
+def clean_name(raw, limit=60):
+    return re.sub(r'\s+', ' ', (raw or '').strip())[:limit]
+
+
+def clean_email(raw):
+    e = (raw or '').strip().lower()[:120]
+    return e if (not e or re.fullmatch(r'[^@\s]+@[^@\s.]+\.[^@\s]+', e)) \
+        else ''
+
+
+def profile_of(username):
+    """(display name, email, is_admin) for a username; blanks if gone."""
+    c = db()
+    row = c.execute('SELECT first_name,last_name,email,is_admin,level'
+                    ' FROM users WHERE username=?',
+                    (username,)).fetchone()
+    c.close()
+    if not row:
+        return username, '', 0, ''
+    return (display_name(row[0], row[1], username), row[2], row[3],
+            row[4])
 
 
 def verify_pw(user, pw):
@@ -439,6 +476,17 @@ def page(body, msg='', once=None):
                      f'One-time password — copy it now, it is not stored:</b> '
                      f'<code style="font-size:16px">{html.escape(once)}</code></div>')
     msg_html = f'<p class="note">{html.escape(msg)}</p>' if msg else ''
+    # Who is signed in, spelled out. Basic auth keeps sending cached
+    # credentials, so without this the page you are looking at may
+    # belong to a different account than the one you last typed.
+    _me = clean_username(request.headers.get('X-Remote-User'))
+    _name, _mail, _adm, _lvl = profile_of(_me) if _me else ('', '', 0, '')
+    who_html = (
+        f'<span class="whoami">{html.escape(_name)}'
+        + (f' <span class="wu">({html.escape(_me)})</span>'
+           if _name != _me else '')
+        + (' <span class="pill adm">admin</span>' if _adm else '')
+        + '</span>') if _me else ''
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Setup — ARGIA</title>
@@ -462,6 +510,9 @@ input[type=text],input[type=password]{{border:1px solid #dadce0;border-radius:8p
 .areas{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:4px;font-size:13px;}}
 .note{{font-size:13px;color:#80868b;}}
 label{{font-size:13.5px;}}
+.whoami{{display:inline-block;background:#eef1f4;border:1px solid #dadce0;
+ border-radius:20px;padding:5px 12px;font-size:13px;color:#1c2733;font-weight:600;}}
+.whoami .wu{{font-weight:400;color:#5f6368;}}
 </style></head><body><div class="wrap">
 <div class="top"><div><h1 data-en="Report access setup" data-es="Gestión de accesos">Report access setup</h1>
 <div class="sub" data-en="Users, passwords and per-report access. Changes apply immediately."
@@ -471,7 +522,9 @@ Users, passwords and per-report access. Changes apply immediately.</div></div>
 <p><a class="btn" href="../">&#8592; Reports</a>
 <button class="btn" onclick="setLang('en')">EN</button>
 <button class="btn" onclick="setLang('es')">ES</button>
-<button class="btn" onclick="argiaLogout()" data-en="Log out" data-es="Cerrar sesión">Log out</button></p>
+<button class="btn" onclick="argiaLogout()" data-en="Log out" data-es="Cerrar sesión">Log out</button>
+<a class="btn" href="/account/" data-en="My password" data-es="Mi contraseña">My password</a>
+{who_html}</p>
 {once_html}{msg_html}{body}
 <script>
 function argiaLogout(){{fetch('/',{{headers:{{Authorization:'Basic eDp4'}}}}).catch(()=>{{}})
@@ -485,19 +538,23 @@ try{{l=localStorage.getItem('argia_lang')||'en';}}catch(e){{}};setLang(l);}});
 
 def users_table(org=None):
     c = db()
+    cols = ('username,level,reports,is_admin,created,disabled,org,'
+            'plant_admin,first_name,last_name,email')
     if org:
-        rows = c.execute('SELECT username,level,reports,is_admin,created,disabled,org,plant_admin '
+        rows = c.execute(f'SELECT {cols} '
                          'FROM users WHERE org=? AND is_admin=0 ORDER BY username',
                          (org,)).fetchall()
     else:
-        rows = c.execute('SELECT username,level,reports,is_admin,created,disabled,org,plant_admin '
+        rows = c.execute(f'SELECT {cols} '
                          'FROM users ORDER BY username').fetchall()
     c.close()
     out = ['<div class="card"><h2 data-en="Users" data-es="Usuarios">Users</h2><table>',
            '<tr><th data-en="User" data-es="Usuario">User</th>'
+           '<th data-en="Name" data-es="Nombre">Name</th>'
            '<th data-en="Access" data-es="Acceso">Access</th>'
            '<th data-en="Created (UTC)" data-es="Creado (UTC)">Created (UTC)</th><th></th></tr>']
-    for u, level, reports, adm, created, dis, uorg, upadm in rows:
+    for (u, level, reports, adm, created, dis, uorg, upadm,
+         fname, lname, email) in rows:
         if level == 'argia':
             acc = '<span class="pill">argia — all reports</span>'
         else:
@@ -514,7 +571,12 @@ def users_table(org=None):
         ue = html.escape(u)
         sus_label = ('Enable' if dis else 'Force logout')
         sus_es = ('Reactivar' if dis else 'Forzar salida')
-        out.append(f'''<tr><td><b>{ue}</b></td><td>{acc}</td>
+        who = html.escape(display_name(fname, lname, ''))
+        mail = html.escape(email or '')
+        who_cell = ((f'{who}<br>' if who else '')
+                    + (f'<span class="note">{mail}</span>' if mail
+                       else ('' if who else '<span class="note">—</span>')))
+        out.append(f'''<tr><td><b>{ue}</b></td><td>{who_cell}</td><td>{acc}</td>
 <td>{html.escape(created[:16])}</td><td style="white-space:nowrap">
 <a class="btn" href="?edit={ue}" data-en="Edit access" data-es="Editar acceso">Edit access</a>
 <form method="post" action="suspend" style="display:inline">
@@ -540,6 +602,9 @@ def add_form(org=None):
 <p><input type="text" name="username" placeholder="username or email" required
     pattern="[a-z0-9.@_-]{{2,64}}" title="lowercase letters, digits, . _ - @">
  <input type="password" name="password" placeholder="password (blank = generate)"></p>
+<p><input type="text" name="first_name" placeholder="first name" maxlength="60">
+ <input type="text" name="last_name" placeholder="surname" maxlength="60">
+ <input type="text" name="email" placeholder="email" maxlength="120"></p>
 <p class="note" data-en="Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed."
  data-es="Los usuarios se guardan en minúsculas y el acceso distingue mayúsculas — debe escribirse exactamente como aparece en la lista. Los espacios alrededor de una contraseña pegada se eliminan.">
 Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed.</p>'''
@@ -639,18 +704,25 @@ Tariff = what your company pays the grid per kWh — production × tariff is sho
 def edit_form(u):
     me, is_global, org = actor()
     c = db()
-    row = c.execute('SELECT level,reports,is_admin,plant_admin FROM users WHERE username=?',
-                    (u,)).fetchone()
+    row = c.execute('SELECT level,reports,is_admin,plant_admin,'
+                    'first_name,last_name,email FROM users '
+                    'WHERE username=?', (u,)).fetchone()
     c.close()
     if not row:
         return ''
-    level, reports, adm, upadm = row
+    level, reports, adm, upadm, fname, lname, email = row
+    who = f'''<p><input type="text" name="first_name" placeholder="first name"
+    maxlength="60" value="{html.escape(fname or '')}">
+ <input type="text" name="last_name" placeholder="surname"
+    maxlength="60" value="{html.escape(lname or '')}">
+ <input type="text" name="email" placeholder="email"
+    maxlength="120" value="{html.escape(email or '')}"></p>'''
     if not is_global:
         return f'''<div class="card" style="border-color:var(--s1,#2a78d6)">
 <h2><span data-en="Edit" data-es="Editar">Edit</span> — {html.escape(u)}</h2>
 <form method="post" action="update">
 <input type="hidden" name="csrf" value="{CSRF}">
-<input type="hidden" name="username" value="{html.escape(u)}">
+<input type="hidden" name="username" value="{html.escape(u)}">{who}
 <p><label><input type="checkbox" name="plant_admin" value="1"{' checked' if upadm else ''}>
  <span data-en="company admin — can manage your company's users and plant settings"
   data-es="admin de empresa — gestiona usuarios y ajustes de su planta">company admin — can manage your company's users and plant settings</span></label></p>
@@ -666,7 +738,7 @@ def edit_form(u):
 <h2><span data-en="Edit access" data-es="Editar acceso">Edit access</span> — {html.escape(u)}</h2>
 <form method="post" action="update">
 <input type="hidden" name="csrf" value="{CSRF}">
-<input type="hidden" name="username" value="{html.escape(u)}">
+<input type="hidden" name="username" value="{html.escape(u)}">{who}
 <p><label><input type="radio" name="level" value="argia"{' checked' if level == 'argia' else ''}>
  <b>argia</b> <span data-en="— employee, access to everything"
   data-es="— empleado, acceso a todo">— employee, access to everything</span></label><br>
@@ -1029,8 +1101,13 @@ def update():
     if not adm and u in admins and len(admins) == 1:
         c.close()
         return render(msg='Refused: cannot remove admin from the last active admin.')
-    n = c.execute('UPDATE users SET level=?, reports=?, is_admin=?, plant_admin=? '
-                  'WHERE username=?', (level, reports, adm, padm, u)).rowcount
+    n = c.execute('UPDATE users SET level=?, reports=?, is_admin=?, '
+                  'plant_admin=?, first_name=?, last_name=?, email=? '
+                  'WHERE username=?',
+                  (level, reports, adm, padm,
+                   clean_name(request.form.get('first_name')),
+                   clean_name(request.form.get('last_name')),
+                   clean_email(request.form.get('email')), u)).rowcount
     c.commit()
     c.close()
     if not n:
@@ -1102,9 +1179,13 @@ def add():
         level, reports, uorg, adm = 'custom', org, org, 0
     c = db()
     try:
-        c.execute('INSERT INTO users(username,hash,level,reports,is_admin,org,plant_admin) '
-                  'VALUES(?,?,?,?,?,?,?)',
-                  (u, hash_pw(u, pw), level, reports, adm, uorg, padm))
+        c.execute('INSERT INTO users(username,hash,level,reports,is_admin,'
+                  'org,plant_admin,first_name,last_name,email) '
+                  'VALUES(?,?,?,?,?,?,?,?,?,?)',
+                  (u, hash_pw(u, pw), level, reports, adm, uorg, padm,
+                   clean_name(request.form.get('first_name')),
+                   clean_name(request.form.get('last_name')),
+                   clean_email(request.form.get('email'))))
         c.commit()
     except sqlite3.IntegrityError:
         c.close()
@@ -1243,6 +1324,22 @@ Spaces at the start or end are trimmed. Forgot the current one? Ask an ARGIA adm
 def account():
     u = clean_username(request.headers.get('X-Remote-User'))
     return account_page(user=u)
+
+
+@app.get('/account/whoami')
+def whoami():
+    """Who nginx authenticated, for the header chip on the static
+    pages. Lives under /account/ so it inherits that location's
+    all.htpasswd — no extra nginx rule, and it can never answer for
+    an unauthenticated caller."""
+    u = clean_username(request.headers.get('X-Remote-User'))
+    name, email, adm, level = profile_of(u) if u else ('', '', 0, '')
+    r = make_response(json.dumps({
+        'user': u, 'name': name, 'email': email,
+        'admin': bool(adm), 'level': level}), 200)
+    r.headers['Content-Type'] = 'application/json'
+    r.headers['Cache-Control'] = 'no-store'
+    return r
 
 
 @app.post('/account/change')

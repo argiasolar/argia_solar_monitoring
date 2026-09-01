@@ -192,8 +192,13 @@ for k in PPA + LAAS:
             if pick is None or l['first'] > pick['first']:
                 pick = l
     if pick:
-        paid = len(q(f"SELECT 1 FROM loan_schedule WHERE loan_id='{pick['id']}' "
-                     f"AND ref_month <= date '{asof}';"))
+        # position = the bank's installment number, not a row count —
+        # a loan a plant takes over mid-life (SLP1/Oliva, 2026-09) only
+        # stores the rows the plant carries, but the bank numbering on
+        # those rows is the true position (16/84, not 3/84).
+        _r = q(f"SELECT coalesce(max(installment_no),0) FROM loan_schedule "
+               f"WHERE loan_id='{pick['id']}' AND ref_month <= date '{asof}';")
+        paid = int(f(_r[0][0]) or 0) if _r and _r[0] else 0
         loanpos[k] = f"{paid}/{pick['total']}"
     else:
         loanpos[k] = '—'

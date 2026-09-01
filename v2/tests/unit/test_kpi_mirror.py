@@ -46,11 +46,29 @@ def test_upsert_sql_protects_vendor_rows():
     # every protected column keeps the stored value on vendor rows;
     # the guard is a SUBSTRING match so both note flavors are covered
     for c in PROTECTED:
-        assert (f"{c} = CASE WHEN daily_production.status_note LIKE "
+        assert (f"CASE WHEN daily_production.status_note LIKE "
                 f"'%{VENDOR_NOTE_MARK}%' THEN daily_production.{c}") in sql
-    # unprotected columns still COALESCE normally
-    assert ("expected_kwh = COALESCE(EXCLUDED.expected_kwh,"
-            " daily_production.expected_kwh)") in sql
+
+
+def test_billable_is_a_protected_column():
+    """2026-09-01: the sibling sync path overwrote the repaired
+    billable_kwh of the freshly closed August back to stale export
+    values 45 minutes after the close — because billable was the one
+    billing column missing from the protected set."""
+    assert "billable_kwh" in PROTECTED
+
+
+def test_upsert_never_touches_a_closed_month():
+    """A CLOSED month is invoiced history. EVERY column update — the
+    unprotected ones included — must first check the freeze and keep
+    the stored value when the row's month has a closed reconciliation.
+    Count the guards: one per updated column, no exceptions."""
+    sql = build_upsert_sql(normalize_rows([_rec()], date_key))
+    n_cols = sql.split("DO UPDATE SET")[1].count(" = CASE WHEN EXISTS")
+    frozen = sql.count("rm.closed_at IS NOT NULL")
+    assert n_cols >= 10, sql[:400]
+    assert frozen == n_cols, (frozen, n_cols)
+    assert "date_trunc('month'" in sql
 
 
 def test_upsert_sql_blank_never_overwrites():

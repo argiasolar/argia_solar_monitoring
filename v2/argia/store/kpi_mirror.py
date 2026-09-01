@@ -45,7 +45,7 @@ NUMERIC = {"energy_kwh", "irradiance_kwh_m2", "pr", "pr_stc",
 INTEGER = {"inverters_reporting"}
 
 # columns a vendor-corrected row keeps no matter what the sheet says
-PROTECTED = ("energy_kwh", "pr", "pr_stc", "status_note")
+PROTECTED = ("energy_kwh", "billable_kwh", "pr", "pr_stc", "status_note")
 
 
 def normalize_rows(records: List[Dict[str, Any]],
@@ -104,16 +104,24 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
     cols = ["plant_key", "prod_date"] + sorted(set(COLMAP.values())) + ["source"]
     vendor_guard = (f"daily_production.status_note LIKE "
                     f"'%{VENDOR_NOTE_MARK}%'")
+    # A CLOSED month is invoiced history: no import path may modify any
+    # column of its rows (2026-09-01 — the sibling sync_kpi.py path
+    # un-fixed the freshly closed August 45 minutes after the close).
+    frozen = ("""EXISTS (SELECT 1 FROM reconciliation_monthly rm
+       WHERE rm.plant_key = daily_production.plant_key
+       AND rm.ref_month = date_trunc('month',
+           daily_production.prod_date)::date
+       AND rm.closed_at IS NOT NULL)""")
     sets = []
     for c in cols:
         if c in ("plant_key", "prod_date", "source"):
             continue
         base = f"COALESCE(EXCLUDED.{c}, daily_production.{c})"
         if c in PROTECTED:
-            sets.append(f"{c} = CASE WHEN {vendor_guard}"
-                        f" THEN daily_production.{c} ELSE {base} END")
-        else:
-            sets.append(f"{c} = {base}")
+            base = (f"CASE WHEN {vendor_guard}"
+                    f" THEN daily_production.{c} ELSE {base} END")
+        sets.append(f"{c} = CASE WHEN {frozen}"
+                    f" THEN daily_production.{c} ELSE {base} END")
     tuples = []
     for r in rows:
         vals = []

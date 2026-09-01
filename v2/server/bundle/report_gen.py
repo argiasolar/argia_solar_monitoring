@@ -1129,9 +1129,17 @@ def landing_page():
     ic_mon = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
               '<path d="M3 12h4l2-6 4 12 2-6h6"/></svg>')
     body.append(f'<h1 class="sect">{t("Reports","Reportes")}</h1>')
+    # a receipt-ish document icon for the invoice annexes
+    ic_inv = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"'
+              ' stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0'
+              ' 0 0 2-2V8z"/><path d="M14 2v6h6"/>'
+              '<path d="M8 13h8M8 17h5"/></svg>')
     body.append(f'''<div class="nav navbig">
 <a href="financial/">{ic_fin}<span class="nb"><b>{t("Financial Report","Reporte Financiero")}</b>
  <span>{t("PPA + LaaS · revenue, debt service, DSCR","PPA + LaaS · ingreso, deuda, DSCR")}</span></span></a>
+<a href="invoices/">{ic_inv}<span class="nb"><b>{t("Invoice Annexes","Anexos de Facturación")}</b>
+ <span>{t("monthly PPA annex per plant · PDF download","anexo PPA mensual por planta · descarga PDF")}</span></span></a>
 <a href="capex/">{ic_cap}<span class="nb"><b>{t("CAPEX Plants — Overview","Plantas CAPEX — Resumen")}</b>
  <span>{t("portfolio overview + status","resumen del portafolio + estado")}</span></span></a>
 <a href="monitoring/">{ic_mon}<span class="nb"><b>{t("Live Monitoring","Monitoreo en Vivo")}</b>
@@ -1180,12 +1188,6 @@ def landing_page():
                  'Tarifas aún no verificadas para el mes actual')
     # No account link down here: the identity chip at the top right is
     # the single entry point to /account/ (user feedback 2026-08-28).
-    # a receipt-ish document icon for the invoice annexes
-    ic_inv = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"'
-              ' stroke-linecap="round" stroke-linejoin="round">'
-              '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0'
-              ' 0 0 2-2V8z"/><path d="M14 2v6h6"/>'
-              '<path d="M8 13h8M8 17h5"/></svg>')
     body.append(f'''<div class="flinks">
 <a href="setup/" class="adminonly">{ic_set}{t("Setup","Configuración")}</a>
 <a href="invoices/">{ic_inv}{t("Invoice annexes","Anexos de facturación")}</a>

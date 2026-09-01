@@ -104,21 +104,35 @@ def main():
             'status_note', 'source']
     # Protected upsert (2026-08-27, mirrors argia/store/kpi_mirror.py):
     # a row whose status_note carries vendor-counter provenance keeps
-    # its energy_kwh, pr, pr_stc and status_note — a sheet re-sync can
-    # never re-introduce an undercount or a stale PR.
+    # its energy_kwh, billable_kwh, pr, pr_stc and status_note — a
+    # sheet re-sync can never re-introduce an undercount or a stale PR.
+    # billable_kwh joined the set 2026-09-01: this sync overwrote the
+    # repaired billable of the freshly CLOSED August back to stale
+    # values 45 minutes after the close (the export CSV predated the
+    # repair), silently un-fixing the ~39,600 MXN invoice shortfall.
     guard = ("daily_production.status_note LIKE "
              "'%vendor daily counter%'")   # substring: both note flavors
-    protected = {'energy_kwh', 'pr', 'pr_stc', 'status_note'}
+    protected = {'energy_kwh', 'billable_kwh', 'pr', 'pr_stc',
+                 'status_note'}
+    # And the stronger rule that ends this class of bug: a CLOSED
+    # month is invoiced history — NO import path may modify any column
+    # of its rows, whatever the CSV says. Only explicit operator SQL
+    # (a reopened close) can.
+    frozen = ("""EXISTS (SELECT 1 FROM reconciliation_monthly rm
+       WHERE rm.plant_key = daily_production.plant_key
+       AND rm.ref_month = date_trunc('month',
+           daily_production.prod_date)::date
+       AND rm.closed_at IS NOT NULL)""")
     parts = []
     for c in cols:
         if c in ('plant_key', 'prod_date', 'source'):
             continue
         base = f'COALESCE(EXCLUDED.{c}, daily_production.{c})'
         if c in protected:
-            parts.append(f'{c}=CASE WHEN {guard} '
-                         f'THEN daily_production.{c} ELSE {base} END')
-        else:
-            parts.append(f'{c}={base}')
+            base = (f'CASE WHEN {guard} '
+                    f'THEN daily_production.{c} ELSE {base} END')
+        parts.append(f'{c}=CASE WHEN {frozen} '
+                     f'THEN daily_production.{c} ELSE {base} END')
     upd = ', '.join(parts)
     tuples = ',\n'.join('(' + ','.join(v[c] for c in cols) + ')' for v in values)
     before = psql('SELECT count(*), max(prod_date) FROM daily_production;')

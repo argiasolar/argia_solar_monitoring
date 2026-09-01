@@ -766,7 +766,7 @@ def render_html(data: ReportData) -> str:
         f'income and CO&#8322; always count every plant. Income (est.) = '
         f'energy &#215; PPA tariff, before billing adjustments. '
         f'CO&#8322; avoided uses the national grid emission '
-        f'factor (0.444 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'factor (0.438 kg/kWh). Portfolio availability is kWp-weighted. '
         f'Live editions estimate expected from the dashboard\'s intraday '
         f'irradiance buckets (same formula as end-of-day KPI, \u00b110%, '
         f'pro-rated to the last complete hour); the stamped KPI replaces '

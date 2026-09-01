@@ -95,3 +95,54 @@ class TestChromium:
             ip.shutil, "which",
             lambda n: "/usr/bin/" + n if n == "chromium" else None)
         assert ip.find_chromium() == "/usr/bin/chromium"
+
+
+class TestInvoicingCheck:
+    """Tomasz 2026-09-01: "always check last month invoice vs the last
+    day status, keep it somewhere as invoicing." The close row's
+    billing_kwh is the month-end vendor position; this check runs at
+    publish time and every plant-month is stored in the invoicing
+    table."""
+
+    def test_matching_invoice_is_ok(self):
+        st, dk, dp = ip.invoice_check(132955.8, 132955.8)
+        assert (st, dk, dp) == ("OK", 0.0, 0.0)
+
+    def test_rounding_noise_stays_ok(self):
+        st, _, dp = ip.invoice_check(102513.3, 102513.5)
+        assert st == "OK" and abs(dp) < 0.001
+
+    def test_a_real_shortfall_is_a_mismatch(self):
+        """The stale-billable bug's shape: 2.1% under the close."""
+        st, dk, _ = ip.invoice_check(130125.5, 132951.5)
+        assert st == "MISMATCH" and dk == -2826.0
+
+    def test_an_overbill_is_a_mismatch_too(self):
+        st, _, _ = ip.invoice_check(45742.2, 45552.3)
+        assert st == "MISMATCH"
+
+    def test_no_close_row_is_no_basis_not_a_pass(self):
+        assert ip.invoice_check(1000.0, None)[0] == "NO_BASIS"
+        assert ip.invoice_check(None, 1000.0)[0] == "NO_BASIS"
+        assert ip.invoice_check(1000.0, 0)[0] == "NO_BASIS"
+
+
+class TestIndexCarriesTheRegister:
+    MONTHS = {"2026-08": [("gto1", True, True)]}
+
+    def test_recorded_kwh_and_mxn_appear(self):
+        page = ip.render_index(
+            self.MONTHS,
+            records={"2026-08": {"gto1": (132955.8, 262587.71, "OK")}})
+        assert "132,955.8" in page
+        assert "$262,587.71" in page
+
+    def test_a_mismatch_is_flagged_on_the_row(self):
+        page = ip.render_index(
+            self.MONTHS,
+            records={"2026-08": {"gto1": (1.0, 2.0, "MISMATCH")}})
+        assert "MISMATCH" in page
+
+    def test_no_record_renders_a_dash_not_a_crash(self):
+        page = ip.render_index(self.MONTHS)
+        assert "&mdash;" in page

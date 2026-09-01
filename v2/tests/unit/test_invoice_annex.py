@@ -30,7 +30,7 @@ def _payload(atoms=None, days=None, tariffs=None):
             [None] * ATOM_WIDTH,
         ],
         "tariff_by_month": tariffs or {"2026-06": 2.367, "2026-07": 2.367},
-        "co2_factor": 0.444,
+        "co2_factor": 0.438,
     }
 
 
@@ -41,7 +41,7 @@ class TestRollupMonth:
         assert r["deemed_kwh"] == 200.0
         assert r["billable_kwh"] == 1100.0
         assert r["amount_mxn"] == pytest.approx(1100.0 * 2.367, abs=0.01)
-        assert r["co2_kg"] == pytest.approx(1100.0 * 0.444, abs=0.1)
+        assert r["co2_kg"] == pytest.approx(1100.0 * 0.438, abs=0.1)
 
     def test_no_events_means_zero_compensada(self):
         assert rollup_month(_payload(), "2026-06")["deemed_kwh"] == 0.0

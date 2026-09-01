@@ -179,3 +179,34 @@ class TestSheetMonthSync:
         with pytest.raises(ValueError):
             plan_cells(["plant_key", "date_iso", "energy_kwh"],
                        [], {}, set(), "note")
+
+
+class TestImportWritersRespectTheClose:
+    """The 2026-09-01 afternoon incident: argia-sync re-imported a
+    pre-repair CSV 45 minutes after the August close and silently
+    reverted billable_kwh on closed rows. Both import writers now (a)
+    protect billable like energy on vendor-provenance rows and (b)
+    freeze EVERY column of any row whose month has a closed
+    reconciliation."""
+
+    SYNC = (V2 / "server" / "bundle" / "sync_kpi.py").read_text(
+        encoding="utf-8")
+
+    def test_sync_protects_billable(self):
+        import re
+        m = re.search(r"protected = \{([^}]*)\}", self.SYNC)
+        assert m and "billable_kwh" in m.group(1)
+
+    def test_sync_freezes_closed_months_on_every_column(self):
+        assert "rm.closed_at IS NOT NULL" in self.SYNC
+        i = self.SYNC.index("for c in cols:")
+        loop = self.SYNC[i:i + 700]
+        # the frozen CASE wraps every appended column expression
+        assert "CASE WHEN {frozen}" in loop
+        assert "parts.append(f'{c}=CASE WHEN {frozen}" in loop
+
+    def test_the_mirror_twin_is_covered_too(self):
+        src = (V2 / "argia" / "store" / "kpi_mirror.py").read_text(
+            encoding="utf-8")
+        assert '"billable_kwh"' in src.split("PROTECTED = ")[1][:120]
+        assert "rm.closed_at IS NOT NULL" in src

@@ -1126,7 +1126,9 @@ def recon_page():
         f'<td>{"<span class=pill>invoice unlocked</span>" if closed else "<span class=pill off>locked until close</span>"}</td>'
         f'<td class="note">{esc(note[:60])}</td></tr>'
         for pk, m, bill, basis, st, closed, note in RECON_M)
-    body = controls() + f'''
+    body = controls(
+        '<a class="btn" href="/invoices/" data-en="Invoice annexes"'
+        ' data-es="Anexos de facturación">Invoice annexes</a>') + f'''
 <div class="card"><h2 data-en="Monthly close — the invoice gate" data-es="Cierre mensual — la puerta de facturación">Monthly close — the invoice gate</h2>
 <table><tr><th data-en="Month" data-es="Mes">Month</th><th data-en="Plant" data-es="Planta">Plant</th><th data-en="Billing kWh" data-es="kWh facturables">Billing kWh</th><th data-en="Basis" data-es="Base">Basis</th><th>Status</th><th data-en="Closed by" data-es="Cerrado por">Closed by</th><th data-en="Invoice annex" data-es="Anexo de factura">Invoice annex</th><th data-en="Note" data-es="Nota">Note</th></tr>
 {m_rows or '<tr><td colspan="8" class="note" data-en="No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX; each plant-month then appears here with its billing kWh, and the invoice annex unlocks for closed months." data-es="Aún no hay cierre mensual. El primero (agosto) corre el 1 de septiembre a las 06:10 MX; cada planta-mes aparecerá aquí con sus kWh facturables, y el anexo de factura se desbloquea para meses cerrados.">No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX.</td></tr>'}</table>

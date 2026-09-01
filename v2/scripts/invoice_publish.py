@@ -49,6 +49,101 @@ PLANT_CLIENT = {
 }
 
 
+INVOICE_TOL_PCT = 0.05
+"""Invoiced kWh vs the closed billing basis: anything beyond five
+hundredths of a percent is a real disagreement, not rounding."""
+
+
+def invoice_check(billable_kwh, billing_kwh, tol_pct=INVOICE_TOL_PCT):
+    """(status, delta_kwh, delta_pct) of the invoice vs the close.
+
+    Tomasz, 2026-09-01: "going forward always check last month invoice
+    vs the last day status, keep it somewhere as invoicing." The close
+    row's billing_kwh IS the month-end vendor-counter position, so this
+    is that check, run at publish time and stored per plant-month.
+    """
+    if billable_kwh is None or billing_kwh in (None, 0):
+        return "NO_BASIS", None, None
+    delta = float(billable_kwh) - float(billing_kwh)
+    pct = 100.0 * delta / float(billing_kwh)
+    return ("OK" if abs(pct) <= tol_pct else "MISMATCH",
+            round(delta, 3), round(pct, 4))
+
+
+def record_invoicing(ym, plants):
+    """Write the invoicing rows for the published month into PG and
+    return {plant: (kwh, mxn, status)} for the index page.
+
+    Off-server (no PG) returns {} and records nothing — the HTML/PDF
+    publish is unaffected."""
+    try:
+        from argia.store import pg_mirror
+        from argia.store.pgq import psql_rows, psql_exec
+        if not pg_mirror.enabled():
+            return {}
+    except Exception:                                  # noqa: BLE001
+        return {}
+    psql_exec("""CREATE TABLE IF NOT EXISTS invoicing (
+        plant_key text NOT NULL, ref_month date NOT NULL,
+        billable_kwh numeric(14,3), tariff_mxn numeric(10,4),
+        amount_mxn numeric(14,2), billing_kwh numeric(14,3),
+        delta_kwh numeric(14,3), delta_pct numeric(9,4),
+        check_status text NOT NULL, published_at timestamptz
+            NOT NULL DEFAULT now(),
+        PRIMARY KEY (plant_key, ref_month));""")
+    y, m = int(ym[:4]), int(ym[5:7])
+    rows = psql_rows(
+        "SELECT d.plant_key,"
+        " sum(coalesce(d.billable_kwh, d.energy_kwh)),"
+        " max(c.tariff_mxn), max(r.billing_kwh)"
+        " FROM daily_production d"
+        " LEFT JOIN contract_monthly c ON c.plant_key = d.plant_key"
+        f"  AND c.year = {y} AND c.month = {m}"
+        " LEFT JOIN reconciliation_monthly r ON r.plant_key = d.plant_key"
+        f"  AND r.ref_month = DATE '{ym}-01'"
+        f" WHERE to_char(d.prod_date, 'YYYY-MM') = '{ym}'"
+        " GROUP BY d.plant_key;")
+    out = {}
+    for r in rows:
+        pk = (r[0] or "").lower()
+        if pk not in plants:
+            continue
+        kwh = float(r[1]) if r[1] not in (None, "") else None
+        tariff = float(r[2]) if r[2] not in (None, "") else None
+        billing = float(r[3]) if r[3] not in (None, "") else None
+        status, dk, dp = invoice_check(kwh, billing)
+        mxn = round(kwh * tariff, 2) if kwh is not None and tariff else None
+        if status == "MISMATCH":
+            LOG.error("INVOICING CHECK %s %s: billed %.1f kWh vs close"
+                      " %.1f (%+0.3f%%) — investigate before sending",
+                      pk.upper(), ym, kwh, billing, dp)
+        else:
+            LOG.info("invoicing check %s %s: %s (delta %s kWh)",
+                     pk.upper(), ym, status, dk)
+        psql_exec(
+            "INSERT INTO invoicing (plant_key, ref_month, billable_kwh,"
+            " tariff_mxn, amount_mxn, billing_kwh, delta_kwh, delta_pct,"
+            " check_status) VALUES ("
+            f"'{pk.upper()}', DATE '{ym}-01',"
+            f" {kwh if kwh is not None else 'NULL'},"
+            f" {tariff if tariff is not None else 'NULL'},"
+            f" {mxn if mxn is not None else 'NULL'},"
+            f" {billing if billing is not None else 'NULL'},"
+            f" {dk if dk is not None else 'NULL'},"
+            f" {dp if dp is not None else 'NULL'},"
+            f" '{status}') ON CONFLICT (plant_key, ref_month) DO UPDATE"
+            " SET billable_kwh = EXCLUDED.billable_kwh,"
+            " tariff_mxn = EXCLUDED.tariff_mxn,"
+            " amount_mxn = EXCLUDED.amount_mxn,"
+            " billing_kwh = EXCLUDED.billing_kwh,"
+            " delta_kwh = EXCLUDED.delta_kwh,"
+            " delta_pct = EXCLUDED.delta_pct,"
+            " check_status = EXCLUDED.check_status,"
+            " published_at = now();")
+        out[pk] = (kwh, mxn, status)
+    return out
+
+
 def find_chromium():
     for name in CHROMIUM:
         p = shutil.which(name)
@@ -90,30 +185,44 @@ def scan_months(out_root: str):
     return out
 
 
-def render_index(months, blocked_now=None, generated_at=""):
-    """The /invoices/ page: newest month first, one row per plant,
-    PDF + HTML links. Pure — tested against fixed inputs."""
+def render_index(months, blocked_now=None, records=None,
+                 generated_at=""):
+    """The /invoices/ page: newest month first, one row per plant with
+    the RECORDED invoiced kWh and MXN (the 'invoicing' register), PDF +
+    HTML links. Pure — tested against fixed inputs."""
     blocked_now = blocked_now or {}
+    records = records or {}
     parts = []
     for ym in sorted(months, reverse=True):
         rows = []
         for plant, has_html, has_pdf in months[ym]:
             client = PLANT_CLIENT.get(plant, plant.upper())
+            kwh, mxn, chk = records.get(ym, {}).get(
+                plant, (None, None, None))
+            kwh_td = "&mdash;" if kwh is None else f"{kwh:,.1f}"
+            mxn_td = "&mdash;" if mxn is None else f"${mxn:,.2f}"
+            flag = ('' if chk in (None, "OK") else
+                    f' <span class="blocked">{_esc(chk)}</span>')
             pdf = (f'<a class="btn" href="{ym}/invoice_{plant}_{ym}.pdf" '
                    f'download>PDF</a>' if has_pdf else
                    '<span class="mut">PDF pending</span>')
             web = (f'<a class="btn" href="{ym}/invoice_{plant}_{ym}.html">'
                    f'{_esc("View / Ver")}</a>' if has_html else "")
             rows.append(f"<tr><td>{plant.upper()}</td><td>{_esc(client)}"
-                        f"</td><td>{pdf} {web}</td></tr>")
+                        f'</td><td class="num">{kwh_td}</td>'
+                        f'<td class="num">{mxn_td}{flag}</td>'
+                        f"<td>{pdf} {web}</td></tr>")
         for plant, why in sorted(blocked_now.get(ym, [])):
             rows.append(f'<tr><td>{plant.upper()}</td>'
                         f'<td>{_esc(PLANT_CLIENT.get(plant, ""))}</td>'
+                        f'<td class="num">&mdash;</td>'
+                        f'<td class="num">&mdash;</td>'
                         f'<td><span class="blocked">{_esc(why)}</span>'
                         f"</td></tr>")
         parts.append(
             f"<h2>{ym}</h2><table><thead><tr><th>Planta</th>"
-            f"<th>Cliente</th><th></th></tr></thead>"
+            f"<th>Cliente</th><th>kWh</th><th>MXN sin IVA</th>"
+            f"<th></th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table>")
     body = "".join(parts) or ("<p>No annexes published yet. / "
                               "Aún no hay anexos publicados.</p>")
@@ -189,8 +298,13 @@ def main(argv=None) -> int:
                                                "invoice_*_%s.html" % ym))):
             html_to_pdf(h, h[:-5] + ".pdf", chromium)
 
+    published = [pl for pl, _h, _p in
+                 scan_months(args.out_root).get(ym, [])]
+    records = record_invoicing(ym, set(published))
+
     from argia.core.time_utils import now_mx as _now
     idx = render_index(scan_months(args.out_root),
+                       records={ym: records},
                        generated_at=_now().strftime("%Y-%m-%d %H:%M MX"))
     with open(os.path.join(args.out_root, "index.html"), "w",
               encoding="utf-8") as f:

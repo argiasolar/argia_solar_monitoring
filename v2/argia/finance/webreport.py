@@ -49,8 +49,18 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
     """Assemble the embedded dataset for the window (which is the
     RANGE THE PICKER CAN SELECT WITHIN, not a report period)."""
     contracts = load_contract_monthly(sheets)
-    loans = load_loans(sheets)
-    schedule = load_loan_schedule(sheets)
+    # Since the /setup/finance admin editor, PG is the finance authority
+    # wherever it exists (pio06); the sheet tabs are the off-server
+    # fallback and no longer receive edits.
+    from argia.store import pg_mirror
+    if pg_mirror.enabled():
+        from argia.finance.pg_loans import (
+            load_loan_schedule_pg, load_loans_pg)
+        loans = load_loans_pg()
+        schedule = load_loan_schedule_pg()
+    else:
+        loans = load_loans(sheets)
+        schedule = load_loan_schedule(sheets)
     kpi = load_kpi_energy(sheets, window)
     events = load_maintenance_events(sheets)
 

@@ -1087,6 +1087,418 @@ def mail_delete():
 
 
 
+# ======================= finance setup (admins) =======================
+# /setup/finance — the commercial inputs behind the financial report:
+# loans, future installments, FX projections, O&M, LaaS fees, tariffs.
+# PG is the single authority (webreport reads it too); every write is
+# audited and the report page regenerates immediately.
+
+import finance_core as fin
+
+WEBROOT = os.environ.get('ARGIA_WEBROOT',
+                         '/www/hosting/monitoring.argia.com.mx/www')
+REPORT_GEN = os.path.join(sys_dir, 'report_gen.py')
+
+
+def _fin_month_now():
+    """Current MX month 'YYYY-MM' — the first editable month; anything
+    earlier is paid history and immutable."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.datetime.now(
+        ZoneInfo('America/Mexico_City')).strftime('%Y-%m')
+
+
+def _fin_guard():
+    me, is_global, org = actor()
+    return me if (is_global and check_csrf()) else None
+
+
+def _fin_regen():
+    """Regenerate the report pages so the edit is visible immediately.
+    ~1.2 s measured; a failure must not hide that the DB write already
+    happened, so the caller reports it instead of raising."""
+    try:
+        r = subprocess.run(['/usr/bin/python3', REPORT_GEN, WEBROOT],
+                           capture_output=True, text=True, timeout=180)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _fin_write(me, plant, loan_id, action, detail, sqls):
+    """One audited finance edit: SQL + audit row + report regen.
+    Returns the user-facing message."""
+    psql(fin.ENSURE_AUDIT_SQL)
+    for s in sqls:
+        psql(s)
+    psql(fin.sql_audit(me, plant, loan_id, action, detail))
+    ok = _fin_regen()
+    return ('%s — saved; financial report regenerated' % detail if ok else
+            '%s — saved, but report regeneration FAILED; it will refresh '
+            'on the next scheduled run' % detail)
+
+
+def _fin_rows(sql):
+    return [ln.split('\t') for ln in psql(sql).splitlines() if ln.strip()]
+
+
+def _fin_fmt(v, dec=2):
+    try:
+        return f'{float(v):,.{dec}f}'
+    except (TypeError, ValueError):
+        return '—'
+
+
+def finance_page(msg=''):
+    me, is_global, org = actor()
+    if not is_global:
+        return page('<div class="card"><p data-en="Admins only." '
+                    'data-es="Solo administradores.">Admins only.</p>'
+                    '</div>', msg=msg)
+    psql(fin.ENSURE_AUDIT_SQL)
+    m0 = _fin_month_now()
+    csrf = f'<input type="hidden" name="csrf" value="{CSRF}">'
+    mono = 'font-variant-numeric:tabular-nums'
+
+    # ---- loans ----
+    cards = [f'''<div class="card"><h2 data-en="How this works"
+ data-es="Cómo funciona">How this works</h2>
+<p class="note" data-en="Paid history is immutable — every edit applies from the chosen month FORWARD (earliest: {m0}). USD loans: the currency amount and FX are authoritative, MXN is recomputed. Every change is logged below and the financial report regenerates immediately."
+ data-es="El historial pagado es inmutable — cada cambio aplica desde el mes elegido EN ADELANTE (mínimo: {m0}). Créditos USD: el monto en divisa y el tipo de cambio mandan, el MXN se recalcula. Todo cambio queda registrado abajo y el reporte financiero se regenera de inmediato.">
+Paid history is immutable — edits apply from the chosen month forward.</p></div>''']
+
+    loans = _fin_rows(
+        "SELECT l.loan_id, l.plant_key, l.project_name, l.bank,"
+        " l.currency, l.principal_mxn, l.total_installments,"
+        " to_char(l.first_month,'YYYY-MM'), to_char(l.last_month,'YYYY-MM'),"
+        " (SELECT count(*) FROM loan_schedule s WHERE s.loan_id=l.loan_id"
+        f"  AND s.ref_month < DATE '{m0}-01'),"
+        " (SELECT s.payment_mxn FROM loan_schedule s WHERE s.loan_id=l.loan_id"
+        f"  AND s.ref_month >= DATE '{m0}-01' ORDER BY s.ref_month LIMIT 1),"
+        " (SELECT s.payment_ccy FROM loan_schedule s WHERE s.loan_id=l.loan_id"
+        f"  AND s.ref_month >= DATE '{m0}-01' ORDER BY s.ref_month LIMIT 1),"
+        " (SELECT s.xr FROM loan_schedule s WHERE s.loan_id=l.loan_id"
+        f"  AND s.ref_month >= DATE '{m0}-01' ORDER BY s.ref_month LIMIT 1)"
+        " FROM loan l ORDER BY l.plant_key, l.loan_id;")
+    for (lid, pk, name, bank, ccy, principal, total, first, last,
+         paid, next_mxn, next_ccy, next_xr) in loans:
+        usd = ccy == 'USD'
+        e = html.escape
+        pay_form = (f'''<form method="post" action="/setup/finance/payments" style="display:inline">
+{csrf}<input type="hidden" name="loan_id" value="{e(lid)}">
+<label data-en="Payment" data-es="Cuota">Payment</label>
+<input type="text" name="amount" size="10" placeholder="{_fin_fmt(next_ccy if usd else next_mxn)}"> {'USD' if usd else 'MXN'}
+<label data-en="from" data-es="desde">from</label>
+<input type="month" name="from_month" min="{m0}" value="{m0}">
+<button class="btn" data-en="Apply" data-es="Aplicar">Apply</button></form>''')
+        fx_form = (f'''<form method="post" action="/setup/finance/fx" style="display:inline">
+{csrf}<input type="hidden" name="loan_id" value="{e(lid)}">
+<label>FX USD/MXN</label>
+<input type="text" name="rate" size="7" placeholder="{_fin_fmt(next_xr, 4)}">
+<label data-en="from" data-es="desde">from</label>
+<input type="month" name="from_month" min="{m0}" value="{m0}">
+<button class="btn" data-en="Apply" data-es="Aplicar">Apply</button></form>''') if usd else ''
+        principal_form = (f'''<form method="post" action="/setup/finance/principal" style="display:inline">
+{csrf}<input type="hidden" name="loan_id" value="{e(lid)}">
+<label data-en="Principal MXN" data-es="Principal MXN">Principal MXN</label>
+<input type="text" name="amount" size="13" placeholder="{_fin_fmt(principal)}">
+<button class="btn" data-en="Apply" data-es="Aplicar">Apply</button></form>''')
+        extend_form = (f'''<form method="post" action="/setup/finance/extend" style="display:inline">
+{csrf}<input type="hidden" name="loan_id" value="{e(lid)}">
+<label data-en="Extend to" data-es="Extender hasta">Extend to</label>
+<input type="month" name="to_month" min="{m0}">
+<label data-en="at payment" data-es="con cuota">at payment</label>
+<input type="text" name="amount" size="10"> {'USD' if usd else 'MXN'}
+<button class="btn" data-en="Apply" data-es="Aplicar">Apply</button></form>''')
+        trunc_form = (f'''<form method="post" action="/setup/finance/truncate" style="display:inline"
+ onsubmit="return confirm('Delete all installments of {e(lid)} from the chosen month onward?')">
+{csrf}<input type="hidden" name="loan_id" value="{e(lid)}">
+<label data-en="End loan at" data-es="Terminar crédito en">End loan at</label>
+<input type="month" name="from_month" min="{m0}">
+<button class="btn danger" data-en="Truncate" data-es="Truncar">Truncate</button></form>''')
+        cards.append(f'''<div class="card"><h2>{e(pk)} · {e(lid)} — {e(name)}</h2>
+<p class="note" style="{mono}">{e(bank)} · {ccy} ·
+<span data-en="principal" data-es="principal">principal</span> {_fin_fmt(principal)} MXN ·
+<span data-en="position" data-es="posición">position</span> {paid}/{total} · {first} → {last} ·
+<span data-en="next payment" data-es="próxima cuota">next payment</span>
+{(_fin_fmt(next_ccy) + ' USD × ' + _fin_fmt(next_xr, 4) + ' = ') if usd and next_ccy else ''}{_fin_fmt(next_mxn)} MXN</p>
+<div class="controls">{pay_form}</div>
+{f'<div class="controls">{fx_form}</div>' if fx_form else ''}
+<div class="controls">{principal_form}</div>
+<div class="controls">{extend_form}{trunc_form}</div>
+</div>''')
+
+    # ---- O&M per plant ----
+    om_rows = []
+    for pk, cust, om in _fin_rows(
+            "SELECT plant_key, customer, coalesce(om_cost_monthly_mxn,0)"
+            " FROM plant WHERE active ORDER BY plant_key;"):
+        om_rows.append(f'''<tr><td>{html.escape(pk)}</td>
+<td>{html.escape(cust)}</td><td style="{mono}">{_fin_fmt(om)}</td>
+<td><form method="post" action="/setup/finance/om">{csrf}
+<input type="hidden" name="plant" value="{html.escape(pk)}">
+<input type="text" name="amount" size="9">
+<button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
+    cards.append('<div class="card"><h2 data-en="O&amp;M — monthly cost (MXN)"'
+                 ' data-es="O&amp;M — costo mensual (MXN)">O&amp;M — monthly'
+                 ' cost (MXN)</h2><table><tr><th>Plant</th><th>Customer</th>'
+                 '<th data-en="Current" data-es="Actual">Current</th>'
+                 '<th data-en="New value" data-es="Nuevo valor">New value</th>'
+                 '</tr>' + ''.join(om_rows) + '</table></div>')
+
+    # ---- LaaS fees + PPA tariffs (contract_monthly, future months) ----
+    fee_rows = []
+    for pk, fee in _fin_rows(
+            "SELECT plant_key, fixed_income_ccy FROM contract_monthly"
+            f" WHERE make_date(year, month, 1) = DATE '{m0}-01'"
+            " AND fixed_income_ccy IS NOT NULL ORDER BY plant_key;"):
+        fee_rows.append(f'''<tr><td>{html.escape(pk)}</td>
+<td style="{mono}">{_fin_fmt(fee)} USD</td>
+<td><form method="post" action="/setup/finance/fee">{csrf}
+<input type="hidden" name="plant" value="{html.escape(pk)}">
+<input type="text" name="amount" size="9">
+<label data-en="from" data-es="desde">from</label>
+<input type="month" name="from_month" min="{m0}" value="{m0}">
+<button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
+    tariff_rows = []
+    for pk, tar in _fin_rows(
+            "SELECT plant_key, tariff_mxn FROM contract_monthly"
+            f" WHERE make_date(year, month, 1) = DATE '{m0}-01'"
+            " AND tariff_mxn IS NOT NULL ORDER BY plant_key;"):
+        tariff_rows.append(f'''<tr><td>{html.escape(pk)}</td>
+<td style="{mono}">{_fin_fmt(tar, 4)} MXN/kWh</td>
+<td><form method="post" action="/setup/finance/tariff">{csrf}
+<input type="hidden" name="plant" value="{html.escape(pk)}">
+<input type="text" name="amount" size="8">
+<label data-en="from" data-es="desde">from</label>
+<input type="month" name="from_month" min="{m0}" value="{m0}">
+<button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
+    cards.append('<div class="card"><h2 data-en="LaaS monthly fees (native'
+                 ' currency)" data-es="Cuotas LaaS (moneda nativa)">LaaS'
+                 ' monthly fees (native currency)</h2><table><tr><th>Asset'
+                 '</th><th data-en="Current month" data-es="Mes actual">'
+                 'Current month</th><th data-en="New value (flat, from month)"'
+                 ' data-es="Nuevo valor (fijo, desde mes)">New value (flat,'
+                 ' from month)</th></tr>' + ''.join(fee_rows) +
+                 '</table></div>')
+    cards.append('<div class="card"><h2 data-en="PPA tariffs (MXN/kWh)"'
+                 ' data-es="Tarifas PPA (MXN/kWh)">PPA tariffs (MXN/kWh)</h2>'
+                 '<p class="note" data-en="Sets a FLAT tariff from the chosen'
+                 ' month onward — contract escalations after that month are'
+                 ' overwritten. Use only for renegotiations."'
+                 ' data-es="Fija una tarifa PLANA desde el mes elegido —'
+                 ' las escalaciones contractuales posteriores se'
+                 ' sobrescriben. Solo para renegociaciones.">Sets a FLAT'
+                 ' tariff from the chosen month onward.</p><table><tr>'
+                 '<th>Plant</th><th data-en="Current month"'
+                 ' data-es="Mes actual">Current month</th>'
+                 '<th data-en="New value (flat, from month)"'
+                 ' data-es="Nuevo valor (fijo, desde mes)">New value</th>'
+                 '</tr>' + ''.join(tariff_rows) + '</table></div>')
+
+    # ---- audit tail ----
+    audit = _fin_rows(
+        "SELECT to_char(ts AT TIME ZONE 'America/Mexico_City',"
+        " 'YYYY-MM-DD HH24:MI'), username, plant_key, loan_id, detail"
+        " FROM finance_audit ORDER BY id DESC LIMIT 15;")
+    audit_rows = ''.join(
+        f'<tr><td style="{mono}">{html.escape(a[0])}</td>'
+        f'<td>{html.escape(a[1])}</td><td>{html.escape(a[2] or a[3])}</td>'
+        f'<td>{html.escape(a[4])}</td></tr>'
+        for a in audit if len(a) >= 5)
+    cards.append('<div class="card"><h2 data-en="Change log (last 15)"'
+                 ' data-es="Registro de cambios (últimos 15)">Change log'
+                 ' (last 15)</h2><table><tr><th data-en="When (MX)"'
+                 ' data-es="Cuándo (MX)">When (MX)</th><th data-en="Who"'
+                 ' data-es="Quién">Who</th><th>Asset</th><th data-en="What"'
+                 ' data-es="Qué">What</th></tr>' + (
+                     audit_rows or '<tr><td colspan="4" class="note"'
+                     ' data-en="No changes yet." data-es="Sin cambios aún.">'
+                     'No changes yet.</td></tr>') + '</table></div>')
+
+    back = ('<div class="controls"><a class="btn" href="/setup/"'
+            ' data-en="← Access setup" data-es="← Gestión de accesos">'
+            '← Access setup</a></div>')
+    return page(back + ''.join(cards), msg=msg)
+
+
+def _fin_loan(loan_id):
+    """(plant_key, currency, last_month 'YYYY-MM', last_no) or None."""
+    r = _fin_rows(
+        "SELECT l.plant_key, l.currency, to_char(max(s.ref_month),'YYYY-MM'),"
+        " max(s.installment_no) FROM loan l LEFT JOIN loan_schedule s"
+        f" ON s.loan_id = l.loan_id WHERE l.loan_id = {_sqlq(loan_id)}"
+        " GROUP BY 1, 2;")
+    return r[0] if r and len(r[0]) >= 4 else None
+
+
+@app.get('/finance')
+def finance():
+    return finance_page()
+
+
+@app.post('/finance/om')
+def finance_om():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    plant = (request.form.get('plant') or '').strip().upper()
+    amount = fin.parse_num(request.form.get('amount'), 0, fin.MAX_OM)
+    if plant.lower() not in PLANTS + ['loax1', 'lgto1'] or amount is None:
+        return finance_page(msg='O&M: invalid plant or amount — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, plant, '', 'om',
+        f'{plant}: O&M set to {amount:,.2f} MXN/month',
+        [fin.sql_set_om(plant, amount)]))
+
+
+@app.post('/finance/principal')
+def finance_principal():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    lid = (request.form.get('loan_id') or '').strip()
+    info = _fin_loan(lid)
+    amount = fin.parse_num(request.form.get('amount'), 1, fin.MAX_PRINCIPAL)
+    if not info or amount is None:
+        return finance_page(msg='principal: invalid loan or amount — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, info[0], lid, 'principal',
+        f'{lid}: principal set to {amount:,.2f} MXN',
+        [fin.sql_set_principal(lid, amount)]))
+
+
+@app.post('/finance/payments')
+def finance_payments():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    lid = (request.form.get('loan_id') or '').strip()
+    info = _fin_loan(lid)
+    from_ym = fin.parse_month(request.form.get('from_month'),
+                              min_month=_fin_month_now())
+    if not info or not from_ym:
+        return finance_page(msg='payments: invalid loan or month — nothing saved')
+    usd = info[1] == 'USD'
+    amount = fin.parse_num(request.form.get('amount'), 0,
+                           fin.MAX_PAYMENT_CCY if usd else fin.MAX_PAYMENT_MXN)
+    if amount is None:
+        return finance_page(msg='payments: invalid amount — nothing saved')
+    sql = (fin.sql_set_payment_ccy(lid, from_ym, amount) if usd
+           else fin.sql_set_payment_mxn(lid, from_ym, amount))
+    return finance_page(msg=_fin_write(
+        me, info[0], lid, 'payments',
+        f'{lid}: payment {amount:,.2f} {"USD" if usd else "MXN"} from {from_ym}',
+        [sql]))
+
+
+@app.post('/finance/fx')
+def finance_fx():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    lid = (request.form.get('loan_id') or '').strip()
+    info = _fin_loan(lid)
+    from_ym = fin.parse_month(request.form.get('from_month'),
+                              min_month=_fin_month_now())
+    rate = fin.parse_num(request.form.get('rate'), fin.FX_MIN, fin.FX_MAX)
+    if not info or info[1] != 'USD' or not from_ym or rate is None:
+        return finance_page(msg='FX: invalid loan/month/rate — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, info[0], lid, 'fx',
+        f'{lid}: FX projection {rate:.4f} USD/MXN from {from_ym}',
+        [fin.sql_set_fx(lid, from_ym, rate)]))
+
+
+@app.post('/finance/extend')
+def finance_extend():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    lid = (request.form.get('loan_id') or '').strip()
+    info = _fin_loan(lid)
+    to_ym = fin.parse_month(request.form.get('to_month'),
+                            min_month=_fin_month_now())
+    if not info or not to_ym:
+        return finance_page(msg='extend: invalid loan or month — nothing saved')
+    pk, ccy, last_ym, last_no = info[0], info[1], info[2], int(info[3] or 0)
+    usd = ccy == 'USD'
+    amount = fin.parse_num(request.form.get('amount'), 0,
+                           fin.MAX_PAYMENT_CCY if usd else fin.MAX_PAYMENT_MXN)
+    if amount is None:
+        return finance_page(msg='extend: invalid amount — nothing saved')
+    months = fin.months_seq(last_ym, to_ym)
+    if not months:
+        return finance_page(msg=f'extend: {lid} already runs through {last_ym} — nothing to add')
+    xr = None
+    if usd:
+        r = _fin_rows("SELECT xr FROM loan_schedule WHERE loan_id ="
+                      f" {_sqlq(lid)} AND xr IS NOT NULL"
+                      " ORDER BY ref_month DESC LIMIT 1;")
+        xr = float(r[0][0]) if r and r[0][0] else 17.98
+    sqls = [fin.sql_extend(lid, last_no + 1, months, amount,
+                           payment_ccy=amount if usd else None,
+                           xr=xr if usd else None),
+            fin.sql_loan_span_refresh(lid)]
+    return finance_page(msg=_fin_write(
+        me, pk, lid, 'extend',
+        f'{lid}: extended {len(months)} month(s) to {to_ym} at '
+        f'{amount:,.2f} {"USD" if usd else "MXN"}', sqls))
+
+
+@app.post('/finance/truncate')
+def finance_truncate():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    lid = (request.form.get('loan_id') or '').strip()
+    info = _fin_loan(lid)
+    from_ym = fin.parse_month(request.form.get('from_month'),
+                              min_month=_fin_month_now())
+    if not info or not from_ym:
+        return finance_page(msg='truncate: invalid loan or month — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, info[0], lid, 'truncate',
+        f'{lid}: installments from {from_ym} onward removed',
+        fin.sql_truncate(lid, from_ym)))
+
+
+@app.post('/finance/fee')
+def finance_fee():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    plant = (request.form.get('plant') or '').strip().upper()
+    from_ym = fin.parse_month(request.form.get('from_month'),
+                              min_month=_fin_month_now())
+    amount = fin.parse_num(request.form.get('amount'), 0, fin.MAX_FEE_CCY)
+    if not re.match(r'^[A-Z0-9]{3,6}$', plant) or not from_ym \
+            or amount is None:
+        return finance_page(msg='fee: invalid asset/month/amount — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, plant, '', 'fee',
+        f'{plant}: LaaS fee {amount:,.2f} (native ccy) from {from_ym}',
+        [fin.sql_set_fee(plant, from_ym, amount)]))
+
+
+@app.post('/finance/tariff')
+def finance_tariff():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    plant = (request.form.get('plant') or '').strip().upper()
+    from_ym = fin.parse_month(request.form.get('from_month'),
+                              min_month=_fin_month_now())
+    amount = fin.parse_num(request.form.get('amount'), 0.01, fin.MAX_TARIFF)
+    if plant.lower() not in PLANTS or not from_ym or amount is None:
+        return finance_page(msg='tariff: invalid plant/month/amount — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, plant, '', 'tariff',
+        f'{plant}: tariff {amount:.4f} MXN/kWh (flat) from {from_ym}',
+        [fin.sql_set_tariff(plant, from_ym, amount)]))
+
+
 def render(msg='', once=None):
     """Role-aware main page."""
     me, is_global, org = actor()
@@ -1098,6 +1510,16 @@ def render(msg='', once=None):
     ef = edit_form(edit_u) if (edit_u and can_manage(edit_u)) else ''
     if is_global:
         body = ef + users_table() + settings_card(None, True) + stats_table() + add_form()
+        body += ('<div class="card"><h2 data-en="Finance setup"'
+                 ' data-es="Configuración financiera">Finance setup</h2>'
+                 '<p class="note" data-en="Loans, payments, FX rates, O&amp;M,'
+                 ' fees and tariffs — the inputs behind the financial report."'
+                 ' data-es="Créditos, cuotas, tipo de cambio, O&amp;M, cuotas y'
+                 ' tarifas — los insumos del reporte financiero.">Loans, payments,'
+                 ' FX rates, O&amp;M, fees and tariffs.</p>'
+                 '<a class="btn" href="/setup/finance" data-en="Open finance'
+                 ' setup →" data-es="Abrir configuración financiera →">'
+                 'Open finance setup →</a></div>')
         body += maintenance_card()
         body += recipients_card()
     else:

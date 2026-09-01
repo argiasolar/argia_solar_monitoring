@@ -34,7 +34,9 @@ import tempfile
 from argia.core.config import load_portfolio
 from argia.core.sheets import SheetsClient
 from argia.core.time_utils import now_mx
-from argia.finance.annex import build_annex_data, render_annex_html
+from argia.finance.annex import (FACTURA_NAME, build_annex_data,
+                                 load_invoicing_overview,
+                                 render_annex_html)
 from argia.finance.income import Period
 
 LOG = logging.getLogger("argia.report.invoice_annex")
@@ -154,7 +156,10 @@ def main(argv=None) -> int:
     elif args.month:
         ym = args.month
     if ym is not None:
-        window = month_window(ym)
+        # v158: an invoice embeds the WHOLE year (the old Looker factura
+        # shows year-to-date results and the January–December table on
+        # every monthly invoice) and opens on the invoiced month.
+        window = _year_window(int(ym[:4]))
         mode = "invoice"
     else:
         year = args.year or now_mx().year
@@ -176,16 +181,23 @@ def main(argv=None) -> int:
     os.makedirs(out_dir, exist_ok=True)
     generated_at = now_mx().strftime("%Y-%m-%d %H:%M MX")
 
+    # the invoicing authority for the year (ARGIA Solar workbook);
+    # {} degrades to atoms with a logged warning
+    history_all = load_invoicing_overview(window.start.year)
+
     rendered = []
     for pk in plants:
         try:
-            payload = build_annex_data(sheets, portfolio, pk, window)
-            html = render_annex_html(payload, generated_at)
+            payload = build_annex_data(sheets, portfolio, pk, window,
+                                       history=history_all.get(pk))
+            html = render_annex_html(payload, generated_at,
+                                     default_ym=ym)
         except Exception as e:  # noqa: BLE001
             LOG.error("[%s] annex render failed: %s", pk, e)
             continue
         if mode == "invoice":
-            base = "invoice_%s_%s" % (pk.lower(), ym)
+            base = "factura_%s_%s" % (FACTURA_NAME.get(pk, pk),
+                                      ym.replace("-", ""))
         else:
             base = "annex_%s_%d" % (pk.lower(), window.start.year)
         path = os.path.join(out_dir, base + ".html")

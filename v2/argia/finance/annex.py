@@ -1,4 +1,14 @@
-"""Customer invoicing annex (v93) — per-plant, self-contained HTML.
+"""Customer invoicing annex (v158) — per-plant, self-contained HTML.
+
+v158 (2026-09-01, Tomasz's comparison against the old Looker factura):
+the layout mirrors the Looker "anexo de la factura" — landscape, the
+four stat cards, the daily generation chart with teórica/expectativa
+lines and cloud cover, the ANNUAL chart with the pay line, and the
+January–December table. The PR-diario chart is gone ("it is a noise").
+Monthly figures for invoiced months come from the ARGIA Solar
+workbook's Invoicing_Overview tab — the invoicing authority — so past
+facturas always match what was actually billed; atoms only fill months
+the workbook does not cover.
 
 Replaces the Looker "anexo de la factura" page with a self-contained
 HTML report in the ``webreport.py`` style: the whole selectable year is
@@ -52,10 +62,82 @@ A_SOIL = 7          # soiling_loss_pct
 ATOM_WIDTH = 8
 
 
+FACTURA_NAME = {
+    "GTO1": "TAIGENE", "MEX1": "SAG", "MEX2": "VITALMEX",
+    "NL1": "PLASTIC_OMNIUM", "SLP1": "QUIMICA_COYOACAN",
+    "SLP2": "HOLIDAY_INN",
+}
+"""File-name identity per plant: factura_<NAME>_<yyyymm>.pdf ("keep the
+name as factura_plantname_yyyymm where plantname=TAIGENE not GTO1")."""
+
+
+def parse_invoicing_overview(grid, year):
+    """Pure: {PLANT: {ym: {kwh, penalty, income, expected}}} from the
+    Invoicing_Overview grid (header Year|Month|Month_No|Plant_Key|
+    Total_kWh|Penalty_kWh|Total_Income|Expected_kWh)."""
+    out: Dict[str, Dict] = {}
+    for r in grid[1:] if grid else []:
+        if len(r) < 7 or str(r[0]).strip() != str(year):
+            continue
+        pk = str(r[3]).strip().upper()
+        if not pk:
+            continue
+        try:
+            m = int(float(r[2]))
+        except (TypeError, ValueError):
+            continue
+        ym = "%s-%02d" % (year, m)
+        out.setdefault(pk, {})[ym] = {
+            "kwh": safe_float(r[4]),
+            "penalty": safe_float(r[5]) or 0.0,
+            "income": safe_float(r[6]),
+            "expected": safe_float(r[7]) if len(r) > 7 else None,
+        }
+    return out
+
+
+def load_invoicing_overview(year):
+    """The invoicing authority: the ARGIA Solar workbook's
+    Invoicing_Overview tab. Best-effort — no sheet id or an API error
+    returns {} and the annex falls back to atoms (logged)."""
+    import os as _os
+    sid = _os.environ.get("ARGIA_SOLAR_SHEET_ID", "").strip()
+    if not sid:
+        LOG.warning("ARGIA_SOLAR_SHEET_ID not set — annex months fall "
+                    "back to KPI atoms (invoiced history unavailable)")
+        return {}
+    try:
+        s = SheetsClient(sheet_id=sid)
+        grid = s.read_range("Invoicing_Overview", "A1:H2000")
+        return parse_invoicing_overview(grid, year)
+    except Exception as e:  # noqa: BLE001
+        LOG.error("Invoicing_Overview unreadable (%s) — falling back "
+                  "to KPI atoms", e)
+        return {}
+
+
+def _client_logo(pk):
+    """Grayscale client logo data URI from the server bundle, '' when
+    unavailable (the annex then shows the client name as text)."""
+    try:
+        import os as _os
+        import sys as _sys
+        bundle = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                               "..", "..", "server", "bundle")
+        if bundle not in _sys.path:
+            _sys.path.insert(0, bundle)
+        from argia_client_logos import CLIENT_LOGOS
+        return CLIENT_LOGOS.get(pk.upper(), ("", ""))[1]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
-                     plant_key: str, window: Period) -> Dict:
+                     plant_key: str, window: Period,
+                     history: Optional[Dict] = None) -> Dict:
     """Assemble the embedded dataset for one plant over ``window`` (the
-    range the picker can select within, e.g. a calendar year)."""
+    range the picker can select within, e.g. a calendar year).
+    ``history`` is this plant's slice of Invoicing_Overview."""
     pk = plant_key.upper()
     plant = portfolio.plants.get(pk) or portfolio.plants.get(plant_key)
     if plant is None:
@@ -124,11 +206,14 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
     return {
         "plant_key": pk,
         "client": plant.customer or pk,
+        "factura_name": FACTURA_NAME.get(pk, pk),
+        "client_logo": _client_logo(pk),
         "kwp": plant.kwp_dc,
         "days": days,
         "atoms": atoms,
         "tariff_by_month": tariff_by_month,
         "co2_factor": CO2_KG_PER_KWH,
+        "history": history or {},
     }
 
 
@@ -143,18 +228,20 @@ def _mean(vals: List[float]) -> Optional[float]:
 
 
 def rollup_month(payload: Dict, ym: str) -> Dict:
-    """Aggregate one month (``'YYYY-MM'``) from the embedded atoms. PURE —
-    the JS ``rollupMonth`` mirrors this exactly. Money/energy come only
-    from summing atoms; nothing is recomputed from contracts here."""
+    """Aggregate one month from the embedded data. PURE — the JS
+    ``rollupMonth`` mirrors this exactly.
+
+    Authority order: an invoiced month in ``history`` (the ARGIA Solar
+    Invoicing_Overview slice) wins outright — produced, compensada and
+    the peso amount are what was actually billed. Atoms only fill
+    months the workbook does not carry."""
     days = payload["days"]
     atoms = payload["atoms"]
     tariff = payload["tariff_by_month"].get(ym)
     co2f = payload["co2_factor"]
+    h = (payload.get("history") or {}).get(ym)
 
     measured = deemed = 0.0
-    prs: List[float] = []
-    avails: List[float] = []
-    soils: List[float] = []
     design_sum = 0.0
     have_any = False
     for d, a in zip(days, atoms):
@@ -167,178 +254,199 @@ def rollup_month(payload: Dict, ym: str) -> Dict:
             deemed += a[A_DEEMED]
         if a[A_DESIGN] is not None:
             design_sum += a[A_DESIGN]
-        if a[A_PR] is not None:
-            prs.append(a[A_PR])
-        if a[A_AVAIL] is not None:
-            avails.append(a[A_AVAIL])
-        if a[A_SOIL] is not None:
-            soils.append(a[A_SOIL])
+
+    expected = design_sum if design_sum else None
+    if h is not None:
+        if h.get("expected") is not None:
+            expected = h["expected"]
+        if h.get("kwh") is not None:
+            measured = h["kwh"]
+            deemed = h.get("penalty") or 0.0
+            have_any = True
 
     billable = measured + deemed
-    amount = billable * tariff if tariff is not None else None
-    prod_pct = (measured / design_sum) if design_sum else None
+    if h is not None and h.get("kwh") is not None:
+        amount = h.get("income")
+    else:
+        amount = billable * tariff if tariff is not None else None
     return {
         "ym": ym,
         "measured_kwh": round(measured, 1),
         "deemed_kwh": round(deemed, 1),
         "billable_kwh": round(billable, 1),
+        "expected_kwh": round(expected, 1) if expected is not None else None,
         "tariff": tariff,
         "amount_mxn": round(amount, 2) if amount is not None else None,
         "co2_kg": round(billable * co2f, 1),
-        "pr": _mean(prs),
-        "availability": _mean(avails),
-        "production_pct": prod_pct,
-        "soiling": _mean(soils),
         "has_data": have_any,
     }
 
 
 def annual_rollup(payload: Dict) -> List[Dict]:
-    """One row per month present in the window: measured / deemed / total.
-    PURE — mirrors the JS ``annualRollup``."""
-    months = []
-    seen = set()
-    for d in payload["days"]:
-        ym = d[:7]
-        if ym not in seen:
-            seen.add(ym)
-            months.append(ym)
-    return [rollup_month(payload, ym) for ym in months]
+    """All twelve months of the window's year, in order — the old
+    factura table shows January through December with zeros for months
+    not yet invoiced, so this does too. PURE — mirrors the JS."""
+    year = payload["days"][0][:4] if payload["days"] else "1970"
+    return [rollup_month(payload, "%s-%02d" % (year, m))
+            for m in range(1, 13)]
 
-
-# ----------------------------------------------------------------- render
 
 def _logo_uri() -> str:
     try:
-        from argia.report.dashboard_html import LOGO_B64
-        return "data:image/png;base64," + LOGO_B64
+        import os as _os
+        import sys as _sys
+        bundle = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                               "..", "..", "server", "bundle")
+        if bundle not in _sys.path:
+            _sys.path.insert(0, bundle)
+        from argia_logo import LOGO_URI
+        return LOGO_URI
     except Exception:  # noqa: BLE001
         return ""
 
 
-def _fmt(x: Optional[float], unit: str = "") -> str:
-    if x is None:
-        return "&mdash;"
-    return "{:,.0f}{}".format(x, unit)
-
-
-def render_annex_html(payload: Dict, generated_at: str) -> str:
-    """Self-contained HTML annex: embedded atoms + month picker + charts.
-    The picker only sums atoms (JS mirrors :func:`rollup_month`)."""
+def render_annex_html(payload: Dict, generated_at: str,
+                      default_ym: Optional[str] = None) -> str:
+    """Self-contained HTML factura in the Looker layout: header with
+    client + ARGIA identity and the period picker, four stat cards,
+    the daily generation chart (bars, teórica + expectativa lines,
+    cloud cover on the right axis), the annual chart (generada +
+    expectativa bars, pay line) and the January–December table.
+    Landscape print. Spanish only — the PDF is a customer document."""
     data_json = json.dumps(payload, separators=(",", ":"))
     client = _html.escape(payload["client"])
     pk = _html.escape(payload["plant_key"])
-    kwp = payload.get("kwp")
-    kwp_txt = ("%d kWp" % round(kwp)) if kwp else ""
     logo = _logo_uri()
-    # default selected month = last month in the window that has data
-    default_ym = ""
-    for r in reversed(annual_rollup(payload)):
-        if r["has_data"]:
-            default_ym = r["ym"]
-            break
+    clogo = payload.get("client_logo") or ""
+
+    if not default_ym:
+        for r in reversed(annual_rollup(payload)):
+            if r["has_data"]:
+                default_ym = r["ym"]
+                break
     if not default_ym and payload["days"]:
         default_ym = payload["days"][-1][:7]
 
-    logo_img = (f'<img src="{logo}" alt="ARGIA SOLAR" style="height:30px">'
-                if logo else '<span style="font-weight:600">ARGIA SOLAR</span>')
+    argia_img = (f'<img src="{logo}" alt="ARGIA SOLAR" style="height:30px">'
+                 if logo else '<span style="font-weight:600;letter-spacing:'
+                 '.2em">ARGIA SOLAR</span>')
+    client_img = (f'<img src="{clogo}" alt="{client}" style="max-height:44px;'
+                  'max-width:150px;object-fit:contain">' if clogo else
+                  f'<span style="font-weight:700">{client}</span>')
 
     return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anexo de facturaci\u00f3n \u2014 {client}</title>
+<title>Anexo de facturación — {client}</title>
 <style>
-:root{{--bg:#faf9f5;--card:#fff;--ink:#1f1e1b;--muted:#6b6a64;
---line:#e4e3dc;--blue:#2F6DB0;--blued:#185FA5;--green:#0E8A6D;
---amber:#B7791F;--red:#A32D2D;--accentbg:#eef3fb}}
+:root{{--bg:#fafafa;--card:#fff;--ink:#1f1e1b;--muted:#6b6a64;
+--line:#e0e0da;--blue:#4C9BE8;--blued:#185FA5;--green:#0E8A6D;
+--amber:#E8A13D;--grey:#C9C9C2}}
 *{{box-sizing:border-box}}
+@page{{size:A4 landscape;margin:7mm}}
 body{{margin:0;background:var(--bg);color:var(--ink);
-font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:14px}}
-.wrap{{max-width:1120px;margin:0 auto;padding:20px}}
-.top{{display:flex;justify-content:space-between;align-items:center;
-gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line);
-padding-bottom:14px;margin-bottom:20px}}
-.top h1{{font-size:16px;font-weight:600;margin:0}}
-.top .sub{{color:var(--muted);font-size:13px}}
-select{{font:inherit;padding:7px 12px;border:1px solid var(--line);
-border-radius:8px;background:var(--card)}}
-button.dl{{font:inherit;padding:7px 14px;border:1px solid var(--line);
-border-radius:8px;background:var(--card);cursor:pointer}}
-.cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
-margin-bottom:20px}}
+font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:13px}}
+.wrap{{max-width:1350px;margin:0 auto;padding:14px 18px}}
+.top{{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+margin-bottom:14px}}
+.top .ttl{{font-size:13px;color:var(--muted)}}
+.top .sub{{font-size:11.5px;color:var(--muted)}}
+.top .right{{margin-left:auto;display:flex;gap:12px;align-items:center}}
+select{{font:inherit;padding:6px 10px;border:1px solid var(--line);
+border-radius:6px;background:var(--card)}}
+button.dl{{font:inherit;padding:6px 14px;border:1px solid var(--line);
+border-radius:6px;background:#ececec;cursor:pointer}}
+.row{{display:grid;gap:14px;margin-bottom:14px}}
+.row1{{grid-template-columns:330px 1fr}}
+.row2{{grid-template-columns:1fr 1fr}}
+.cards{{display:grid;grid-template-columns:1fr 1fr;gap:12px;
+align-content:start}}
 .card{{background:var(--card);border:1px solid var(--line);
-border-radius:12px;padding:14px 16px}}
-.card .lab{{color:var(--muted);font-size:12px}}
-.card .val{{font-size:24px;font-weight:600;margin-top:4px}}
+border-radius:8px;padding:10px 12px;min-height:64px}}
+.card .lab{{color:var(--muted);font-size:11px;margin-bottom:5px}}
+.card .val{{font-size:21px;font-weight:600}}
 .card.pay .val{{color:var(--blued)}}
 .card.co2 .val{{color:var(--green)}}
 .sec{{background:var(--card);border:1px solid var(--line);
-border-radius:12px;padding:16px 18px;margin-bottom:20px}}
-.sec h2{{font-size:14px;font-weight:600;margin:0 0 12px}}
-.perf{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
-margin-bottom:14px}}
-.perf .lab{{color:var(--muted);font-size:12px}}
-.perf .val{{font-size:22px;font-weight:600;margin-top:2px}}
-table{{width:100%;border-collapse:collapse;font-size:13px}}
-th,td{{text-align:right;padding:7px 10px}}
+border-radius:8px;padding:10px 14px}}
+.sec h2{{font-size:12.5px;font-weight:600;margin:0 0 8px;
+text-align:center;color:#3c3b36}}
+.leg{{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
+font-size:10.5px;color:var(--muted);margin-top:4px}}
+.leg span{{display:inline-flex;align-items:center;gap:5px}}
+.k{{width:11px;height:11px;border-radius:2px;display:inline-block}}
+.kl{{width:14px;height:0;border-top:2.4px solid;display:inline-block}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+th,td{{text-align:right;padding:4.5px 8px}}
 th:first-child,td:first-child{{text-align:left}}
-thead th{{color:var(--muted);font-weight:500;border-bottom:1px solid var(--line)}}
-tbody tr{{border-bottom:1px solid var(--line)}}
-tfoot td{{font-weight:600;border-top:2px solid var(--line)}}
-.foot{{color:var(--muted);font-size:11.5px;line-height:1.6;
-border-top:1px solid var(--line);padding-top:12px;margin-top:8px}}
+thead th{{color:var(--muted);font-weight:500;background:#f2f2ee;
+border-bottom:1px solid var(--line)}}
+tbody tr{{border-bottom:1px solid #efefe9}}
+tfoot td{{font-weight:700;border-top:2px solid var(--line)}}
+.foot{{color:var(--muted);font-size:10.5px;line-height:1.55;
+border-top:1px solid var(--line);padding-top:8px}}
 @media print{{select,button.dl{{display:none}}
-body{{background:#fff}}.sec,.card{{break-inside:avoid}}}}
+body{{background:#fff}}.sec,.card{{break-inside:avoid}}
+.wrap{{padding:0}}}}
 </style></head>
 <body><div class="wrap">
 <div class="top">
-  <div>{logo_img}
-    <h1>Anexo de facturaci\u00f3n \u2014 {client}</h1>
-    <div class="sub">{pk} \u00b7 {kwp_txt} \u00b7 energ\u00eda PPA</div>
-  </div>
-  <div style="display:flex;gap:10px;align-items:center">
+  {client_img}
+  <div><div class="ttl">El anexo de la factura correspondiente
+   al periodo.</div>
+  <div class="sub">{pk} · energía PPA ·
+   <span id="period"></span></div></div>
+  <div class="right">
     <select id="month"></select>
     <button class="dl" onclick="window.print()">Descargar</button>
+    {argia_img}
   </div>
 </div>
 
-<div class="cards">
-  <div class="card pay"><div class="lab">Total a pagar (sin IVA)</div>
-    <div class="val" id="c_pay">&mdash;</div></div>
-  <div class="card"><div class="lab">Tarifa ARGIA</div>
-    <div class="val" id="c_tar">&mdash;</div></div>
-  <div class="card"><div class="lab">Energ\u00eda producida</div>
-    <div class="val" id="c_prod">&mdash;</div></div>
-  <div class="card co2"><div class="lab">CO\u2082 evitado</div>
-    <div class="val" id="c_co2">&mdash;</div></div>
-</div>
-
-<div class="sec">
-  <h2>Rendimiento del sistema \u00b7 system performance</h2>
-  <div class="perf">
-    <div><div class="lab">Rendimiento (PR)</div>
-      <div class="val" id="p_pr">&mdash;</div></div>
-    <div><div class="lab">Disponibilidad</div>
-      <div class="val" id="p_av">&mdash;</div></div>
-    <div><div class="lab">Generaci\u00f3n vs esperada</div>
-      <div class="val" id="p_vs">&mdash;</div></div>
-    <div><div class="lab">P\u00e9rdida por suciedad</div>
-      <div class="val" id="p_soil">&mdash;</div></div>
+<div class="row row1">
+  <div class="cards">
+    <div class="card pay"><div class="lab">Total a Pagar Este Mes
+      (sin IVA)</div><div class="val" id="c_pay">&mdash;</div></div>
+    <div class="card"><div class="lab">Tarifa ARGIA</div>
+      <div class="val" id="c_tar">&mdash;</div></div>
+    <div class="card"><div class="lab">Energía Producida</div>
+      <div class="val" id="c_prod">&mdash;</div></div>
+    <div class="card co2"><div class="lab">CO₂ Emisiones
+      Evitadas</div><div class="val" id="c_co2">&mdash;</div></div>
   </div>
-  <div class="lab" style="color:var(--muted);font-size:12px;margin-bottom:4px">
-    Generaci\u00f3n diaria \u00b7 producida (barras) vs te\u00f3rica y esperada (l\u00edneas)</div>
-  <div id="chart_gen"></div>
-  <div class="lab" style="color:var(--muted);font-size:12px;margin:10px 0 4px">
-    Performance ratio diario</div>
-  <div id="chart_pr"></div>
+  <div class="sec"><h2>Generación Fotovoltaica (kWh)</h2>
+    <div id="chart_gen"></div>
+    <div class="leg">
+     <span><span class="k" style="background:var(--blue)"></span>
+      Energía generada kWh</span>
+     <span><span class="kl" style="border-color:var(--amber)"></span>
+      Energía teórica</span>
+     <span><span class="kl" style="border-color:var(--green)"></span>
+      Energía expectativa</span>
+     <span><span class="k" style="background:var(--grey)"></span>
+      Cobertura de nubes</span>
+    </div>
+  </div>
 </div>
 
-<div class="sec">
-  <h2>Generaci\u00f3n anual</h2>
-  <table id="annual"><thead><tr>
-    <th>Mes</th><th>Energ\u00eda producida</th><th>Energ\u00eda compensada</th>
-    <th>Total a pagar</th></tr></thead>
-    <tbody id="annual_body"></tbody>
-    <tfoot id="annual_foot"></tfoot></table>
+<div class="row row2">
+  <div class="sec"><h2>Generación Fotovoltaica Anual</h2>
+    <div id="chart_annual"></div>
+    <div class="leg">
+     <span><span class="k" style="background:var(--blue)"></span>
+      Energía generada kWh</span>
+     <span><span class="k" style="background:var(--grey)"></span>
+      Energía expectativa kWh</span>
+     <span><span class="kl" style="border-color:var(--amber)"></span>
+      Total a pagar</span>
+    </div>
+  </div>
+  <div class="sec"><h2>Generación Anual</h2>
+    <table id="annual"><thead><tr>
+      <th>Mes</th><th>Energía Producida</th>
+      <th>Energía Compensada</th><th>Total a Pagar</th></tr></thead>
+      <tbody id="annual_body"></tbody>
+      <tfoot id="annual_foot"></tfoot></table>
+  </div>
 </div>
 
 <div class="foot" id="foot"></div>
@@ -347,122 +455,153 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}}}
 <script>
 const D = {data_json};
 const AI = {{measured:{A_MEASURED},theo:{A_THEORETICAL},design:{A_DESIGN},
-  deemed:{A_DEEMED},cloud:{A_CLOUD},pr:{A_PR},avail:{A_AVAIL},soil:{A_SOIL}}};
+  deemed:{A_DEEMED},cloud:{A_CLOUD}}};
 const MNAME = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio",
   "Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const money = x => x==null ? "\u2014" :
+const money = x => x==null ? "$0" :
   "$"+x.toLocaleString("es-MX",{{maximumFractionDigits:2,minimumFractionDigits:2}});
-const kwh = x => x==null ? "\u2014" :
+const kwh0 = x => x==null ? "0 kWh" :
   Math.round(x).toLocaleString("es-MX")+" kWh";
-const pct = x => x==null ? "\u2014" : (x*100).toFixed(0)+"%";
-const mean = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;
 const monthLabel = ym => {{const [y,m]=ym.split("-");return MNAME[+m]+" "+y;}};
 
-// PURE mirror of annex.rollup_month
+// PURE mirror of annex.rollup_month — invoiced history wins outright
 function rollupMonth(ym){{
   const t = D.tariff_by_month[ym];
+  const h = (D.history||{{}})[ym];
   let measured=0, deemed=0, design=0, any=false;
-  const prs=[], avs=[], sos=[];
   D.days.forEach((d,i)=>{{
     if(d.slice(0,7)!==ym) return;
     const a=D.atoms[i];
     if(a[AI.measured]!=null){{measured+=a[AI.measured];any=true;}}
     if(a[AI.deemed]) deemed+=a[AI.deemed];
     if(a[AI.design]!=null) design+=a[AI.design];
-    if(a[AI.pr]!=null) prs.push(a[AI.pr]);
-    if(a[AI.avail]!=null) avs.push(a[AI.avail]);
-    if(a[AI.soil]!=null) sos.push(a[AI.soil]);
   }});
+  let expected = design||null, amount=null;
+  if(h && h.expected!=null) expected=h.expected;
+  if(h && h.kwh!=null){{
+    measured=h.kwh; deemed=h.penalty||0; any=true; amount=h.income;
+  }}else if(t!=null){{ amount=(measured+deemed)*t; }}
   const billable=measured+deemed;
-  return {{ym, measured, deemed, billable, tariff:t,
-    amount: t!=null ? billable*t : null,
-    co2: billable*D.co2_factor,
-    pr: mean(prs), availability: mean(avs), soiling: mean(sos),
-    production_pct: design ? measured/design : null, has_data:any}};
+  return {{ym, measured, deemed, billable, expected, tariff:t, amount,
+    co2: billable*D.co2_factor, has_data:any}};
 }}
 
-function svgChart(rows, opts){{
-  // rows: [{{label, bar, line1, line2}}]; simple bars + up to 2 lines
-  const W=1040, H=210, PL=44, PR=12, PT=14, PB=28;
+function dailyChart(rows){{
+  // bars = generada; amber line = teórica; green line = expectativa;
+  // grey area = cobertura de nubes on the right 0–100% axis
+  const W=980, H=252, PL=46, PR=40, PT=10, PB=26;
   const iw=W-PL-PR, ih=H-PT-PB;
   let max=0;
-  rows.forEach(r=>{{["bar","line1","line2"].forEach(k=>{{
+  rows.forEach(r=>{{["bar","theo","design"].forEach(k=>{{
     if(r[k]!=null && r[k]>max) max=r[k];}});}});
-  max = max>0 ? max*1.1 : 1;
+  max = max>0 ? max*1.12 : 1;
   const n=rows.length||1;
-  const bw=Math.max(2, iw/n*0.6);
+  const bw=Math.max(2, iw/n*0.62);
   const x=i=>PL + iw*(i+0.5)/n;
   const y=v=>PT + ih*(1-v/max);
+  const yc=v=>PT + ih*(1-v);                     // cloud 0..1
   let s=`<svg viewBox="0 0 ${{W}} ${{H}}" style="width:100%;height:auto">`;
-  s+=`<line x1="${{PL}}" y1="${{PT}}" x2="${{PL}}" y2="${{PT+ih}}" stroke="var(--line)"/>`;
   s+=`<line x1="${{PL}}" y1="${{PT+ih}}" x2="${{W-PR}}" y2="${{PT+ih}}" stroke="var(--line)"/>`;
-  s+=`<text x="6" y="${{PT+6}}" font-size="10" fill="var(--muted)">${{Math.round(max).toLocaleString("es-MX")}}</text>`;
+  [0,0.5,1].forEach(f=>{{
+    s+=`<text x="${{PL-5}}" y="${{y(max*f)+3}}" font-size="9" fill="var(--muted)" text-anchor="end">${{Math.round(max*f/1000)}}k</text>`;
+    s+=`<text x="${{W-PR+5}}" y="${{yc(f)+3}}" font-size="9" fill="var(--muted)">${{f*100}}%</text>`;}});
+  // cloud area first (behind the bars)
+  const cp=rows.map((r,i)=> r.cloud!=null?`${{x(i)}},${{yc(Math.min(1,r.cloud))}}`:null);
+  if(cp.some(Boolean)){{
+    const pts=cp.map((p,i)=>p||`${{x(i)}},${{yc(0)}}`).join(" ");
+    s+=`<polygon points="${{PL}},${{yc(0)}} ${{pts}} ${{W-PR}},${{yc(0)}}" fill="var(--grey)" opacity="0.45"/>`;}}
   rows.forEach((r,i)=>{{ if(r.bar!=null){{
-    const h=ih*r.bar/max;
-    s+=`<rect x="${{x(i)-bw/2}}" y="${{y(r.bar)}}" width="${{bw}}" height="${{h}}" fill="#7EB6E8"/>`;}}}});
-  ["line1","line2"].forEach((k,li)=>{{
-    const col= li==0 ? "var(--amber)" : "var(--green)";
+    s+=`<rect x="${{x(i)-bw/2}}" y="${{y(r.bar)}}" width="${{bw}}" height="${{PT+ih-y(r.bar)}}" fill="var(--blue)"/>`;}}}});
+  [["theo","var(--amber)"],["design","var(--green)"]].forEach(([k,col])=>{{
     const pts=rows.map((r,i)=> r[k]!=null ? `${{x(i)}},${{y(r[k])}}`:null).filter(Boolean).join(" ");
-    if(pts) s+=`<polyline points="${{pts}}" fill="none" stroke="${{col}}" stroke-width="1.6"/>`;}});
-  if(opts&&opts.baseline!=null){{
-    const yb=y(opts.baseline);
-    s+=`<line x1="${{PL}}" y1="${{yb}}" x2="${{W-PR}}" y2="${{yb}}" stroke="#888780" stroke-dasharray="5 4"/>`;}}
-  const step=Math.ceil(n/8);
+    if(pts) s+=`<polyline points="${{pts}}" fill="none" stroke="${{col}}" stroke-width="1.7"/>`;}});
+  const step=Math.ceil(n/16);
   rows.forEach((r,i)=>{{ if(i%step===0)
-    s+=`<text x="${{x(i)}}" y="${{H-8}}" font-size="10" fill="var(--muted)" text-anchor="middle">${{r.label}}</text>`;}});
+    s+=`<text x="${{x(i)}}" y="${{H-8}}" font-size="8.5" fill="var(--muted)" text-anchor="middle">${{r.label}}</text>`;}});
+  return s+"</svg>";
+}}
+
+function annualChart(rows){{
+  // grouped bars generada + expectativa, pay line on the right $ axis
+  const W=640, H=250, PL=52, PR=56, PT=12, PB=40;
+  const iw=W-PL-PR, ih=H-PT-PB;
+  let maxK=0, maxP=0;
+  rows.forEach(r=>{{
+    if(r.measured>maxK) maxK=r.measured;
+    if(r.expected!=null && r.expected>maxK) maxK=r.expected;
+    if(r.amount!=null && r.amount>maxP) maxP=r.amount;}});
+  maxK=maxK>0?maxK*1.15:1; maxP=maxP>0?maxP*1.15:1;
+  const n=rows.length||1;
+  const gw=iw/n, bw=Math.max(3, gw*0.28);
+  const x=i=>PL + gw*(i+0.5);
+  const y=v=>PT + ih*(1-v/maxK);
+  const yp=v=>PT + ih*(1-v/maxP);
+  let s=`<svg viewBox="0 0 ${{W}} ${{H}}" style="width:100%;height:auto">`;
+  s+=`<line x1="${{PL}}" y1="${{PT+ih}}" x2="${{W-PR}}" y2="${{PT+ih}}" stroke="var(--line)"/>`;
+  [0,0.5,1].forEach(f=>{{
+    s+=`<text x="${{PL-5}}" y="${{y(maxK*f)+3}}" font-size="9" fill="var(--muted)" text-anchor="end">${{Math.round(maxK*f/1000)}}k</text>`;
+    s+=`<text x="${{W-PR+5}}" y="${{yp(maxP*f)+3}}" font-size="9" fill="var(--muted)">$${{Math.round(maxP*f/1000)}}k</text>`;}});
+  rows.forEach((r,i)=>{{
+    if(r.expected!=null)
+      s+=`<rect x="${{x(i)+1}}" y="${{y(r.expected)}}" width="${{bw}}" height="${{PT+ih-y(r.expected)}}" fill="var(--grey)"/>`;
+    if(r.measured>0)
+      s+=`<rect x="${{x(i)-bw-1}}" y="${{y(r.measured)}}" width="${{bw}}" height="${{PT+ih-y(r.measured)}}" fill="var(--blue)"/>`;
+  }});
+  const pts=rows.map((r,i)=> r.amount!=null&&r.amount>0 ? `${{x(i)}},${{yp(r.amount)}}`:null).filter(Boolean).join(" ");
+  if(pts) s+=`<polyline points="${{pts}}" fill="none" stroke="var(--amber)" stroke-width="2"/>`;
+  rows.forEach((r,i)=>{{
+    s+=`<text x="${{x(i)}}" y="${{H-22}}" font-size="8.5" fill="var(--muted)" text-anchor="middle" transform="rotate(28 ${{x(i)}} ${{H-22}})">${{MNAME[+r.ym.slice(5)].slice(0,3)}}</text>`;}});
   return s+"</svg>";
 }}
 
 function drawMonth(ym){{
   const r=rollupMonth(ym);
+  document.getElementById("period").textContent=monthLabel(ym);
   document.getElementById("c_pay").innerHTML=money(r.amount);
-  document.getElementById("c_tar").innerHTML=r.tariff!=null?money(r.tariff):"\u2014";
-  document.getElementById("c_prod").innerHTML=kwh(r.measured);
+  document.getElementById("c_tar").innerHTML=r.tariff!=null?
+    "$"+r.tariff.toLocaleString("es-MX",{{maximumFractionDigits:4,minimumFractionDigits:2}}):"—";
+  document.getElementById("c_prod").innerHTML=kwh0(r.measured);
   document.getElementById("c_co2").innerHTML=
-    r.co2!=null?Math.round(r.co2).toLocaleString("es-MX")+" kg":"\u2014";
-  document.getElementById("p_pr").innerHTML=pct(r.pr);
-  document.getElementById("p_av").innerHTML=pct(r.availability);
-  document.getElementById("p_vs").innerHTML=pct(r.production_pct);
-  document.getElementById("p_soil").innerHTML=pct(r.soiling);
-
-  const genRows=[], prRows=[];
+    Math.round(r.co2).toLocaleString("es-MX")+" kg";
+  const rows=[];
   D.days.forEach((d,i)=>{{ if(d.slice(0,7)!==ym) return;
-    const a=D.atoms[i], lbl=d.slice(8);
-    genRows.push({{label:lbl, bar:a[AI.measured], line1:a[AI.theo],
-      line2:a[AI.design]}});
-    prRows.push({{label:lbl, line1:a[AI.pr]}});
+    const a=D.atoms[i];
+    rows.push({{label:d.slice(8), bar:a[AI.measured], theo:a[AI.theo],
+      design:a[AI.design], cloud:a[AI.cloud]}});
   }});
-  document.getElementById("chart_gen").innerHTML=svgChart(genRows,{{}});
-  document.getElementById("chart_pr").innerHTML=svgChart(prRows,{{baseline:0.86}});
+  document.getElementById("chart_gen").innerHTML=dailyChart(rows);
 }}
 
 function drawAnnual(){{
-  const seen=[], out=[];
-  D.days.forEach(d=>{{const ym=d.slice(0,7); if(!seen.includes(ym)){{seen.push(ym);out.push(rollupMonth(ym));}}}});
+  const year=D.days.length?D.days[0].slice(0,4):"";
+  const out=[];
+  for(let m=1;m<=12;m++) out.push(rollupMonth(year+"-"+String(m).padStart(2,"0")));
   let tb="", tm=0,td=0,ta=0;
   out.forEach(r=>{{
-    tb+=`<tr><td>${{monthLabel(r.ym)}}</td><td>${{kwh(r.measured)}}</td>`+
-        `<td>${{kwh(r.deemed)}}</td><td>${{money(r.amount)}}</td></tr>`;
-    tm+=r.measured; td+=r.deemed; ta+=(r.amount||0);
+    tb+=`<tr><td>${{MNAME[+r.ym.slice(5)]}}</td><td>${{kwh0(r.measured)}}</td>`+
+        `<td>${{kwh0(r.deemed)}}</td><td>${{money(r.amount!=null&&r.has_data?r.amount:0)}}</td></tr>`;
+    tm+=r.measured; td+=r.deemed; if(r.has_data&&r.amount!=null) ta+=r.amount;
   }});
   document.getElementById("annual_body").innerHTML=tb;
   document.getElementById("annual_foot").innerHTML=
-    `<tr><td>Total</td><td>${{kwh(tm)}}</td><td>${{kwh(td)}}</td><td>${{money(ta)}}</td></tr>`;
+    `<tr><td>Total general</td><td>${{kwh0(tm)}}</td><td>${{kwh0(td)}}</td><td>${{money(ta)}}</td></tr>`;
+  document.getElementById("chart_annual").innerHTML=annualChart(out);
 }}
 
 (function init(){{
   const sel=document.getElementById("month");
-  const seen=[];
-  D.days.forEach(d=>{{const ym=d.slice(0,7); if(!seen.includes(ym)) seen.push(ym);}});
-  seen.forEach(ym=>{{const o=document.createElement("option");
-    o.value=ym; o.textContent=monthLabel(ym); sel.appendChild(o);}});
+  const year=D.days.length?D.days[0].slice(0,4):"";
+  for(let m=1;m<=12;m++){{const ym=year+"-"+String(m).padStart(2,"0");
+    const o=document.createElement("option");
+    o.value=ym; o.textContent=monthLabel(ym); sel.appendChild(o);}}
   sel.value="{default_ym}";
   sel.addEventListener("change",()=>drawMonth(sel.value));
   document.getElementById("foot").innerHTML=
-    "Energ\u00eda compensada = billable_kwh \u2212 energy_kwh de KPI_Daily "+
-    "(motor de compensaci\u00f3n v91, anclado al contrato). Producida y "+
-    "compensada facturadas a la tarifa del mes. IVA se aplica en el CFDI "+
-    "fiscal. CO\u2082 a "+D.co2_factor+" kg/kWh. Generado "+
+    "Cifras mensuales facturadas según el registro de facturación "+
+    "ARGIA (Invoicing). Energía compensada según el motor de "+
+    "compensación anclado al contrato; producida y compensada se "+
+    "facturan a la tarifa del mes. IVA se aplica en el CFDI fiscal. "+
+    "CO₂ a "+D.co2_factor+" kg/kWh. Generado "+
     "{generated_at}.";
   drawMonth("{default_ym}");
   drawAnnual();

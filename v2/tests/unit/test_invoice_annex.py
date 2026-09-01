@@ -46,13 +46,32 @@ class TestRollupMonth:
     def test_no_events_means_zero_compensada(self):
         assert rollup_month(_payload(), "2026-06")["deemed_kwh"] == 0.0
 
-    def test_performance_means_ignore_no_data_days(self):
+    def test_expected_comes_from_design_atoms_without_history(self):
         r = rollup_month(_payload(), "2026-07")
-        # only Jul-1 has PR/avail; Jul-2 is a no-data day
-        assert r["pr"] == pytest.approx(0.84)
-        assert r["availability"] == pytest.approx(1.0)
-        # production_pct = measured / design over data days = 900/1050
-        assert r["production_pct"] == pytest.approx(900.0 / 1050.0)
+        assert r["expected_kwh"] == pytest.approx(1050.0)
+
+    def test_history_wins_over_atoms_for_an_invoiced_month(self):
+        """v158: an invoiced month reads the ARGIA Solar workbook —
+        the factura must equal what was billed, not a recomputation."""
+        p = _payload()
+        p["history"] = {"2026-07": {"kwh": 950.0, "penalty": 25.0,
+                                    "income": 2308.5, "expected": 1100.0}}
+        r = rollup_month(p, "2026-07")
+        assert r["measured_kwh"] == 950.0
+        assert r["deemed_kwh"] == 25.0
+        assert r["billable_kwh"] == 975.0
+        assert r["amount_mxn"] == 2308.5        # NOT billable*tariff
+        assert r["expected_kwh"] == 1100.0
+
+    def test_a_future_history_month_keeps_expected_only(self):
+        """Sep..Dec rows carry expected but no kwh — the annual chart
+        shows the grey expectativa bar, the table shows zeros."""
+        p = _payload()
+        p["history"] = {"2026-07": {"kwh": None, "penalty": 0.0,
+                                    "income": 0.0, "expected": 1234.0}}
+        r = rollup_month(p, "2026-07")
+        assert r["expected_kwh"] == 1234.0
+        assert r["measured_kwh"] == 900.0       # atoms still count
 
     def test_no_tariff_leaves_amount_none(self):
         p = _payload(tariffs={"2026-06": 2.367, "2026-07": None})
@@ -66,9 +85,14 @@ class TestRollupMonth:
 
 
 class TestAnnualRollup:
-    def test_months_in_order(self):
+    def test_all_twelve_months_like_the_old_factura(self):
+        """January through December, zeros included — the customer
+        table always shows the whole year."""
         rows = annual_rollup(_payload())
-        assert [r["ym"] for r in rows] == ["2026-06", "2026-07"]
+        assert [r["ym"] for r in rows] == [
+            "2026-%02d" % m for m in range(1, 13)]
+        assert not rows[0]["has_data"]           # January: no data
+        assert rows[5]["has_data"]               # June: data
 
     def test_totals_add_up(self):
         rows = annual_rollup(_payload())
@@ -175,10 +199,29 @@ class TestRenderAnnexHtml:
     def test_contains_client_and_sections(self):
         h = self._html()
         assert "Faurecia" in h
-        assert "Anexo de facturaci" in h            # header
-        assert "Rendimiento del sistema" in h       # performance section
-        assert "Generaci" in h and "n anual" in h   # annual table
+        assert "anexo de la factura" in h           # Looker header text
+        assert "Generaci\u00f3n Fotovoltaica (kWh)" in h
+        assert "Generaci\u00f3n Fotovoltaica Anual" in h
+        assert "Generaci\u00f3n Anual" in h
         assert "window.print()" in h                # Descargar → print/PDF
+
+    def test_the_pr_diario_chart_is_gone(self):
+        """Tomasz 2026-09-01: "do not show Performance ratio diario,
+        it is a noise"."""
+        h = self._html()
+        assert "Performance ratio" not in h
+        assert "chart_pr" not in h
+
+    def test_landscape_print(self):
+        assert "size:A4 landscape" in self._html()
+
+    def test_the_annual_chart_exists(self):
+        h = self._html()
+        assert "chart_annual" in h and "annualChart" in h
+
+    def test_cloud_cover_rides_the_daily_chart(self):
+        h = self._html()
+        assert "Cobertura de nubes" in h
 
     def test_embeds_atoms_and_default_month(self):
         h = self._html()
@@ -186,7 +229,7 @@ class TestRenderAnnexHtml:
         # default selected month is the latest with data
         assert 'sel.value="2026-07"' in h
 
-    def test_footer_states_compensada_provenance(self):
+    def test_footer_states_the_invoicing_authority(self):
         h = self._html()
-        assert "billable_kwh" in h and "energy_kwh" in h
-        assert "v91" in h
+        assert "registro de facturaci" in h
+        assert "IVA se aplica en el CFDI" in h

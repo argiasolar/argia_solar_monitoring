@@ -204,6 +204,40 @@ def push_to_drive(ym, out_dir):
         return 0
 
 
+def build_month_zip(out_dir, ym):
+    """facturas_<yyyymm>.zip with every PDF of the month — the
+    one-click "download all plants" button (Tomasz 2026-09-01).
+    Rebuilt from scratch on every publish so it can never carry a
+    stale factura. Returns the number of PDFs bundled (0 = no zip)."""
+    import zipfile
+    stamp = ym.replace("-", "")
+    pdfs = sorted(glob.glob(os.path.join(out_dir,
+                                         "factura_*_%s.pdf" % stamp)))
+    zpath = os.path.join(out_dir, "facturas_%s.zip" % stamp)
+    if not pdfs:
+        if os.path.exists(zpath):
+            os.remove(zpath)           # never leave a stale bundle
+        return 0
+    tmp = zpath + ".tmp"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in pdfs:
+            z.write(p, os.path.basename(p))
+    os.replace(tmp, zpath)
+    LOG.info("bundled %d PDF(s) -> %s", len(pdfs),
+             os.path.basename(zpath))
+    return len(pdfs)
+
+
+def month_zips(out_root):
+    """{ym: True} for months that have a facturas bundle."""
+    out = {}
+    for z in glob.glob(os.path.join(out_root, "*", "facturas_*.zip")):
+        stamp = os.path.basename(z)[len("facturas_"):-len(".zip")]
+        if len(stamp) == 6 and stamp.isdigit():
+            out["%s-%s" % (stamp[:4], stamp[4:])] = True
+    return out
+
+
 def find_chromium():
     for name in CHROMIUM:
         p = shutil.which(name)
@@ -251,7 +285,7 @@ def scan_months(out_root: str):
     return out
 
 
-def render_index(months, blocked_now=None, records=None,
+def render_index(months, blocked_now=None, records=None, zips=None,
                  generated_at=""):
     """The /invoices/ page. Bilingual like the rest of the site
     (data-en/data-es + the stored language, EN shown to EN users, ES to
@@ -260,6 +294,7 @@ def render_index(months, blocked_now=None, records=None,
     invoiced kWh and MXN (the 'invoicing' register). Pure."""
     blocked_now = blocked_now or {}
     records = records or {}
+    zips = zips or {}
     MES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre",
            "Diciembre"]
@@ -307,9 +342,16 @@ def render_index(months, blocked_now=None, records=None,
                         f'<td class="num">&mdash;</td>'
                         f'<td><span class="blocked">{_esc(why)}</span>'
                         f"</td></tr>")
+        dlall = ""
+        if zips.get(ym):
+            dlall = (f' · <a class="btn zip" href="{ym}/facturas_'
+                     f'{ym.replace("-", "")}.zip" download>'
+                     f'{t("Download all (ZIP)", "Descargar todo (ZIP)")}'
+                     "</a>")
         summary = (f'<div class="msum">{n_rows} '
                    f'{t("annexes", "anexos")} · {tot_k:,.0f} kWh · '
-                   f"${tot_m:,.2f} MXN {t('excl. VAT', 'sin IVA')}</div>")
+                   f"${tot_m:,.2f} MXN {t('excl. VAT', 'sin IVA')}"
+                   f"{dlall}</div>")
         parts.append(
             f'<h2><span data-en="{_esc(MEN[m])} {y}"'
             f' data-es="{_esc(MES[m])} {y}">{_esc(MEN[m])} {y}</span></h2>'
@@ -338,6 +380,7 @@ th{{color:#5f6368;font-weight:500;font-size:12.5px}}
 .btn{{display:inline-block;border:1px solid #dadce0;border-radius:7px;
 padding:4px 12px;text-decoration:none;color:#202124;background:#fff}}
 .btn:hover{{border-color:#b9bec4}}
+.btn.zip{{border-color:#1c2733;font-weight:600}}
 .mut{{color:#9aa0a6;font-size:13px}}
 .blocked{{color:#a50e0e;font-size:13px}}
 .sub{{color:#5f6368;font-size:13px;margin:2px 0 18px}}
@@ -418,6 +461,7 @@ def main(argv=None) -> int:
             for h in sorted(glob.glob(os.path.join(out_dir, pat))):
                 html_to_pdf(h, h[:-5] + ".pdf", chromium)
 
+        build_month_zip(out_dir, ym)
         push_to_drive(ym, out_dir)
 
         year = ym[:4]
@@ -430,6 +474,7 @@ def main(argv=None) -> int:
     from argia.core.time_utils import now_mx as _now
     idx = render_index(scan_months(args.out_root),
                        records=all_records(),
+                       zips=month_zips(args.out_root),
                        generated_at=_now().strftime("%Y-%m-%d %H:%M MX"))
     with open(os.path.join(args.out_root, "index.html"), "w",
               encoding="utf-8") as f:

@@ -186,3 +186,57 @@ class TestDrivePush:
         monkeypatch.setenv("GOOGLE_ARCHIVE_FOLDER_ID", "x")
         monkeypatch.setenv("GOOGLE_CREDENTIALS", "not-json")
         assert ip.push_to_drive("2026-08", "/nonexistent") == 0
+
+
+class TestDownloadAllBundle:
+    """One click, every plant, one month (Tomasz 2026-09-01)."""
+
+    def test_zip_holds_every_pdf_of_the_month(self, tmp_path):
+        import zipfile
+        d = tmp_path / "2026-08"
+        d.mkdir()
+        for n in ("TAIGENE", "SAG"):
+            (d / f"factura_{n}_202608.pdf").write_bytes(b"%PDF-x")
+        (d / "factura_TAIGENE_202608.html").write_text("x")   # not bundled
+        assert ip.build_month_zip(str(d), "2026-08") == 2
+        z = zipfile.ZipFile(str(d / "facturas_202608.zip"))
+        assert sorted(z.namelist()) == ["factura_SAG_202608.pdf",
+                                        "factura_TAIGENE_202608.pdf"]
+
+    def test_rebuild_replaces_never_appends(self, tmp_path):
+        import zipfile
+        d = tmp_path / "2026-08"
+        d.mkdir()
+        (d / "factura_TAIGENE_202608.pdf").write_bytes(b"%PDF-1")
+        ip.build_month_zip(str(d), "2026-08")
+        (d / "factura_SAG_202608.pdf").write_bytes(b"%PDF-2")
+        ip.build_month_zip(str(d), "2026-08")
+        z = zipfile.ZipFile(str(d / "facturas_202608.zip"))
+        assert len(z.namelist()) == 2
+
+    def test_no_pdfs_means_no_bundle_even_a_stale_one(self, tmp_path):
+        d = tmp_path / "2026-09"
+        d.mkdir()
+        (d / "facturas_202609.zip").write_bytes(b"old")
+        assert ip.build_month_zip(str(d), "2026-09") == 0
+        assert not (d / "facturas_202609.zip").exists()
+
+    def test_month_zips_scan(self, tmp_path):
+        d = tmp_path / "2026-08"
+        d.mkdir()
+        (d / "facturas_202608.zip").write_bytes(b"z")
+        (d / "not_a_bundle.zip").write_bytes(b"z")
+        assert ip.month_zips(str(tmp_path)) == {"2026-08": True}
+
+    def test_the_button_appears_only_when_the_bundle_exists(self):
+        months = {"2026-08": [("TAIGENE", True, True)]}
+        with_zip = ip.render_index(months, zips={"2026-08": True})
+        without = ip.render_index(months)
+        assert 'href="2026-08/facturas_202608.zip" download' in with_zip
+        assert "facturas_202608.zip" not in without
+
+    def test_the_button_is_bilingual(self):
+        page = ip.render_index({"2026-08": [("TAIGENE", True, True)]},
+                               zips={"2026-08": True})
+        assert ('data-en="Download all (ZIP)"'
+                ' data-es="Descargar todo (ZIP)"') in page

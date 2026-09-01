@@ -29,7 +29,7 @@ import sqlite3
 import time
 
 PLANTS = ['gto1', 'mex1', 'mex2', 'nl1', 'slp1', 'slp2',
-          'gto2', 'qro1', 'nl2', 'mex3']
+          'gto2', 'qro1', 'nl2', 'mex3', 'tam1']
 AREAS = ['financial'] + PLANTS + ['capex', 'monitoring']
 
 # Areas that are not in AREAS but that a path can demand.
@@ -67,7 +67,7 @@ for _p in PLANTS:
 # an owner reaches their own live page and nothing else.  PPA plants
 # are NOT listed here: they fall through to '/monitoring/', which is
 # internal-only, exactly as before.
-for _p in ('gto2', 'qro1', 'nl2', 'mex3'):
+for _p in ('gto2', 'qro1', 'nl2', 'mex3', 'tam1'):
     PREFIX_AREA[f'/monitoring/{_p}/'] = _p
 
 

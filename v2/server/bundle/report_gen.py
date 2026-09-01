@@ -24,7 +24,7 @@ from argia_client_logos import CLIENT_LOGOS  # plant_key -> (display name, grays
 OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/monitoring.argia.com.mx/www'
 DB = 'argia_mont'
 PPA = ['GTO1', 'MEX1', 'MEX2', 'NL1', 'SLP1', 'SLP2']
-CAPEX = ['GTO2', 'QRO1', 'NL2', 'MEX3']
+CAPEX = ['GTO2', 'QRO1', 'NL2', 'MEX3', 'TAM1']
 LAAS = ['LGTO1', 'LOAX1']
 FX_FALLBACK = 17.98  # projected USD/MXN per v1 NOTES
 

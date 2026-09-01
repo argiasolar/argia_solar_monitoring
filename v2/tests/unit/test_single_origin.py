@@ -22,7 +22,7 @@ AUTH = (ROOT / "server" / "bundle" / "nginx-argia_auth.conf").read_text(encoding
 OLD = (ROOT / "server" / "bundle" /
        "nginx-monitoring.argia.com.mx.conf").read_text(encoding="utf-8")
 
-CAPEX_PLANTS = ("gto2", "qro1", "nl2", "mex3")
+CAPEX_PLANTS = ("gto2", "qro1", "nl2", "mex3", "tam1")
 PPA_PLANTS = ("gto1", "mex1", "mex2", "nl1", "slp1", "slp2")
 
 

@@ -180,7 +180,7 @@ def daily_production_sql(days: Sequence[Tuple[str, float]]) -> str:
     note = ("onboarding backfill 2026-09-01: Growatt plant-level month "
             "chart; billable=energy (CAPEX)")
     values = ",\n".join(
-        "('%s',DATE '%s',%.1f,%.1f,'vendor-backfill','%s')"
+        "('%s',DATE '%s',%.1f,%.1f,'v2','%s')"
         % (PLANT_KEY, d, kwh, kwh, note) for d, kwh in days)
     return ("INSERT INTO daily_production (plant_key, prod_date,"
             " energy_kwh, billable_kwh, source, status_note) VALUES\n"

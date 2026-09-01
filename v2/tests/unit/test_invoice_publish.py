@@ -146,3 +146,15 @@ class TestIndexCarriesTheRegister:
     def test_no_record_renders_a_dash_not_a_crash(self):
         page = ip.render_index(self.MONTHS)
         assert "&mdash;" in page
+
+
+class TestDrivePush:
+    def test_missing_credentials_is_a_skip_not_a_crash(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_ARCHIVE_FOLDER_ID", raising=False)
+        monkeypatch.delenv("GOOGLE_CREDENTIALS", raising=False)
+        assert ip.push_to_drive("2026-08", "/nonexistent") == 0
+
+    def test_a_drive_error_never_breaks_the_publish(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_ARCHIVE_FOLDER_ID", "x")
+        monkeypatch.setenv("GOOGLE_CREDENTIALS", "not-json")
+        assert ip.push_to_drive("2026-08", "/nonexistent") == 0

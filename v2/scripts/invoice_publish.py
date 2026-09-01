@@ -144,6 +144,34 @@ def record_invoicing(ym, plants):
     return out
 
 
+def push_to_drive(ym, out_dir):
+    """Mirror the month's PDFs into the shared drive the daily reports
+    already live on: <archive>/Invoicing/<YYYY-MM>/. That is where
+    Tomasz looks for customer documents ("I see report but not the
+    folder", 2026-09-01). Best-effort: no Drive credentials, no drama
+    — the website copy under /invoices/ is the system of record."""
+    try:
+        import glob as _glob
+        from argia.core.drive import DriveClient
+        root = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
+        if not root or not os.environ.get("GOOGLE_CREDENTIALS"):
+            LOG.info("drive push skipped (no archive folder/creds)")
+            return 0
+        d = DriveClient()
+        folder = d.ensure_folder(d.ensure_folder(root, "Invoicing"), ym)
+        n = 0
+        for p in sorted(_glob.glob(os.path.join(
+                out_dir, "invoice_*_%s.pdf" % ym))):
+            d.upload_file(folder, os.path.basename(p), p,
+                          "application/pdf")
+            n += 1
+        LOG.info("drive push: %d PDF(s) -> Invoicing/%s", n, ym)
+        return n
+    except Exception as e:                             # noqa: BLE001
+        LOG.error("drive push failed (publish unaffected): %s", e)
+        return 0
+
+
 def find_chromium():
     for name in CHROMIUM:
         p = shutil.which(name)
@@ -297,6 +325,8 @@ def main(argv=None) -> int:
         for h in sorted(glob.glob(os.path.join(out_dir,
                                                "invoice_*_%s.html" % ym))):
             html_to_pdf(h, h[:-5] + ".pdf", chromium)
+
+    push_to_drive(ym, out_dir)
 
     published = [pl for pl, _h, _p in
                  scan_months(args.out_root).get(ym, [])]

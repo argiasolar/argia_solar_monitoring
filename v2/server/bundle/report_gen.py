@@ -921,6 +921,7 @@ def financial_page():
   <button class="btn" onclick="preset('ytd')">{t("Year to date","Año en curso")}</button>
  </div>
  <span class="sub" id="ndays"></span>
+ <a class="btn live" href="/invoices/">{t("Invoice annexes","Anexos de facturación")}</a>
 </div>
 <div class="tiles">
  <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero" id="k_exp">—</div></div>
@@ -1179,8 +1180,15 @@ def landing_page():
                  'Tarifas aún no verificadas para el mes actual')
     # No account link down here: the identity chip at the top right is
     # the single entry point to /account/ (user feedback 2026-08-28).
+    # a receipt-ish document icon for the invoice annexes
+    ic_inv = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"'
+              ' stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0'
+              ' 0 0 2-2V8z"/><path d="M14 2v6h6"/>'
+              '<path d="M8 13h8M8 17h5"/></svg>')
     body.append(f'''<div class="flinks">
 <a href="setup/" class="adminonly">{ic_set}{t("Setup","Configuración")}</a>
+<a href="invoices/">{ic_inv}{t("Invoice annexes","Anexos de facturación")}</a>
 <a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
 </div>''')
     body.append(pdf_bottom())

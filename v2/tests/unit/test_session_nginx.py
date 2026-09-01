@@ -138,7 +138,7 @@ class TestEveryProtectedPathStillServes:
     def test_the_shared_areas_have_a_location(self):
         locs = locations(NEW)
         for a in ("/financial/", "/capex/", "/monitoring/",
-                  "/setup/", "/account/"):
+                  "/setup/", "/account/", "/invoices/"):
             assert a in locs, a
 
     def test_no_location_from_the_old_conf_was_dropped(self):

@@ -396,6 +396,13 @@ def main(argv=None) -> int:
             psql_exec(B.build_pr_resync_sql())
         except RuntimeError as e:
             LOG.warning("pr resync failed (recon unaffected): %s", e)
+        # Billable follows the same rule: a healed energy_kwh must lift
+        # billable_kwh with it, or the invoice bills the undercount
+        # (2026-09-01 August-close finding, ~39,600 MXN at stake).
+        try:
+            psql_exec(B.build_billable_resync_sql())
+        except RuntimeError as e:
+            LOG.warning("billable resync failed (recon unaffected): %s", e)
 
     # AGS-701 R2: weather-normalized PR_STC wherever module temperature
     # was measured (whole telemetry window — heals late KPI arrivals)

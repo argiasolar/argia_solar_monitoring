@@ -68,6 +68,33 @@ def build_fix_sql(plant_key: str, date_iso: str, vendor_kwh: float,
     )
 
 
+def build_billable_resync_sql() -> str:
+    """One idempotent UPDATE restoring the billable invariant:
+    ``billable_kwh >= energy_kwh`` wherever both are stamped.
+
+    The deemed engine only ever ADDS to measured energy (approved
+    customer maintenance becomes compensated energy), so billable BELOW
+    energy is always staleness: the self-heal raised ``energy_kwh``
+    from the vendor counter after ``billable_kwh`` was stamped from the
+    undercounted value. Found at the 2026-09-01 August close, where the
+    stale column quietly shrank every PPA invoice (~17.8 MWh / ~39,600
+    MXN for the month) — the exact failure the billing doctrine ("a
+    collection gap can never shrink an invoice") exists to prevent.
+    Same finding-class as the PR resync below, same remedy shape.
+
+    Raise-only by construction (the WHERE is the guard), so a stamped
+    deemed day (billable > energy) is never touched.
+    """
+    return (
+        "UPDATE daily_production"
+        " SET billable_kwh = energy_kwh,"
+        " status_note = trim(coalesce(status_note,'') ||"
+        " ' | billable lifted to corrected energy (deemed only adds)')"
+        " WHERE billable_kwh IS NOT NULL AND energy_kwh IS NOT NULL"
+        " AND billable_kwh < energy_kwh;"
+    )
+
+
 PR_RESYNC_PLAUSIBLE_MAX = 1.05
 """Recomputed PR above this is physically implausible — the day's stored
 irradiance undercounts (partial collection or a sick sensor: the CDMX

@@ -53,6 +53,9 @@ PREFIX_AREA = {
     '/setup/': ADMIN,
     '/account/': ALL,
     '/financial/': 'financial',
+    # invoice annexes carry PPA tariffs and revenue — same audience as
+    # the financial report (v155, monthly-close feature 2026-09-01)
+    '/invoices/': 'financial',
     '/capex/': 'capex',
     '/monitoring/': 'monitoring',
     '/monitoring/assets/': ALL,

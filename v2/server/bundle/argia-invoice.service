@@ -1,6 +1,13 @@
 [Unit]
-Description=ARGIA monthly invoice annex generation
+# Runs on the 1st at 07:30 MX, ~80 min after argia-recon-close: for the
+# month that just CLOSED, one invoice annex per PPA plant (HTML + true
+# PDF via headless chromium) published to <webroot>/invoices/<YYYY-MM>/
+# behind the 'financial' grant. The annex generator's reconciliation
+# gate is fail-closed: an unclosed plant-month produces nothing.
+# Regenerate any past month by hand:
+#   /root/argia_v2/v2/pi/run_job.sh invoice invoice_publish.py --month 2026-08
+Description=ARGIA monthly invoice annex publication
 [Service]
 Type=oneshot
 Environment=HOME=/root
-ExecStart=/root/argia_v2/v2/pi/run_job.sh invoice report_invoice_annex.py --last-month --out-dir /root/argia_invoices
+ExecStart=/root/argia_v2/v2/pi/run_job.sh invoice invoice_publish.py --last-month

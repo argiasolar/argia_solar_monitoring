@@ -35,6 +35,8 @@ class TestAreaForPath:
         ("/setup/", ac.ADMIN),
         ("/setup/users", ac.ADMIN),
         ("/financial/", "financial"),
+        ("/invoices/", "financial"),
+        ("/invoices/2026-08/invoice_gto1_2026-08.pdf", "financial"),
         ("/capex/", "capex"),
         ("/gto1/", "gto1"),
         ("/gto1/d/2026-08-01.html", "gto1"),

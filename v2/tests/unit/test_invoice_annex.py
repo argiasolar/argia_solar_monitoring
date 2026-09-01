@@ -84,6 +84,25 @@ class TestRollupMonth:
         assert rollup_month(p, "2026-01")["has_data"] is False
 
 
+class TestCloudFraction:
+    """Sheet stores percent; the chart speaks fractions. Unscaled, the
+    daily chart painted every month as 100% cloud."""
+
+    def test_percent_values_become_fractions(self):
+        from argia.finance.annex import _cloud_fraction
+        assert _cloud_fraction(51.8) == pytest.approx(0.518)
+        assert _cloud_fraction(99.13) == pytest.approx(0.9913)
+
+    def test_fractions_pass_through(self):
+        from argia.finance.annex import _cloud_fraction
+        assert _cloud_fraction(0.45) == 0.45
+        assert _cloud_fraction(1.0) == 1.0
+
+    def test_none_stays_none(self):
+        from argia.finance.annex import _cloud_fraction
+        assert _cloud_fraction(None) is None
+
+
 class TestAnnualRollup:
     def test_all_twelve_months_like_the_old_factura(self):
         """January through December, zeros included — the customer
@@ -229,7 +248,24 @@ class TestRenderAnnexHtml:
         # default selected month is the latest with data
         assert 'sel.value="2026-07"' in h
 
-    def test_footer_states_the_invoicing_authority(self):
+    def test_no_footer_text_single_page(self):
+        """Tomasz 2026-09-01: "fit everything into single page (remove
+        the bottom explanation text)" — the methodology paragraph is
+        gone entirely."""
         h = self._html()
-        assert "registro de facturaci" in h
-        assert "IVA se aplica en el CFDI" in h
+        assert "registro de facturaci" not in h
+        assert "IVA se aplica" not in h
+        assert 'class="foot"' not in h
+
+    def test_no_plant_key_on_the_customer_document(self):
+        """GTO1/MEX2/... are internal codes; the visible document must
+        not carry them (the embedded data payload may)."""
+        h = self._html()
+        assert '<div class="sub">energ' in h
+        import re
+        # the subtitle line must not lead with the plant key
+        assert not re.search(r'class="sub">\s*MEX2', h)
+
+    def test_header_text_is_readable(self):
+        h = self._html()
+        assert "font-size:19px" in h        # the anexo title

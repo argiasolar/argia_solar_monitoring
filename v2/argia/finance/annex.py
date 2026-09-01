@@ -183,7 +183,7 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
             safe_float(get(row, "expected_kwh")),
             safe_float(get(row, "design_kwh")),
             round(deemed, 2),
-            safe_float(get(row, "cloud_coverage_pct")),
+            _cloud_fraction(safe_float(get(row, "cloud_coverage_pct"))),
             safe_float(get(row, "pr")),
             safe_float(get(row, "availability")),
             safe_float(get(row, "soiling_loss_pct")),
@@ -215,6 +215,17 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
         "co2_factor": CO2_KG_PER_KWH,
         "history": history or {},
     }
+
+
+def _cloud_fraction(v):
+    """Cloud cover as a 0..1 fraction. KPI_Daily stores PERCENT
+    (GTO1 Aug-26: 51.8 avg); rendered unscaled it painted the whole
+    month as 100% cloud (Tomasz, 2026-09-01: "I doubt that in taigene
+    or quimica coyocan there where clouds all month long"). Values
+    already below 1.5 are taken as fractions and pass through."""
+    if v is None:
+        return None
+    return round(v / 100.0, 4) if v > 1.5 else v
 
 
 def _one_day():
@@ -315,7 +326,6 @@ def render_annex_html(payload: Dict, generated_at: str,
     Landscape print. Spanish only — the PDF is a customer document."""
     data_json = json.dumps(payload, separators=(",", ":"))
     client = _html.escape(payload["client"])
-    pk = _html.escape(payload["plant_key"])
     logo = _logo_uri()
     clogo = payload.get("client_logo") or ""
 
@@ -345,17 +355,17 @@ def render_annex_html(payload: Dict, generated_at: str,
 @page{{size:A4 landscape;margin:7mm}}
 body{{margin:0;background:var(--bg);color:var(--ink);
 font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:13px}}
-.wrap{{max-width:1350px;margin:0 auto;padding:14px 18px}}
+.wrap{{max-width:1350px;margin:0 auto;padding:8px 14px}}
 .top{{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
-margin-bottom:14px}}
-.top .ttl{{font-size:13px;color:var(--muted)}}
-.top .sub{{font-size:11.5px;color:var(--muted)}}
+margin-bottom:10px}}
+.top .ttl{{font-size:19px;font-weight:600;color:var(--ink)}}
+.top .sub{{font-size:13px;color:var(--muted)}}
 .top .right{{margin-left:auto;display:flex;gap:12px;align-items:center}}
 select{{font:inherit;padding:6px 10px;border:1px solid var(--line);
 border-radius:6px;background:var(--card)}}
 button.dl{{font:inherit;padding:6px 14px;border:1px solid var(--line);
 border-radius:6px;background:#ececec;cursor:pointer}}
-.row{{display:grid;gap:14px;margin-bottom:14px}}
+.row{{display:grid;gap:12px;margin-bottom:12px}}
 .row1{{grid-template-columns:330px 1fr}}
 .row2{{grid-template-columns:1fr 1fr}}
 .cards{{display:grid;grid-template-columns:1fr 1fr;gap:12px;
@@ -382,8 +392,6 @@ thead th{{color:var(--muted);font-weight:500;background:#f2f2ee;
 border-bottom:1px solid var(--line)}}
 tbody tr{{border-bottom:1px solid #efefe9}}
 tfoot td{{font-weight:700;border-top:2px solid var(--line)}}
-.foot{{color:var(--muted);font-size:10.5px;line-height:1.55;
-border-top:1px solid var(--line);padding-top:8px}}
 @media print{{select,button.dl{{display:none}}
 body{{background:#fff}}.sec,.card{{break-inside:avoid}}
 .wrap{{padding:0}}}}
@@ -393,8 +401,7 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
   {client_img}
   <div><div class="ttl">El anexo de la factura correspondiente
    al periodo.</div>
-  <div class="sub">{pk} · energía PPA ·
-   <span id="period"></span></div></div>
+  <div class="sub">energía PPA · <span id="period"></span></div></div>
   <div class="right">
     <select id="month"></select>
     <button class="dl" onclick="window.print()">Descargar</button>
@@ -449,7 +456,6 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
   </div>
 </div>
 
-<div class="foot" id="foot"></div>
 </div>
 
 <script>
@@ -596,13 +602,6 @@ function drawAnnual(){{
     o.value=ym; o.textContent=monthLabel(ym); sel.appendChild(o);}}
   sel.value="{default_ym}";
   sel.addEventListener("change",()=>drawMonth(sel.value));
-  document.getElementById("foot").innerHTML=
-    "Cifras mensuales facturadas según el registro de facturación "+
-    "ARGIA (Invoicing). Energía compensada según el motor de "+
-    "compensación anclado al contrato; producida y compensada se "+
-    "facturan a la tarifa del mes. IVA se aplica en el CFDI fiscal. "+
-    "CO₂ a "+D.co2_factor+" kg/kWh. Generado "+
-    "{generated_at}.";
   drawMonth("{default_ym}");
   drawAnnual();
 }})();

@@ -1,0 +1,5 @@
+[Unit]
+Description=ARGIA nightly DB backup (pg_dump + auth db to /root/argia_backups)
+[Service]
+Type=oneshot
+ExecStart=/opt/argia/bundle/db_backup.sh

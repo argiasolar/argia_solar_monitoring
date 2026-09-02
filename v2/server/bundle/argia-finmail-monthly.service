@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA financial report mail — monthly (previous month close)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh finmailm financial_mail.py --mode monthly

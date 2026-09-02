@@ -1021,8 +1021,18 @@ function preset(w){{
  compute();
 }}
 window.addEventListener('DOMContentLoaded',()=>{{
- document.getElementById('d0').value='2026-07-01';
- document.getElementById('d1').value=ASOF;
+ // window override via #d0=YYYY-MM-DD&d1=YYYY-MM-DD (or ?d0=&d1=) —
+ // the financial mailer prints a chosen period; humans get the default
+ let w0='2026-07-01', w1=ASOF;
+ try{{
+  const raw=(location.hash||'').replace(/^#/,'')+'&'+(location.search||'').replace(/^\?/,'');
+  const p=new URLSearchParams(raw);
+  const ok=s=>/^\d{{4}}-\d{{2}}-\d{{2}}$/.test(s||'');
+  if(ok(p.get('d0')))w0=p.get('d0');
+  if(ok(p.get('d1')))w1=p.get('d1');
+ }}catch(e){{}}
+ document.getElementById('d0').value=w0;
+ document.getElementById('d1').value=w1;
  document.getElementById('d0').addEventListener('change',compute);
  document.getElementById('d1').addEventListener('change',compute);
  compute();

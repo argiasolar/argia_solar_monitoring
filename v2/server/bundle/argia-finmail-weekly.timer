@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA financial mail, Fridays 23:59 Mexico City time
+[Timer]
+OnCalendar=Fri *-*-* 23:59:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

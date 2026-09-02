@@ -51,7 +51,11 @@ def main(argv=None) -> int:
         return 0
     from argia.store.pgq import psql_exec, psql_rows
 
-    portfolio = load_portfolio(SheetsClient())
+    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
+    if not sheet_id:
+        LOG.error("GOOGLE_SHEET_ID_V2 not set")
+        return 1
+    portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
     sheet_vals = {p.plant_key: p.pr_baseline
                   for p in portfolio.plants.values()
                   if p.pr_baseline is not None}

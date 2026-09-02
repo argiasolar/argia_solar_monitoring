@@ -1297,6 +1297,39 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
                  ' data-es="Nuevo valor (fijo, desde mes)">New value</th>'
                  '</tr>' + ''.join(tariff_rows) + '</table></div>')
 
+    # ---- PR settings per plant (management ask, 2026-09-02) ----
+    pr_rows = []
+    for pk, cust, prb, pf in _fin_rows(
+            "SELECT plant_key, customer, coalesce(pr_baseline,0), portfolio"
+            " FROM plant WHERE active ORDER BY portfolio, plant_key;"):
+        cur = f'{float(prb)*100:.1f}%' if prb not in ('', '0') else '—'
+        pr_rows.append(f'''<tr><td>{html.escape(pk)}</td>
+<td>{html.escape(cust)}</td><td>{html.escape(pf or "")}</td>
+<td style="{mono}">{cur}</td>
+<td><form method="post" action="/setup/finance/prbaseline">{csrf}
+<input type="hidden" name="plant" value="{html.escape(pk)}">
+<input type="text" name="value" size="6" placeholder="0.85">
+<button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
+    cards.append('<div class="card"><h2 data-en="Performance — PR baseline'
+                 ' per plant" data-es="Desempeño — línea base de PR por'
+                 ' planta">Performance — PR baseline per plant</h2>'
+                 '<p class="note" data-en="Clean-state Performance Ratio'
+                 ' reference (0.50–1.00, e.g. 0.85). It sets the PR tile'
+                 ' color and the soiling-drift line on every plant page.'
+                 ' This editor is the authority; the old sheet column is'
+                 ' legacy. Changes are audited and pages regenerate'
+                 ' immediately." data-es="Referencia de Performance Ratio en'
+                 ' estado limpio (0.50–1.00, ej. 0.85). Define el color del'
+                 ' PR y la deriva por suciedad en cada página de planta.'
+                 ' Este editor es la autoridad; la columna en la hoja es'
+                 ' legado. Los cambios quedan auditados y las páginas se'
+                 ' regeneran de inmediato.">Clean-state PR reference'
+                 ' (0.50–1.00).</p><table><tr><th>Plant</th><th>Customer'
+                 '</th><th>Type</th><th data-en="Current"'
+                 ' data-es="Actual">Current</th><th data-en="New value'
+                 ' (fraction)" data-es="Nuevo valor (fracción)">New value'
+                 '</th></tr>' + ''.join(pr_rows) + '</table></div>')
+
     # ---- audit tail ----
     audit = _fin_rows(
         "SELECT to_char(ts AT TIME ZONE 'America/Mexico_City',"
@@ -1351,6 +1384,25 @@ def finance_om():
         me, plant, '', 'om',
         f'{plant}: O&M set to {amount:,.2f} MXN/month',
         [fin.sql_set_om(plant, amount)]))
+
+
+@app.post('/finance/prbaseline')
+def finance_prbaseline():
+    me = _fin_guard()
+    if not me:
+        return stale_page()
+    plant = (request.form.get('plant') or '').strip().upper()
+    value = fin.parse_num(request.form.get('value'), fin.PRB_MIN,
+                          fin.PRB_MAX)
+    known = [r[0] for r in _fin_rows(
+        "SELECT plant_key FROM plant WHERE active;")]
+    if plant not in known or value is None:
+        return finance_page(msg='PR baseline: invalid plant or value '
+                                '(0.50–1.00) — nothing saved')
+    return finance_page(msg=_fin_write(
+        me, plant, '', 'pr_baseline',
+        f'{plant}: PR baseline set to {value*100:.1f}%',
+        [fin.sql_set_pr_baseline(plant, value)]))
 
 
 @app.post('/finance/principal')

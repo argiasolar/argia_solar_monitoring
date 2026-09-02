@@ -39,6 +39,8 @@ MAX_FEE_CCY = 10_000_000.0
 MAX_TARIFF = 50.0
 FX_MIN, FX_MAX = 5.0, 50.0
 MAX_EXTEND_MONTHS = 480
+# clean-state PR reference: below 0.5 or above 1.0 is a typo, not a plant
+PRB_MIN, PRB_MAX = 0.5, 1.0
 
 ENSURE_AUDIT_SQL = """CREATE TABLE IF NOT EXISTS finance_audit (
     id        serial PRIMARY KEY,
@@ -112,6 +114,14 @@ def sql_audit(user: str, plant: str, loan_id: str, action: str,
             " action, detail) VALUES (%s, %s, %s, %s, %s);"
             % (sq(user), sq(plant or ""), sq(loan_id or ""),
                sq(action), sq(detail[:400])))
+
+
+def sql_set_pr_baseline(plant: str, value: float) -> str:
+    """Clean-state PR reference (Plant configuration). Since the
+    /setup/ editor exists (v168) the DB is the authority for this
+    value; the old sheet column is a legacy import source only."""
+    return ("UPDATE plant SET pr_baseline = %.4f"
+            " WHERE plant_key = %s;" % (value, sq(plant)))
 
 
 def sql_set_om(plant: str, amount: float) -> str:

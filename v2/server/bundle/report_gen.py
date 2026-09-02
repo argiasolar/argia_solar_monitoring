@@ -98,11 +98,37 @@ for r in q("SELECT plant_key, prod_date, availability FROM daily_production "
     if len(r) > 2:
         avail_d[(r[0], r[1])] = f(r[2])
 
-exp_d = {}     # (key, 'YYYY-MM-DD') -> weather-expected kWh (kwp x irradiance x factor)
-for r in q("SELECT plant_key, prod_date, expected_kwh FROM daily_production "
-           "WHERE expected_kwh IS NOT NULL AND expected_kwh > 0;"):
+# Weather-expected energy, self-calibrated (management + solar-director
+# round, 2026-09-02). The stored expected_kwh uses each plant's config
+# factor, which live data shows understates good plants by 9-14% — so
+# the page derives its own factor: kwp x irradiance x max(config factor,
+# trailing-90d median PR on full-coverage days). The max() matters: a
+# sick plant (e.g. GTO2 at ~46% PR) must NOT have its expectation
+# dragged down to its illness — config stays the floor.
+irr_d = {}     # (key, 'YYYY-MM-DD') -> irradiance kWh/m2
+for r in q("SELECT plant_key, prod_date, irradiance_kwh_m2"
+           " FROM daily_production WHERE irradiance_kwh_m2 IS NOT NULL"
+           " AND irradiance_kwh_m2 > 0;"):
     if len(r) > 2:
-        exp_d[(r[0], r[1])] = f(r[2])
+        irr_d[(r[0], r[1])] = f(r[2])
+
+_cfgf = {r[0]: f(r[1]) for r in q(
+    "SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY"
+    " expected_kwh / nullif(irradiance_kwh_m2,0)) FROM daily_production"
+    " WHERE expected_kwh > 0 AND irradiance_kwh_m2 > 0"
+    " GROUP BY plant_key;")}          # config factor x kwp, per plant
+_medpr = {r[0]: f(r[1]) for r in q(
+    f"SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY pr)"
+    f" FROM daily_production WHERE pr IS NOT NULL AND data_class = 'full'"
+    f" AND prod_date > date '{asof}' - 90 GROUP BY plant_key;")}
+
+exp_d = {}     # (key, 'YYYY-MM-DD') -> weather-expected kWh (calibrated)
+for (k, d), irr in irr_d.items():
+    kwp = plants.get(k, {}).get('kwp') or 0
+    per_irr = max(_cfgf.get(k) or 0.0,
+                  (_medpr.get(k) or 0.0) * kwp)   # kWh per kWh/m2
+    if per_irr > 0:
+        exp_d[(k, d)] = round(per_irr * irr, 1)
 
 dq_d = {}      # (key, 'YYYY-MM-DD') -> 1 if data_class='full' else 0 (v2 days only)
 for r in q("SELECT plant_key, prod_date, data_class FROM daily_production "
@@ -113,6 +139,10 @@ for r in q("SELECT plant_key, prod_date, data_class FROM daily_production "
 pr30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr) FROM daily_production WHERE source='v2' AND pr IS NOT NULL "
     f"AND prod_date > date '{asof}' - 30 GROUP BY plant_key;")}
+prstc30 = {r[0]: f(r[1]) for r in q(
+    f"SELECT plant_key, avg(pr_stc) FROM daily_production WHERE source='v2'"
+    f" AND pr_stc IS NOT NULL AND prod_date > date '{asof}' - 30"
+    f" GROUP BY plant_key;")}   # temperature-normalized PR (25 degC cell)
 last_seen = {r[0]: r[1] for r in q(
     "SELECT plant_key, max(prod_date) FROM daily_production GROUP BY plant_key;")}
 
@@ -453,10 +483,11 @@ function compute(){
  const d0=$('d0').value, d1=$('d1').value; if(!d0||!d1||d0>d1)return;
  const days=Math.round((new Date(d1)-new Date(d0))/864e5)+1;
  let idx=[];for(let i=0;i<D.length;i++)if(D[i]>=d0&&D[i]<=d1)idx.push(i);
- let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0,avloss=0;
+ let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0,avloss=0,xsum=0,exsum=0;
  idx.forEach(i=>{prod+=E[i];if(RV)rev+=RV[i];if(C)ctr+=C[i];
   const a=AV[D[i]];if(a!=null)avs.push(a);
   if(a!=null&&X&&X[i]!=null&&a<1)avloss+=X[i]*(1-a);
+  if(X&&X[i]!=null){xsum+=X[i];exsum+=E[i];}
   const dq=DQ[D[i]];if(dq!=null){dqn++;dqf+=dq;}});
  $('r_prod').textContent=nf(prod/1000,2);
  if($('r_rev')){if(rev>=1e6){$('r_rev').textContent=nf(rev/1e6,2);$('r_rev_u').textContent='M MXN';}
@@ -471,8 +502,14 @@ function compute(){
   $('r_vsctr').textContent=' · '+(100*pct).toFixed(0)+'% '+VSL;
   semTile('t_prod',pct>=0.95?'good':pct>=0.8?'warn':'bad');
  }else{$('r_vsctr').textContent='';semTile('t_prod','');}
- if(av!=null){$('r_sla').textContent=av>=SLA?'MET':'BREACH';
-  semTile('t_avail',av>=SLA?'good':av>=SLA-0.03?'warn':'bad');
+ if(av!=null){
+  // below-target availability with energy that still met the weather
+  // expectation = telemetry gap, not proven downtime -> REVIEW
+  const ranFine=xsum>0&&exsum>=0.97*xsum;
+  if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail','good');}
+  else if(ranFine){$('r_sla').textContent='REVIEW';semTile('t_avail','warn');}
+  else{$('r_sla').textContent='BREACH';
+   semTile('t_avail',av>=SLA-0.03?'warn':'bad');}
  }else{$('r_sla').textContent='—';semTile('t_avail','');}
  const al=$('r_avloss');
  if(al){if(avloss>=1){$('r_avloss_v').textContent=
@@ -823,8 +860,8 @@ def plant_page(k):
                      f'<div class="tval">{pct:,.0f}%</div>'
                      f'<div class="tsub">{life_sav/1e6:,.2f} / {p["inv"]/1e6:,.2f} M MXN{eta}</div></div>')
     tiles.append(f'<div class="tile" id="t_avail"><div class="tlabel">{t("Availability, selected range","Disponibilidad, rango elegido")}'
-                 + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor — a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
-                      "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador — un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
+                 + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor — a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. When availability misses the target but metered energy still met the weather expectation for the same days, the verdict shows REVIEW instead of BREACH: the plant produced through the gap, so it was almost certainly telemetry, not downtime. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
+                      "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador — un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. Si la disponibilidad no llega al objetivo pero la energía medida cumplió la expectativa por clima de esos mismos días, el veredicto muestra REVIEW en vez de BREACH: la planta produjo durante el hueco, así que casi seguro fue telemetría, no una parada. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
                  + f'</div><div class="tval" id="r_avail">—</div>'
                  f'<div class="tsub">SLA {SLA_TARGET*100:.0f}%: <b id="r_sla">—</b> · '
                  f'{t("assumed target","objetivo supuesto")}'
@@ -837,18 +874,27 @@ def plant_page(k):
                  f'<div class="tsub">{t("full-coverage days","días con cobertura completa")}</div></div>')
     if pr:
         base = p.get('prb') or 0
-        prc = ('good' if pr >= base else 'warn' if pr >= base - 0.05 else 'bad') if base else ''
+        prstc = prstc30.get(k)
+        # color on the temperature-normalized PR when we have it — a hot
+        # month must not paint a healthy plant red (solar director's
+        # NL1 July->August case: the whole PR drop was cell temperature)
+        pr_for_color = prstc if prstc else pr
+        prc = ('good' if pr_for_color >= base else
+               'warn' if pr_for_color >= base - 0.05 else 'bad') if base else ''
         if base:
-            drift = (base - pr) * 100
+            drift = (base - pr_for_color) * 100
             pr_sub = (t("at/above clean baseline", "en/sobre línea base limpia")
                       if drift <= 0 else
                       f'−{drift:,.1f} pts {t("vs clean baseline (soiling + other losses)","vs línea base limpia (suciedad + otras pérdidas)")}')
             pr_sub = f'{t("baseline","línea base")} {base*100:,.0f}% · {pr_sub}'
         else:
             pr_sub = t("no baseline configured", "sin línea base configurada")
+        if prstc:
+            pr_sub += (f' · {t("temp-normalized","norm. por temperatura")}'
+                       f' {prstc*100:,.1f}%')
         tiles.append(f'<div class="tile {prc}" id="t_pr"><div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
-                     + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Baseline is this plant's clean-state PR as defined in the ARGIA_MONT_V2 Plants sheet — the soiling reference. The gap to baseline approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
-                          "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. La línea base es el PR en estado limpio definido en la hoja Plants de ARGIA_MONT_V2 — la referencia de suciedad. La brecha contra la línea base aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
+                     + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Hot cells depress PR (about −0.7 pts per °C), so the temp-normalized figure (PR at 25 °C cell) is also shown, and the color and drift are judged on it — a hot month is not a fault. Baseline is this plant's clean-state PR from the Plant configuration (editable by admins in Setup → Finance); the gap to it approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
+                          "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. Las celdas calientes deprimen el PR (≈ −0.7 pts por °C), así que también se muestra la cifra normalizada por temperatura (PR a celda de 25 °C), y el color y la deriva se juzgan con ella — un mes caluroso no es una falla. La línea base es el PR en estado limpio de la configuración de planta (editable por administradores en Setup → Finanzas); la brecha contra ella aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
                      + f'</div><div class="tval">{pr*100:,.1f}%</div>'
                      f'<div class="tsub">{pr_sub}</div></div>')
     tiles.append('</div>')
@@ -888,8 +934,8 @@ def plant_page(k):
         rev_leg += f' · <span class="key" style="background:var(--s2)"></span>{exp_word}'
     if xlist:
         rev_leg += (' · <span class="key" style="background:#8a94a3"></span>'
-                    + t("expected from weather (kWp × irradiance × plant factor)",
-                        "esperado por clima (kWp × irradiancia × factor de planta)"))
+                    + t("expected from weather (kWp × irradiance × typical PR, self-calibrated)",
+                        "esperado por clima (kWp × irradiancia × PR típico, autocalibrado)"))
     if rlist:
         money_word = (t("revenue (right axis)", "ingreso (eje derecho)") if is_ppa
                       else t("savings (right axis)", "ahorro (eje derecho)"))

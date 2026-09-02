@@ -31,10 +31,18 @@ class TestTileTooltips:
                      "Green ≥ baseline, amber within 5 pts"):
             assert frag in SRC, frag
 
-    def test_pr_tooltip_names_formula_and_sheet_authority(self):
+    def test_pr_tooltip_names_formula_and_config_authority(self):
         assert "metered energy ÷ (kWp DC × plane-of-array irradiance)" in SRC
-        assert "ARGIA_MONT_V2 Plants sheet" in SRC
+        # Tomasz 2026-09-02: never name the internal sheet in the UI
+        assert "ARGIA_MONT_V2" not in SRC
+        assert "Plant configuration" in SRC
         assert "last 30 days" in SRC          # answers the 82.5-vs-83.3 question
+
+    def test_pr_color_uses_temperature_normalized_value(self):
+        # solar director: NL1's July->August PR drop was cell temperature;
+        # a hot month must not paint a healthy plant red
+        assert "pr_for_color = prstc if prstc else pr" in SRC
+        assert "temp-normalized" in SRC and "pr_stc" in SRC
 
     def test_availability_tooltip_admits_comms_conflation(self):
         assert "conservative floor" in SRC
@@ -56,10 +64,25 @@ class TestTileTooltips:
 
 class TestWeatherExpectedLine:
     def test_daily_chart_gets_weather_series_and_legend(self):
-        assert "expected_kwh FROM daily_production" in SRC
+        assert "irradiance_kwh_m2" in SRC
         assert ";const X=" in SRC
         assert "line wx" in SRC and "stroke-dasharray" in SRC
         assert "expected from weather" in SRC
+
+    def test_expectation_is_self_calibrated_with_config_floor(self):
+        # calibrated to the plant's demonstrated PR, but max() with the
+        # config factor so a sick plant (GTO2 ~46% PR) is never graded
+        # against its own illness
+        assert "percentile_cont(0.5)" in SRC
+        assert "data_class = 'full'" in SRC
+        assert "max(_cfgf.get(k) or 0.0" in SRC
+
+    def test_sla_verdict_reviews_instead_of_breach_when_energy_ok(self):
+        # director's NL1 case: 93.6% availability, 102% of contract —
+        # produced-through-the-gap must read REVIEW, not BREACH
+        assert "ranFine=xsum>0&&exsum>=0.97*xsum" in SRC
+        assert "'REVIEW'" in SRC
+        assert "telemetry, not downtime" in SRC
 
     def test_weather_line_skips_missing_days_instead_of_zeroing(self):
         # null values break the path (pen up), never plot as 0
@@ -76,6 +99,32 @@ class TestEnergyAtRisk:
 
     def test_at_risk_is_presented_as_upper_bound(self):
         assert "≤ <b id=\"r_avloss_v\"" in SRC
+
+
+class TestPrBaselineEditor:
+    def test_sql_builder_and_bounds(self):
+        import server.bundle.finance_core as fin
+        assert fin.sql_set_pr_baseline("GTO1", 0.88) == \
+            "UPDATE plant SET pr_baseline = 0.8800 WHERE plant_key = 'GTO1';"
+        assert fin.PRB_MIN == 0.5 and fin.PRB_MAX == 1.0
+        # the shared numeric parser enforces the bounds
+        assert fin.parse_num("0.88", fin.PRB_MIN, fin.PRB_MAX) == 0.88
+        assert fin.parse_num("88", fin.PRB_MIN, fin.PRB_MAX) is None
+        assert fin.parse_num("0.3", fin.PRB_MIN, fin.PRB_MAX) is None
+
+    def test_setup_page_has_editor_and_route(self):
+        app = (V2 / "server/bundle/setup_app.py").read_text(encoding="utf-8")
+        assert "/setup/finance/prbaseline" in app       # form action
+        assert "@app.post('/finance/prbaseline')" in app
+        assert "PR baseline per plant" in app
+        # guarded and audited like every finance edit
+        seg = app.split("def finance_prbaseline()", 1)[1][:800]
+        assert "_fin_guard()" in seg and "_fin_write(" in seg
+
+    def test_sync_script_demoted_to_import_tool(self):
+        s = (V2 / "scripts/sync_pr_baseline.py").read_text(encoding="utf-8")
+        assert "OVERWRITE audited admin edits" in s
+        assert "the DATABASE became the authority" in s
 
 
 class TestPrBaselineSyncDiff:

@@ -1,12 +1,12 @@
-"""Sync plant.pr_baseline in PostgreSQL from the ARGIA_MONT_V2 sheet.
+"""One-time IMPORT of plant.pr_baseline from the Plants sheet tab.
 
-Tomasz, 2026-09-02 (management feedback round): the PR baseline shown
-on the plant pages must stay "as it used to be defined in the
-ARGIA_MONT_V2 google sheets" — the Plants tab ``pr_baseline`` column
-(clean-state PR, the soiling reference). The PG ``plant`` table carries
-a copy for the report generator; this script makes PG match the sheet
-and prints every difference, so the sheet remains the single authority
-and the dashboard can never silently drift from it.
+History: written 2026-09-02 when the sheet was still the authority for
+the clean-state PR. Later the same day the /setup/finance PR editor
+shipped (v168) and the DATABASE became the authority — admin edits land
+in PG with an audit row, and the sheet column is legacy. Running this
+with --apply now would OVERWRITE audited admin edits with stale sheet
+values, so: use it only as an import tool on a fresh database, and
+check the finance_audit trail for 'pr_baseline' actions first.
 
 Dry-run by default. Usage: sync_pr_baseline.py [--apply]
 """

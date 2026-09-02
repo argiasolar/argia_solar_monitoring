@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA daily PPA performance mail (19:00 MX, preliminary)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh dailyperf daily_perf_mail.py

@@ -983,69 +983,144 @@ def maint_delete():
 
 
 # ---------------------------------------------------------------------------
-# Alert mailing list (v3 item 8) — who receives plant/server/infrastructure
-# alert emails from service@argia.com.mx. Consumed by alert_mailer on its
-# 30-minute cycle. ARGIA admins only.
+# Email subscriptions (v176) — per-channel mailing lists, admin-managed.
+# Channels: maintenance (live alerts, per-plant scopable), financial
+# (weekly + monthly report PDF), daily (19:00 PPA performance summary).
+# Only PORTAL USERS can subscribe — the form offers accounts with an
+# email on file, nothing free-typed. Consumed by alert_mailer,
+# financial_mail and daily_perf_mail. This SQL must stay byte-identical
+# to argia/alerts/subscriptions.ENSURE_SQL (the bundle cannot import
+# the argia package; a unit test compares the two).
 # ---------------------------------------------------------------------------
-_EMAIL_RE = re.compile(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+MAIL_CHANNELS = ('maintenance', 'financial', 'daily')
+MAIL_CHANNEL_LABEL = {
+    'maintenance': 'Maintenance — live alerts',
+    'financial': 'Financial reports',
+    'daily': 'Daily PPA performance (19:00)',
+}
+MAIL_ENSURE_SQL = """CREATE TABLE IF NOT EXISTS mail_subscription (
+    email    text NOT NULL,
+    channel  text NOT NULL
+             CHECK (channel IN ('maintenance','financial','daily')),
+    plants   text NOT NULL DEFAULT '',
+    enabled  boolean NOT NULL DEFAULT true,
+    username text NOT NULL DEFAULT '',
+    added_by text,
+    added_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (email, channel)
+);"""
 
 
 def _mail_ensure():
-    psql('''CREATE TABLE IF NOT EXISTS mail_recipient (
-        email   text PRIMARY KEY,
-        enabled boolean NOT NULL DEFAULT true,
-        note    text,
-        added_by text,
-        added_at timestamptz NOT NULL DEFAULT now());''')
+    psql(MAIL_ENSURE_SQL)
 
 
-def recipients_card():
+def _mail_users():
+    """Portal accounts eligible to receive mail: enabled, email on
+    file. [(username, display, email)] — the ONLY source of addresses."""
+    c = db()
+    rows = c.execute("SELECT username, first_name, last_name, email"
+                     " FROM users WHERE disabled=0 AND email != ''"
+                     " ORDER BY username").fetchall()
+    c.close()
+    return [(u, display_name(fn, ln, u), em.strip().lower())
+            for u, fn, ln, em in rows if em and em.strip()]
+
+
+def subscriptions_card():
     try:
         _mail_ensure()
-        raw = psql("SELECT email, enabled, coalesce(note,''),"
-                   " coalesce(added_by,'') FROM mail_recipient ORDER BY 1;")
+        raw = psql("SELECT email, channel, coalesce(plants,''), enabled,"
+                   " coalesce(username,''), coalesce(added_by,'')"
+                   " FROM mail_subscription ORDER BY channel, email;")
     except RuntimeError as e:
-        return ('<div class="card"><p class="note">mailing list '
+        return ('<div class="card"><p class="note">subscriptions '
                 f'unavailable: {html.escape(str(e)[:200])}</p></div>')
+    users = _mail_users()
+    by_email = {em: name for _, name, em in users}
     trs = []
     for ln in raw.splitlines():
         r = ln.split('\t')
-        if len(r) < 4:
+        if len(r) < 6:
             continue
-        email, en, note, by = r[:4]
+        email, chan, plants, en, uname, by = r[:6]
         on = en == 't'
+        who = by_email.get(email.lower())
         badge = ('<span class="pill">active</span>' if on else
                  '<span class="pill" style="background:#eceef0;color:#5f6368">paused</span>')
+        if who is None:
+            badge += (' <span class="pill" style="background:#fdeaea;'
+                      'color:#b3261e" data-en="no portal account — not mailed"'
+                      ' data-es="sin cuenta — no recibe">no portal account'
+                      ' — not mailed</span>')
+        scope = (html.escape(plants.replace(',', ', '))
+                 if plants.strip() else
+                 '<i data-en="all plants" data-es="todas">all plants</i>')
+        if chan != 'maintenance':
+            scope = '—'
         acts = (
             f'<form method="post" action="mail/toggle" style="display:inline">'
             f'<input type="hidden" name="csrf" value="{CSRF}">'
             f'<input type="hidden" name="email" value="{html.escape(email)}">'
+            f'<input type="hidden" name="channel" value="{html.escape(chan)}">'
             f'<button class="btn">{"pause" if on else "resume"}</button></form>'
             f'<form method="post" action="mail/delete" style="display:inline">'
             f'<input type="hidden" name="csrf" value="{CSRF}">'
             f'<input type="hidden" name="email" value="{html.escape(email)}">'
+            f'<input type="hidden" name="channel" value="{html.escape(chan)}">'
             '<button class="btn" data-en="remove" data-es="quitar">remove</button></form>')
-        trs.append(f'<tr><td>{html.escape(email)}</td><td>{badge}</td>'
-                   f'<td>{html.escape(note[:40])}</td>'
-                   f'<td>{html.escape(by)}</td><td>{acts}</td></tr>')
-    rows_html = ('<table><tr><th>Email</th><th>Status</th>'
-                 '<th data-en="Note" data-es="Nota">Note</th>'
+        trs.append(
+            f'<tr><td><b>{html.escape(who or uname or "?")}</b><br>'
+            f'<span class="note">{html.escape(email)}</span></td>'
+            f'<td>{html.escape(MAIL_CHANNEL_LABEL.get(chan, chan))}</td>'
+            f'<td>{scope}</td><td>{badge}</td>'
+            f'<td>{html.escape(by)}</td><td>{acts}</td></tr>')
+    rows_html = ('<table><tr><th data-en="User" data-es="Usuario">User</th>'
+                 '<th data-en="Channel" data-es="Canal">Channel</th>'
+                 '<th data-en="Plants" data-es="Plantas">Plants</th>'
+                 '<th>Status</th>'
                  '<th data-en="Added by" data-es="Agregado por">Added by</th>'
                  '<th></th></tr>' + ''.join(trs) + '</table>'
                  if trs else
-                 '<p class="note" data-en="No recipients yet — nobody receives alert emails." data-es="Sin destinatarios — nadie recibe alertas.">No recipients yet — nobody receives alert emails.</p>')
-    return f'''<div class="card"><h2 data-en="Alert emails — mailing list"
- data-es="Correos de alerta — lista de distribución">Alert emails — mailing list</h2>
-<p class="note" data-en="These addresses receive plant / server / infrastructure alerts from service@argia.com.mx (checked every 30 min; new alerts immediately, active ones re-sent every 6 h, recoveries once). A plant under a logged maintenance event never alarms."
- data-es="Estas direcciones reciben alertas de plantas / servidor / infraestructura desde service@argia.com.mx (cada 30 min). Una planta con mantenimiento registrado no alarma.">
-These addresses receive plant / server / infrastructure alerts from service@argia.com.mx.</p>
-{rows_html}
+                 '<p class="note" data-en="No subscriptions yet — nobody receives any email." data-es="Sin suscripciones — nadie recibe correos.">No subscriptions yet — nobody receives any email.</p>')
+    user_opts = ''.join(
+        f'<option value="{html.escape(u)}">{html.escape(name)} '
+        f'&lt;{html.escape(em)}&gt;</option>' for u, name, em in users)
+    chan_opts = ''.join(
+        f'<option value="{c}">{MAIL_CHANNEL_LABEL[c]}</option>'
+        for c in MAIL_CHANNELS)
+    plant_boxes = ''.join(
+        f'<label style="margin-right:8px;white-space:nowrap">'
+        f'<input type="checkbox" name="plants" value="{p.upper()}"> '
+        f'{p.upper()}</label>' for p in PLANTS)
+    add_form = (
+        '<p class="note" data-en="No portal accounts with an email on file — add the email on the user\'s account first." data-es="Ninguna cuenta con correo — agregue el correo en la cuenta primero.">'
+        'No portal accounts with an email on file — add the email on the '
+        "user's account first.</p>" if not users else f'''
 <form method="post" action="mail/add" style="margin-top:10px">
 <input type="hidden" name="csrf" value="{CSRF}">
-<p><input name="email" placeholder="name@company.com" size="28" required>
- <input name="note" placeholder="note" size="18">
- <button class="btn" data-en="Add recipient" data-es="Agregar destinatario">Add recipient</button></p>
-</form></div>'''
+<p><select name="username">{user_opts}</select>
+ <select name="channel">{chan_opts}</select>
+ <button class="btn" data-en="Subscribe" data-es="Suscribir">Subscribe</button></p>
+<p class="note" data-en="Plant scope — maintenance channel only. Leave all unchecked for ALL plants + server/infrastructure alerts; check specific plants to limit a person to those plants (he then gets no server alerts either)."
+ data-es="Alcance por planta — solo canal de mantenimiento. Sin marcar = TODAS las plantas + alertas de servidor; marque plantas para limitar a esa persona (tampoco recibe alertas de servidor).">
+Plant scope — maintenance channel only. Unchecked = all plants +
+server alerts; checked = only those plants.</p>
+<p>{plant_boxes}</p>
+</form>''')
+    return f'''<div class="card"><h2 data-en="Email subscriptions"
+ data-es="Suscripciones de correo">Email subscriptions</h2>
+<p class="note" data-en="Three separate lists from service@argia.com.mx: maintenance (live metering/issues, checked every 30 min), financial reports (Friday EOD + month close PDF), daily PPA performance (19:00 MX, preliminary). Only portal users with an email on file can be subscribed."
+ data-es="Tres listas desde service@argia.com.mx: mantenimiento (cada 30 min), reportes financieros (viernes EOD + cierre de mes), desempeño diario PPA (19:00 MX). Solo usuarios del portal con correo registrado.">
+Three separate lists from service@argia.com.mx: maintenance (live
+metering/issues), financial reports (Friday EOD + month close), daily
+PPA performance (19:00 MX). Only portal users can be subscribed.</p>
+{rows_html}
+{add_form}</div>'''
+
+
+def _mail_channel_ok(chan):
+    return chan in MAIL_CHANNELS
 
 
 @app.post('/mail/add')
@@ -1053,16 +1128,28 @@ def mail_add():
     me = _maint_guard()
     if not me:
         return stale_page()
-    email = (request.form.get('email') or '').strip().lower()
-    note = (request.form.get('note') or '').strip()[:100]
-    if not _EMAIL_RE.match(email):
-        return render(msg='mailing list: invalid email — nothing saved')
+    uname = (request.form.get('username') or '').strip()
+    chan = (request.form.get('channel') or '').strip()
+    if not _mail_channel_ok(chan):
+        return render(msg='subscriptions: unknown channel — nothing saved')
+    match = [(u, n, em) for u, n, em in _mail_users() if u == uname]
+    if not match:
+        return render(msg='subscriptions: not a portal user with an email'
+                          ' on file — nothing saved')
+    email = match[0][2]
+    plants = ''
+    if chan == 'maintenance':
+        chosen = [p for p in request.form.getlist('plants')
+                  if p.lower() in PLANTS]
+        plants = ','.join(sorted({p.upper() for p in chosen}))
     _mail_ensure()
-    psql(f"INSERT INTO mail_recipient (email, note, added_by) VALUES"
-         f" ({_sqlq(email)}, {_sqlq(note)}, {_sqlq(me)})"
-         f" ON CONFLICT (email) DO UPDATE SET enabled = true,"
-         f" note = EXCLUDED.note;")
-    return render(msg=f'{email} added to the alert mailing list')
+    psql(f"INSERT INTO mail_subscription (email, channel, plants,"
+         f" username, added_by) VALUES ({_sqlq(email)}, {_sqlq(chan)},"
+         f" {_sqlq(plants)}, {_sqlq(uname)}, {_sqlq(me)})"
+         f" ON CONFLICT (email, channel) DO UPDATE SET enabled = true,"
+         f" plants = EXCLUDED.plants, username = EXCLUDED.username;")
+    scope = plants or 'all plants'
+    return render(msg=f'{email} subscribed to {chan} ({scope})')
 
 
 @app.post('/mail/toggle')
@@ -1071,9 +1158,12 @@ def mail_toggle():
     if not me:
         return stale_page()
     email = (request.form.get('email') or '').strip().lower()
-    psql(f'UPDATE mail_recipient SET enabled = NOT enabled'
-         f' WHERE email = {_sqlq(email)};')
-    return render(msg=f'{email} toggled')
+    chan = (request.form.get('channel') or '').strip()
+    if not _mail_channel_ok(chan):
+        return render(msg='subscriptions: unknown channel')
+    psql(f'UPDATE mail_subscription SET enabled = NOT enabled'
+         f' WHERE email = {_sqlq(email)} AND channel = {_sqlq(chan)};')
+    return render(msg=f'{email} / {chan} toggled')
 
 
 @app.post('/mail/delete')
@@ -1082,8 +1172,12 @@ def mail_delete():
     if not me:
         return stale_page()
     email = (request.form.get('email') or '').strip().lower()
-    psql(f'DELETE FROM mail_recipient WHERE email = {_sqlq(email)};')
-    return render(msg=f'{email} removed from the alert mailing list')
+    chan = (request.form.get('channel') or '').strip()
+    if not _mail_channel_ok(chan):
+        return render(msg='subscriptions: unknown channel')
+    psql(f'DELETE FROM mail_subscription WHERE email = {_sqlq(email)}'
+         f' AND channel = {_sqlq(chan)};')
+    return render(msg=f'{email} unsubscribed from {chan}')
 
 
 
@@ -1609,7 +1703,7 @@ def render(msg='', once=None):
                  ' setup →" data-es="Abrir configuración financiera →">'
                  'Open finance setup →</a></div>')
         body += maintenance_card()
-        body += recipients_card()
+        body += subscriptions_card()
     else:
         body = (ef + users_table(org=org) + settings_card(org, False)
                 + stats_table(org=org) + add_form(org=org))

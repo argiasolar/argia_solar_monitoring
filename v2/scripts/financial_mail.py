@@ -13,8 +13,8 @@ What one run does:
      computes any window client-side from its embedded daily atoms, so
      the window is passed as a #d0=..&d1=.. fragment (report_gen reads
      it since v166),
-  3. mails the PDF to every enabled ``mail_recipient`` row (the same
-     list /setup/ manages and the alert mailer uses),
+  3. mails the PDF to the enabled 'financial' channel of
+     ``mail_subscription`` (managed in /setup/, portal users only),
   4. archives a copy to Google Drive Archive/Financial_Reports/<YYYY>/
      (the folder tree the invoicing archive already lives in) and to
      the local backup dir, which the Pi mirrors nightly.
@@ -130,10 +130,13 @@ def render_pdf(html_path: str, d0: str, d1: str, pdf_path: str) -> bool:
 
 
 def recipients():
-    from argia.store.pgq import psql_rows
-    return [r[0] for r in psql_rows(
-        "SELECT email FROM mail_recipient WHERE enabled ORDER BY 1;")
-        if r and r[0]]
+    """Enabled 'financial' channel subscribers (v176), portal accounts
+    only. No plant scoping here — the financial report is one document
+    and its recipient list IS the access control."""
+    from argia.alerts import subscriptions
+    return [e for e, _ in subscriptions.only_portal(
+        subscriptions.recipients_for("financial"),
+        subscriptions.portal_emails())]
 
 
 def archive_drive(pdf_path: str, name: str, year: str):
@@ -196,7 +199,7 @@ def main(argv=None) -> int:
 
     rcpt = recipients()
     if not rcpt:
-        LOG.error("no enabled recipients in mail_recipient — not sending")
+        LOG.error("no enabled 'financial' subscribers — not sending")
         return 1
     cfg = emailer.load_smtp()
     if not cfg:

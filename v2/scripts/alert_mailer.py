@@ -2,10 +2,15 @@
 
 Every 30 minutes (argia-mailer.timer): gathers facts, evaluates the
 pure conditions in argia.alerts.monitor, deduplicates via alert_state,
-and emails the enabled recipients (mail_recipient, managed in /setup/)
-as service@argia.com.mx. New alerts mail immediately, active ones
-re-mail every 6 h, recoveries mail once. Without /root/.argia_mail the
-run still tracks state and logs — it never crashes and never spams.
+and emails the 'maintenance' channel of mail_subscription (managed in
+/setup/, portal users only) as service@argia.com.mx. New alerts mail
+immediately, active ones re-mail every 6 h, recoveries mail once.
+Since v176 each subscriber can be scoped to specific plants: he then
+receives only alerts about those plants — and no infrastructure noise
+(disk, failed jobs), which goes to all-plants subscribers only.
+Recipients with identical views share one message. Without
+/root/.argia_mail the run still tracks state and logs — it never
+crashes and never spams.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
 
-from argia.alerts import emailer, monitor
+from argia.alerts import emailer, monitor, subscriptions
 from argia.core.time_utils import MX_TZ
 from argia.store import pg_mirror
 from argia.store.pgq import psql_exec, psql_rows
@@ -46,14 +51,8 @@ CREATE TABLE IF NOT EXISTS alert_state (
     last_seen  timestamptz NOT NULL DEFAULT now(),
     last_sent  timestamptz,
     active     boolean NOT NULL DEFAULT true
-);
-CREATE TABLE IF NOT EXISTS mail_recipient (
-    email   text PRIMARY KEY,
-    enabled boolean NOT NULL DEFAULT true,
-    note    text,
-    added_by text,
-    added_at timestamptz NOT NULL DEFAULT now()
 );''')
+    psql_exec(subscriptions.ENSURE_SQL)
 
 
 def gather_freshness() -> Dict[str, Optional[float]]:
@@ -200,10 +199,13 @@ def persist(active: List[monitor.Alert], sent_keys: List[str],
         psql_exec("\n".join(stmts))
 
 
-def recipients() -> List[str]:
-    return [r[0] for r in psql_rows(
-        "SELECT email FROM mail_recipient WHERE enabled ORDER BY 1;")
-        if r and r[0]]
+def recipients():
+    """Enabled 'maintenance' subscribers as (email, scope) pairs, kept
+    to portal accounts (the list in /setup/ only offers those, but the
+    send-time check holds even if an account was deleted since)."""
+    return subscriptions.only_portal(
+        subscriptions.recipients_for("maintenance"),
+        subscriptions.portal_emails())
 
 
 def main(argv=None) -> int:
@@ -225,18 +227,19 @@ def main(argv=None) -> int:
     rcpt = recipients()
 
     if args.test_mail:
-        if not cfg or not rcpt:
+        emails = [e for e, _ in rcpt]
+        if not cfg or not emails:
             LOG.error("test-mail: config=%s recipients=%d",
-                      bool(cfg), len(rcpt))
+                      bool(cfg), len(emails))
             return 1
         msg = emailer.build_email(
             "[ARGIA] test — alert mailer is live",
             "This is a test from the ARGIA alert mailer on pio06.\n"
             "You receive plant/server/infrastructure alerts here.\n"
             "Manage recipients: https://report.argia.com.mx/setup/",
-            cfg["SMTP_USER"], rcpt)
+            cfg["SMTP_USER"], emails)
         ok = emailer.send(msg, cfg)
-        LOG.info("test mail to %s: %s", rcpt, "SENT" if ok else "FAILED")
+        LOG.info("test mail to %s: %s", emails, "SENT" if ok else "FAILED")
         return 0 if ok else 1
 
     in_window = 6 <= now_mx.hour < 20
@@ -287,22 +290,31 @@ def main(argv=None) -> int:
 
     if (to_send or mail_recovered) and not args.dry_run:
         if cfg and rcpt:
-            n_crit = sum(1 for a in to_send
-                         if a.severity == monitor.SEV_CRIT)
-            subject = (f"[ARGIA] {len(to_send)} alert(s)"
-                       + (f", {n_crit} critical" if n_crit else "")
-                       + (f", {len(mail_recovered)} recovered"
-                          if mail_recovered else "")
-                       + (" — daily digest" if digest and not n_crit
-                          else ""))
-            body = monitor.render_body(to_send, mail_recovered,
-                                       now_mx.strftime("%Y-%m-%d %H:%M"))
-            ok = emailer.send(emailer.build_email(
-                subject, body, cfg["SMTP_USER"], rcpt), cfg)
-            LOG.info("mail %s to %d recipient(s)",
-                     "SENT" if ok else "FAILED", len(rcpt))
-            persist(active, [a.key for a in to_send] if ok else [],
-                    recovered)
+            # one message per distinct filtered view — a plant-scoped
+            # subscriber sees only his plants, never infra noise
+            sent_keys: List[str] = []
+            for emails, g_alerts, g_recovered in \
+                    subscriptions.group_recipients(to_send, mail_recovered,
+                                                   rcpt):
+                n_crit = sum(1 for a in g_alerts
+                             if a.severity == monitor.SEV_CRIT)
+                subject = (f"[ARGIA] {len(g_alerts)} alert(s)"
+                           + (f", {n_crit} critical" if n_crit else "")
+                           + (f", {len(g_recovered)} recovered"
+                              if g_recovered else "")
+                           + (" — daily digest" if digest and not n_crit
+                              else ""))
+                body = monitor.render_body(
+                    g_alerts, g_recovered,
+                    now_mx.strftime("%Y-%m-%d %H:%M"))
+                ok = emailer.send(emailer.build_email(
+                    subject, body, cfg["SMTP_USER"], emails), cfg)
+                LOG.info("mail %s to %d recipient(s) (%d alert(s))",
+                         "SENT" if ok else "FAILED", len(emails),
+                         len(g_alerts))
+                if ok:
+                    sent_keys.extend(a.key for a in g_alerts)
+            persist(active, sorted(set(sent_keys)), recovered)
         else:
             LOG.warning("alerts pending but mail not configured "
                         "(config=%s recipients=%d) — state tracked, "

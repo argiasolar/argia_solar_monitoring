@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA daily PPA performance mail, 19:00 Mexico City time
+[Timer]
+OnCalendar=*-*-* 19:00:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

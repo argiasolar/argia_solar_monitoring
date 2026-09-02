@@ -125,3 +125,18 @@ CREATE TABLE IF NOT EXISTS telemetry (
     PRIMARY KEY (plant_key, inverter_sn, ts_utc)
 );
 CREATE INDEX IF NOT EXISTS idx_tele_ts ON telemetry (ts_utc);
+
+-- Per-channel mail subscriptions (v176). Only portal users are offered
+-- in /setup/; 'plants' is a comma-separated plant-key scope, empty =
+-- all plants (and, for maintenance, infrastructure alerts too).
+CREATE TABLE IF NOT EXISTS mail_subscription (
+    email    text NOT NULL,
+    channel  text NOT NULL
+             CHECK (channel IN ('maintenance','financial','daily')),
+    plants   text NOT NULL DEFAULT '',
+    enabled  boolean NOT NULL DEFAULT true,
+    username text NOT NULL DEFAULT '',
+    added_by text,
+    added_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (email, channel)
+);

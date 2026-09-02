@@ -78,6 +78,16 @@ def build_email(subject: str, body: str, sender: str,
     return msg
 
 
+def build_html_email(subject: str, plain: str, html: str, sender: str,
+                     recipients: List[str]) -> EmailMessage:
+    """Multipart mail: plain-text body plus an HTML alternative (what
+    modern clients render). Pure. The plain part is the fallback AND
+    what a human greps in an archive — never leave it empty."""
+    msg = build_email(subject, plain, sender, recipients)
+    msg.add_alternative(html, subtype="html")
+    return msg
+
+
 def send(msg: EmailMessage, cfg: Dict[str, str],
          timeout: int = 30) -> bool:
     """Deliver via STARTTLS. Returns True on success; logs (without

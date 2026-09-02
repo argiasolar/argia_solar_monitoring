@@ -13,7 +13,9 @@ import pathlib
 from scripts.sync_pr_baseline import diff_rows
 
 V2 = pathlib.Path(__file__).resolve().parents[2]
-SRC = (V2 / "server/bundle/report_gen.py").read_text()
+# encoding pinned: Windows read_text() defaults to cp1250 and the
+# ≥/≤/÷ assertions fail (caught live on the laptop suite, v167)
+SRC = (V2 / "server/bundle/report_gen.py").read_text(encoding="utf-8")
 
 
 class TestTileTooltips:

@@ -146,6 +146,56 @@ prstc30 = {r[0]: f(r[1]) for r in q(
 last_seen = {r[0]: r[1] for r in q(
     "SELECT plant_key, max(prod_date) FROM daily_production GROUP BY plant_key;")}
 
+# ---- per-inverter rolling 30d (management ask 2026-09-02: the solar
+# director analyses inverter by inverter; the raw material was always
+# in telemetry, this aggregates it) ----
+inv_meta = {}   # (key, sn) -> (label, rated_kw)
+for r in q("SELECT plant_key, inverter_sn, coalesce(inverter_label,''),"
+           " coalesce(rated_kw,0) FROM inverter WHERE active;"):
+    if len(r) > 3:
+        inv_meta[(r[0], r[1])] = (r[2], f(r[3]))
+
+_inv_rows = q(
+    "SELECT plant_key, inverter_sn,"
+    " (ts_utc AT TIME ZONE 'America/Mexico_City')::date,"
+    " max(etoday_kwh), count(*) FILTER (WHERE status = 1), count(*)"
+    " FROM telemetry"
+    f" WHERE ts_utc > (DATE '{asof}' - 29)::timestamp"
+    " AT TIME ZONE 'America/Mexico_City'"
+    " GROUP BY 1, 2, 3;")
+
+
+def _inverter_30d(rows):
+    """{plant: {sn: {kwh, on, slots}}} plus per-plant-day slot maxima.
+    An inverter that vanished for a day is judged against the busiest
+    peer that day — silence counts against availability, exactly as in
+    the plant-level metric. Pure aggregation, testable."""
+    per = {}
+    day_slots = {}
+    for r in rows:
+        if len(r) < 6:
+            continue
+        k, sn, d = r[0], r[1], r[2]
+        kwh, on, slots = f(r[3]), int(f(r[4])), int(f(r[5]))
+        per.setdefault(k, {}).setdefault(sn, {'kwh': 0.0, 'on': 0,
+                                              'days': {}})
+        per[k][sn]['kwh'] += kwh
+        per[k][sn]['on'] += on
+        per[k][sn]['days'][d] = slots
+        day_slots[(k, d)] = max(day_slots.get((k, d), 0), slots)
+    out = {}
+    for k, sns in per.items():
+        plant_total_slots = sum(v for (kk, _), v in day_slots.items()
+                                if kk == k)
+        out[k] = {}
+        for sn, a in sns.items():
+            out[k][sn] = {'kwh': round(a['kwh'], 1), 'on': a['on'],
+                          'plant_slots': plant_total_slots}
+    return out
+
+
+inv30 = _inverter_30d(_inv_rows)
+
 
 def expected_month_kwh(k, ym):
     """Expected production for a month without (complete) actuals.
@@ -342,6 +392,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 .pill{display:inline-block;padding:2px 9px;border-radius:11px;font-size:12.5px;
  background:var(--green-bg);color:var(--green-tx);font-variant-numeric:tabular-nums;}
 .pill.warn{background:var(--amber-bg);color:var(--amber-tx);}
+.pill.bad{background:#fdefee;color:#b3261e;}
 details{font-size:13px;color:var(--ink2);}
 details summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--ink);}
 details[open] summary{margin-bottom:6px;}
@@ -789,6 +840,61 @@ def lines2_svg(mlist, s1v, s2v, n1, n2, unit, scale=1.0, width=980, height=240):
     return ''.join(out)
 
 
+def _median(vals):
+    s = sorted(vals)
+    n = len(s)
+    if not n:
+        return None
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def inverter_card(k):
+    """Per-inverter rolling-30d table: energy, specific yield, index vs
+    plant median, availability. The solar director's inverter view,
+    computed from the telemetry we already store — red/amber use his
+    thresholds (index < 0.90 review, 0.90–0.96 monitor)."""
+    stats = inv30.get(k) or {}
+    if not stats:
+        return (f'<div class="card"><h2>{t("Inverters — last 30 days","Inversores — últimos 30 días")}</h2>'
+                f'<p class="note">{t("No inverter telemetry in the window.","Sin telemetría de inversores en la ventana.")}</p></div>')
+    yields = {}
+    for sn, a in stats.items():
+        rated = (inv_meta.get((k, sn)) or ('', 0))[1]
+        yields[sn] = a['kwh'] / rated if rated > 0 and a['kwh'] > 0 else None
+    med = _median([y for y in yields.values() if y is not None])
+    rows = []
+    for sn in sorted(stats, key=lambda s: -(yields.get(s) or 0)):
+        a = stats[sn]
+        label, rated = inv_meta.get((k, sn)) or (sn, 0)
+        sy = yields.get(sn)
+        idx = sy / med if (sy is not None and med) else None
+        av = a['on'] / a['plant_slots'] if a['plant_slots'] else None
+        if idx is None:
+            pill = '—'
+        else:
+            cls = ('' if idx >= 0.96 else 'warn' if idx >= 0.90 else 'bad')
+            pill = (f'<span class="pill {cls}">{idx:.3f}</span>' if cls else
+                    f'<span class="pill">{idx:.3f}</span>')
+        name = html.escape(label or sn)
+        sub = html.escape(sn) + (f' · {rated:,.0f} kW' if rated else '')
+        sy_txt = f'{sy:,.1f}' if sy is not None else '—'
+        av_txt = f'{av*100:,.1f}%' if av is not None else '—'
+        rows.append(f'<tr><td>{name}<br><span class="sub">{sub}</span></td>'
+                    f'<td class="num">{a["kwh"]:,.0f}</td>'
+                    f'<td class="num">{sy_txt}</td>'
+                    f'<td class="num">{pill}</td>'
+                    f'<td class="num">{av_txt}</td></tr>')
+    tip = ti("Rolling 30 days ending at the data edge (fixed window — the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) — same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too.",
+             "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí.")
+    return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Inverters — last 30 days","Inversores — últimos 30 días")}{tip}</h2>'
+            f'<table><tr><th>{t("Inverter","Inversor")}</th>'
+            f'<th class="num">kWh</th>'
+            f'<th class="num">{t("kWh/kW","kWh/kW")}</th>'
+            f'<th class="num">{t("Index vs median","Índice vs mediana")}</th>'
+            f'<th class="num">{t("Availability","Disponibilidad")}</th></tr>'
+            + ''.join(rows) + '</table></div>')
+
+
 # ================= page: plant performance (PPA + CAPEX) =================
 def plant_page(k):
     p = plants[k]
@@ -943,6 +1049,8 @@ def plant_page(k):
     body.append(f'<div class="card"><h2>{t("Daily production — selected range","Producción diaria — rango elegido")}</h2>'
                 f'<p class="note"><span id="d_unit">kWh</span>{rev_leg}</p>'
                 '<div id="dchart"></div></div>')
+
+    body.append(inverter_card(k))
 
     y12, yfl = year_months_with_flags([k])
     cml = [contract.get((k, m), {}).get('kwh', 0.0) / 1000.0 for m, _ in y12]

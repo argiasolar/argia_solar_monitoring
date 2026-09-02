@@ -101,6 +101,54 @@ class TestEnergyAtRisk:
         assert "≤ <b id=\"r_avloss_v\"" in SRC
 
 
+def _exec_seg(start, stop, ns):
+    seg = SRC[SRC.index(start):SRC.index(stop)]
+    exec(compile(seg, "report_gen_seg", "exec"), ns)
+    return ns
+
+
+class TestInverter30d:
+    """The per-inverter rolling-30d aggregation (v169) — executed from
+    the report_gen source, since that file only imports on pio06."""
+
+    def _fns(self):
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0}
+        _exec_seg("def _inverter_30d", "inv30 = _inverter_30d", ns)
+        _exec_seg("def _median", "def inverter_card", ns)
+        return ns
+
+    def test_energy_sums_daily_counter_maxima(self):
+        fns = self._fns()
+        rows = [["P", "A", "2026-08-01", "100.5", "10", "10"],
+                ["P", "A", "2026-08-02", "99.5", "10", "10"]]
+        assert fns["_inverter_30d"](rows)["P"]["A"]["kwh"] == 200.0
+
+    def test_silent_inverter_judged_against_busiest_peer(self):
+        fns = self._fns()
+        # B reported nothing on day 2: availability must count that
+        # day's slots against it (the director's NL1 lesson in reverse)
+        rows = [["P", "A", "d1", "10", "10", "10"],
+                ["P", "B", "d1", "10", "10", "10"],
+                ["P", "A", "d2", "10", "12", "12"]]
+        out = fns["_inverter_30d"](rows)
+        assert out["P"]["A"] == {"kwh": 20.0, "on": 22, "plant_slots": 22}
+        assert out["P"]["B"]["on"] == 10          # 10 of 22 -> ~45%
+        assert out["P"]["B"]["plant_slots"] == 22
+
+    def test_median_odd_even_empty(self):
+        fns = self._fns()
+        assert fns["_median"]([3, 1, 2]) == 2
+        assert fns["_median"]([4, 1, 3, 2]) == 2.5
+        assert fns["_median"]([]) is None
+
+    def test_card_uses_directors_thresholds_and_median(self):
+        assert "idx >= 0.96 else 'warn' if idx >= 0.90" in SRC
+        assert "Inverters — last 30 days" in SRC
+        assert "specific yield ÷ the plant median" in SRC
+        # fixed window disclosure — the date picker does not move it
+        assert "the date picker above does not move it" in SRC
+
+
 class TestPrBaselineEditor:
     def test_sql_builder_and_bounds(self):
         import server.bundle.finance_core as fin

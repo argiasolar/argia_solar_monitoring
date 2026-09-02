@@ -67,7 +67,8 @@ class TestMailShape:
 
 class TestReportGenWindowParams:
     def test_financial_page_reads_d0_d1_from_url(self):
-        src = (V2 / "server/bundle/report_gen.py").read_text()
+        # encoding pinned — Windows defaults to cp1250 (v167 lesson)
+        src = (V2 / "server/bundle/report_gen.py").read_text(encoding="utf-8")
         assert "location.hash" in src and "location.search" in src
         assert "URLSearchParams" in src
         # strict date shape — garbage in the fragment must not stick

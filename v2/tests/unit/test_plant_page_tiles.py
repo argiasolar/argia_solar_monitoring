@@ -93,17 +93,21 @@ class TestWeatherExpectedLine:
 
 
 class TestEnergyAtRisk:
-    def test_at_risk_uses_expected_times_unavailability(self):
+    def test_loss_is_its_own_tile_now(self):
+        # round 3: "maybe it should be a new tile like it used to be"
         assert "avloss+=X[i]*(1-a)" in SRC
-        assert "r_avloss" in SRC and "est. unavailability loss" in SRC
+        assert 'id="t_loss"' in SRC
+        assert "Est. loss — unavailability" in SRC
 
-    def test_at_risk_is_presented_as_upper_bound(self):
-        assert "≤ <b id=\"r_avloss_v\"" in SRC
-
-    def test_loss_is_priced_for_ppa_plants(self):
-        # round 2: loss must show pesos, not just kWh
-        assert "s+=' · ~$'+nf(avloss*TARIFF)+' MXN'" in SRC
+    def test_loss_is_priced_and_labeled_upper_bound(self):
+        assert "'≤ ~$'+nf(avloss*TARIFF)+' MXN'" in SRC
         assert "const TARIFF={p[\"tariff\"] if is_ppa else 0}" in SRC
+        assert "upper bound — comms gaps count as loss" in SRC
+        assert "the ceiling, not the bill" in SRC      # tooltip honesty
+
+    def test_zero_exposure_reads_as_zero_not_dash(self):
+        assert "'≈ 0'" in SRC
+        assert "no measurable exposure in range" in SRC
 
 
 class TestRound2Cosmetics:
@@ -113,6 +117,19 @@ class TestRound2Cosmetics:
 
     def test_inverter_index_shown_as_percent(self):
         assert "{idx*100:,.1f}%</span>" in SRC
+
+
+class TestRound3Layout:
+    def test_hovered_tile_rises_above_its_neighbours(self):
+        # the production tooltip was buried under the PR tile
+        assert ".tile:hover{z-index:70;}" in SRC
+
+    def test_info_icon_pinned_level_with_title(self):
+        assert ".tlabel .ti{margin-left:auto;align-self:flex-start" in SRC
+
+    def test_card_tooltips_anchor_to_the_card_not_the_page(self):
+        # the inverter-card tooltip rendered as a bar at the page top
+        assert ".card{position:relative;}" in SRC
 
 
 def _exec_seg(start, stop, ns):

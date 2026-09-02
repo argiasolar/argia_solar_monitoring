@@ -358,8 +358,9 @@ h1.sect{font-size:19px;font-weight:700;margin:28px 0 10px;color:#1c2733;}
 .flinks a{color:var(--ink2);text-decoration:none;display:inline-flex;gap:6px;align-items:center;}
 .flinks a:hover{color:var(--s1);}
 .flinks svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0;}
-.tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 16px;}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0;}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:15px 18px;}
+.tile:hover{z-index:70;}
 .tlabel{font-size:13px;color:var(--ink2);}
 .tval{font-size:23px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;}
 .thero{font-size:27px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;}
@@ -385,8 +386,13 @@ svg{max-width:100%;height:auto;display:block;}
  border-radius:50%;border:1px solid var(--axis);color:var(--muted);font-size:10px;
  font-weight:600;cursor:help;margin-left:6px;vertical-align:1px;flex:none;}
 .tlabel{display:flex;align-items:center;flex-wrap:wrap;}
-.tipbox{display:none;position:absolute;z-index:40;top:34px;left:8px;right:8px;
- background:#20293a;color:#eef1f5;border-radius:8px;padding:10px 12px;font-size:12px;
+/* icon pinned right, level with the title's first line, wherever the
+   text wraps (Tomasz round 3) */
+.tlabel .ti{margin-left:auto;align-self:flex-start;margin-top:1px;}
+.card{position:relative;}   /* card-level tooltips anchor to the card, not the page */
+.card h2 .ti{margin-left:8px;}
+.tipbox{display:none;position:absolute;z-index:80;top:38px;left:10px;right:10px;
+ background:#20293a;color:#eef1f5;border-radius:8px;padding:11px 13px;font-size:12.5px;
  line-height:1.5;font-weight:400;box-shadow:0 8px 24px rgba(16,24,40,.28);}
 .ti:hover+.tipbox,.ti:focus+.tipbox,.tipbox:hover{display:block;}
 .twhy{font-size:12.5px;color:#8a6d00;line-height:1.4;}
@@ -607,11 +613,15 @@ function compute(){
    semTile('t_avail',av>=SLA-0.03?'warn':'bad');
    why('r_avwhy','low-availability days with energy missing too — check grid/site events. Worst days: '+(worst||'—'));}
  }else{$('r_sla').textContent='—';semTile('t_avail','');why('r_avwhy','');}
- const al=$('r_avloss');
- if(al){if(avloss>=1){let s=avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';
-   if(TARIFF>0)s+=' · ~$'+nf(avloss*TARIFF)+' MXN';
-   $('r_avloss_v').textContent=s;al.hidden=false;}
-  else al.hidden=true;}
+ const ls=$('r_loss');
+ if(ls){const lsub=$('r_loss_sub');
+  if(avloss>=1){const kwh=avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';
+   if(TARIFF>0){ls.textContent='≤ ~$'+nf(avloss*TARIFF)+' MXN';
+    if(lsub)lsub.textContent=kwh+' · upper bound — comms gaps count as loss';}
+   else{ls.textContent='≤ '+kwh;
+    if(lsub)lsub.textContent='upper bound — comms gaps count as loss';}
+  }else{ls.textContent='≈ 0';
+   if(lsub)lsub.textContent='no measurable exposure in range';}}
  if(dqn){const q2=dqf/dqn;$('r_dq').textContent=(100*q2).toFixed(0)+'%';}
  else{$('r_dq').textContent='—';}
  semTile('t_dq','');
@@ -1062,10 +1072,17 @@ def plant_page(k):
                  f'<div class="tsub">SLA {plant_sla*100:.0f}%: <b id="r_sla">—</b> · '
                  + (t("configured", "configurado") if p.get('sla')
                     else t("assumed target", "objetivo supuesto"))
-                 + f'<span id="r_avloss" hidden> · {t("est. unavailability loss","pérdida est. por indisponibilidad")} '
-                 f'≤ <b id="r_avloss_v"></b></span></div></div>'
+                 + '</div></div>'
                  f'<div class="face back"><div class="bwhy">{t("why this color","por qué este color")}</div>'
                  f'<div class="twhy" id="r_avwhy"></div></div></div></div>')
+    # dedicated loss tile (Tomasz round 3: "maybe it should be a new
+    # tile like it used to be in reports before")
+    tiles.append(f'<div class="tile" id="t_loss"><div class="tlabel">'
+                 f'{t("Est. loss — unavailability","Pérdida est. — indisponibilidad")}'
+                 + ti("Upper bound on what the unavailable slots could have cost over the selected range: weather-expected kWh × the unavailable share, day by day, priced at the PPA tariff. Communication gaps count as unavailable, so when the availability verdict says REVIEW the energy actually arrived and the real loss is near zero — this figure is the ceiling, not the bill.",
+                      "Cota superior de lo que los intervalos no disponibles pudieron costar en el rango: kWh esperados por clima × la fracción no disponible, día por día, valuada a la tarifa PPA. Los huecos de comunicación cuentan como no disponible, así que cuando el veredicto dice REVIEW la energía sí llegó y la pérdida real es casi cero — esta cifra es el techo, no la factura.")
+                 + f'</div><div class="tval" id="r_loss">—</div>'
+                 f'<div class="tsub" id="r_loss_sub">{t("upper bound","cota superior")}</div></div>')
     tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Telemetry coverage, selected range","Cobertura de telemetría, rango elegido")}'
                  + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Informational — never colored.",
                       "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Informativo — nunca en color.")

@@ -1225,19 +1225,13 @@ def plant_page(k):
                 + f'const ASOF="{asof}";</script>' + PLANT_JS)
 
     if is_ppa or clist or rlist:
-        ctr_word = t("Contract", "Contrato") if is_ppa else t("Expected", "Esperado")
+        # (the 13-month "Actual vs. contracted" line chart that used to
+        # sit here was removed 2026-09-02 — it duplicated the monthly
+        # production card directly above and confused readers, and the
+        # in-progress month's tiny actual made the actual line nosedive)
         ms = [m for m, _ in mrows][-13:]
         cvals = {m: contract.get((k, m), {}).get('kwh', 0.0) for m in ms}
         avals = {m: monthly_kwh.get((k, m), 0.0) for m in ms}
-        title_ln = (t("Actual vs. contracted energy", "Energía real vs. contratada") if is_ppa
-                    else t("Actual vs. expected energy", "Energía real vs. esperada"))
-        body.append(f'<div class="card"><h2>{title_ln}</h2>'
-                    '<p class="note">MWh · 13 m</p>'
-                    f'<div class="legend"><span><span class="key" style="background:var(--s1)"></span>'
-                    f'{t("Actual","Real")}</span><span><span class="key" style="background:var(--s2)"></span>'
-                    f'{ctr_word}</span></div>'
-                    + lines2_svg(ms, avals, cvals, 'Act', 'Exp' if not is_ppa else 'Ctr',
-                                 'MWh', scale=1000.0) + '</div>')
         rows = []
         ta = tc = trv = 0.0
         av_ms = []

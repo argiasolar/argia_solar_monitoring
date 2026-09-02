@@ -275,6 +275,15 @@ class TestRound4:
         assert mon.count("100.0 * mtd_pm / mtd_exp") == 2  # PPA + CAPEX
 
 
+class TestRound5:
+    def test_duplicate_actual_vs_contract_chart_removed(self):
+        # duplicated the monthly production card right above it
+        assert "Actual vs. contracted energy" not in SRC
+        assert "Actual vs. expected energy" not in SRC
+        # the 6-month table fed by the same data stays
+        assert "Last 6 months" in SRC
+
+
 class TestPrBaselineEditor:
     def test_sql_builder_and_bounds(self):
         import server.bundle.finance_core as fin

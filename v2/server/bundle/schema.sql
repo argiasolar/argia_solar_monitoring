@@ -89,6 +89,25 @@ CREATE TABLE IF NOT EXISTS loan_schedule (
 );
 
 -- 5-minute telemetry, common columns only; full CSVs stay archived on disk
+-- per-MPPT / per-string daily reduction of Growatt getMAXHistory
+-- (v170; written by scripts/string_daily.py, argia-strings.timer)
+CREATE TABLE IF NOT EXISTS string_daily (
+    plant_key    text NOT NULL,
+    inverter_sn  text NOT NULL,
+    prod_date    date NOT NULL,
+    channel      text NOT NULL,   -- 'pv1'..'pv16' or 's1'..'s32'
+    kind         text NOT NULL CHECK (kind IN ('mppt','string')),
+    energy_kwh   numeric(10,3),   -- mppt: epvXToday counter; string: allocated by current share
+    q_ah         numeric(12,3),   -- string only: integrated current
+    v_avg        numeric(8,2),    -- mppt only: mean active voltage
+    share        numeric(6,4),    -- string only: share of its MPPT pair
+    samples      int NOT NULL,
+    str_unmatch  int,
+    str_unblance int,
+    loaded_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (plant_key, inverter_sn, prod_date, channel)
+);
+
 CREATE TABLE IF NOT EXISTS telemetry (
     ts_utc          timestamptz NOT NULL,
     plant_key       text NOT NULL,

@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA per-string daily collector (Growatt getMAXHistory reduction)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh strings string_daily.py

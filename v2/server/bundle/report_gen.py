@@ -376,7 +376,7 @@ svg{max-width:100%;height:auto;display:block;}
 .bar.exp{fill:#c9ced4;}
 .line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
 .line.s1{stroke:var(--s1);} .line.s2{stroke:var(--s2);} .line.rev{stroke:#1e8e3e;}
-.line.wx{stroke:#8a94a3;stroke-dasharray:5 4;}
+.line.wx{stroke:#eab308;stroke-dasharray:5 4;stroke-width:2.5;}
 .tile.good{background:#f2faf4;border-color:#bfe3c9;}
 .tile.warn{background:#fdf6e7;border-color:#eed7a4;}
 .tile.bad{background:#fdefee;border-color:#f0b9b4;}
@@ -389,8 +389,22 @@ svg{max-width:100%;height:auto;display:block;}
  background:#20293a;color:#eef1f5;border-radius:8px;padding:10px 12px;font-size:12px;
  line-height:1.5;font-weight:400;box-shadow:0 8px 24px rgba(16,24,40,.28);}
 .ti:hover+.tipbox,.ti:focus+.tipbox,.tipbox:hover{display:block;}
-.twhy{font-size:12px;margin-top:4px;color:#8a6d00;line-height:1.35;}
+.twhy{font-size:12.5px;color:#8a6d00;line-height:1.4;}
 .tile.bad .twhy{color:#b3261e;}
+/* flip tiles: amber/red tiles turn around on hover and show WHY on the
+   back (management ask 2026-09-02). Only tiles carrying a reason
+   (.haswhy) flip; green tiles stay put so the info tooltip stays
+   reachable. */
+.tile.flip{perspective:800px;}
+.flipin{position:relative;transform-style:preserve-3d;
+ transition:transform .55s cubic-bezier(.4,.1,.2,1) .12s;}
+.tile.haswhy:hover .flipin,.tile.haswhy:focus-within .flipin{transform:rotateY(180deg);}
+.face{backface-visibility:hidden;-webkit-backface-visibility:hidden;}
+.face.front{position:relative;}
+.face.back{position:absolute;inset:0;transform:rotateY(180deg);
+ overflow:auto;display:flex;flex-direction:column;justify-content:center;gap:3px;}
+.bwhy{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+@media print{.face.back{display:none!important;}}
 @media print{.ti,.tipbox{display:none!important;}}
 .dot{stroke:var(--surface);stroke-width:2;} .dot.s1{fill:var(--s1);} .dot.s2{fill:var(--s2);}
 .hit{fill:transparent;}
@@ -561,10 +575,14 @@ function compute(){
  $('r_avail').textContent=av!=null?(100*av).toFixed(1)+'%':'—';
  const rr=$('r_range');rr.textContent=d0+' – '+d1;
  document.querySelectorAll('.rdays').forEach(e=>e.textContent=days+' d');
- const semTile=(id,cls)=>{const e=$(id);if(e)e.className='tile'+(cls?' '+cls:'');};
+ const semTile=(id,cls)=>{const e=$(id);if(!e)return;
+  e.classList.remove('good','warn','bad');if(cls)e.classList.add(cls);};
  $('r_co2').textContent=(prod/1000*CO2F).toFixed(1);
- // diagnostic "why" lines for colored tiles (numbers+dates, EN only)
- const why=(id,txt)=>{const e=$(id);if(e){e.textContent=txt?'⚠ '+txt:'';e.hidden=!txt;}};
+ // diagnostic "why" for colored tiles (numbers+dates, EN only) — the
+ // text lives on the tile's BACK face; .haswhy arms the hover flip
+ const why=(id,txt)=>{const e=$(id);if(!e)return;
+  e.textContent=txt?'⚠ '+txt:'';
+  const tl=e.closest('.tile');if(tl)tl.classList.toggle('haswhy',!!txt);};
  const wxPct=xsum>0?100*exsum/xsum:null;
  if(C&&ctr>0){const pct=prod/ctr;
   $('r_vsctr').textContent=' · '+(100*pct).toFixed(0)+'% '+VSL;
@@ -590,8 +608,9 @@ function compute(){
    why('r_avwhy','low-availability days with energy missing too — check grid/site events. Worst days: '+(worst||'—'));}
  }else{$('r_sla').textContent='—';semTile('t_avail','');why('r_avwhy','');}
  const al=$('r_avloss');
- if(al){if(avloss>=1){$('r_avloss_v').textContent=
-   avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';al.hidden=false;}
+ if(al){if(avloss>=1){let s=avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';
+   if(TARIFF>0)s+=' · ~$'+nf(avloss*TARIFF)+' MXN';
+   $('r_avloss_v').textContent=s;al.hidden=false;}
   else al.hidden=true;}
  if(dqn){const q2=dqf/dqn;$('r_dq').textContent=(100*q2).toFixed(0)+'%';}
  else{$('r_dq').textContent='—';}
@@ -719,13 +738,17 @@ MONTH_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct'
 
 
 def columns_svg(pairs, unit, scale=1.0, width=980, height=240, lab_fmt=None,
-                show_values=False, month_names=False, flags=None):
-    """flags: optional list of bools parallel to pairs — True renders the column
-    grey ('expected' month) instead of brand blue."""
+                show_values=False, month_names=False, flags=None,
+                cur_expected=None):
+    """flags: optional list parallel to pairs — True renders the column
+    grey ('expected' month) instead of brand blue; 2 marks the
+    in-progress month, drawn blue OVER its full expectation (grey)
+    when ``cur_expected`` (same unit as pairs, pre-scale) is given."""
     if not pairs:
         return '<p class="note">—</p>'
     vals = [f(v) / scale for _, v in pairs]
-    vmax = max(vals) or 1
+    cur_exp = (cur_expected or 0.0) / scale
+    vmax = max(vals + [cur_exp]) or 1
     tks = yticks(vmax)
     pad_l, pad_b, pad_t = 50, 28, (30 if show_values else 12)
     W, H = width, height
@@ -744,15 +767,27 @@ def columns_svg(pairs, unit, scale=1.0, width=980, height=240, lab_fmt=None,
         x = pad_l + i * slot + (slot - bw) / 2
         y = pad_t + ph - h
         r = min(4, bw / 2, h)
-        cls = 'bar exp' if (flags and flags[i]) else 'bar'
-        tag = ' (expected)' if (flags and flags[i]) else ''
+        is_cur = flags and flags[i] == 2 and cur_exp > 0
+        if is_cur:
+            eh = ph * min(cur_exp, tks[-1]) / tks[-1]
+            ey = pad_t + ph - eh
+            er = min(4, bw / 2, eh)
+            out.append(f'<path class="bar exp" d="M{x:.1f},{ey+er:.1f} q0,-{er} {er},-{er} h{bw-2*er:.1f} '
+                       f'q{er},0 {er},{er} v{max(eh-er,0):.1f} h-{bw:.1f} z">'
+                       f'<title>{m} expected (full month): {cur_exp:,.1f} {unit}</title></path>')
+        cls = 'bar exp' if (flags and flags[i] is True) else 'bar'
+        tag = ' (expected)' if (flags and flags[i] is True) else (
+            ' (so far)' if is_cur else '')
         out.append(f'<path class="{cls}" d="M{x:.1f},{y+r:.1f} q0,-{r} {r},-{r} h{bw-2*r:.1f} '
                    f'q{r},0 {r},{r} v{max(h-r,0):.1f} h-{bw:.1f} z">'
-                   f'<title>{m}{tag}: {val:,.1f} {unit}</title></path>')
+                   f'<title>{m}{tag}: {val:,.1f} {unit}'
+                   + (f' of {cur_exp:,.1f} expected' if is_cur else '')
+                   + '</title></path>')
         if show_values:
-            ly = max(y - 6, 12)   # clamp so tall columns never push the label out of view
+            ly = max((min(y, pad_t + ph - (ph * min(cur_exp, tks[-1]) / tks[-1])) if is_cur else y) - 6, 12)
+            lbl = f'{val:,.0f}/{cur_exp:,.0f}' if is_cur else f'{val:,.0f}'
             out.append(f'<text x="{x+bw/2:.1f}" y="{ly:.1f}" class="tick" '
-                       f'text-anchor="middle" font-weight="600">{val:,.0f}</text>')
+                       f'text-anchor="middle" font-weight="600">{lbl}</text>')
     ev = max(1, n // 10)
     for i, (m, _) in enumerate(pairs):
         if i % ev == 0:
@@ -923,8 +958,8 @@ def inverter_card(k):
             pill = '—'
         else:
             cls = ('' if idx >= 0.96 else 'warn' if idx >= 0.90 else 'bad')
-            pill = (f'<span class="pill {cls}">{idx:.3f}</span>' if cls else
-                    f'<span class="pill">{idx:.3f}</span>')
+            pill = (f'<span class="pill {cls}">{idx*100:,.1f}%</span>' if cls
+                    else f'<span class="pill">{idx*100:,.1f}%</span>')
         name = html.escape(label or sn)
         sub = html.escape(sn) + (f' · {rated:,.0f} kW' if rated else '')
         sy_txt = f'{sy:,.1f}' if sy is not None else '—'
@@ -980,13 +1015,15 @@ def plant_page(k):
              f'<div class="tile"><div class="tlabel">{t("Capacity","Capacidad")}</div>'
              f'<div class="tval">{p["kwp"]:,.1f} <span class="unit">kWp DC</span></div>'
              f'<div class="tsub">{p["brand"]}</div></div>',
-             f'<div class="tile" id="t_prod"><div class="tlabel">{t("Production, selected range","Producción, rango elegido")}'
-             + ti("Metered generation summed over the selected days. '% vs contract' compares it to the contracted monthly volume prorated per day. Green ≥ 95% of contract, amber ≥ 80%, red below.",
-                  "Generación medida sumada en el rango elegido. '% vs contrato' la compara con el volumen mensual contratado prorrateado por día. Verde ≥ 95% del contrato, ámbar ≥ 80%, rojo debajo.")
+             f'<div class="tile flip" id="t_prod"><div class="flipin"><div class="face front">'
+             f'<div class="tlabel">{t("Production, selected range","Producción, rango elegido")}'
+             + ti("Metered generation summed over the selected days. '% vs contract' compares it to the contracted monthly volume prorated per day. Green ≥ 95% of contract, amber ≥ 80%, red below. A colored tile flips on hover to explain itself.",
+                  "Generación medida sumada en el rango elegido. '% vs contrato' la compara con el volumen mensual contratado prorrateado por día. Verde ≥ 95% del contrato, ámbar ≥ 80%, rojo debajo. Un mosaico en color gira al pasar el cursor y se explica.")
              + f'</div><div class="tval"><span id="r_prod">—</span> <span class="unit">MWh</span></div>'
              f'<div class="tsub"><span id="r_range"></span> · <span class="rdays"></span>'
-             f'<span id="r_vsctr"></span></div>'
-             f'<div class="twhy" id="r_prodwhy" hidden></div></div>']
+             f'<span id="r_vsctr"></span></div></div>'
+             f'<div class="face back"><div class="bwhy">{t("why this color","por qué este color")}</div>'
+             f'<div class="twhy" id="r_prodwhy"></div></div></div></div>']
     if rlist:
         money_lab = (t("Est. revenue, selected range", "Ingreso est., rango elegido") if is_ppa
                      else t("Est. savings, selected range", "Ahorro est., rango elegido"))
@@ -1017,16 +1054,18 @@ def plant_page(k):
         tiles.append(f'<div class="tile {pcls}"><div class="tlabel">{t("Investment recovered","Inversión recuperada")}</div>'
                      f'<div class="tval">{pct:,.0f}%</div>'
                      f'<div class="tsub">{life_sav/1e6:,.2f} / {p["inv"]/1e6:,.2f} M MXN{eta}</div></div>')
-    tiles.append(f'<div class="tile" id="t_avail"><div class="tlabel">{t("Availability, selected range","Disponibilidad, rango elegido")}'
+    tiles.append(f'<div class="tile flip" id="t_avail"><div class="flipin"><div class="face front">'
+                 f'<div class="tlabel">{t("Availability, selected range","Disponibilidad, rango elegido")}'
                  + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor — a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. When availability misses the target but metered energy still met the weather expectation for the same days, the verdict shows REVIEW instead of BREACH: the plant produced through the gap, so it was almost certainly telemetry, not downtime. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
                       "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador — un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. Si la disponibilidad no llega al objetivo pero la energía medida cumplió la expectativa por clima de esos mismos días, el veredicto muestra REVIEW en vez de BREACH: la planta produjo durante el hueco, así que casi seguro fue telemetría, no una parada. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
                  + f'</div><div class="tval" id="r_avail">—</div>'
                  f'<div class="tsub">SLA {plant_sla*100:.0f}%: <b id="r_sla">—</b> · '
                  + (t("configured", "configurado") if p.get('sla')
                     else t("assumed target", "objetivo supuesto"))
-                 + f'<span id="r_avloss" hidden> · {t("energy at risk","energía en riesgo")} '
-                 f'≤ <b id="r_avloss_v"></b></span></div>'
-                 f'<div class="twhy" id="r_avwhy" hidden></div></div>')
+                 + f'<span id="r_avloss" hidden> · {t("est. unavailability loss","pérdida est. por indisponibilidad")} '
+                 f'≤ <b id="r_avloss_v"></b></span></div></div>'
+                 f'<div class="face back"><div class="bwhy">{t("why this color","por qué este color")}</div>'
+                 f'<div class="twhy" id="r_avwhy"></div></div></div></div>')
     tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Telemetry coverage, selected range","Cobertura de telemetría, rango elegido")}'
                  + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Informational — never colored.",
                       "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Informativo — nunca en color.")
@@ -1070,12 +1109,16 @@ def plant_page(k):
             else:
                 why = t("sustained deficit vs clean baseline even after temperature — points to soiling or string-level losses; see the inverter table",
                         "déficit sostenido vs línea base limpia aun tras temperatura — apunta a suciedad o pérdidas por string; vea la tabla de inversores")
-            pr_why = f'<div class="twhy">⚠ {why}</div>'
-        tiles.append(f'<div class="tile {prc}" id="t_pr"><div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
+            pr_why = (f'<div class="face back"><div class="bwhy">'
+                      f'{t("why this color","por qué este color")}</div>'
+                      f'<div class="twhy">⚠ {why}</div></div>')
+        tiles.append(f'<div class="tile flip {prc}{" haswhy" if pr_why else ""}" id="t_pr">'
+                     f'<div class="flipin"><div class="face front">'
+                     f'<div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
                      + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Hot cells depress PR (about −0.7 pts per °C), so the temp-normalized figure (PR at 25 °C cell) is also shown, and the color and drift are judged on it — a hot month is not a fault. Baseline is this plant's clean-state PR from the Plant configuration (editable by admins in Setup → Finance); the gap to it approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
                           "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. Las celdas calientes deprimen el PR (≈ −0.7 pts por °C), así que también se muestra la cifra normalizada por temperatura (PR a celda de 25 °C), y el color y la deriva se juzgan con ella — un mes caluroso no es una falla. La línea base es el PR en estado limpio de la configuración de planta (editable por administradores en Setup → Finanzas); la brecha contra ella aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
                      + f'</div><div class="tval">{pr*100:,.1f}%</div>'
-                     f'<div class="tsub">{pr_sub}</div>{pr_why}</div>')
+                     f'<div class="tsub">{pr_sub}</div></div>{pr_why}</div></div>')
     tiles.append('</div>')
 
     warn = ''
@@ -1112,7 +1155,7 @@ def plant_page(k):
         exp_word = t("contract (daily)", "contrato (diario)") if is_ppa else t("expected (daily)", "esperado (diario)")
         rev_leg += f' · <span class="key" style="background:var(--s2)"></span>{exp_word}'
     if xlist:
-        rev_leg += (' · <span class="key" style="background:#8a94a3"></span>'
+        rev_leg += (' · <span class="key" style="background:#eab308"></span>'
                     + t("expected from weather (kWp × irradiance × typical PR, self-calibrated)",
                         "esperado por clima (kWp × irradiancia × PR típico, autocalibrado)"))
     if rlist:
@@ -1157,7 +1200,8 @@ def plant_page(k):
                 + ';const AV=' + json.dumps(avmap)
                 + ';const DQ=' + json.dumps(dqmap)
                 + f';const VSL="{vs_lab}";const CO2F={CO2_T_PER_MWH};'
-                + f'const SLA={plant_sla};const ASOF="{asof}";</script>' + PLANT_JS)
+                + f'const SLA={plant_sla};const TARIFF={p["tariff"] if is_ppa else 0};'
+                + f'const ASOF="{asof}";</script>' + PLANT_JS)
 
     if is_ppa or clist or rlist:
         ctr_word = t("Contract", "Contrato") if is_ppa else t("Expected", "Esperado")
@@ -1429,12 +1473,11 @@ def landing_page():
  <div class="tval">{mtd/1000:,.0f} <span class="unit">MWh</span></div>
  <div class="tsub">{this_m} → {asof[8:]}</div></div>
 </div>''')
-    y12, yfl, _ = year_months_with_flags(list(plants))
-    yfl = [True if v is True else False for v in yfl]   # fleet chart: current month stays a plain blue bar
+    y12, yfl, fleet_cur_exp = year_months_with_flags(list(plants))
     body.append(f'<div class="card"><h2>{t("Monthly production — whole fleet","Producción mensual — flota completa")} · {asof[:4]}</h2>'
-                f'<p class="note">MWh · <span style="color:#9aa1a8">&#9632;</span> {t("grey = expected (contract / prior year)","gris = esperado (contrato / año anterior)")}</p>'
+                f'<p class="note">MWh · <span style="color:#9aa1a8">&#9632;</span> {t("grey = expected (contract / prior year); current month: actual over expected","gris = esperado (contrato / año anterior); mes en curso: real sobre esperado")}</p>'
                 + columns_svg(y12, 'MWh', scale=1000.0, show_values=True, month_names=True,
-                              flags=yfl)
+                              flags=yfl, cur_expected=fleet_cur_exp)
                 + '</div>')
     ic_fin = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round">'
               '<path d="M3 21h18M6 21V10M11 21V4M16 21v-8M21 21V7"/></svg>')

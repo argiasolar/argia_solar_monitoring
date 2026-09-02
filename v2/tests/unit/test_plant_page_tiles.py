@@ -95,10 +95,24 @@ class TestWeatherExpectedLine:
 class TestEnergyAtRisk:
     def test_at_risk_uses_expected_times_unavailability(self):
         assert "avloss+=X[i]*(1-a)" in SRC
-        assert "r_avloss" in SRC and "energy at risk" in SRC
+        assert "r_avloss" in SRC and "est. unavailability loss" in SRC
 
     def test_at_risk_is_presented_as_upper_bound(self):
         assert "≤ <b id=\"r_avloss_v\"" in SRC
+
+    def test_loss_is_priced_for_ppa_plants(self):
+        # round 2: loss must show pesos, not just kWh
+        assert "s+=' · ~$'+nf(avloss*TARIFF)+' MXN'" in SRC
+        assert "const TARIFF={p[\"tariff\"] if is_ppa else 0}" in SRC
+
+
+class TestRound2Cosmetics:
+    def test_weather_expected_line_is_yellow(self):
+        assert ".line.wx{stroke:#eab308" in SRC
+        assert 'style="background:#eab308"' in SRC   # legend key matches
+
+    def test_inverter_index_shown_as_percent(self):
+        assert "{idx*100:,.1f}%</span>" in SRC
 
 
 def _exec_seg(start, stop, ns):
@@ -169,8 +183,15 @@ class TestColoredTilesSayWhy:
         assert "no module-temperature data to normalize" in SRC
         assert "soiling or string-level losses" in SRC
 
-    def test_reasons_hidden_when_green(self):
-        assert "e.hidden=!txt" in SRC          # empty reason hides the line
+    def test_reasons_live_on_the_flip_side(self):
+        # Tomasz round 2: the reason sits on the BACK of the tile and
+        # the tile flips on hover — only when armed (.haswhy)
+        assert "tl.classList.toggle('haswhy',!!txt)" in SRC
+        assert ".tile.haswhy:hover .flipin" in SRC
+        assert "rotateY(180deg)" in SRC
+        assert "backface-visibility:hidden" in SRC
+        # green tiles never flip: haswhy comes only with a reason
+        assert '" haswhy" if pr_why else ""' in SRC
 
 
 class TestPerPlantSla:
@@ -205,8 +226,11 @@ class TestCurrentMonthOverlay:
         assert "expected (full month)" in SRC
         assert "actual so far" in SRC
 
-    def test_fleet_chart_keeps_current_month_plain(self):
-        assert "True if v is True else False for v in yfl" in SRC
+    def test_fleet_chart_gets_the_overlay_too(self):
+        # round 2: "in the main reports please also do grey on blue"
+        assert "cur_expected=fleet_cur_exp" in SRC
+        assert "flags[i] == 2 and cur_exp > 0" in SRC       # monthly_svg
+        assert "flags and flags[i] == 2 and cur_exp > 0" in SRC  # columns_svg
 
 
 class TestPrBaselineEditor:

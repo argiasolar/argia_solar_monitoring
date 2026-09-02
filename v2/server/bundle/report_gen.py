@@ -359,6 +359,8 @@ h1.sect{font-size:19px;font-weight:700;margin:28px 0 10px;color:#1c2733;}
 .flinks a:hover{color:var(--s1);}
 .flinks svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0;}
+.tiles.oneline{grid-template-columns:repeat(5,minmax(0,1fr));}
+@media(max-width:920px){.tiles.oneline{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));}}
 .tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:15px 18px;}
 .tile:hover{z-index:70;}
 .tlabel{font-size:13px;color:var(--ink2);}
@@ -391,9 +393,11 @@ svg{max-width:100%;height:auto;display:block;}
 .tlabel .ti{margin-left:auto;align-self:flex-start;margin-top:1px;}
 .card{position:relative;}   /* card-level tooltips anchor to the card, not the page */
 .card h2 .ti{margin-left:8px;}
+/* tooltips: always dark letters on a bright ground (Tomasz round 4) */
 .tipbox{display:none;position:absolute;z-index:80;top:38px;left:10px;right:10px;
- background:#20293a;color:#eef1f5;border-radius:8px;padding:11px 13px;font-size:12.5px;
- line-height:1.5;font-weight:400;box-shadow:0 8px 24px rgba(16,24,40,.28);}
+ background:#fffdf4;color:#243041;border:1px solid #e7dfc2;border-radius:8px;
+ padding:11px 13px;font-size:12.5px;line-height:1.5;font-weight:400;
+ box-shadow:0 8px 24px rgba(16,24,40,.18);}
 .ti:hover+.tipbox,.ti:focus+.tipbox,.tipbox:hover{display:block;}
 .twhy{font-size:12.5px;color:#8a6d00;line-height:1.4;}
 .tile.bad .twhy{color:#b3261e;}
@@ -1291,7 +1295,7 @@ def financial_page():
  <span class="sub" id="ndays"></span>
  <a class="btn live" href="/invoices/">{t("Invoice annexes","Anexos de facturación")}</a>
 </div>
-<div class="tiles">
+<div class="tiles oneline">
  <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero" id="k_exp">—</div></div>
  <div class="tile"><div class="tlabel">{t("Actual revenue","Ingreso real")}</div><div class="thero" id="k_act">—</div></div>
  <div class="tile"><div class="tlabel">{t("Net cash (actual)","Flujo neto (real)")}</div><div class="thero" id="k_net">—</div></div>
@@ -1357,7 +1361,10 @@ function compute(){{
  const order=Object.keys(per).sort((a,b)=>per[b].act-per[a].act);
  for(const k of order){{const p=per[k],m=META[k];
   if(p.act===0&&p.exp===0&&p.debt===0)continue;
-  h+=`<tr><td><b>${{m.name}}</b><br><span class="sub">${{k}}${{m.kwp?' · '+Math.round(m.kwp)+' kWp':''}}</span></td>
+  // plant assets link to their performance report (LaaS has no page)
+  const nm=m.type==='LaaS'?`<b>${{m.name}}</b>`
+   :`<a href="../${{k.toLowerCase()}}/" style="color:inherit"><b>${{m.name}}</b></a>`;
+  h+=`<tr><td>${{nm}}<br><span class="sub">${{k}}${{m.kwp?' · '+Math.round(m.kwp)+' kWp':''}}</span></td>
    <td><span class="badge ${{m.type==='LaaS'?'laas':''}}">${{m.type}}</span></td>
    <td class="num">${{fmt(p.exp)}}</td><td class="num">${{fmt(p.act)}}</td>
    <td class="num">${{p.om?fmt(p.om):'–'}}</td><td class="num">${{fmt(p.debt)}}</td>
@@ -1473,7 +1480,7 @@ def landing_page():
                        f'{len(plants)} {t("plants","plantas")} · 2 LaaS · '
                        f'{t("data","datos")} {first} → {asof} · {gen_at}',
                        show_home=False)]
-    body.append(f'''<div class="tiles">
+    body.append(f'''<div class="tiles oneline">
 <div class="tile"><div class="tlabel">{t("Clean energy generated","Energía limpia generada")}</div>
  <div class="thero">{life/1e6:,.2f} <span class="unit">GWh</span></div>
  <div class="tsub">{first} → {asof}</div></div>

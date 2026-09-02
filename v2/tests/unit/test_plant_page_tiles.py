@@ -250,6 +250,31 @@ class TestCurrentMonthOverlay:
         assert "flags and flags[i] == 2 and cur_exp > 0" in SRC  # columns_svg
 
 
+class TestRound4:
+    def test_tooltips_are_dark_on_bright(self):
+        # Tomasz: "never dark background with white letters"
+        assert "background:#fffdf4;color:#243041" in SRC
+        assert "background:#20293a" not in SRC
+
+    def test_report_and_financial_tiles_fit_one_line(self):
+        assert ".tiles.oneline{grid-template-columns:repeat(5,minmax(0,1fr));}" in SRC
+        assert SRC.count('class="tiles oneline"') == 2     # home + financial
+
+    def test_financial_assets_link_to_their_plant_page(self):
+        assert "`<a href=\"../${{k.toLowerCase()}}/\"" in SRC
+        assert "m.type==='LaaS'?`<b>" in SRC               # LaaS: no page, no link
+
+    def test_monitoring_mtd_pairs_production_with_expected_days(self):
+        mon = (V2 / "server/monitoring_gen.py").read_text(encoding="utf-8")
+        # the Sep-2026 lesson: never divide full-month production by a
+        # partial month of expectation, and None-expected must not
+        # collapse to 0.0
+        assert "f(r[3]) if r[3] not in ('', None) else None" in mon
+        assert "'pm': pm" in mon
+        assert "100*m.get('pm', 0)/m_exp" in mon
+        assert mon.count("100.0 * mtd_pm / mtd_exp") == 2  # PPA + CAPEX
+
+
 class TestPrBaselineEditor:
     def test_sql_builder_and_bounds(self):
         import server.bundle.finance_core as fin

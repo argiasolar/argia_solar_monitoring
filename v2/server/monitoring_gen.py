@@ -216,20 +216,34 @@ for r in q("SELECT plant_key, snap_date::text, daily_kwh"
     if len(r) >= 3:
         VENDOR_DAY[(r[0], r[1])] = f(r[2])
 
-DAILY = {}        # plant -> [(date, energy, expected)]
+DAILY = {}        # plant -> [(date, energy, expected-or-None)]
 for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh"
            " FROM daily_production"
            f" WHERE prod_date >= DATE '{TODAY}' - 31 ORDER BY 1, 2;"):
     if len(r) >= 4:
-        DAILY.setdefault(r[0], []).append((r[1], f(r[2]), f(r[3])))
+        DAILY.setdefault(r[0], []).append(
+            (r[1], f(r[2]), f(r[3]) if r[3] not in ('', None) else None))
 
-MTD = {}          # plant -> {'prod': kwh, 'exp': kwh}
-for r in q("SELECT plant_key, sum(energy_kwh), sum(expected_kwh)"
-           " FROM daily_production"
-           f" WHERE date_trunc('month', prod_date) ="
-           f" date_trunc('month', DATE '{TODAY}') GROUP BY 1;"):
-    if len(r) >= 3:
-        MTD[r[0]] = {'prod': f(r[1]) or 0.0, 'exp': f(r[2])}
+# MTD from the day pairs, not a blind SQL sum: 'exp' counts only days
+# the KPI pipeline stamped, and 'pm' is production on THOSE SAME days —
+# so vs-expected never divides a full month of production by a partial
+# month of expectation (the Sep-2026 outage made that failure visible:
+# Sep 1 was vendor-backfilled without an expected value and the whole
+# column read '—' / a full-vs-partial ratio).
+MTD = {}          # plant -> {'prod', 'exp', 'pm'}
+_month = TODAY[:7]
+for pk, rows_ in DAILY.items():
+    prod = exp = pm = 0.0
+    have_exp = False
+    for d, e, x in rows_:
+        if d[:7] != _month:
+            continue
+        prod += e
+        if x is not None and x > 0:
+            exp += x
+            pm += e
+            have_exp = True
+    MTD[pk] = {'prod': prod, 'exp': exp if have_exp else None, 'pm': pm}
 
 RECON_D = {}      # plant -> [rows newest first]
 RECON_BY_PD = {}  # (plant, date) -> (completeness, status)
@@ -891,6 +905,7 @@ def ppa_page():
     tot_p = tot_e = tot_kwp = 0.0
     mtd_prod = 0.0
     mtd_exp = 0.0
+    mtd_pm = 0.0
     exp_known = True
     for pk in ppa:
         meta = PLANTS[pk]
@@ -905,8 +920,9 @@ def ppa_page():
             exp_known = False
         else:
             mtd_exp += m['exp']
+            mtd_pm += m.get('pm', 0.0)
         m_exp = m.get('exp')
-        m_pct = '—' if not m_exp else f"{100*m['prod']/m_exp:,.0f}%"
+        m_pct = '—' if not m_exp else f"{100*m.get('pm', 0)/m_exp:,.0f}%"
         exp_str = '—' if m_exp is None else f'{m_exp:,.0f}'
         rows.append(
             f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}</a> '
@@ -917,11 +933,12 @@ def ppa_page():
             f'<td>{exp_str}</td>'
             f'<td>{m_pct}</td><td>{fresh}/{total}</td>'
             f'<td><span class="pill {cls}">{esc(len_)}</span></td></tr>')
-    pct = (100.0 * mtd_prod / mtd_exp) if mtd_exp else None
+    pct = (100.0 * mtd_pm / mtd_exp) if mtd_exp else None
     rows.append(
         f'<tr style="font-weight:700;background:#fafbfc"><td>TOTAL</td>'
         f'<td>{tot_kwp:,.0f}</td><td>{tot_p:,.1f}</td><td>{tot_e:,.0f}</td>'
-        f'<td>{mtd_prod:,.0f}</td><td>{mtd_exp:,.0f}</td>'
+        f'<td>{mtd_prod:,.0f}</td>'
+        f'<td>{"—" if not mtd_exp else f"{mtd_exp:,.0f}"}</td>'
         f'<td>{"—" if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
     kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="PPA power right now" data-es="Potencia PPA ahora">PPA power right now</div></div>
@@ -954,7 +971,7 @@ def capex_page():
     capex = [k for k in sorted(PLANTS) if PLANTS[k]['portfolio'] == 'CAPEX']
     rows = []
     tot_p = tot_e = tot_kwp = 0.0
-    mtd_prod = mtd_exp = 0.0
+    mtd_prod = mtd_exp = mtd_pm = 0.0
     for pk in capex:
         meta = PLANTS[pk]
         power, etoday, fresh, total = plant_now(pk)
@@ -967,7 +984,8 @@ def capex_page():
         m_exp = m.get('exp')
         if m_exp is not None:
             mtd_exp += m_exp
-        m_pct = '—' if not m_exp else f"{100*m.get('prod', 0)/m_exp:,.0f}%"
+            mtd_pm += m.get('pm', 0.0)
+        m_pct = '—' if not m_exp else f"{100*m.get('pm', 0)/m_exp:,.0f}%"
         rows.append(
             f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}</a> '
             f'<span class="tkey">{pk}</span></td>'
@@ -977,11 +995,12 @@ def capex_page():
             f'<td>{"—" if m_exp is None else f"{m_exp:,.0f}"}</td>'
             f'<td>{m_pct}</td><td>{fresh}/{total}</td>'
             f'<td><span class="pill {cls}">{esc(len_)}</span></td></tr>')
-    pct = (100.0 * mtd_prod / mtd_exp) if mtd_exp else None
+    pct = (100.0 * mtd_pm / mtd_exp) if mtd_exp else None
     rows.append(
         f'<tr style="font-weight:700;background:#fafbfc"><td>TOTAL</td>'
         f'<td>{tot_kwp:,.0f}</td><td>{tot_p:,.1f}</td><td>{tot_e:,.0f}</td>'
-        f'<td>{mtd_prod:,.0f}</td><td>{mtd_exp:,.0f}</td>'
+        f'<td>{mtd_prod:,.0f}</td>'
+        f'<td>{"—" if not mtd_exp else f"{mtd_exp:,.0f}"}</td>'
         f'<td>{"—" if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
     kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="CAPEX power right now" data-es="Potencia CAPEX ahora">CAPEX power right now</div></div>

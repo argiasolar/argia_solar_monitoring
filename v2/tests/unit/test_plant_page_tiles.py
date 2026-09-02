@@ -149,6 +149,66 @@ class TestInverter30d:
         assert "the date picker above does not move it" in SRC
 
 
+class TestColoredTilesSayWhy:
+    """Tomasz 2026-09-02: a yellow/red tile must state its reason on
+    the tile, not leave management to open a tooltip and guess."""
+
+    def test_production_reason_separates_resource_from_performance(self):
+        # the director's SAG/Vitalmex explanation: below contract but
+        # matching the weather = resource, not a fault
+        assert "resource, not performance" in SRC
+        assert "below contract AND weather expectation" in SRC
+
+    def test_availability_reason_names_the_worst_days(self):
+        assert "Worst days:" in SRC
+        assert "telemetry loss, not proven downtime" in SRC
+        assert "check grid/site events" in SRC
+
+    def test_pr_reason_covers_downtime_heat_and_string_causes(self):
+        assert "includes low-availability days" in SRC
+        assert "no module-temperature data to normalize" in SRC
+        assert "soiling or string-level losses" in SRC
+
+    def test_reasons_hidden_when_green(self):
+        assert "e.hidden=!txt" in SRC          # empty reason hides the line
+
+
+class TestPerPlantSla:
+    def test_page_uses_plant_sla_with_assumed_fallback(self):
+        assert "plant_sla = p.get('sla') or SLA_TARGET" in SRC
+        assert "const SLA={plant_sla}" in SRC
+        assert "coalesce(sla_target,0)" in SRC
+        # label flips once a real SLA is configured
+        assert '"configured", "configurado"' in SRC.replace("'", '"')
+
+    def test_setup_has_sla_editor(self):
+        app = (V2 / "server/bundle/setup_app.py").read_text(encoding="utf-8")
+        assert "@app.post('/finance/sla')" in app
+        assert "/setup/finance/sla" in app
+        import server.bundle.finance_core as fin
+        assert fin.sql_set_sla("SLP2", 0.97) == \
+            "UPDATE plant SET sla_target = 0.9700 WHERE plant_key = 'SLP2';"
+        assert fin.SLA_MIN == 0.8 and fin.SLA_MAX == 1.0
+        assert "ADD COLUMN IF NOT EXISTS" in fin.ENSURE_SLA_COL_SQL
+
+
+class TestCurrentMonthOverlay:
+    def test_current_month_flagged_and_expectation_carried(self):
+        assert "fl.append(2)" in SRC
+        assert "cur_exp = sum(expected_month_kwh(k, m) for k in keys)" in SRC
+
+    def test_monthly_svg_draws_actual_over_expected(self):
+        seg = SRC[SRC.index("def monthly_svg"):SRC.index("def columns_svg")
+                  if SRC.index("def columns_svg") > SRC.index("def monthly_svg")
+                  else len(SRC)]
+        assert "flags[i] == 2 and cur_exp > 0" in SRC
+        assert "expected (full month)" in SRC
+        assert "actual so far" in SRC
+
+    def test_fleet_chart_keeps_current_month_plain(self):
+        assert "True if v is True else False for v in yfl" in SRC
+
+
 class TestPrBaselineEditor:
     def test_sql_builder_and_bounds(self):
         import server.bundle.finance_core as fin
@@ -164,7 +224,7 @@ class TestPrBaselineEditor:
         app = (V2 / "server/bundle/setup_app.py").read_text(encoding="utf-8")
         assert "/setup/finance/prbaseline" in app       # form action
         assert "@app.post('/finance/prbaseline')" in app
-        assert "PR baseline per plant" in app
+        assert "PR baseline &amp; availability SLA per" in app
         # guarded and audited like every finance edit
         seg = app.split("def finance_prbaseline()", 1)[1][:800]
         assert "_fin_guard()" in seg and "_fin_write(" in seg

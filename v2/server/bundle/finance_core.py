@@ -41,6 +41,8 @@ FX_MIN, FX_MAX = 5.0, 50.0
 MAX_EXTEND_MONTHS = 480
 # clean-state PR reference: below 0.5 or above 1.0 is a typo, not a plant
 PRB_MIN, PRB_MAX = 0.5, 1.0
+# availability SLA: no PPA contracts below 80% or above 100%
+SLA_MIN, SLA_MAX = 0.8, 1.0
 
 ENSURE_AUDIT_SQL = """CREATE TABLE IF NOT EXISTS finance_audit (
     id        serial PRIMARY KEY,
@@ -122,6 +124,18 @@ def sql_set_pr_baseline(plant: str, value: float) -> str:
     value; the old sheet column is a legacy import source only."""
     return ("UPDATE plant SET pr_baseline = %.4f"
             " WHERE plant_key = %s;" % (value, sq(plant)))
+
+
+def sql_set_sla(plant: str, value: float) -> str:
+    """Per-contract availability SLA target. NULL in the DB means the
+    0.98 assumed default; setting a value here makes the plant pages
+    label it 'configured' instead of 'assumed target'."""
+    return ("UPDATE plant SET sla_target = %.4f"
+            " WHERE plant_key = %s;" % (value, sq(plant)))
+
+
+ENSURE_SLA_COL_SQL = ("ALTER TABLE plant ADD COLUMN IF NOT EXISTS"
+                      " sla_target numeric(5,4);")
 
 
 def sql_set_om(plant: str, amount: float) -> str:

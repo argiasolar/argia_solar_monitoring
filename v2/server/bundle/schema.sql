@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS plant (
     portfolio           text CHECK (portfolio IN ('PPA','CAPEX')),
     tariff_mxn_per_kwh  numeric(8,4),
     pr_baseline         numeric(5,4),
+    sla_target          numeric(5,4),   -- per-contract availability SLA; NULL = 0.98 assumed
+
     contracted_kwh      numeric(12,3),
     om_cost_monthly_mxn numeric(10,2),
     investment_mxn      numeric(14,2),   -- CAPEX plants: owner's investment, for payback tracking

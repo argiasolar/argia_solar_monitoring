@@ -53,13 +53,16 @@ asof = q("SELECT max(prod_date) FROM daily_production;")[0][0]
 first = q("SELECT min(prod_date) FROM daily_production;")[0][0]
 gen_at = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
 
+q("ALTER TABLE plant ADD COLUMN IF NOT EXISTS sla_target numeric(5,4);")
 plants = {r[0]: {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]), 'portfolio': r[4],
-                 'tariff': f(r[5]), 'om': f(r[6]), 'prb': f(r[7]), 'inv': f(r[8])}
+                 'tariff': f(r[5]), 'om': f(r[6]), 'prb': f(r[7]), 'inv': f(r[8]),
+                 'sla': f(r[9]) if len(r) > 9 else 0.0}
           for r in q("SELECT plant_key, customer, brand, kwp_dc, portfolio, "
                      "coalesce(tariff_mxn_per_kwh,0), coalesce(om_cost_monthly_mxn,0), "
-                     "coalesce(pr_baseline,0), coalesce(investment_mxn,0) FROM plant;")}
+                     "coalesce(pr_baseline,0), coalesce(investment_mxn,0), "
+                     "coalesce(sla_target,0) FROM plant;")}
 
-SLA_TARGET = 0.98   # availability SLA threshold — ASSUMPTION until per-contract SLAs are provided
+SLA_TARGET = 0.98   # fallback when no per-contract SLA is configured in /setup/
 
 loans = {}
 for r in q("SELECT loan_id, plant_key, project_name, total_installments, first_month, last_month FROM loan;"):
@@ -212,19 +215,28 @@ def expected_month_kwh(k, ym):
 
 
 def year_months_with_flags(keys):
-    """12 columns for the current year: actuals through the asof month (blue),
-    expected for the remaining months (grey). Returns (pairs, flags)."""
+    """12 columns for the current year: actuals through the asof month
+    (blue), expected for the remaining months (grey). The CURRENT month
+    gets flag 2 — actual so far, drawn over its full-month expectation
+    (Tomasz 2026-09-02: 'show blue over grey so we can see how the
+    actual production fulfills the expectation'). Returns
+    (pairs, flags, cur_expected_kwh)."""
     year, cur_m = asof[:4], asof[:7]
     pairs, fl = [], []
+    cur_exp = None
     for i in range(1, 13):
         m = f'{year}-{i:02d}'
-        if m <= cur_m:
+        if m == cur_m:
+            pairs.append((m, sum(monthly_kwh.get((k, m), 0.0) for k in keys)))
+            fl.append(2)
+            cur_exp = sum(expected_month_kwh(k, m) for k in keys)
+        elif m < cur_m:
             pairs.append((m, sum(monthly_kwh.get((k, m), 0.0) for k in keys)))
             fl.append(False)
         else:
             pairs.append((m, sum(expected_month_kwh(k, m) for k in keys)))
             fl.append(True)
-    return pairs, fl
+    return pairs, fl, cur_exp
 
 
 def tariff_for(k, ym):
@@ -377,6 +389,8 @@ svg{max-width:100%;height:auto;display:block;}
  background:#20293a;color:#eef1f5;border-radius:8px;padding:10px 12px;font-size:12px;
  line-height:1.5;font-weight:400;box-shadow:0 8px 24px rgba(16,24,40,.28);}
 .ti:hover+.tipbox,.ti:focus+.tipbox,.tipbox:hover{display:block;}
+.twhy{font-size:12px;margin-top:4px;color:#8a6d00;line-height:1.35;}
+.tile.bad .twhy{color:#b3261e;}
 @media print{.ti,.tipbox{display:none!important;}}
 .dot{stroke:var(--surface);stroke-width:2;} .dot.s1{fill:var(--s1);} .dot.s2{fill:var(--s2);}
 .hit{fill:transparent;}
@@ -549,19 +563,32 @@ function compute(){
  document.querySelectorAll('.rdays').forEach(e=>e.textContent=days+' d');
  const semTile=(id,cls)=>{const e=$(id);if(e)e.className='tile'+(cls?' '+cls:'');};
  $('r_co2').textContent=(prod/1000*CO2F).toFixed(1);
+ // diagnostic "why" lines for colored tiles (numbers+dates, EN only)
+ const why=(id,txt)=>{const e=$(id);if(e){e.textContent=txt?'⚠ '+txt:'';e.hidden=!txt;}};
+ const wxPct=xsum>0?100*exsum/xsum:null;
  if(C&&ctr>0){const pct=prod/ctr;
   $('r_vsctr').textContent=' · '+(100*pct).toFixed(0)+'% '+VSL;
   semTile('t_prod',pct>=0.95?'good':pct>=0.8?'warn':'bad');
- }else{$('r_vsctr').textContent='';semTile('t_prod','');}
+  if(pct<0.95&&wxPct!=null&&wxPct>=97)
+   why('r_prodwhy','resource, not performance: output matched the weather expectation ('+wxPct.toFixed(0)+'%) — the sun fell short of the contract assumption');
+  else if(pct<0.95&&wxPct!=null)
+   why('r_prodwhy','below contract AND weather expectation ('+wxPct.toFixed(0)+'% of weather) — see the inverter table');
+  else why('r_prodwhy','');
+ }else{$('r_vsctr').textContent='';semTile('t_prod','');why('r_prodwhy','');}
  if(av!=null){
   // below-target availability with energy that still met the weather
   // expectation = telemetry gap, not proven downtime -> REVIEW
   const ranFine=xsum>0&&exsum>=0.97*xsum;
-  if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail','good');}
-  else if(ranFine){$('r_sla').textContent='REVIEW';semTile('t_avail','warn');}
+  const worst=idx.filter(i=>AV[D[i]]!=null&&AV[D[i]]<0.95)
+   .map(i=>[D[i],AV[D[i]]]).sort((a,b)=>a[1]-b[1]).slice(0,2)
+   .map(w=>w[0].slice(5)+': '+(100*w[1]).toFixed(0)+'%').join(', ');
+  if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail','good');why('r_avwhy','');}
+  else if(ranFine){$('r_sla').textContent='REVIEW';semTile('t_avail','warn');
+   why('r_avwhy','produced through the gap (energy at '+(wxPct||0).toFixed(0)+'% of weather expectation) — telemetry loss, not proven downtime. Worst days: '+(worst||'—'));}
   else{$('r_sla').textContent='BREACH';
-   semTile('t_avail',av>=SLA-0.03?'warn':'bad');}
- }else{$('r_sla').textContent='—';semTile('t_avail','');}
+   semTile('t_avail',av>=SLA-0.03?'warn':'bad');
+   why('r_avwhy','low-availability days with energy missing too — check grid/site events. Worst days: '+(worst||'—'));}
+ }else{$('r_sla').textContent='—';semTile('t_avail','');why('r_avwhy','');}
  const al=$('r_avloss');
  if(al){if(avloss>=1){$('r_avloss_v').textContent=
    avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';al.hidden=false;}
@@ -744,14 +771,18 @@ def columns_svg(pairs, unit, scale=1.0, width=980, height=240, lab_fmt=None,
 
 
 def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
-                width=980, height=280):
+                width=980, height=280, cur_expected_kwh=None):
     """12-month plant chart: MWh bars (grey = expected), optional orange
     contract-baseline polyline (left axis) and green revenue line (right axis,
-    k MXN, its own scale)."""
+    k MXN, its own scale). flags[i] == 2 marks the in-progress month:
+    its actual bar (blue) is drawn OVER the full-month expectation
+    (grey), so the visible grey above the blue is what's left to
+    deliver."""
     vals = [f(v) / 1000.0 for _, v in pairs]
     cv = contract_mwh if (contract_mwh and any(contract_mwh)) else None
     rv = revenue_kmxn if (revenue_kmxn and any(revenue_kmxn)) else None
-    vmax = max(vals + (cv or [0.0])) or 1
+    cur_exp = (cur_expected_kwh or 0.0) / 1000.0
+    vmax = max(vals + (cv or [0.0]) + [cur_exp]) or 1
     tks = yticks(vmax)
     top = tks[-1]
     pad_l, pad_b, pad_t = 52, 28, 30
@@ -771,14 +802,33 @@ def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
         h = ph * val / top
         x = pad_l + i * slot + (slot - bw) / 2
         y = pad_t + ph - h
-        cls = 'bar exp' if flags[i] else 'bar'
-        tag = ' (expected)' if flags[i] else ''
-        out.append(f'<rect class="{cls}" x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" '
-                   f'height="{max(h,0):.1f}" rx="3"><title>{m}{tag}: {val:,.1f} MWh'
-                   + (f' · {revenue_kmxn[i]:,.0f} k MXN' if rv else '') + '</title></rect>')
-        ly = max(y - 6, 12)
-        out.append(f'<text x="{x+bw/2:.1f}" y="{ly:.1f}" class="tick" '
-                   f'text-anchor="middle" font-weight="600">{val:,.0f}</text>')
+        if flags[i] == 2 and cur_exp > 0:
+            # in-progress month: expectation behind, actual in front
+            eh = ph * min(cur_exp, top) / top
+            ey = pad_t + ph - eh
+            out.append(f'<rect class="bar exp" x="{x:.1f}" y="{ey:.1f}" '
+                       f'width="{bw:.1f}" height="{max(eh,0):.1f}" rx="3">'
+                       f'<title>{m} expected (full month): {cur_exp:,.1f} MWh'
+                       f'</title></rect>')
+            out.append(f'<rect class="bar" x="{x:.1f}" y="{y:.1f}" '
+                       f'width="{bw:.1f}" height="{max(h,0):.1f}" rx="3">'
+                       f'<title>{m} actual so far: {val:,.1f} MWh of '
+                       f'{cur_exp:,.1f} expected ({100*val/cur_exp:,.0f}%)'
+                       + (f' · {revenue_kmxn[i]:,.0f} k MXN' if rv else '')
+                       + '</title></rect>')
+            ly = max(min(y, ey) - 6, 12)
+            out.append(f'<text x="{x+bw/2:.1f}" y="{ly:.1f}" class="tick" '
+                       f'text-anchor="middle" font-weight="600">{val:,.0f}'
+                       f'/{cur_exp:,.0f}</text>')
+        else:
+            cls = 'bar exp' if flags[i] else 'bar'
+            tag = ' (expected)' if flags[i] else ''
+            out.append(f'<rect class="{cls}" x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" '
+                       f'height="{max(h,0):.1f}" rx="3"><title>{m}{tag}: {val:,.1f} MWh'
+                       + (f' · {revenue_kmxn[i]:,.0f} k MXN' if rv else '') + '</title></rect>')
+            ly = max(y - 6, 12)
+            out.append(f'<text x="{x+bw/2:.1f}" y="{ly:.1f}" class="tick" '
+                       f'text-anchor="middle" font-weight="600">{val:,.0f}</text>')
         mi = int(m[5:7]) - 1
         out.append(f'<text x="{pad_l+i*slot+slot/2:.1f}" y="{H-8}" class="tick" '
                    f'text-anchor="middle" data-en="{MONTH_EN[mi]}" data-es="{MONTH_ES[mi]}">'
@@ -899,6 +949,7 @@ def inverter_card(k):
 def plant_page(k):
     p = plants[k]
     is_ppa = p['portfolio'] == 'PPA'
+    plant_sla = p.get('sla') or SLA_TARGET
     mrows = sorted((ym, v) for (kk, ym), v in monthly_kwh.items() if kk == k)
     life = sum(v for _, v in mrows)
     pr = pr30.get(k)
@@ -934,7 +985,8 @@ def plant_page(k):
                   "Generación medida sumada en el rango elegido. '% vs contrato' la compara con el volumen mensual contratado prorrateado por día. Verde ≥ 95% del contrato, ámbar ≥ 80%, rojo debajo.")
              + f'</div><div class="tval"><span id="r_prod">—</span> <span class="unit">MWh</span></div>'
              f'<div class="tsub"><span id="r_range"></span> · <span class="rdays"></span>'
-             f'<span id="r_vsctr"></span></div></div>']
+             f'<span id="r_vsctr"></span></div>'
+             f'<div class="twhy" id="r_prodwhy" hidden></div></div>']
     if rlist:
         money_lab = (t("Est. revenue, selected range", "Ingreso est., rango elegido") if is_ppa
                      else t("Est. savings, selected range", "Ahorro est., rango elegido"))
@@ -969,10 +1021,12 @@ def plant_page(k):
                  + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor — a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. When availability misses the target but metered energy still met the weather expectation for the same days, the verdict shows REVIEW instead of BREACH: the plant produced through the gap, so it was almost certainly telemetry, not downtime. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
                       "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador — un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. Si la disponibilidad no llega al objetivo pero la energía medida cumplió la expectativa por clima de esos mismos días, el veredicto muestra REVIEW en vez de BREACH: la planta produjo durante el hueco, así que casi seguro fue telemetría, no una parada. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
                  + f'</div><div class="tval" id="r_avail">—</div>'
-                 f'<div class="tsub">SLA {SLA_TARGET*100:.0f}%: <b id="r_sla">—</b> · '
-                 f'{t("assumed target","objetivo supuesto")}'
-                 f'<span id="r_avloss" hidden> · {t("energy at risk","energía en riesgo")} '
-                 f'≤ <b id="r_avloss_v"></b></span></div></div>')
+                 f'<div class="tsub">SLA {plant_sla*100:.0f}%: <b id="r_sla">—</b> · '
+                 + (t("configured", "configurado") if p.get('sla')
+                    else t("assumed target", "objetivo supuesto"))
+                 + f'<span id="r_avloss" hidden> · {t("energy at risk","energía en riesgo")} '
+                 f'≤ <b id="r_avloss_v"></b></span></div>'
+                 f'<div class="twhy" id="r_avwhy" hidden></div></div>')
     tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Telemetry coverage, selected range","Cobertura de telemetría, rango elegido")}'
                  + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Informational — never colored.",
                       "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Informativo — nunca en color.")
@@ -998,11 +1052,30 @@ def plant_page(k):
         if prstc:
             pr_sub += (f' · {t("temp-normalized","norm. por temperatura")}'
                        f' {prstc*100:,.1f}%')
+        # amber/red must SAY WHY (Tomasz 2026-09-02): name the most
+        # likely cause instead of leaving management to guess
+        pr_why = ''
+        if prc in ('warn', 'bad'):
+            cut30 = (dt.date.fromisoformat(asof)
+                     - dt.timedelta(days=30)).isoformat()
+            avs30 = [v for (kk, d2), v in avail_d.items()
+                     if kk == k and d2 > cut30]
+            av30 = sum(avs30) / len(avs30) if avs30 else None
+            if av30 is not None and av30 < 0.97:
+                why = t(f"includes low-availability days (30d avg {av30*100:.0f}%) — outage/comms time depresses PR; see the availability tile",
+                        f"incluye días de baja disponibilidad (prom. 30d {av30*100:.0f}%) — el tiempo de paro/comunicación deprime el PR; vea la disponibilidad")
+            elif not prstc:
+                why = t("no module-temperature data to normalize — hot months read low on the raw figure",
+                        "sin datos de temperatura de módulo para normalizar — los meses calurosos leen bajo en la cifra cruda")
+            else:
+                why = t("sustained deficit vs clean baseline even after temperature — points to soiling or string-level losses; see the inverter table",
+                        "déficit sostenido vs línea base limpia aun tras temperatura — apunta a suciedad o pérdidas por string; vea la tabla de inversores")
+            pr_why = f'<div class="twhy">⚠ {why}</div>'
         tiles.append(f'<div class="tile {prc}" id="t_pr"><div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
                      + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Hot cells depress PR (about −0.7 pts per °C), so the temp-normalized figure (PR at 25 °C cell) is also shown, and the color and drift are judged on it — a hot month is not a fault. Baseline is this plant's clean-state PR from the Plant configuration (editable by admins in Setup → Finance); the gap to it approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
                           "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. Las celdas calientes deprimen el PR (≈ −0.7 pts por °C), así que también se muestra la cifra normalizada por temperatura (PR a celda de 25 °C), y el color y la deriva se juzgan con ella — un mes caluroso no es una falla. La línea base es el PR en estado limpio de la configuración de planta (editable por administradores en Setup → Finanzas); la brecha contra ella aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
                      + f'</div><div class="tval">{pr*100:,.1f}%</div>'
-                     f'<div class="tsub">{pr_sub}</div></div>')
+                     f'<div class="tsub">{pr_sub}</div>{pr_why}</div>')
     tiles.append('</div>')
 
     warn = ''
@@ -1052,7 +1125,7 @@ def plant_page(k):
 
     body.append(inverter_card(k))
 
-    y12, yfl = year_months_with_flags([k])
+    y12, yfl, cur_exp = year_months_with_flags([k])
     cml = [contract.get((k, m), {}).get('kwh', 0.0) / 1000.0 for m, _ in y12]
     if not any(cml):
         cml = None
@@ -1073,7 +1146,8 @@ def plant_page(k):
         legend += f'<span><span class="key" style="background:#1e8e3e"></span>{m_word}</span>'
     legend += '</div>'
     body.append(f'<div class="card"><h2>{t("Monthly production","Producción mensual")} · {asof[:4]}</h2>'
-                + legend + monthly_svg(y12, yfl, contract_mwh=cml, revenue_kmxn=rml) + '</div>')
+                + legend + monthly_svg(y12, yfl, contract_mwh=cml, revenue_kmxn=rml,
+                                       cur_expected_kwh=cur_exp) + '</div>')
 
     vs_lab = 'vs contract' if is_ppa else 'vs expected'
     body.append('<script>const D=' + json.dumps(dlist) + ';const E=' + json.dumps(elist)
@@ -1083,7 +1157,7 @@ def plant_page(k):
                 + ';const AV=' + json.dumps(avmap)
                 + ';const DQ=' + json.dumps(dqmap)
                 + f';const VSL="{vs_lab}";const CO2F={CO2_T_PER_MWH};'
-                + f'const SLA={SLA_TARGET};const ASOF="{asof}";</script>' + PLANT_JS)
+                + f'const SLA={plant_sla};const ASOF="{asof}";</script>' + PLANT_JS)
 
     if is_ppa or clist or rlist:
         ctr_word = t("Contract", "Contrato") if is_ppa else t("Expected", "Esperado")
@@ -1355,7 +1429,8 @@ def landing_page():
  <div class="tval">{mtd/1000:,.0f} <span class="unit">MWh</span></div>
  <div class="tsub">{this_m} → {asof[8:]}</div></div>
 </div>''')
-    y12, yfl = year_months_with_flags(list(plants))
+    y12, yfl, _ = year_months_with_flags(list(plants))
+    yfl = [True if v is True else False for v in yfl]   # fleet chart: current month stays a plain blue bar
     body.append(f'<div class="card"><h2>{t("Monthly production — whole fleet","Producción mensual — flota completa")} · {asof[:4]}</h2>'
                 f'<p class="note">MWh · <span style="color:#9aa1a8">&#9632;</span> {t("grey = expected (contract / prior year)","gris = esperado (contrato / año anterior)")}</p>'
                 + columns_svg(y12, 'MWh', scale=1000.0, show_values=True, month_names=True,

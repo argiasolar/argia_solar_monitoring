@@ -103,10 +103,37 @@ class TestUpsertSql:
 
 
 class TestCollectorScript:
-    def test_pages_through_history(self):
+    def test_pages_through_history_through_the_envelope(self):
+        """First live run caught pagination stopping at page 0: the
+        client wraps responses in {_meta, response} and haveNext was
+        read on the wrapper. This drives fetch_all_pages with a stub
+        client that answers in envelope form — the regression test the
+        bug deserves."""
+        from scripts.string_daily import fetch_all_pages
+
+        class Stub:
+            calls = []
+
+            def get_max_history(self, sn, date_iso, start=0):
+                self.calls.append(start)
+                have_next = start == 0
+                datas = [{"time": f"2026-09-02 1{start}:00:00",
+                          "epv1Today": 1.0 + start}]
+                return {"_meta": {}, "response": {
+                    "result": 1,
+                    "obj": {"datas": datas, "haveNext": have_next,
+                            "start": start + 1}}}
+
+        stub = Stub()
+        rows = fetch_all_pages(stub, "SN", "2026-09-02")
+        assert stub.calls == [0, 1]           # followed haveNext once
+        assert len(rows) == 2                 # both pages parsed
+
+    def test_collector_never_reads_obj_off_the_wrapper(self):
         src = (V2 / "scripts/string_daily.py").read_text(encoding="utf-8")
-        assert "haveNext" in src and "MAX_PAGES" in src
-        assert "start += 1" in src
+        assert "extract_obj(resp)" in src
+        assert 'resp.get("obj")' not in src
+        assert "MAX_PAGES" in src and "start += 1" in src
 
     def test_timer_runs_after_mx_sunset(self):
         t = (V2 / "server/bundle/argia-strings.timer").read_text(

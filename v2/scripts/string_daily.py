@@ -33,7 +33,8 @@ from argia.core.sheets import SheetsClient
 from argia.core.time_utils import MX_TZ
 from argia.kpi.strings import ENSURE_TABLE_SQL, channel_day_stats, upsert_sqls
 from argia.store import pg_mirror
-from argia.vendors.growatt_web_parser import parse_max_history
+from argia.vendors.growatt_web_parser import (
+    extract_obj, parse_max_history)
 
 LOG = logging.getLogger("argia.string_daily")
 DELAY_SEC = 0.25
@@ -48,7 +49,11 @@ def fetch_all_pages(client, sn: str, date_iso: str):
         resp = client.get_max_history(sn, date_iso, start=start)
         page = parse_max_history(resp)
         rows.extend(page)
-        obj = resp.get("obj") if isinstance(resp, dict) else None
+        # extract_obj unwraps the client envelope the same way the row
+        # parser does — reading resp['obj'] directly sees the wrapper,
+        # haveNext reads as absent, and pagination silently stops at
+        # page 0 (caught on the first live run: exactly 80 samples)
+        obj = extract_obj(resp)
         have_next = bool(obj.get("haveNext")) if isinstance(obj, dict) else False
         if not have_next or not page:
             break

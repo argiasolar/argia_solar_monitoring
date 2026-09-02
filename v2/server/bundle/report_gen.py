@@ -98,6 +98,12 @@ for r in q("SELECT plant_key, prod_date, availability FROM daily_production "
     if len(r) > 2:
         avail_d[(r[0], r[1])] = f(r[2])
 
+exp_d = {}     # (key, 'YYYY-MM-DD') -> weather-expected kWh (kwp x irradiance x factor)
+for r in q("SELECT plant_key, prod_date, expected_kwh FROM daily_production "
+           "WHERE expected_kwh IS NOT NULL AND expected_kwh > 0;"):
+    if len(r) > 2:
+        exp_d[(r[0], r[1])] = f(r[2])
+
 dq_d = {}      # (key, 'YYYY-MM-DD') -> 1 if data_class='full' else 0 (v2 days only)
 for r in q("SELECT plant_key, prod_date, data_class FROM daily_production "
            "WHERE data_class IS NOT NULL AND data_class <> '';"):
@@ -278,9 +284,20 @@ svg{max-width:100%;height:auto;display:block;}
 .bar.exp{fill:#c9ced4;}
 .line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
 .line.s1{stroke:var(--s1);} .line.s2{stroke:var(--s2);} .line.rev{stroke:#1e8e3e;}
+.line.wx{stroke:#8a94a3;stroke-dasharray:5 4;}
 .tile.good{background:#f2faf4;border-color:#bfe3c9;}
 .tile.warn{background:#fdf6e7;border-color:#eed7a4;}
 .tile.bad{background:#fdefee;border-color:#f0b9b4;}
+.tile{position:relative;}
+.ti{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+ border-radius:50%;border:1px solid var(--axis);color:var(--muted);font-size:10px;
+ font-weight:600;cursor:help;margin-left:6px;vertical-align:1px;flex:none;}
+.tlabel{display:flex;align-items:center;flex-wrap:wrap;}
+.tipbox{display:none;position:absolute;z-index:40;top:34px;left:8px;right:8px;
+ background:#20293a;color:#eef1f5;border-radius:8px;padding:10px 12px;font-size:12px;
+ line-height:1.5;font-weight:400;box-shadow:0 8px 24px rgba(16,24,40,.28);}
+.ti:hover+.tipbox,.ti:focus+.tipbox,.tipbox:hover{display:block;}
+@media print{.ti,.tipbox{display:none!important;}}
 .dot{stroke:var(--surface);stroke-width:2;} .dot.s1{fill:var(--s1);} .dot.s2{fill:var(--s2);}
 .hit{fill:transparent;}
 .legend{display:flex;gap:14px;font-size:13px;color:var(--ink2);margin:0 0 6px;}
@@ -396,10 +413,11 @@ const nf=(n,d)=>n.toLocaleString('en-US',{maximumFractionDigits:d===undefined?0:
 function yt(m){if(m<=0)return[0,1];let s=Math.pow(10,Math.floor(Math.log10(m)));
  if(m/s>5)s*=2;if(m/s<2)s/=2;const o=[];for(let v=0;v<=m*1.001;v+=s)o.push(v);
  if(o[o.length-1]<m)o.push(o[o.length-1]+s);return o;}
-function colsvg(labs,vals,revs,unit,runit,cl){
+function colsvg(labs,vals,revs,unit,runit,cl,wx){
  const W=980,H=250,pl=52,pr=revs?60:8,pt=14,pb=28,pw=W-pl-pr,ph=H-pt-pb;
  const n=vals.length; if(!n)return '<p class="note">—</p>';
- const vmax=Math.max.apply(null,vals.concat(cl||[]))||1, tk=yt(vmax), top=tk[tk.length-1];
+ const wxv=(wx||[]).filter(v=>v!=null);
+ const vmax=Math.max.apply(null,vals.concat(cl||[]).concat(wxv))||1, tk=yt(vmax), top=tk[tk.length-1];
  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';
  tk.forEach(v=>{const y=pt+ph*(1-v/top);
   s+='<line x1="'+pl+'" y1="'+y.toFixed(1)+'" x2="'+(W-pr)+'" y2="'+y.toFixed(1)+'" class="grid"/>';
@@ -413,6 +431,13 @@ function colsvg(labs,vals,revs,unit,runit,cl){
   let d='';for(let i=0;i<n;i++){const x=pl+i*slot+slot/2, y=pt+ph*(1-Math.min(cl[i],top)/top);
    d+=(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1);}
   s+='<path class="line s2" d="'+d+'"><title>expected ('+unit+')</title></path>';}
+ if(wx&&wx.some(v=>v!=null&&v>0)){
+  let d='',pen=false;
+  for(let i=0;i<n;i++){const v=wx[i];
+   if(v==null){pen=false;continue;}
+   const x=pl+i*slot+slot/2, y=pt+ph*(1-Math.min(v,top)/top);
+   d+=(pen?'L':'M')+x.toFixed(1)+','+y.toFixed(1);pen=true;}
+  s+='<path class="line wx" d="'+d+'"><title>expected from weather ('+unit+')</title></path>';}
  if(revs&&revs.some(v=>v>0)){const rmax=Math.max.apply(null,revs)||1, rtk=yt(rmax), rtop=rtk[rtk.length-1];
   rtk.forEach(v=>{const y=pt+ph*(1-v/rtop);
    s+='<text x="'+(W-pr+8)+'" y="'+(y+4).toFixed(1)+'" class="tick" fill="#1e8e3e">'+nf(v)+'</text>';});
@@ -428,9 +453,10 @@ function compute(){
  const d0=$('d0').value, d1=$('d1').value; if(!d0||!d1||d0>d1)return;
  const days=Math.round((new Date(d1)-new Date(d0))/864e5)+1;
  let idx=[];for(let i=0;i<D.length;i++)if(D[i]>=d0&&D[i]<=d1)idx.push(i);
- let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0;
+ let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0,avloss=0;
  idx.forEach(i=>{prod+=E[i];if(RV)rev+=RV[i];if(C)ctr+=C[i];
   const a=AV[D[i]];if(a!=null)avs.push(a);
+  if(a!=null&&X&&X[i]!=null&&a<1)avloss+=X[i]*(1-a);
   const dq=DQ[D[i]];if(dq!=null){dqn++;dqf+=dq;}});
  $('r_prod').textContent=nf(prod/1000,2);
  if($('r_rev')){if(rev>=1e6){$('r_rev').textContent=nf(rev/1e6,2);$('r_rev_u').textContent='M MXN';}
@@ -448,20 +474,27 @@ function compute(){
  if(av!=null){$('r_sla').textContent=av>=SLA?'MET':'BREACH';
   semTile('t_avail',av>=SLA?'good':av>=SLA-0.03?'warn':'bad');
  }else{$('r_sla').textContent='—';semTile('t_avail','');}
- if(dqn){const q2=dqf/dqn;$('r_dq').textContent=(100*q2).toFixed(0)+'%';
-  semTile('t_dq',q2>=0.95?'good':q2>=0.8?'warn':'bad');
- }else{$('r_dq').textContent='—';semTile('t_dq','');}
- let labs,vals,revs=null,cexp=null,unit,runit;
- if(days>92){const g={},gr={},gc={};
+ const al=$('r_avloss');
+ if(al){if(avloss>=1){$('r_avloss_v').textContent=
+   avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';al.hidden=false;}
+  else al.hidden=true;}
+ if(dqn){const q2=dqf/dqn;$('r_dq').textContent=(100*q2).toFixed(0)+'%';}
+ else{$('r_dq').textContent='—';}
+ semTile('t_dq','');
+ let labs,vals,revs=null,cexp=null,wexp=null,unit,runit;
+ if(days>92){const g={},gr={},gc={},gx={};
   idx.forEach(i=>{const m=D[i].slice(0,7);g[m]=(g[m]||0)+E[i];
-   if(RV)gr[m]=(gr[m]||0)+RV[i];if(C)gc[m]=(gc[m]||0)+C[i];});
+   if(RV)gr[m]=(gr[m]||0)+RV[i];if(C)gc[m]=(gc[m]||0)+C[i];
+   if(X&&X[i]!=null)gx[m]=(gx[m]||0)+X[i];});
   labs=Object.keys(g).sort();vals=labs.map(m=>g[m]/1000);
   if(RV)revs=labs.map(m=>gr[m]/1000);if(C)cexp=labs.map(m=>(gc[m]||0)/1000);
+  if(X)wexp=labs.map(m=>gx[m]!=null?gx[m]/1000:null);
   unit='MWh';runit='k MXN';
  }else{labs=idx.map(i=>D[i].slice(5));vals=idx.map(i=>E[i]);
-  if(RV)revs=idx.map(i=>RV[i]);if(C)cexp=idx.map(i=>C[i]);unit='kWh';runit='MXN';}
+  if(RV)revs=idx.map(i=>RV[i]);if(C)cexp=idx.map(i=>C[i]);
+  if(X)wexp=idx.map(i=>X[i]);unit='kWh';runit='MXN';}
  $('d_unit').textContent=unit+(RV?' · money '+runit:'');
- $('dchart').innerHTML=colsvg(labs,vals,revs,unit,runit,cexp);
+ $('dchart').innerHTML=colsvg(labs,vals,revs,unit,runit,cexp,wexp);
 }
 const fd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+
  String(d.getDate()).padStart(2,'0');   // local, never toISOString (UTC shifts a day)
@@ -485,6 +518,15 @@ window.addEventListener('DOMContentLoaded',()=>{
 
 def t(en, es):
     return f'<span data-en="{html.escape(en, quote=True)}" data-es="{html.escape(es, quote=True)}">{html.escape(en)}</span>'
+
+
+def ti(en, es):
+    """Info icon + hover/focus tooltip, bilingual. Lives inside a
+    .tlabel; the box positions against the .tile. Management ask
+    (2026-09-02): every KPI tile must explain its definition, formula
+    and color logic — no more mystery red."""
+    return ('<span class="ti" tabindex="0" role="note" aria-label="definition">i</span>'
+            f'<span class="tipbox">{t(en, es)}</span>')
 
 
 LOGO = f'<img class="logo" src="{LOGO_URI}" alt="ARGIA SOLAR">'
@@ -732,6 +774,10 @@ def plant_page(k):
         clist = None            # no contract/expected data
     avmap = {d: round(avail_d[(k, d)], 4) for d, _ in series if (k, d) in avail_d}
     dqmap = {d: dq_d[(k, d)] for d, _ in series if (k, d) in dq_d}
+    xlist = [round(exp_d[(k, d)], 1) if (k, d) in exp_d else None
+             for d, _ in series]
+    if not any(v for v in xlist if v):
+        xlist = None            # no weather-expected data for this plant
 
     tiles = ['<div class="tiles">',
              f'<div class="tile"><div class="tlabel">{t("Lifetime production","Producción histórica")}</div>'
@@ -740,8 +786,10 @@ def plant_page(k):
              f'<div class="tile"><div class="tlabel">{t("Capacity","Capacidad")}</div>'
              f'<div class="tval">{p["kwp"]:,.1f} <span class="unit">kWp DC</span></div>'
              f'<div class="tsub">{p["brand"]}</div></div>',
-             f'<div class="tile" id="t_prod"><div class="tlabel">{t("Production, selected range","Producción, rango elegido")}</div>'
-             f'<div class="tval"><span id="r_prod">—</span> <span class="unit">MWh</span></div>'
+             f'<div class="tile" id="t_prod"><div class="tlabel">{t("Production, selected range","Producción, rango elegido")}'
+             + ti("Metered generation summed over the selected days. '% vs contract' compares it to the contracted monthly volume prorated per day. Green ≥ 95% of contract, amber ≥ 80%, red below.",
+                  "Generación medida sumada en el rango elegido. '% vs contrato' la compara con el volumen mensual contratado prorrateado por día. Verde ≥ 95% del contrato, ámbar ≥ 80%, rojo debajo.")
+             + f'</div><div class="tval"><span id="r_prod">—</span> <span class="unit">MWh</span></div>'
              f'<div class="tsub"><span id="r_range"></span> · <span class="rdays"></span>'
              f'<span id="r_vsctr"></span></div></div>']
     if rlist:
@@ -749,7 +797,12 @@ def plant_page(k):
                      else t("Est. savings, selected range", "Ahorro est., rango elegido"))
         money_sub = (f'{p["tariff"]:.3f} MXN/kWh' if is_ppa
                      else t("production × your grid tariff", "producción × su tarifa de red"))
-        tiles.append(f'<div class="tile"><div class="tlabel">{money_lab}</div>'
+        money_tip = (ti("Production × the PPA tariff in force each month — an accrual estimate before invoicing, sin IVA. Issued monthly invoices are reconciled against vendor lifetime counters at the month close, so billed figures are exact even when telemetry had gaps.",
+                        "Producción × la tarifa PPA vigente cada mes — estimación devengada antes de facturar, sin IVA. Las facturas emitidas se concilian con los contadores de vida del fabricante al cierre del mes, así que lo facturado es exacto aunque la telemetría tuviera huecos.")
+                     if is_ppa else
+                     ti("Production × your grid tariff: what this energy would have cost from CFE. An estimate for context, not an invoice.",
+                        "Producción × su tarifa de red: lo que esta energía habría costado de CFE. Estimación de contexto, no una factura."))
+        tiles.append(f'<div class="tile"><div class="tlabel">{money_lab}{money_tip}</div>'
                      f'<div class="tval"><span id="r_rev">—</span> <span class="unit" id="r_rev_u">MXN</span></div>'
                      f'<div class="tsub">{money_sub}</div></div>')
     tiles.append(f'<div class="tile"><div class="tlabel">{t("CO2 avoided, selected range","CO2 evitado, rango elegido")}</div>'
@@ -769,19 +822,35 @@ def plant_page(k):
         tiles.append(f'<div class="tile {pcls}"><div class="tlabel">{t("Investment recovered","Inversión recuperada")}</div>'
                      f'<div class="tval">{pct:,.0f}%</div>'
                      f'<div class="tsub">{life_sav/1e6:,.2f} / {p["inv"]/1e6:,.2f} M MXN{eta}</div></div>')
-    tiles.append(f'<div class="tile" id="t_avail"><div class="tlabel">{t("Availability, selected range","Disponibilidad, rango elegido")}</div>'
-                 f'<div class="tval" id="r_avail">—</div>'
+    tiles.append(f'<div class="tile" id="t_avail"><div class="tlabel">{t("Availability, selected range","Disponibilidad, rango elegido")}'
+                 + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor — a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
+                      "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador — un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
+                 + f'</div><div class="tval" id="r_avail">—</div>'
                  f'<div class="tsub">SLA {SLA_TARGET*100:.0f}%: <b id="r_sla">—</b> · '
-                 f'{t("assumed target","objetivo supuesto")}</div></div>')
-    tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Data quality, selected range","Calidad de datos, rango elegido")}</div>'
-                 f'<div class="tval" id="r_dq">—</div>'
-                 f'<div class="tsub">{t("full-coverage days (v2)","días con cobertura completa (v2)")}</div></div>')
+                 f'{t("assumed target","objetivo supuesto")}'
+                 f'<span id="r_avloss" hidden> · {t("energy at risk","energía en riesgo")} '
+                 f'≤ <b id="r_avloss_v"></b></span></div></div>')
+    tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Telemetry coverage, selected range","Cobertura de telemetría, rango elegido")}'
+                 + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Informational — never colored.",
+                      "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Informativo — nunca en color.")
+                 + f'</div><div class="tval" id="r_dq">—</div>'
+                 f'<div class="tsub">{t("full-coverage days","días con cobertura completa")}</div></div>')
     if pr:
         base = p.get('prb') or 0
         prc = ('good' if pr >= base else 'warn' if pr >= base - 0.05 else 'bad') if base else ''
-        tiles.append(f'<div class="tile {prc}"><div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}</div>'
-                     f'<div class="tval">{pr*100:,.1f}%</div>'
-                     f'<div class="tsub">{t("baseline","línea base")} {base*100:,.0f}%</div></div>')
+        if base:
+            drift = (base - pr) * 100
+            pr_sub = (t("at/above clean baseline", "en/sobre línea base limpia")
+                      if drift <= 0 else
+                      f'−{drift:,.1f} pts {t("vs clean baseline (soiling + other losses)","vs línea base limpia (suciedad + otras pérdidas)")}')
+            pr_sub = f'{t("baseline","línea base")} {base*100:,.0f}% · {pr_sub}'
+        else:
+            pr_sub = t("no baseline configured", "sin línea base configurada")
+        tiles.append(f'<div class="tile {prc}" id="t_pr"><div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
+                     + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Baseline is this plant's clean-state PR as defined in the ARGIA_MONT_V2 Plants sheet — the soiling reference. The gap to baseline approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
+                          "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. La línea base es el PR en estado limpio definido en la hoja Plants de ARGIA_MONT_V2 — la referencia de suciedad. La brecha contra la línea base aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
+                     + f'</div><div class="tval">{pr*100:,.1f}%</div>'
+                     f'<div class="tsub">{pr_sub}</div></div>')
     tiles.append('</div>')
 
     warn = ''
@@ -817,6 +886,10 @@ def plant_page(k):
     if clist:
         exp_word = t("contract (daily)", "contrato (diario)") if is_ppa else t("expected (daily)", "esperado (diario)")
         rev_leg += f' · <span class="key" style="background:var(--s2)"></span>{exp_word}'
+    if xlist:
+        rev_leg += (' · <span class="key" style="background:#8a94a3"></span>'
+                    + t("expected from weather (kWp × irradiance × plant factor)",
+                        "esperado por clima (kWp × irradiancia × factor de planta)"))
     if rlist:
         money_word = (t("revenue (right axis)", "ingreso (eje derecho)") if is_ppa
                       else t("savings (right axis)", "ahorro (eje derecho)"))
@@ -852,6 +925,7 @@ def plant_page(k):
     body.append('<script>const D=' + json.dumps(dlist) + ';const E=' + json.dumps(elist)
                 + ';const RV=' + (json.dumps(rlist) if rlist else 'null')
                 + ';const C=' + (json.dumps(clist) if clist else 'null')
+                + ';const X=' + (json.dumps(xlist) if xlist else 'null')
                 + ';const AV=' + json.dumps(avmap)
                 + ';const DQ=' + json.dumps(dqmap)
                 + f';const VSL="{vs_lab}";const CO2F={CO2_T_PER_MWH};'

@@ -319,3 +319,36 @@ class TestDailyTemplates:
                                       "svc@argia.com.mx", ["t@x.mx"])
         parts = [p.get_content_type() for p in msg.walk()]
         assert "text/plain" in parts and "text/html" in parts
+
+
+class TestPostRedirectGet:
+    """v176.1 — Tomasz's 404: relative form actions broke after the
+    first POST parked the browser on /setup/mail/add. Locked here:
+    absolute actions + redirect-back-home on every mail/maint POST."""
+
+    SRC = (V2 / "server" / "bundle" / "setup_app.py").read_text(
+        encoding="utf-8")
+
+    def test_mail_and_maint_forms_use_absolute_actions(self):
+        for a in ("mail/add", "mail/toggle", "mail/delete", "maint/add",
+                  "maint/close", "maint/approve", "maint/delete"):
+            assert f'action="/setup/{a}"' in self.SRC, a
+            assert f'action="{a}"' not in self.SRC, a
+
+    def test_mail_and_maint_posts_redirect_home(self):
+        # every mail_*/maint_* handler ends in _post_done, never in a
+        # direct render() that would strand the browser on the POST URL
+        for name in ("mail_add", "mail_toggle", "mail_delete",
+                     "maint_add", "maint_close", "maint_approve",
+                     "maint_delete"):
+            body = self.SRC.split(f"def {name}():")[1].split("\n@app.")[0]
+            assert "_post_done(" in body, name
+            assert "return render(" not in body, name
+
+    def test_post_done_is_a_303_to_setup_home(self):
+        body = self.SRC.split("def _post_done(")[1].split("\ndef ")[0]
+        assert "'/setup/?m='" in body and "code=303" in body
+
+    def test_render_picks_up_redirect_message(self):
+        body = self.SRC.split("def render(")[1].split("\ndef ")[0]
+        assert "request.args.get('m')" in body

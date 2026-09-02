@@ -27,7 +27,7 @@ import sqlite3
 import subprocess
 import time as _time
 
-from flask import Flask, request, make_response
+from flask import Flask, request, make_response, redirect
 
 sys_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
@@ -853,18 +853,18 @@ def maintenance_card():
         acts = []
         if not en:
             acts.append(
-                f'<form method="post" action="maint/close" style="display:inline">'
+                f'<form method="post" action="/setup/maint/close" style="display:inline">'
                 f'<input type="hidden" name="csrf" value="{CSRF}">'
                 f'<input type="hidden" name="id" value="{mid}">'
                 '<button class="btn" data-en="end now" data-es="terminar">end now</button></form>')
         if not appr:
             acts.append(
-                f'<form method="post" action="maint/approve" style="display:inline">'
+                f'<form method="post" action="/setup/maint/approve" style="display:inline">'
                 f'<input type="hidden" name="csrf" value="{CSRF}">'
                 f'<input type="hidden" name="id" value="{mid}">'
                 '<button class="btn" data-en="approve" data-es="aprobar">approve</button></form>')
             acts.append(
-                f'<form method="post" action="maint/delete" style="display:inline">'
+                f'<form method="post" action="/setup/maint/delete" style="display:inline">'
                 f'<input type="hidden" name="csrf" value="{CSRF}">'
                 f'<input type="hidden" name="id" value="{mid}">'
                 '<button class="btn" data-en="delete" data-es="borrar">delete</button></form>')
@@ -892,7 +892,7 @@ def maintenance_card():
  data-es="Categoría 'customer' = paro causado por el cliente: una vez APROBADO, esas horas se facturan como energía compensada (anclada al contrato). 'argia' y 'force_majeure' se registran pero nunca se facturan. Deje Fin vacío para un evento en curso.">
 Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy.</p>
 {rows_html}
-<form method="post" action="maint/add" style="margin-top:12px">
+<form method="post" action="/setup/maint/add" style="margin-top:12px">
 <input type="hidden" name="csrf" value="{CSRF}">
 <p><select name="plant">{plant_opts}</select>
  <label class="note" data-en="start" data-es="inicio">start</label> <input type="datetime-local" name="start" required>
@@ -910,6 +910,17 @@ def _maint_guard():
     return me if (is_global and check_csrf()) else None
 
 
+def _post_done(msg):
+    """Post/Redirect/Get: send the browser back to the main setup page
+    with the outcome in ?m=. Returning render() directly leaves the
+    browser parked on the POST URL (/setup/mail/add), where every
+    relative form action on the page then resolves one level too deep
+    and 404s — exactly what bit Tomasz subscribing to a second channel
+    (2026-09-02)."""
+    from urllib.parse import quote
+    return redirect('/setup/?m=' + quote(msg or ''), code=303)
+
+
 @app.post('/maint/add')
 def maint_add():
     me = _maint_guard()
@@ -924,11 +935,11 @@ def maint_add():
     note = (request.form.get('note') or '').strip()[:200]
     if plant not in PLANTS or cat not in MAINT_CATEGORIES \
             or not _TS_RE.match(start) or (end and not _TS_RE.match(end)):
-        return render(msg='maintenance: invalid plant/category/time — nothing saved')
+        return _post_done('maintenance: invalid plant/category/time — nothing saved')
     try:
         cost_sql = f'{float(cost):.2f}' if cost else 'NULL'
     except ValueError:
-        return render(msg='maintenance: cost must be a number — nothing saved')
+        return _post_done('maintenance: cost must be a number — nothing saved')
     mx = "AT TIME ZONE 'America/Mexico_City'"
     end_sql = f"timestamp '{end.replace('T', ' ')}' {mx}" if end else 'NULL'
     ct_sql = _sqlq(ct) if ct in MAINT_COST_TYPES else 'NULL'
@@ -938,7 +949,7 @@ def maint_add():
          f" ({_sqlq(plant.upper())}, timestamp '{start.replace('T', ' ')}' {mx},"
          f" {end_sql}, {_sqlq(cat)}, {ct_sql}, {cost_sql}, {_sqlq(note)},"
          f" {_sqlq(me)});")
-    return render(msg='maintenance event logged as DRAFT — approve it to make it billable')
+    return _post_done('maintenance event logged as DRAFT — approve it to make it billable')
 
 
 @app.post('/maint/close')
@@ -951,7 +962,7 @@ def maint_close():
     except ValueError:
         mid = 0
     psql(f'UPDATE maintenance_event SET end_ts = now() WHERE id = {mid} AND end_ts IS NULL;')
-    return render(msg=f'maintenance event #{mid} ended now')
+    return _post_done(f'maintenance event #{mid} ended now')
 
 
 @app.post('/maint/approve')
@@ -965,7 +976,7 @@ def maint_approve():
         mid = 0
     psql(f'UPDATE maintenance_event SET approved_by = {_sqlq(me)} '
          f'WHERE id = {mid} AND approved_by IS NULL;')
-    return render(msg=f'maintenance event #{mid} approved — billable if category=customer')
+    return _post_done(f'maintenance event #{mid} approved — billable if category=customer')
 
 
 @app.post('/maint/delete')
@@ -978,7 +989,7 @@ def maint_delete():
     except ValueError:
         mid = 0
     psql(f'DELETE FROM maintenance_event WHERE id = {mid} AND approved_by IS NULL;')
-    return render(msg=f'draft maintenance event #{mid} deleted')
+    return _post_done(f'draft maintenance event #{mid} deleted')
 
 
 
@@ -1059,12 +1070,12 @@ def subscriptions_card():
         if chan != 'maintenance':
             scope = '—'
         acts = (
-            f'<form method="post" action="mail/toggle" style="display:inline">'
+            f'<form method="post" action="/setup/mail/toggle" style="display:inline">'
             f'<input type="hidden" name="csrf" value="{CSRF}">'
             f'<input type="hidden" name="email" value="{html.escape(email)}">'
             f'<input type="hidden" name="channel" value="{html.escape(chan)}">'
             f'<button class="btn">{"pause" if on else "resume"}</button></form>'
-            f'<form method="post" action="mail/delete" style="display:inline">'
+            f'<form method="post" action="/setup/mail/delete" style="display:inline">'
             f'<input type="hidden" name="csrf" value="{CSRF}">'
             f'<input type="hidden" name="email" value="{html.escape(email)}">'
             f'<input type="hidden" name="channel" value="{html.escape(chan)}">'
@@ -1097,7 +1108,7 @@ def subscriptions_card():
         '<p class="note" data-en="No portal accounts with an email on file — add the email on the user\'s account first." data-es="Ninguna cuenta con correo — agregue el correo en la cuenta primero.">'
         'No portal accounts with an email on file — add the email on the '
         "user's account first.</p>" if not users else f'''
-<form method="post" action="mail/add" style="margin-top:10px">
+<form method="post" action="/setup/mail/add" style="margin-top:10px">
 <input type="hidden" name="csrf" value="{CSRF}">
 <p><select name="username">{user_opts}</select>
  <select name="channel">{chan_opts}</select>
@@ -1131,11 +1142,11 @@ def mail_add():
     uname = (request.form.get('username') or '').strip()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return render(msg='subscriptions: unknown channel — nothing saved')
+        return _post_done('subscriptions: unknown channel — nothing saved')
     match = [(u, n, em) for u, n, em in _mail_users() if u == uname]
     if not match:
-        return render(msg='subscriptions: not a portal user with an email'
-                          ' on file — nothing saved')
+        return _post_done('subscriptions: not a portal user with an email'
+                      ' on file — nothing saved')
     email = match[0][2]
     plants = ''
     if chan == 'maintenance':
@@ -1149,7 +1160,7 @@ def mail_add():
          f" ON CONFLICT (email, channel) DO UPDATE SET enabled = true,"
          f" plants = EXCLUDED.plants, username = EXCLUDED.username;")
     scope = plants or 'all plants'
-    return render(msg=f'{email} subscribed to {chan} ({scope})')
+    return _post_done(f'{email} subscribed to {chan} ({scope})')
 
 
 @app.post('/mail/toggle')
@@ -1160,10 +1171,10 @@ def mail_toggle():
     email = (request.form.get('email') or '').strip().lower()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return render(msg='subscriptions: unknown channel')
+        return _post_done('subscriptions: unknown channel')
     psql(f'UPDATE mail_subscription SET enabled = NOT enabled'
          f' WHERE email = {_sqlq(email)} AND channel = {_sqlq(chan)};')
-    return render(msg=f'{email} / {chan} toggled')
+    return _post_done(f'{email} / {chan} toggled')
 
 
 @app.post('/mail/delete')
@@ -1174,10 +1185,10 @@ def mail_delete():
     email = (request.form.get('email') or '').strip().lower()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return render(msg='subscriptions: unknown channel')
+        return _post_done('subscriptions: unknown channel')
     psql(f'DELETE FROM mail_subscription WHERE email = {_sqlq(email)}'
          f' AND channel = {_sqlq(chan)};')
-    return render(msg=f'{email} unsubscribed from {chan}')
+    return _post_done(f'{email} unsubscribed from {chan}')
 
 
 
@@ -1683,6 +1694,8 @@ def finance_tariff():
 
 def render(msg='', once=None):
     """Role-aware main page."""
+    if not msg:
+        msg = (request.args.get('m') or '')[:300]
     me, is_global, org = actor()
     if not is_global and not org:
         return page('<div class="card"><p data-en="Your account has no management rights."'

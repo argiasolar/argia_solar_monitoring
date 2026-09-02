@@ -35,12 +35,14 @@ class TestMonitoringLinksArePrefixed:
         """A monitoring PAGE link must carry the prefix. The only
         allowed bare "/..." links are the deliberate ways out of the
         monitoring tree: the logo, the "← Reports" button, /account/
-        on the report host, and the /invoices/ register (2026-09-01,
-        the recon board's invoice-annexes button)."""
+        on the report host, the /invoices/ register (2026-09-01,
+        the recon board's invoice-annexes button), and the /portfolio/
+        fleet map (v177 — it lives at the webroot under the financial
+        gate, NOT inside /monitoring/)."""
         import re
         bad = [ln.strip() for ln in MONGEN.splitlines()
-               if re.search(r'href="/(?!account/|invoices/|favicon|"|\s)',
-                            ln)]
+               if re.search(r'href="/(?!account/|invoices/|portfolio/'
+                            r'|favicon|"|\s)', ln)]
         assert bad == [], bad
         out = [ln.strip() for ln in MONGEN.splitlines()
                if re.search(r'href="/"', ln)]

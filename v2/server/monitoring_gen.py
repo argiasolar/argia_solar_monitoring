@@ -510,6 +510,7 @@ def controls(extra=''):
             f'<a class="btn" href="{BASE}/capex/" data-en="CAPEX" data-es="CAPEX">CAPEX</a>'
             f'<a class="btn" href="{BASE}/performance/" data-en="Performance" data-es="Desempeño">Performance</a>'
             f'<a class="btn" href="{BASE}/recon/" data-en="Reconciliation" data-es="Conciliación">Reconciliation</a>'
+            '<a class="btn" href="/portfolio/" data-en="Map" data-es="Mapa">Map</a>'
             f'{extra}'
             '<a class="btn" href="/" data-en="← Reports"'
             ' data-es="← Reportes">← Reports</a>'
@@ -1161,6 +1162,203 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p></div
                 'Four-check energy reconciliation · vendor counters are the billing control')
 
 
+# ------------------------------------------------------- portfolio map
+# /portfolio/ — the whole fleet on one interactive map (v177, Tomasz
+# 2026-09-02): zoomable, circle area tracks kWp, lifetime + today's
+# money, click-through to each plant's performance report. Gated as
+# 'financial' in auth (it shows fleet-wide PPA revenue). Regenerates
+# with this script every 5 minutes, so "generating now" is real.
+
+CO2_T_PER_MWH = 0.435   # CFE national grid emission factor (approx.)
+
+
+def circle_px(kwp):
+    """Marker DIAMETER in px. sqrt scale so circle AREA tracks kWp —
+    a linear radius would make GTO1 look 5x SLP1 instead of ~2x.
+    Clamped so MEX3 (155 kWp) stays clickable and GTO1 (818) does not
+    swallow the map. Pure."""
+    import math
+    d = 16.0 + 48.0 * math.sqrt(max(float(kwp or 0), 0.0) / 850.0)
+    return int(round(max(24.0, min(64.0, d))))
+
+
+def map_status(age_min, kwh_today, in_window):
+    """('live'|'stale'|'dark'|'night', tile-pill class). Same
+    thresholds the alert mailer uses (STALE_MIN, production window):
+    the map must never disagree with the alerts. Pure."""
+    if not in_window:
+        return 'night', 'off'
+    if age_min is None or (kwh_today or 0) <= 0:
+        return 'dark', 'bad'
+    if age_min > STALE_MIN:
+        return 'stale', 'warn'
+    return 'live', 'good'
+
+
+def portfolio_rows():
+    """One dict per active plant with everything the map needs."""
+    geo = {r[0]: (f(r[1]), f(r[2]), f(r[3]), r[4]) for r in q(
+        "SELECT plant_key, lat, lon, coalesce(tariff_mxn_per_kwh,0),"
+        " coalesce(brand,'') FROM plant WHERE active;") if len(r) >= 5}
+    # lifetime energy + revenue: month tariff from contract_monthly
+    # when set, else the plant's flat tariff (same fallback order as
+    # tariff_for in report_gen — the invoices' rule)
+    life = {r[0]: (f(r[1]) or 0, f(r[2]) or 0) for r in q(
+        "SELECT d.plant_key, sum(d.energy_kwh),"
+        " sum(d.energy_kwh * coalesce(nullif(cm.tariff_mxn,0),"
+        "     p.tariff_mxn_per_kwh, 0))"
+        " FROM daily_production d"
+        " JOIN plant p ON p.plant_key = d.plant_key"
+        " LEFT JOIN contract_monthly cm ON cm.plant_key = d.plant_key"
+        "  AND cm.year = extract(year FROM d.prod_date)::int"
+        "  AND cm.month = extract(month FROM d.prod_date)::int"
+        " GROUP BY 1;") if len(r) >= 3}
+    today_e = {r[0]: (f(r[1]) or 0, f(r[2])) for r in q(
+        "SELECT s.plant_key, coalesce(sum(s.e),0), min(s.age_min)"
+        " FROM (SELECT plant_key, inverter_sn, max(etoday_kwh) AS e,"
+        "  extract(epoch FROM now() - max(ts_utc))/60 AS age_min"
+        f" FROM telemetry WHERE {MX_D} = '{TODAY}'"
+        "  AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
+        " GROUP BY 1, 2) s GROUP BY 1;") if len(r) >= 3}
+    live_kw = {r[0]: f(r[1]) or 0 for r in q(
+        "SELECT plant_key, sum(power_w)/1000.0 FROM ("
+        " SELECT DISTINCT ON (plant_key, inverter_sn) plant_key, power_w"
+        " FROM telemetry WHERE ts_utc > now() - interval '30 minutes'"
+        "  AND power_w IS NOT NULL"
+        " ORDER BY plant_key, inverter_sn, ts_utc DESC) t GROUP BY 1;")
+        if len(r) >= 2}
+    # current-month tariff for "today's money"
+    cur_tariff = {r[0]: f(r[1]) or 0 for r in q(
+        "SELECT p.plant_key, coalesce(nullif(cm.tariff_mxn,0),"
+        " p.tariff_mxn_per_kwh, 0) FROM plant p"
+        " LEFT JOIN contract_monthly cm ON cm.plant_key = p.plant_key"
+        f" AND cm.year = {NOW_MX.year} AND cm.month = {NOW_MX.month};")
+        if len(r) >= 2}
+    in_window = WINDOW[0] <= NOW_MX.hour < WINDOW[1]
+    rows = []
+    for pk, meta in sorted(PLANTS.items()):
+        lat, lon, _t, brand = geo.get(pk, (None, None, 0, ''))
+        if lat is None or lon is None:
+            continue            # a plant without coordinates cannot plot
+        e_today, age = today_e.get(pk, (0.0, None))
+        life_kwh, life_mxn = life.get(pk, (0.0, 0.0))
+        is_ppa = meta['portfolio'] == 'PPA'
+        tariff = cur_tariff.get(pk, 0.0) if is_ppa else 0.0
+        status, pill = map_status(age, e_today, in_window)
+        rows.append({
+            'key': pk, 'name': meta['customer'], 'brand': brand,
+            'ppa': is_ppa, 'kwp': meta['kwp'], 'lat': lat, 'lon': lon,
+            'px': circle_px(meta['kwp']),
+            'today_kwh': round(e_today, 1),
+            'today_mxn': round(e_today * tariff, 0) if is_ppa else None,
+            'live_kw': round(live_kw.get(pk, 0.0), 1),
+            'life_mwh': round(life_kwh / 1000.0, 1),
+            'life_mxn': round(life_mxn, 0) if is_ppa else None,
+            'status': status, 'pill': pill,
+            'photo': photo_uri(pk, thumb=True),
+        })
+    return rows
+
+
+def portfolio_page():
+    import json
+    rows = portfolio_rows()
+    tot_kwp = sum(r['kwp'] for r in rows)
+    tot_live = sum(r['live_kw'] for r in rows)
+    tot_today = sum(r['today_kwh'] for r in rows)
+    tot_today_mxn = sum(r['today_mxn'] or 0 for r in rows)
+    tot_life_mwh = sum(r['life_mwh'] for r in rows)
+    tot_life_mxn = sum(r['life_mxn'] or 0 for r in rows)
+    co2 = tot_life_mwh * CO2_T_PER_MWH
+    n_live = sum(1 for r in rows if r['status'] == 'live')
+    data_js = json.dumps(rows, ensure_ascii=False)
+    tiles = f'''<div class="tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:8px 0 12px">
+<div class="tile"><div class="tlab" data-en="Installed capacity" data-es="Capacidad instalada">Installed capacity</div><div class="tval">{tot_kwp:,.0f} kWp</div><div class="tsub">{len(rows)} <span data-en="plants" data-es="plantas">plants</span></div></div>
+<div class="tile {'good' if n_live else 'off'}"><div class="tlab" data-en="Generating now" data-es="Generando ahora">Generating now</div><div class="tval">{tot_live:,.0f} kW</div><div class="tsub">{n_live}/{len(rows)} <span data-en="plants live" data-es="plantas en vivo">plants live</span></div></div>
+<div class="tile"><div class="tlab" data-en="Energy today" data-es="Energía hoy">Energy today</div><div class="tval">{tot_today:,.0f} kWh</div><div class="tsub" data-en="live, preliminary" data-es="en vivo, preliminar">live, preliminary</div></div>
+<div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval">≈ {tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
+<div class="tile"><div class="tlab" data-en="Lifetime energy" data-es="Energía histórica">Lifetime energy</div><div class="tval">{tot_life_mwh/1000:,.2f} GWh</div><div class="tsub" data-en="all recorded history" data-es="toda la historia registrada">all recorded history</div></div>
+<div class="tile"><div class="tlab" data-en="Lifetime PPA revenue" data-es="Ingreso PPA histórico">Lifetime PPA revenue</div><div class="tval">≈ {tot_life_mxn/1e6:,.2f}M MXN</div><div class="tsub" data-en="monthly tariffs, sin IVA" data-es="tarifas mensuales, sin IVA">monthly tariffs, sin IVA</div></div>
+<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈ {co2:,.0f} t</div><div class="tsub">{CO2_T_PER_MWH} tCO₂/MWh · CFE grid</div></div>
+</div>'''
+    body = f'''{controls()}
+{tiles}
+<div class="card" style="padding:0;overflow:hidden"><div id="map"></div></div>
+<p class="note" style="margin-top:8px">
+<span class="pill" data-en="generating" data-es="generando">generating</span>
+<span class="pill warn" data-en="telemetry stale" data-es="telemetría atrasada">telemetry stale</span>
+<span class="pill bad" data-en="dark today" data-es="sin datos hoy">dark today</span>
+<span class="pill off" data-en="night" data-es="noche">night</span>
+&nbsp; <span data-en="Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to open its performance report."
+ data-es="El área del círculo refleja los kWp instalados · azul = PPA, verde = CAPEX · clic en una planta abre su reporte de desempeño.">
+Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to open its performance report.</span></p>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+#map{{height:calc(100vh - 320px);min-height:480px;width:100%}}
+.tlab{{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#5f6368}}
+.tval{{font-size:21px;font-weight:700;color:#1c2733;margin-top:2px;white-space:nowrap}}
+.tsub{{font-size:11.5px;color:#80868b;margin-top:1px}}
+.pmark{{border-radius:50%;display:flex;align-items:center;justify-content:center;
+ color:#fff;font-weight:700;font-size:11px;border:3px solid #fff;
+ box-shadow:0 1px 6px rgba(0,0,0,.35);cursor:pointer;box-sizing:border-box}}
+.pmark.ppa{{background:rgba(37,99,235,.88)}}
+.pmark.capex{{background:rgba(13,148,136,.88)}}
+.pmark.st-live{{border-color:#1e8e3e;animation:ppulse 2.4s ease-out infinite}}
+.pmark.st-stale{{border-color:#f9ab00}}
+.pmark.st-dark{{border-color:#c5221f;background:rgba(197,34,31,.82)}}
+.pmark.st-night{{opacity:.75;border-color:#9aa0a6}}
+@keyframes ppulse{{0%{{box-shadow:0 0 0 0 rgba(30,142,62,.45)}}
+ 70%{{box-shadow:0 0 0 16px rgba(30,142,62,0)}}
+ 100%{{box-shadow:0 0 0 0 rgba(30,142,62,0)}}}}
+.ptip{{font:13px "Segoe UI",system-ui,sans-serif;color:#202124;min-width:230px}}
+.ptip img{{width:100%;max-height:110px;object-fit:cover;border-radius:8px;margin-bottom:6px}}
+.ptip h3{{margin:0 0 2px;font-size:14px}}
+.ptip table{{border-collapse:collapse;width:100%}}
+.ptip td{{padding:1.5px 4px 1.5px 0;font-variant-numeric:tabular-nums}}
+.ptip td:last-child{{text-align:right;font-weight:600}}
+.ptip .go{{margin-top:5px;color:#1a73e8;font-weight:600}}
+.leaflet-tooltip{{border-radius:10px;border:1px solid #dadce0;
+ box-shadow:0 4px 18px rgba(0,0,0,.18);padding:10px 12px}}
+</style>
+<script>
+var P={data_js};
+var map=L.map('map',{{scrollWheelZoom:true}});
+L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png',
+ {{attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:18}}).addTo(map);
+function nf(v){{return v==null?'—':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
+var bounds=[];
+P.forEach(function(p){{
+ var icon=L.divIcon({{className:'',
+  html:'<div class="pmark '+(p.ppa?'ppa':'capex')+' st-'+p.status+'"'
+   +' style="width:'+p.px+'px;height:'+p.px+'px">'
+   +(p.px>=34?Math.round(p.kwp):'')+'</div>',
+  iconSize:[p.px,p.px],iconAnchor:[p.px/2,p.px/2]}});
+ var m=L.marker([p.lat,p.lon],{{icon:icon}}).addTo(map);
+ var tip='<div class="ptip">'
+  +(p.photo?'<img src="'+p.photo+'" alt="">':'')
+  +'<h3>'+p.key+' — '+p.name+'</h3>'
+  +'<div style="color:#5f6368;font-size:12px;margin-bottom:4px">'
+  +(p.ppa?'PPA':'CAPEX')+' · '+p.brand+' · '+nf(p.kwp)+' kWp · '+p.status+'</div>'
+  +'<table>'
+  +'<tr><td>Generating now</td><td>'+nf(p.live_kw)+' kW</td></tr>'
+  +'<tr><td>Today</td><td>'+nf(p.today_kwh)+' kWh</td></tr>'
+  +(p.today_mxn!=null?'<tr><td>Revenue today</td><td>≈ '+nf(p.today_mxn)+' MXN</td></tr>':'')
+  +'<tr><td>Lifetime</td><td>'+nf(p.life_mwh)+' MWh</td></tr>'
+  +(p.life_mxn!=null?'<tr><td>Lifetime revenue</td><td>≈ '+nf(p.life_mxn)+' MXN</td></tr>':'')
+  +'</table><div class="go">Open performance report →</div></div>';
+ m.bindTooltip(tip,{{sticky:false,direction:'top',
+  offset:[0,-p.px/2-4],opacity:1}});
+ m.on('click',function(){{window.location='/'+p.key.toLowerCase()+'/';}});
+ bounds.push([p.lat,p.lon]);
+}});
+if(bounds.length)map.fitBounds(bounds,{{padding:[60,60]}});
+</script>'''
+    return page('Portfolio map', body,
+                'Every plant, live · circle area = installed kWp · '
+                'money is an accrual estimate, sin IVA')
+
+
 # ----------------------------------------------------------------- write
 def write(rel, content):
     p = os.path.join(OUTROOT, 'monitoring', rel)
@@ -1170,8 +1368,19 @@ def write(rel, content):
     os.chmod(p, 0o644)
 
 
+def write_root(rel, content):
+    """Writer for pages OUTSIDE /monitoring/ (the portfolio map lives
+    at the webroot so its auth area is its own, not 'monitoring')."""
+    p = os.path.join(OUTROOT, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, 'w', encoding='utf-8') as fh:
+        fh.write(content)
+    os.chmod(p, 0o644)
+
+
 n = 0
 write('index.html', fleet_page()); n += 1
+write_root('portfolio/index.html', portfolio_page()); n += 1
 write('ppa/index.html', ppa_page()); n += 1
 write('capex/index.html', capex_page()); n += 1
 write('performance/index.html', performance_page()); n += 1

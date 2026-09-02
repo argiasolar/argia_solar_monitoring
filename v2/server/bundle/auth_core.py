@@ -56,6 +56,9 @@ PREFIX_AREA = {
     # invoice annexes carry PPA tariffs and revenue — same audience as
     # the financial report (v155, monthly-close feature 2026-09-01)
     '/invoices/': 'financial',
+    # the portfolio map shows fleet-wide PPA revenue — financial-grade
+    # content, financial-grade gate (v177)
+    '/portfolio/': 'financial',
     '/capex/': 'capex',
     '/monitoring/': 'monitoring',
     '/monitoring/assets/': ALL,

@@ -222,3 +222,53 @@ class TestReferenceSheets:
             p = self.ASSETS / "photos" / name
             assert p.exists() and p.stat().st_size > 10_000, name
             assert p.read_bytes()[:2] == b"\xff\xd8", name   # JPEG
+
+
+class TestRyderReference:
+    """v177.3 — TAM1 (Ryder Nuevo Laredo) gets the same treatment as
+    Tetra Pak: hosted PDF sheets (EN+ES) + site photos from the sheet
+    (the solar carport). No plant is left without a reference now."""
+
+    ASSETS = V2 / "server" / "assets"
+
+    def test_ref_link_and_pdfs(self):
+        assert "ARGIA_ref_Ryder_Nuevo_Laredo_ES.pdf" in GEN_SRC
+        for name in ("ARGIA_ref_Ryder_Nuevo_Laredo_EN.pdf",
+                     "ARGIA_ref_Ryder_Nuevo_Laredo_ES.pdf"):
+            f = self.ASSETS / "refs" / name
+            assert f.exists() and f.stat().st_size > 100_000, name
+            assert f.read_bytes()[:5] == b"%PDF-", name
+
+    @staticmethod
+    def _jpeg_size(data):
+        """(width, height) from JPEG SOF marker — stdlib only, the
+        laptop venv has no Pillow (v177.3 lesson)."""
+        i = 2
+        while i < len(data) - 9:
+            assert data[i] == 0xFF, "not a JPEG marker stream"
+            marker = data[i + 1]
+            seg = int.from_bytes(data[i + 2:i + 4], "big")
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8,
+                                                         0xCC):
+                h = int.from_bytes(data[i + 5:i + 7], "big")
+                w = int.from_bytes(data[i + 7:i + 9], "big")
+                return w, h
+            i += 2 + seg
+        raise AssertionError("no SOF marker found")
+
+    def test_tam1_photos_landscape_jpegs(self):
+        for name in ("tam1.jpg", "tam1_t.jpg"):
+            f = self.ASSETS / "photos" / name
+            assert f.exists() and f.stat().st_size > 10_000, name
+            data = f.read_bytes()
+            assert data[:2] == b"\xff\xd8", name
+            w, h = self._jpeg_size(data)
+            assert w > h, (name, w, h)   # banner/card, not portrait
+
+    def test_every_active_plant_has_a_reference_entry(self):
+        # 11 plants: 8 website links + NL1/QRO1/TAM1 hosted PDFs
+        import re as _re
+        keys = set(_re.findall(r"^    '([A-Z0-9]+)':", GEN_SRC, _re.M))
+        for pk in ("GTO1", "GTO2", "MEX1", "MEX2", "MEX3", "NL1", "NL2",
+                   "QRO1", "SLP1", "SLP2", "TAM1"):
+            assert pk in keys, pk

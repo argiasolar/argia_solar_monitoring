@@ -1172,6 +1172,23 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p></div
 CO2_T_PER_MWH = 0.435   # CFE national grid emission factor (approx.)
 
 
+def display_name(customer):
+    """Human name for the map — never the plant code (Tomasz, v177.1:
+    'do not use the code names like GTO1'). 'TAIGENE PPA roof (Leon,
+    GTO)' -> 'Taigene'; short all-caps acronyms (SAG, SMS) survive.
+    Pure."""
+    s = str(customer or '').split('(')[0].split(',')[0]
+    for cut in (' PPA', ' CAPEX', ' roof', ' land'):
+        i = s.find(cut)
+        if i > 0:
+            s = s[:i]
+    parts = s.strip().split()
+    if len(parts) == 1 and len(parts[0]) <= 3 and parts[0].isupper():
+        return parts[0]                          # SAG, SMS stay acronyms
+    return ' '.join('-'.join(p[:1].upper() + p[1:].lower()
+                             for p in w.split('-')) for w in parts)
+
+
 def circle_px(kwp):
     """Marker DIAMETER in px. sqrt scale so circle AREA tracks kWp —
     a linear radius would make GTO1 look 5x SLP1 instead of ~2x.
@@ -1246,7 +1263,8 @@ def portfolio_rows():
         tariff = cur_tariff.get(pk, 0.0) if is_ppa else 0.0
         status, pill = map_status(age, e_today, in_window)
         rows.append({
-            'key': pk, 'name': meta['customer'], 'brand': brand,
+            'key': pk, 'name': meta['customer'],
+            'label': display_name(meta['customer']), 'brand': brand,
             'ppa': is_ppa, 'kwp': meta['kwp'], 'lat': lat, 'lon': lon,
             'px': circle_px(meta['kwp']),
             'today_kwh': round(e_today, 1),
@@ -1272,14 +1290,15 @@ def portfolio_page():
     co2 = tot_life_mwh * CO2_T_PER_MWH
     n_live = sum(1 for r in rows if r['status'] == 'live')
     data_js = json.dumps(rows, ensure_ascii=False)
-    tiles = f'''<div class="tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:8px 0 12px">
+    # v177.1 (Tomasz): NO lifetime tiles up top — they crowded the row
+    # (lifetime figures stay on each plant's hover card); values must
+    # fit their tile, so .tval scales down instead of overflowing.
+    tiles = f'''<div class="tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin:8px 0 12px">
 <div class="tile"><div class="tlab" data-en="Installed capacity" data-es="Capacidad instalada">Installed capacity</div><div class="tval">{tot_kwp:,.0f} kWp</div><div class="tsub">{len(rows)} <span data-en="plants" data-es="plantas">plants</span></div></div>
 <div class="tile {'good' if n_live else 'off'}"><div class="tlab" data-en="Generating now" data-es="Generando ahora">Generating now</div><div class="tval">{tot_live:,.0f} kW</div><div class="tsub">{n_live}/{len(rows)} <span data-en="plants live" data-es="plantas en vivo">plants live</span></div></div>
 <div class="tile"><div class="tlab" data-en="Energy today" data-es="Energía hoy">Energy today</div><div class="tval">{tot_today:,.0f} kWh</div><div class="tsub" data-en="live, preliminary" data-es="en vivo, preliminar">live, preliminary</div></div>
-<div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval">≈ {tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
-<div class="tile"><div class="tlab" data-en="Lifetime energy" data-es="Energía histórica">Lifetime energy</div><div class="tval">{tot_life_mwh/1000:,.2f} GWh</div><div class="tsub" data-en="all recorded history" data-es="toda la historia registrada">all recorded history</div></div>
-<div class="tile"><div class="tlab" data-en="Lifetime PPA revenue" data-es="Ingreso PPA histórico">Lifetime PPA revenue</div><div class="tval">≈ {tot_life_mxn/1e6:,.2f}M MXN</div><div class="tsub" data-en="monthly tariffs, sin IVA" data-es="tarifas mensuales, sin IVA">monthly tariffs, sin IVA</div></div>
-<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈ {co2:,.0f} t</div><div class="tsub">{CO2_T_PER_MWH} tCO₂/MWh · CFE grid</div></div>
+<div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval">≈{tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
+<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈{co2:,.0f} t</div><div class="tsub" data-en="lifetime · CFE grid factor" data-es="histórico · factor CFE">lifetime · CFE grid factor</div></div>
 </div>'''
     body = f'''{controls()}
 {tiles}
@@ -1295,10 +1314,15 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
-#map{{height:calc(100vh - 320px);min-height:480px;width:100%}}
-.tlab{{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#5f6368}}
-.tval{{font-size:21px;font-weight:700;color:#1c2733;margin-top:2px;white-space:nowrap}}
-.tsub{{font-size:11.5px;color:#80868b;margin-top:1px}}
+#map{{height:calc(100vh - 300px);min-height:480px;width:100%}}
+.tlab{{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#5f6368}}
+.tval{{font-size:clamp(15px,1.4vw,20px);font-weight:700;color:#1c2733;margin-top:2px;white-space:nowrap}}
+.tsub{{font-size:11px;color:#80868b;margin-top:1px}}
+.pwrap{{position:relative;cursor:pointer}}
+.plab{{position:absolute;top:100%;left:50%;transform:translateX(-50%);
+ margin-top:2px;white-space:nowrap;font-weight:700;font-size:11.5px;
+ color:#fff;text-shadow:0 0 3px rgba(0,0,0,.9),0 1px 2px rgba(0,0,0,.9);
+ pointer-events:none}}
 .pmark{{border-radius:50%;display:flex;align-items:center;justify-content:center;
  color:#fff;font-weight:700;font-size:11px;border:3px solid #fff;
  box-shadow:0 1px 6px rgba(0,0,0,.35);cursor:pointer;box-sizing:border-box}}
@@ -1324,20 +1348,34 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 <script>
 var P={data_js};
 var map=L.map('map',{{scrollWheelZoom:true}});
-L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png',
- {{attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:18}}).addTo(map);
+// Satellite by default — real roofs and terrain, the Google-Earth
+// look (Esri World Imagery, no API key) with a place-name overlay;
+// a colored street map is one click away. CARTO was dropped in
+// v177.1: its anonymous tiles started demanding an API key.
+var sat=L.layerGroup([
+ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
+  {{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}}),
+ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{{z}}/{{y}}/{{x}}',
+  {{maxZoom:19}})]);
+var streets=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+ {{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}});
+sat.addTo(map);
+L.control.layers({{'Satellite':sat,'Streets':streets}},null,
+ {{position:'topright'}}).addTo(map);
 function nf(v){{return v==null?'—':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
 var bounds=[];
 P.forEach(function(p){{
  var icon=L.divIcon({{className:'',
-  html:'<div class="pmark '+(p.ppa?'ppa':'capex')+' st-'+p.status+'"'
+  html:'<div class="pwrap"><div class="pmark '+(p.ppa?'ppa':'capex')
+   +' st-'+p.status+'"'
    +' style="width:'+p.px+'px;height:'+p.px+'px">'
-   +(p.px>=34?Math.round(p.kwp):'')+'</div>',
+   +(p.px>=34?Math.round(p.kwp):'')+'</div>'
+   +'<div class="plab">'+p.label+'</div></div>',
   iconSize:[p.px,p.px],iconAnchor:[p.px/2,p.px/2]}});
  var m=L.marker([p.lat,p.lon],{{icon:icon}}).addTo(map);
  var tip='<div class="ptip">'
   +(p.photo?'<img src="'+p.photo+'" alt="">':'')
-  +'<h3>'+p.key+' — '+p.name+'</h3>'
+  +'<h3>'+p.name+'</h3>'
   +'<div style="color:#5f6368;font-size:12px;margin-bottom:4px">'
   +(p.ppa?'PPA':'CAPEX')+' · '+p.brand+' · '+nf(p.kwp)+' kWp · '+p.status+'</div>'
   +'<table>'

@@ -133,3 +133,57 @@ class TestPageWiring:
     def test_plant_without_coordinates_is_skipped_not_crashed(self):
         seg = GEN_SRC.split("def portfolio_rows()")[1].split("\ndef ")[0]
         assert "if lat is None or lon is None:" in seg
+
+
+display_name = _exec_def("display_name")
+
+
+class TestV177_1Feedback:
+    """Tomasz's screenshot round: CARTO tiles demanded an API key,
+    lifetime tiles crowded the row, values overflowed their tiles,
+    and plant codes leaked into the UI."""
+
+    def test_display_name_strips_codes_and_boilerplate(self):
+        assert display_name("TAIGENE PPA roof (Leon, GTO)") == "Taigene"
+        assert display_name("SAG PPA roof (CDMX, MEX)") == "SAG"
+        assert display_name("PLASTIC OMNIUM PPA land (Monterrey, NL)") \
+            == "Plastic Omnium"
+        assert display_name(
+            "HOLIDAY INN EXPRESS, Turistica Arizona PPA roof (SLP, SLP)"
+        ) == "Holiday Inn Express"
+        assert display_name("HIRSCHMANN-MEXICO (San Miguel, GTO)") \
+            == "Hirschmann-Mexico"
+        assert display_name("SMS (CDMX,MEX)") == "SMS"
+        assert display_name("") == ""
+
+    def test_carto_tiles_are_gone(self):
+        assert "cartocdn" not in GEN_SRC   # anonymous use now refused
+
+    def test_satellite_default_with_streets_toggle(self):
+        assert ("server.arcgisonline.com/ArcGIS/rest/services/"
+                "World_Imagery") in GEN_SRC
+        assert "World_Boundaries_and_Places" in GEN_SRC   # name overlay
+        assert "tile.openstreetmap.org" in GEN_SRC
+        assert "sat.addTo(map);" in GEN_SRC
+        assert "L.control.layers" in GEN_SRC
+
+    def test_no_lifetime_tiles_in_kpi_row(self):
+        seg = GEN_SRC.split("tiles = f'''")[1].split("'''")[0]
+        assert "Lifetime energy" not in seg
+        assert "Lifetime PPA revenue" not in seg
+        # lifetime numbers still live on the hover card
+        assert "'life_mwh'" in GEN_SRC and "Lifetime</td>" in GEN_SRC
+
+    def test_tile_values_scale_to_fit(self):
+        assert "clamp(" in GEN_SRC        # .tval shrinks, never spills
+
+    def test_no_plant_codes_in_map_ui(self):
+        seg = GEN_SRC.split("def portfolio_page()")[1]
+        assert "'<h3>'+p.name+'</h3>'" in seg           # tooltip title
+        assert "p.key+' — '" not in seg                 # code header gone
+        assert '"pwrap"' in seg and "'+p.label+'" in seg  # name label
+        # the code survives ONLY inside the click URL
+        assert "window.location='/'+p.key.toLowerCase()+'/';" in seg
+
+    def test_marker_label_is_display_name(self):
+        assert "'label': display_name(meta['customer'])," in GEN_SRC

@@ -1291,6 +1291,41 @@ def portfolio_rows():
 def portfolio_page():
     import json
     rows = portfolio_rows()
+    # Solargis / Global Solar Atlas PVOUT overlay (v182, Tomasz):
+    # a one-time colorized raster + bounds JSON generated from the free
+    # Mexico GeoTIFF (CC BY 4.0). The page renders fine without it.
+    pv_bounds = None
+    try:
+        with open(os.path.join(OUTROOT, 'portfolio', 'assets',
+                               'pvout_mexico.json'),
+                  encoding='utf-8') as fh:
+            pv_bounds = json.load(fh).get('bounds')
+    except (OSError, ValueError):
+        pv_bounds = None
+    if pv_bounds and not os.path.exists(os.path.join(
+            OUTROOT, 'portfolio', 'assets', 'pvout_mexico.png')):
+        pv_bounds = None
+    if pv_bounds:
+        pv_js = (
+            "var pv=L.imageOverlay('assets/pvout_mexico.png',"
+            + json.dumps(pv_bounds) + ",{opacity:.55,attribution:"
+            "'PVOUT &copy; Global Solar Atlas 2.0 / Solargis "
+            "(World Bank), CC BY 4.0'});\npv.addTo(map);"
+        )
+        pv_overlays = "{'Solar potential (PVOUT)': pv}"
+        pv_legend = (
+            '&nbsp; <span style="white-space:nowrap">'
+            '<span data-en="Solar potential" data-es="Potencial solar">'
+            'Solar potential</span> 3.0 <span style="display:'
+            'inline-block;width:110px;height:9px;border-radius:5px;'
+            'vertical-align:middle;background:linear-gradient(90deg,'
+            '#fffacd,#ffe082,#ffb43c,#fa821e,#e65014,#c8281e,#a00a28,'
+            '#6e003c)"></span> 5.8 kWh/kWp·<span data-en="day" '
+            'data-es="día">day</span> · PVOUT © Global Solar Atlas '
+            '2.0 / Solargis</span>'
+        )
+    else:
+        pv_js, pv_overlays, pv_legend = '', 'null', ''
     tot_kwp = sum(r['kwp'] for r in rows)
     tot_live = sum(r['live_kw'] for r in rows)
     tot_today = sum(r['today_kwh'] for r in rows)
@@ -1317,7 +1352,7 @@ def portfolio_page():
 <span class="pill" data-en="generating" data-es="generando">generating</span>
 <span class="pill warn" data-en="telemetry stale" data-es="telemetría atrasada">telemetry stale</span>
 <span class="pill bad" data-en="dark today" data-es="sin datos hoy">dark today</span>
-<span class="pill off" data-en="night" data-es="noche">night</span>
+<span class="pill off" data-en="night" data-es="noche">night</span>\n{pv_legend}
 &nbsp; <span data-en="Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to open its performance report."
  data-es="El área del círculo refleja los kWp instalados · azul = PPA, verde = CAPEX · clic en una planta abre su reporte de desempeño.">
 Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to open its performance report.</span></p>
@@ -1370,7 +1405,8 @@ var sat=L.layerGroup([
 var streets=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
  {{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}});
 sat.addTo(map);
-L.control.layers({{'Satellite':sat,'Streets':streets}},null,
+{pv_js}
+L.control.layers({{'Satellite':sat,'Streets':streets}},{pv_overlays},
  {{position:'topright'}}).addTo(map);
 function nf(v){{return v==null?'—':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
 var bounds=[];

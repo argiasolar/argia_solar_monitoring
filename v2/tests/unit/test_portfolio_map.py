@@ -272,3 +272,33 @@ class TestRyderReference:
         for pk in ("GTO1", "GTO2", "MEX1", "MEX2", "MEX3", "NL1", "NL2",
                    "QRO1", "SLP1", "SLP2", "TAM1"):
             assert pk in keys, pk
+
+
+class TestPvoutLayer:
+    """v182 — Solargis / Global Solar Atlas PVOUT (photovoltaic
+    electricity potential) as an optional Leaflet overlay. Locked:
+    the layer appears only when the colorized asset exists, carries
+    the CC BY attribution, and the page renders fine without it."""
+
+    def test_layer_is_conditional_on_the_asset(self):
+        seg = GEN_SRC.split("def portfolio_page()")[1]
+        assert "'pvout_mexico.json'" in seg
+        assert "'pvout_mexico.png'" in seg
+        assert "pv_bounds = None" in seg          # clean absence path
+        assert "pv_js, pv_overlays, pv_legend = '', 'null', ''" in seg
+
+    def test_image_overlay_with_attribution(self):
+        seg = GEN_SRC.split("def portfolio_page()")[1]
+        assert "L.imageOverlay('assets/pvout_mexico.png'" in seg
+        assert "Global Solar Atlas 2.0 / Solargis" in seg
+        assert "CC BY 4.0" in seg
+        assert "opacity:.55" in seg
+
+    def test_overlay_joins_the_layers_control(self):
+        assert "{pv_overlays}" in GEN_SRC
+        assert "'Solar potential (PVOUT)': pv" in GEN_SRC
+
+    def test_legend_gradient_with_units(self):
+        seg = GEN_SRC.split("def portfolio_page()")[1]
+        assert "linear-gradient(90deg" in seg
+        assert "kWh/kWp" in seg and "{pv_legend}" in GEN_SRC

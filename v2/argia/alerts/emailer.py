@@ -79,12 +79,23 @@ def build_email(subject: str, body: str, sender: str,
 
 
 def build_html_email(subject: str, plain: str, html: str, sender: str,
-                     recipients: List[str]) -> EmailMessage:
+                     recipients: List[str],
+                     images: Optional[Dict[str, tuple]] = None
+                     ) -> EmailMessage:
     """Multipart mail: plain-text body plus an HTML alternative (what
     modern clients render). Pure. The plain part is the fallback AND
-    what a human greps in an archive — never leave it empty."""
+    what a human greps in an archive — never leave it empty.
+
+    ``images``: {cid: (bytes, subtype)} embedded as related parts and
+    referenced from the HTML as <img src="cid:...">. This is the ONLY
+    way logos render in Gmail — data: URIs are stripped there (v180)."""
     msg = build_email(subject, plain, sender, recipients)
     msg.add_alternative(html, subtype="html")
+    if images:
+        html_part = msg.get_payload()[-1]
+        for cid, (data, subtype) in images.items():
+            html_part.add_related(data, maintype="image",
+                                  subtype=subtype, cid=f"<{cid}>")
     return msg
 
 

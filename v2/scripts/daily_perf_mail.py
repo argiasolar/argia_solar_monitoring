@@ -41,6 +41,40 @@ LOG = logging.getLogger("argia.daily_perf_mail")
 
 STALE_MIN = 45          # same threshold the alert mailer uses
 
+
+def display_name(customer):
+    """Human name for the mail — never the plant code (Tomasz, v180:
+    'use names in first place and the code like GTO1 as additional').
+    'TAIGENE PPA roof (Leon, GTO)' -> 'Taigene'; short all-caps
+    acronyms (SAG, SMS) survive. Kept byte-identical to the copy in
+    server/monitoring_gen.py — a unit test compares the two. Pure."""
+    s = str(customer or '').split('(')[0].split(',')[0]
+    for cut in (' PPA', ' CAPEX', ' roof', ' land'):
+        i = s.find(cut)
+        if i > 0:
+            s = s[:i]
+    parts = s.strip().split()
+    if len(parts) == 1 and len(parts[0]) <= 3 and parts[0].isupper():
+        return parts[0]                          # SAG, SMS stay acronyms
+    return ' '.join('-'.join(p[:1].upper() + p[1:].lower()
+                             for p in w.split('-')) for w in parts)
+
+
+def logo_png():
+    """ARGIA SOLAR wordmark bytes for CID embedding, or None. Reads
+    the official asset (server/bundle/argia_logo.py data URI) so mail
+    and portal can never diverge; missing file degrades to text."""
+    import base64
+    import re
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "..", "server", "bundle", "argia_logo.py")
+    try:
+        src = open(path, encoding="utf-8").read()
+        m = re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", src)
+        return base64.b64decode(m.group(1)) if m else None
+    except OSError:
+        return None
+
 # ------------------------------------------------------------- gathering
 
 def gather_plants():
@@ -188,6 +222,8 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
             status, cls = "OK", "ok"
         rows.append({
             "key": key, "customer": customer, "kwp": kwp,
+            "label": display_name(customer),
+            "desc": f"{key} · {customer} · {kwp:,.0f} kWp",
             "kwh_today": kwh,
             "yield": kwh / kwp if kwp > 0 else 0.0,
             "inv": f"{seen}/{inv_total}" if inv_total else str(seen),
@@ -204,12 +240,18 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
     issues = [(describe_issue(k), s) for k, s in alerts
               if subscriptions.alert_plant(k) in ppa_keys
               or subscriptions.alert_plant(k) is None]
+    tot_kwp = sum(r["kwp"] for r in rows)
+    inv_seen = sum(today_map.get(r["key"], (0, None, 0))[2] for r in rows)
+    inv_all = sum(inv_counts.get(r["key"], 0) for r in rows)
     return {
         "date": today.isoformat(), "time": now_hm, "rows": rows,
         "tot_today": tot_today, "tot_yday": tot_yday,
         "tot_mtd": tot_mtd,
         "tot_vs_exp": (100.0 * tot_paired / tot_exp
                        if tot_exp > 0 else None),
+        "tot_kwp": tot_kwp,
+        "tot_yield": tot_today / tot_kwp if tot_kwp > 0 else 0.0,
+        "tot_inv": f"{inv_seen}/{inv_all}" if inv_all else str(inv_seen),
         "issues": issues, "maint": list(maint),
         "n_bad": sum(1 for r in rows if r["cls"] == "bad"),
         "n_warn": sum(1 for r in rows if r["cls"] == "warn"),
@@ -240,9 +282,16 @@ def render_text(data: dict) -> str:
          f"Month to date: {_num(data['tot_mtd'])} kWh"
          f" — {_pct(data['tot_vs_exp'])} of weather expectation", ""]
     for r in data["rows"]:
-        L.append("  %-5s %-22s %8s kWh  %5.2f kWh/kWp  inv %s  [%s]"
-                 % (r["key"], r["customer"][:22], _num(r["kwh_today"]),
+        L.append("  %-20s %8s kWh  %5.2f kWh/kWp  inv %s  [%s]"
+                 % (r["label"][:20], _num(r["kwh_today"]),
                     r["yield"], r["inv"], r["status"]))
+        L.append("    %s" % r["desc"])
+    L.append("  %-20s %8s kWh  %5.2f kWh/kWp  inv %s"
+             % ("TOTAL", _num(data["tot_today"]), data["tot_yield"],
+                data["tot_inv"]))
+    L.append("    %d plants · %s kWp · MTD %s kWh · vs exp %s"
+             % (len(data["rows"]), _num(data["tot_kwp"]),
+                _num(data["tot_mtd"]), _pct(data["tot_vs_exp"])))
     L.append("")
     if data["issues"]:
         L.append("Open issues:")
@@ -296,9 +345,9 @@ def render_html(data: dict) -> str:
         trs.append(
             '<tr>'
             f'<td style="padding:7px 10px;border-bottom:1px solid #eef1f4">'
-            f'<b style="color:#16324f">{e(r["key"])}</b>'
-            f'<span style="color:#8a94a1;font-size:11px"> · '
-            f'{e(r["customer"])}</span></td>'
+            f'<b style="color:#16324f;font-size:13.5px">{e(r["label"])}</b>'
+            f'<br><span style="color:#8a94a1;font-size:11px">'
+            f'{e(r["desc"])}</span></td>'
             f'<td style="padding:7px 10px;border-bottom:1px solid #eef1f4;'
             f'text-align:center">{pill}</td>'
             f'<td style="padding:7px 10px;border-bottom:1px solid #eef1f4;'
@@ -313,6 +362,23 @@ def render_html(data: dict) -> str:
             f'text-align:right">{e(_num(r["mtd_kwh"]))}</td>'
             f'<td style="padding:7px 10px;border-bottom:1px solid #eef1f4;'
             f'text-align:right">{e(_pct(r["vs_exp"]))}</td></tr>')
+    # summary line at the table bottom — always, even with the tiles
+    # above (Tomasz, v180)
+    tb = 'padding:8px 10px;border-top:2px solid #16324f;font-weight:700'
+    trs.append(
+        '<tr>'
+        f'<td style="{tb}">TOTAL'
+        f'<br><span style="color:#8a94a1;font-size:11px;font-weight:400">'
+        f'{len(data["rows"])} plants · {e(_num(data["tot_kwp"]))} kWp'
+        '</span></td>'
+        f'<td style="{tb}"></td>'
+        f'<td style="{tb};text-align:right">{e(_num(data["tot_today"]))}</td>'
+        f'<td style="{tb};text-align:right">{data["tot_yield"]:.2f}</td>'
+        f'<td style="{tb};text-align:center">{e(data["tot_inv"])}</td>'
+        f'<td style="{tb};text-align:right">{e(_num(data["tot_yday"]))}</td>'
+        f'<td style="{tb};text-align:right">{e(_num(data["tot_mtd"]))}</td>'
+        f'<td style="{tb};text-align:right">{e(_pct(data["tot_vs_exp"]))}'
+        '</td></tr>')
     if data["issues"]:
         items = "".join(
             '<li style="padding:3px 0;color:#243041">'
@@ -331,13 +397,14 @@ color:#243041">
 <tr><td align="center" style="padding:22px 10px">
 <table role="presentation" width="640" cellpadding="0" cellspacing="0"
  style="max-width:640px;width:100%">
-<tr><td style="background:#16324f;border-radius:12px 12px 0 0;
-padding:16px 22px">
-<span style="color:#ffffff;font-size:17px;font-weight:700;
-letter-spacing:.04em">ARGIA</span>
-<span style="color:#9db4c9;font-size:13px"> · Daily PPA performance</span>
-<span style="float:right;color:#9db4c9;font-size:13px">{data["date"]}
- · {data["time"]} MX</span></td></tr>
+<tr><td style="background:#ffffff;border:1px solid #e3e8ee;
+border-bottom:3px solid #16324f;border-radius:12px 12px 0 0;
+padding:14px 22px">
+<img src="cid:argialogo" alt="ARGIA SOLAR" height="26"
+ style="height:26px;vertical-align:middle">
+<span style="float:right;color:#5f6b7a;font-size:13px;line-height:26px">
+Daily PPA performance · {data["date"]} · {data["time"]} MX</span>
+</td></tr>
 <tr><td style="background:#fbfcfe;border:1px solid #e3e8ee;
 border-top:none;padding:18px 22px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -424,9 +491,10 @@ def main(argv=None) -> int:
     if not cfg:
         LOG.error("no SMTP config (/root/.argia_mail) — not sending")
         return 1
-    msg = emailer.build_html_email(mail_subject(data), text,
-                                   render_html(data), cfg["SMTP_USER"],
-                                   rcpt)
+    logo = logo_png()
+    msg = emailer.build_html_email(
+        mail_subject(data), text, render_html(data), cfg["SMTP_USER"],
+        rcpt, images={"argialogo": (logo, "png")} if logo else None)
     if not emailer.send(msg, cfg):
         LOG.error("send FAILED")
         return 1

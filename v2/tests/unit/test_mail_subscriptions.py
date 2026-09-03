@@ -304,8 +304,10 @@ class TestDailyTemplates:
         # body text color and page background stay light-theme
         assert "color:#243041" in h
         assert "background:#f2f5f8" in h
-        # email-safe: no external images/scripts/stylesheets
-        assert "<img" not in h and "<script" not in h \
+        # email-safe: no external assets — the only image is the
+        # CID-embedded ARGIA SOLAR logo (v180); Gmail strips data: URIs
+        assert 'src="cid:argialogo"' in h
+        assert 'src="http' not in h and "<script" not in h \
             and "<link" not in h
 
     def test_html_escapes_customer_names(self):
@@ -352,3 +354,79 @@ class TestPostRedirectGet:
     def test_render_picks_up_redirect_message(self):
         body = self.SRC.split("def render(")[1].split("\ndef ")[0]
         assert "request.args.get('m')" in body
+
+
+class TestV180Branding:
+    """Tomasz, v180: every report mail carries the ARGIA SOLAR logo,
+    leads with customer names (codes demoted to the description, which
+    always includes the kWp size), and the plant table always ends in
+    a TOTAL summary row — even with the KPI tiles above."""
+
+    def test_display_name_matches_monitoring_gen_copy(self):
+        # two standalone copies (the bundle can't import argia) — this
+        # is what keeps them from drifting
+        import re
+
+        def code_lines(src):
+            m = re.search(r"def display_name\(customer\):.*?"
+                          r"(?=\n\ndef |\nclass )", src, re.S)
+            out, indoc = [], False
+            for ln in m.group(0).splitlines():
+                st = ln.strip()
+                if st.startswith('\"\"\"'):
+                    if st.count('\"\"\"') == 1:
+                        indoc = not indoc
+                    continue
+                if indoc or not st or st.startswith("#"):
+                    continue
+                out.append(st)
+            return out
+
+        gen = (V2 / "server" / "monitoring_gen.py").read_text(
+            encoding="utf-8")
+        mail = (V2 / "scripts" / "daily_perf_mail.py").read_text(
+            encoding="utf-8")
+        assert code_lines(gen) == code_lines(mail)
+
+    def test_display_name_behavior(self):
+        assert dpm.display_name("TAIGENE PPA roof (Leon, GTO)") == \
+            "Taigene"
+        assert dpm.display_name("SAG PPA roof (CDMX, MEX)") == "SAG"
+
+    def test_logo_reads_the_official_asset(self):
+        b = dpm.logo_png()
+        assert b is not None and b[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_html_email_embeds_cid_images(self):
+        msg = emailer.build_html_email(
+            "s", "p", '<img src="cid:argialogo">', "svc@argia.com.mx",
+            ["t@x.mx"], images={"argialogo": (b"\x89PNG_fake", "png")})
+        types = [p.get_content_type() for p in msg.walk()]
+        assert "image/png" in types
+        img = [p for p in msg.walk()
+               if p.get_content_type() == "image/png"][0]
+        assert img["Content-ID"] == "<argialogo>"
+
+    def test_rows_lead_with_name_and_describe_with_code_and_kwp(self):
+        d = _mkdata()
+        h = dpm.render_html(d)
+        assert "<b style=\"color:#16324f;font-size:13.5px\">" in h
+        gto = [r for r in d["rows"] if r["key"] == "GTO1"][0]
+        assert gto["label"] == "Cliente Uno"
+        assert gto["desc"] == "GTO1 · Cliente Uno · 500 kWp"
+        assert "GTO1 · Cliente Uno · 500 kWp" in h
+
+    def test_summary_row_always_present(self):
+        d = _mkdata()
+        h = dpm.render_html(d)
+        assert ">TOTAL" in h
+        assert "2 plants · 1,098 kWp" in h          # 500 + 597.78
+        assert "border-top:2px solid #16324f" in h
+        txt = dpm.render_text(d)
+        assert "TOTAL" in txt and "1,098 kWp" in txt
+
+    def test_totals_are_sums_not_copies(self):
+        d = _mkdata()
+        assert d["tot_kwp"] == 500.0 + 597.78
+        assert abs(d["tot_yield"] - d["tot_today"] / d["tot_kwp"]) < 1e-9
+        assert d["tot_inv"] == "10/10"

@@ -198,3 +198,46 @@ class TestIngestValidate:
         p.write_text("", encoding="utf-8")
         ok, _info = cfe_ingest.validate(str(p))
         assert not ok
+
+
+class TestSemipuntaAndGlow:
+    """v179 — CFE added an ENERGIA SEMIPUNTA component (Sep 2026,
+    DIST): it must load as KNOWN, render in charge order, ship in the
+    JSON export; and the home-page lightning must glow only when rates
+    are current AND the pipeline is healthy."""
+
+    ROOT = Path(__file__).resolve().parents[2] / "server" / "bundle"
+
+    def test_semipunta_is_a_known_charge(self, tmp_path):
+        p = tmp_path / "c.csv"
+        p.write_text(
+            "tariff_code,region,month,charge_type,unit,value_mxn\n"
+            "DIST,JALISCO,2026-09-01,ENERGIA SEMIPUNTA,MXN/KWH,1.2345\n",
+            encoding="utf-8")
+        ok, info = cfe_ingest.validate(str(p))
+        assert ok and "1 rows" in info
+        assert "ENERGIA SEMIPUNTA" in cfe_ingest.ALLOWED
+
+    def test_semipunta_in_page_charge_order(self):
+        src = (self.ROOT / "cfe_page_gen.py").read_text(encoding="utf-8")
+        i = src.index("'ENERGIA INTERMEDIA'")
+        j = src.index("'ENERGIA SEMIPUNTA'")
+        k = src.index("'ENERGIA PUNTA'")
+        assert i < j < k          # natural base→semi→peak order
+
+    def test_json_export_written_next_to_the_page(self):
+        src = (self.ROOT / "cfe_page_gen.py").read_text(encoding="utf-8")
+        assert "'cfe', 'tariffs.json'" in src
+        assert "'generated_utc'" in src and "'sources'" in src
+
+    def test_lightning_glows_only_when_healthy(self):
+        src = (self.ROOT / "report_gen.py").read_text(encoding="utf-8")
+        assert "cfe_healthy" in src
+        assert "text-shadow" in src
+        # glow requires BOTH freshness and pipeline health
+        assert "if cfe_fresh and cfe_healthy:" in src
+        # plain gold survives as the degraded-pipeline state
+        assert "elif cfe_fresh:" in src
+        # health = fresh heartbeat + probe ok + nothing rejected
+        assert "interval '48 hours'" in src
+        assert "!= 'rejected'" in src

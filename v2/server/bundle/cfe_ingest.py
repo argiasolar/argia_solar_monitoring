@@ -19,7 +19,11 @@ import sys
 INBOX = "/opt/argia/cfe_inbox"
 LOAD = "/opt/argia/bundle/cfe_load.py"
 ALLOWED = {"SUMINISTRO BASICO", "ENERGIA BASE", "ENERGIA INTERMEDIA",
-           "ENERGIA PUNTA", "DISTRIBUCION", "CAPACIDAD"}
+           "ENERGIA PUNTA", "DISTRIBUCION", "CAPACIDAD",
+           # CFE introduced a semi-peak energy component with the
+           # Sep-2026 files (seen on DIST) — capture it as known
+           # rather than warning (v179, Tomasz 2026-09-03)
+           "ENERGIA SEMIPUNTA"}
 HEADER = "tariff_code,region,month,charge_type,unit,value_mxn"
 VAL_MAX = 10000.0
 

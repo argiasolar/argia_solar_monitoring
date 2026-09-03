@@ -17,7 +17,8 @@ OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/monitoring.argia.c
 
 CHARGE_ORDER = ['SUMINISTRO BASICO', 'TRANSMISION', 'DISTRIBUCION', 'CENACE',
                 'SERVICIOS CONEXOS NO MEM', 'ENERGIA BASE', 'ENERGIA INTERMEDIA',
-                'ENERGIA PUNTA', 'CAPACIDAD', 'FACTOR DE CARGA']
+                'ENERGIA SEMIPUNTA', 'ENERGIA PUNTA', 'CAPACIDAD',
+                'FACTOR DE CARGA']
 REGION_HINT = {
     'BAJIO': 'GTO · AGS · QRO · SLP', 'BAJA CALIFORNIA': 'BC · Mexicali · Tijuana',
     'BAJA CALIFORNIA SUR': 'BCS · La Paz', 'CENTRO OCCIDENTE': 'MICH · COL',
@@ -148,4 +149,23 @@ os.makedirs(os.path.dirname(p), exist_ok=True)
 with open(p, 'w', encoding='utf-8') as fh:
     fh.write(page)
 os.chmod(p, 0o644)
+
+# machine-readable export for the ARGIA Engine and other tools (v179):
+# same login wall as the page (nginx serves /cfe/ to signed-in users).
+# Structure: {tariff: {region: {charge: {YYYY-MM: value}}}} + units.
+import datetime as _dt
+export = {
+    'generated_utc': _dt.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+    'months': months_show,
+    'units': units,
+    'sources': {s: {'through': m[:7], 'loaded': l} for s, m, l in srcinfo},
+    'note': 'MXN, sin IVA. source cfe_scrape = portal-verified; '
+            'region = CFE distribution division.',
+    'data': data,
+}
+jp = os.path.join(OUTROOT, 'cfe', 'tariffs.json')
+with open(jp, 'w', encoding='utf-8') as fh:
+    json.dump(export, fh, separators=(',', ':'), ensure_ascii=False)
+os.chmod(jp, 0o644)
+print(f'wrote {jp}: {os.path.getsize(jp):,} B')
 print(f'wrote {p}: {len(page):,} B · {len(tariffs)} tariffs × {len(regions)} regions × {len(months_show)} months')

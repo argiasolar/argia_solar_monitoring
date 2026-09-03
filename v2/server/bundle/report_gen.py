@@ -1544,8 +1544,11 @@ def landing_page():
 <p><b>{t("Revenue generated:","Ingreso generado:")}</b> {t("accrued PPA revenue (measured energy × contract tariff of each month) + LaaS fees at the loan-schedule FX of each month. An accrual estimate, not invoiced amounts; no IVA.","ingreso PPA devengado (energía medida × tarifa contractual de cada mes) + cuotas LaaS al tipo de cambio mensual de la tabla del crédito. Estimado devengado, no facturado; sin IVA.")}</p>
 <p>{t("Access is restricted to authorized ARGIA users. Data through","Acceso restringido a usuarios autorizados de ARGIA. Datos hasta")} {asof}.</p>
 </details></div>''')
-    # CFE freshness: the lightning goes CFE-yellow only when scraped
-    # (portal-verified) rates cover the current month
+    # CFE freshness: the lightning goes CFE-yellow when scraped
+    # (portal-verified) rates cover the current month — and it GLOWS
+    # only when the whole pipeline is healthy too (fresh Pi heartbeat,
+    # probe ok, nothing rejected). Yellow-but-not-glowing = rates are
+    # current but the pipeline needs a look (v179, Tomasz 2026-09-03).
     cfe_cov = ''
     try:
         # a month counts as verified only when ALL 10 scrapeable
@@ -1558,13 +1561,38 @@ def landing_page():
     except Exception:
         cfe_cov = ''
     cfe_fresh = bool(cfe_cov) and cfe_cov[:7] >= asof[:7]
-    cfe_style = ' style="color:#e3a008"' if cfe_fresh else ''
+    cfe_healthy = False
+    try:
+        _st = q("SELECT (now() - heartbeat_ts) < interval '48 hours',"
+                " coalesce(probe_status,''),"
+                " coalesce(last_csv_result,'')"
+                " FROM cfe_pipeline_status WHERE id = 1;")
+        if _st and len(_st[0]) >= 3:
+            cfe_healthy = (_st[0][0] == 't'
+                           and _st[0][1] == 'ok'
+                           and _st[0][2] != 'rejected')
+    except Exception:
+        cfe_healthy = False
+    if cfe_fresh and cfe_healthy:
+        cfe_style = (' style="color:#e3a008;text-shadow:0 0 9px'
+                     ' rgba(227,160,8,.75),0 0 2px rgba(227,160,8,.9)"')
+    elif cfe_fresh:
+        cfe_style = ' style="color:#e3a008"'
+    else:
+        cfe_style = ''
     # plain text: title attributes cannot carry the t() span markup
-    cfe_title = (f'CFE rates verified through {cfe_cov[:7]} · '
-                 f'Tarifas verificadas hasta {cfe_cov[:7]}'
-                 if cfe_fresh else
-                 'CFE rates not yet verified for the current month · '
-                 'Tarifas aún no verificadas para el mes actual')
+    if cfe_fresh and cfe_healthy:
+        cfe_title = (f'CFE rates verified through {cfe_cov[:7]},'
+                     ' pipeline healthy · Tarifas verificadas hasta'
+                     f' {cfe_cov[:7]}, sistema al día')
+    elif cfe_fresh:
+        cfe_title = (f'CFE rates verified through {cfe_cov[:7]}, but the'
+                     ' update pipeline needs attention · Tarifas'
+                     f' verificadas hasta {cfe_cov[:7]}, pero el sistema'
+                     ' de actualización requiere atención')
+    else:
+        cfe_title = ('CFE rates not yet verified for the current month · '
+                     'Tarifas aún no verificadas para el mes actual')
     # No account link down here: the identity chip at the top right is
     # the single entry point to /account/ (user feedback 2026-08-28).
     body.append(f'''<div class="flinks">

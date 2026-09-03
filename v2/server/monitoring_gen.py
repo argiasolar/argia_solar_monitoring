@@ -1199,6 +1199,14 @@ def display_name(customer):
                              for p in w.split('-')) for w in parts)
 
 
+def plant_city(customer):
+    """City/state from the customer string: 'TAIGENE PPA roof (Leon,
+    GTO)' -> 'Leon, GTO'. Empty when no parenthesis. Pure."""
+    import re as _re
+    m = _re.search(r'\(([^)]+)\)\s*$', str(customer or ''))
+    return m.group(1).strip() if m else ''
+
+
 def circle_px(kwp):
     """Marker DIAMETER in px. sqrt scale so circle AREA tracks kWp —
     a linear radius would make GTO1 look 5x SLP1 instead of ~2x.
@@ -1274,7 +1282,8 @@ def portfolio_rows():
         status, pill = map_status(age, e_today, in_window)
         rows.append({
             'key': pk, 'name': meta['customer'],
-            'label': display_name(meta['customer']), 'brand': brand,
+            'label': display_name(meta['customer']),
+            'city': plant_city(meta['customer']), 'brand': brand,
             'ppa': is_ppa, 'kwp': meta['kwp'], 'lat': lat, 'lon': lon,
             'px': circle_px(meta['kwp']),
             'today_kwh': round(e_today, 1),
@@ -1345,6 +1354,45 @@ def portfolio_page():
 <div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval">≈{tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
 <div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈{co2:,.0f} t</div><div class="tsub" data-en="lifetime · CFE grid factor" data-es="histórico · factor CFE">lifetime · CFE grid factor</div></div>
 </div>'''
+    # plant legend under the map (v183, Tomasz): every plant with
+    # name, code, city, kWp and an include/exclude checkbox, split
+    # PPA / CAPEX, dots in the marker colors + status ring.
+    _ST_RING = {'live': '#1e8e3e', 'stale': '#f9ab00',
+                'dark': '#c5221f', 'night': '#9aa0a6'}
+
+    def _leg_rows(subset):
+        out = []
+        for r in subset:
+            fill = '#2563eb' if r['ppa'] else '#0d9488'
+            ring = _ST_RING.get(r['status'].split()[0], '#9aa0a6')
+            sub = ' · '.join(x for x in (r['key'], r['city'],
+                             f"{r['kwp']:,.0f} kWp") if x)
+            out.append(
+                '<label class="lrow">'
+                f'<input type="checkbox" class="ptog" data-k="{r["key"]}"'
+                ' checked>'
+                f'<span class="ldot" style="background:{fill};'
+                f'border-color:{ring}"></span>'
+                f'<span><b>{esc(r["label"])}</b>'
+                f'<span class="lsub">{esc(sub)}</span></span></label>')
+        return ''.join(out)
+
+    ppa_rows = [r for r in rows if r['ppa']]
+    cap_rows = [r for r in rows if not r['ppa']]
+    legend_card = f"""<div class="card" style="margin-top:10px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px 26px">
+<div><h2 style="font-size:13px;margin:0 0 6px;color:#2563eb"
+ data-en="PPA plants" data-es="Plantas PPA">PPA plants</h2>
+{_leg_rows(ppa_rows)}</div>
+<div><h2 style="font-size:13px;margin:0 0 6px;color:#0d9488"
+ data-en="CAPEX plants" data-es="Plantas CAPEX">CAPEX plants</h2>
+{_leg_rows(cap_rows)}</div>
+</div>
+<p class="note" style="margin:8px 0 0" data-en="Untick a plant to hide it on the map; the choice is remembered in this browser."
+ data-es="Desmarque una planta para ocultarla en el mapa; la selección se recuerda en este navegador.">
+Untick a plant to hide it on the map; the choice is remembered in this browser.</p>
+</div>"""
+
     body = f'''{controls()}
 {tiles}
 <div class="card" style="padding:0;overflow:hidden"><div id="map"></div></div>
@@ -1356,6 +1404,7 @@ def portfolio_page():
 &nbsp; <span data-en="Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to open its performance report."
  data-es="El área del círculo refleja los kWp instalados · azul = PPA, verde = CAPEX · clic en una planta abre su reporte de desempeño.">
 Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to open its performance report.</span></p>
+{legend_card}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
@@ -1363,6 +1412,9 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 .tlab{{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#5f6368}}
 .tval{{font-size:clamp(15px,1.4vw,20px);font-weight:700;color:#1c2733;margin-top:2px;white-space:nowrap}}
 .tsub{{font-size:11px;color:#80868b;margin-top:1px}}
+.lrow{{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px}}
+.lrow .lsub{{display:block;color:#8a94a1;font-size:11px}}
+.ldot{{width:14px;height:14px;border-radius:50%;border:3px solid;flex:none}}
 .pwrap{{position:relative;cursor:pointer}}
 .plab{{position:absolute;top:100%;left:50%;transform:translateX(-50%);
  margin-top:2px;white-space:nowrap;font-weight:700;font-size:11.5px;
@@ -1409,7 +1461,7 @@ sat.addTo(map);
 L.control.layers({{'Satellite':sat,'Streets':streets}},{pv_overlays},
  {{position:'topright'}}).addTo(map);
 function nf(v){{return v==null?'—':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
-var bounds=[];
+var bounds=[];var MK={{}};
 P.forEach(function(p){{
  var icon=L.divIcon({{className:'',
   html:'<div class="pwrap"><div class="pmark '+(p.ppa?'ppa':'capex')
@@ -1435,8 +1487,19 @@ P.forEach(function(p){{
   offset:[0,-p.px/2-4],opacity:1}});
  m.on('click',function(){{window.location='/'+p.key.toLowerCase()+'/';}});
  bounds.push([p.lat,p.lon]);
+ MK[p.key]=m;
 }});
 if(bounds.length)map.fitBounds(bounds,{{padding:[60,60]}});
+var HID={{}};try{{HID=JSON.parse(localStorage.getItem('argia_map_hide')||'{{}}');}}catch(e){{}}
+document.querySelectorAll('.ptog').forEach(function(cb){{
+ var k=cb.dataset.k;
+ if(HID[k]){{cb.checked=false;if(MK[k])map.removeLayer(MK[k]);}}
+ cb.addEventListener('change',function(){{
+  if(cb.checked){{if(MK[k])map.addLayer(MK[k]);delete HID[k];}}
+  else{{if(MK[k])map.removeLayer(MK[k]);HID[k]=1;}}
+  try{{localStorage.setItem('argia_map_hide',JSON.stringify(HID));}}catch(e){{}}
+ }});
+}});
 </script>'''
     return page('Portfolio map', body,
                 'Every plant, live · circle area = installed kWp · '

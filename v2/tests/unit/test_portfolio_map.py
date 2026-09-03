@@ -302,3 +302,43 @@ class TestPvoutLayer:
         seg = GEN_SRC.split("def portfolio_page()")[1]
         assert "linear-gradient(90deg" in seg
         assert "kWh/kWp" in seg and "{pv_legend}" in GEN_SRC
+
+
+plant_city = _exec_def("plant_city")
+
+
+class TestPlantLegend:
+    """v183 — plant legend under the map (name, code, city, kWp, an
+    include/exclude checkbox per plant, PPA/CAPEX split, marker
+    colors) + the Map link on the report home footer."""
+
+    def test_plant_city_extraction(self):
+        assert plant_city("TAIGENE PPA roof (Leon, GTO)") == "Leon, GTO"
+        assert plant_city("SMS (CDMX,MEX)") == "CDMX,MEX"
+        assert plant_city("No parens name") == ""
+        assert plant_city("") == ""
+
+    def test_rows_carry_city(self):
+        assert "'city': plant_city(meta['customer'])," in GEN_SRC
+
+    def test_legend_split_ppa_capex_with_marker_colors(self):
+        seg = GEN_SRC.split("def portfolio_page()")[1]
+        assert 'data-en="PPA plants"' in seg
+        assert 'data-en="CAPEX plants"' in seg
+        assert "'#2563eb' if r['ppa'] else '#0d9488'" in seg  # map fills
+        assert "_ST_RING" in seg                     # status ring colors
+        assert "{legend_card}" in seg
+
+    def test_checkboxes_toggle_markers_and_persist(self):
+        seg = GEN_SRC.split("def portfolio_page()")[1]
+        assert 'class="ptog" data-k=' in seg
+        assert "MK[p.key]=m;" in seg
+        assert "map.removeLayer(MK[k])" in seg
+        assert "map.addLayer(MK[k])" in seg
+        assert "argia_map_hide" in seg               # remembered choice
+
+    def test_report_home_links_the_map(self):
+        rep = (V2 / "server" / "bundle" / "report_gen.py").read_text(
+            encoding="utf-8")
+        assert '<a href="portfolio/">{ic_map}' in rep
+        assert "ic_map" in rep and "Mapa del portafolio" in rep

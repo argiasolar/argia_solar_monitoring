@@ -1501,6 +1501,9 @@ def landing_page():
               '<path d="M3 21h18M6 21V10M11 21V4M16 21v-8M21 21V7"/></svg>')
     ic_cap = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
               '<path d="M3 21V9l6 4V9l6 4V5h6v16H3z"/></svg>')
+    ic_map = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0Z"/>'
+              '<circle cx="12" cy="10" r="3"/></svg>')
     ic_set = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
               '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.47V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.47 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.47-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.47-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.01A1.6 1.6 0 0 0 9.8 4.1V4a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76v.01c.26.6.85.99 1.5.99H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.47.97z"/></svg>')
     ic_cfe = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
@@ -1598,6 +1601,7 @@ def landing_page():
     body.append(f'''<div class="flinks">
 <a href="setup/" class="adminonly">{ic_set}{t("Setup","Configuración")}</a>
 <a href="invoices/">{ic_inv}{t("Invoice annexes","Anexos de facturación")}</a>
+<a href="portfolio/">{ic_map}{t("Portfolio map","Mapa del portafolio")}</a>
 <a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
 </div>''')
     body.append(pdf_bottom())

@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA CFE overlay push, daily 15:45 UTC (after the ingest)
+[Timer]
+OnCalendar=*-*-* 15:45:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target

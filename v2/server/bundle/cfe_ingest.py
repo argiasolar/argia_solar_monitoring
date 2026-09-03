@@ -142,6 +142,12 @@ def main():
           updated_at = now();""")
     cov = psql("SELECT max(month) FROM cfe_tariff"
                " WHERE source='cfe_scrape';")
+    if loaded:
+        # event-driven engine push (v181): a fresh load is the same
+        # event that turns the CFE mark yellow — push the overlay now.
+        # Fire-and-forget; the unit no-ops if the push is unconfigured.
+        subprocess.run(["systemctl", "start", "--no-block",
+                        "argia-cfe-push.service"], check=False)
     print(f"ingest: loaded={loaded} rejected={rejected}"
           f" scrape-coverage-through={cov or 'none'}")
     return 1 if rejected else 0

@@ -187,3 +187,38 @@ class TestV177_1Feedback:
 
     def test_marker_label_is_display_name(self):
         assert "'label': display_name(meta['customer'])," in GEN_SRC
+
+
+class TestReferenceSheets:
+    """v177.2 — NL1 and QRO1 have no page on argia.com.mx, so their
+    reference buttons serve the official PDF sheets from the portal
+    itself. Tomasz: correct spelling is Tetra PAK, and the NL1 photo
+    must come from the Plastic Omnium sheet (the old one showed a
+    different project)."""
+
+    ASSETS = V2 / "server" / "assets"
+
+    def test_ref_links_point_at_hosted_pdfs(self):
+        assert ("'NL1': '/monitoring/assets/refs/'\n"
+                "           'ARGIA_SOLAR_ref_Plastic_Omnium_ES.pdf',"
+                ) in GEN_SRC
+        assert "ARGIA_SOLAR_ref_Tetra_Pak_ES.pdf" in GEN_SRC
+
+    def test_all_four_pdfs_in_repo(self):
+        for name in ("ARGIA_SOLAR_ref_Plastic_Omnium_EN.pdf",
+                     "ARGIA_SOLAR_ref_Plastic_Omnium_ES.pdf",
+                     "ARGIA_SOLAR_ref_Tetra_Pak_EN.pdf",
+                     "ARGIA_SOLAR_ref_Tetra_Pak_ES.pdf"):
+            p = self.ASSETS / "refs" / name
+            assert p.exists() and p.stat().st_size > 100_000, name
+            assert p.read_bytes()[:5] == b"%PDF-", name
+
+    def test_tetra_pak_never_spelled_pack(self):
+        assert "Tetra_Pack" not in GEN_SRC
+        assert not list((self.ASSETS / "refs").glob("*Pack*"))
+
+    def test_nl1_and_qro1_photos_in_repo(self):
+        for name in ("nl1.jpg", "nl1_t.jpg", "qro1.jpg", "qro1_t.jpg"):
+            p = self.ASSETS / "photos" / name
+            assert p.exists() and p.stat().st_size > 10_000, name
+            assert p.read_bytes()[:2] == b"\xff\xd8", name   # JPEG

@@ -85,9 +85,17 @@ for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
                         'portfolio': r[4], 'pr': f(r[6]) or 0.80}
 
 # ------------------------------------------- reference links + photos
-# Public reference pages on argia.com.mx (NL1 and QRO1 have none yet —
-# they simply render without the link/photo, never a broken one).
+# Public reference pages on argia.com.mx. NL1 and QRO1 have no page on
+# the website, so their references are the official PDF sheets, hosted
+# under /monitoring/assets/refs/ (repo v2/server/assets/refs/, both
+# languages; the button links the ES one like every other /es/ link,
+# TAM1 still has neither). A missing entry simply renders without the
+# link/photo, never a broken one.
 REF_LINKS = {
+    'NL1': '/monitoring/assets/refs/'
+           'ARGIA_SOLAR_ref_Plastic_Omnium_ES.pdf',
+    'QRO1': '/monitoring/assets/refs/'
+            'ARGIA_SOLAR_ref_Tetra_Pak_ES.pdf',
     'GTO1': 'https://argia.com.mx/es/references/-guanajuato-taigene',
     'GTO2': 'https://argia.com.mx/es/references/'
             '-san-miguel-de-allende-hirschmann-automotive',

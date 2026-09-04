@@ -550,6 +550,86 @@ def get_lost_generation(rows: Rows, plant: Any, date_from: Any, date_to: Any) ->
                        **_freshness(rows)}}
 
 
+def _month_overlap_days(a: str, b: str) -> Dict[str, tuple]:
+    """{'YYYY-MM': (days of the range inside that month, days in month)}."""
+    out: Dict[str, tuple] = {}
+    d, end = dt.date.fromisoformat(a), dt.date.fromisoformat(b)
+    while d <= end:
+        ym = d.isoformat()[:7]
+        nxt = (d.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        last = min(end, nxt - dt.timedelta(days=1))
+        out[ym] = ((last - d).days + 1, (nxt - dt.timedelta(days=1)).day)
+        d = nxt
+    return out
+
+
+def get_revenue(rows: Rows, date_from: Any, date_to: Any, plant: Any = None) -> dict:
+    """Accrued PPA revenue: measured energy × the contract tariff of each
+    month (contract_monthly.tariff_mxn, else the plant tariff) — the same
+    rule as the reports' 'Revenue generated'. Also the contracted
+    expectation prorated over the range. PPA plants only; CAPEX plants
+    earn nothing for Argia and LaaS fees are not plants."""
+    a, b = _range(date_from, date_to)
+    k = resolve_plant(rows, plant) if plant else None
+    ps = plants(rows)
+    if k and ps[k]["portfolio"] != "PPA":
+        return {"plant_key": k, "name": ps[k]["name"], "date_from": a, "date_to": b,
+                "revenue_mxn": None,
+                "note": f"{ps[k]['name']} is a CAPEX plant: the customer owns it, "
+                        "Argia has no PPA revenue there."}
+    where = f" AND d.plant_key = {_q(k)}" if k else ""
+    out = []
+    for r in rows(
+            "SELECT d.plant_key, sum(d.energy_kwh),"
+            " sum(d.energy_kwh * coalesce(nullif(cm.tariff_mxn,0),"
+            "   p.tariff_mxn_per_kwh, 0)), count(*),"
+            " min(d.prod_date)::text, max(d.prod_date)::text"
+            " FROM daily_production d JOIN plant p ON p.plant_key = d.plant_key"
+            " LEFT JOIN contract_monthly cm ON cm.plant_key = d.plant_key"
+            "  AND cm.year = extract(year FROM d.prod_date)"
+            "  AND cm.month = extract(month FROM d.prod_date)"
+            f" WHERE p.portfolio = 'PPA' AND p.active"
+            f" AND d.prod_date BETWEEN DATE {_q(a)} AND DATE {_q(b)} {where}"
+            " GROUP BY 1 ORDER BY 1 /*tag:revenue*/;"):
+        if len(r) >= 6:
+            out.append({"plant_key": r[0], "name": ps.get(r[0], {}).get("name"),
+                        "energy_kwh": _r(_f(r[1])), "revenue_mxn": _r(_f(r[2]), 0),
+                        "days_with_data": _i(r[3]), "first_day": r[4], "last_day": r[5]})
+    # contracted expectation, prorated by calendar days of the range
+    overlap = _month_overlap_days(a, b)
+    exp: Dict[str, float] = {}
+    exp_kwh: Dict[str, float] = {}
+    for r in rows("SELECT plant_key, year, month, coalesce(contract_kwh,0),"
+                  " coalesce(tariff_mxn,0) FROM contract_monthly"
+                  f" WHERE (year*100+month) BETWEEN {a[:4]}{a[5:7]} AND {b[:4]}{b[5:7]}"
+                  f"{(' AND plant_key = ' + _q(k)) if k else ''} /*tag:contract*/;"):
+        if len(r) >= 5 and r[0] in ps and ps[r[0]]["portfolio"] == "PPA":
+            ym = f"{_i(r[1]):04d}-{_i(r[2]):02d}"
+            if ym not in overlap:
+                continue
+            inr, nm = overlap[ym]
+            t = _f(r[4]) or ps[r[0]]["tariff_mxn_per_kwh"] or 0
+            kwh = (_f(r[3]) or 0) * inr / nm
+            exp_kwh[r[0]] = exp_kwh.get(r[0], 0) + kwh
+            exp[r[0]] = exp.get(r[0], 0) + kwh * t
+    for row in out:
+        row["contract_kwh"] = _r(exp_kwh.get(row["plant_key"]))
+        row["contract_revenue_mxn"] = _r(exp.get(row["plant_key"]), 0)
+        row["vs_contract_pct"] = _pct(row["revenue_mxn"], exp.get(row["plant_key"]))
+    total = _r(sum(x["revenue_mxn"] or 0 for x in out), 0)
+    total_exp = _r(sum(exp.values()), 0) if exp else None
+    return {"plant_key": k, "date_from": a, "date_to": b, "plants": out,
+            "totals": {"energy_kwh": _r(sum(x["energy_kwh"] or 0 for x in out)),
+                       "revenue_mxn": total, "contract_revenue_mxn": total_exp,
+                       "vs_contract_pct": _pct(total, total_exp)},
+            "note": "accrual estimate: measured energy × contract tariff of each "
+                    "month, PPA plants only, before IVA, not invoiced amounts. "
+                    "LaaS fees (Pirelli) are not included. Days without a daily "
+                    "KPI row (e.g. today) are not counted.",
+            "source": {"tables": ["daily_production", "contract_monthly", "plant"],
+                       **_freshness(rows)}}
+
+
 # --------------------------------------------------------------- registry
 _D = {"type": "string", "description": "YYYY-MM-DD, or 'today' / 'yesterday'"}
 _P = {"type": "string",
@@ -597,6 +677,15 @@ TOOLS: List[dict] = [
      "input_schema": {"type": "object",
                       "properties": {"date_from": _D, "date_to": _D, "plant": _P},
                       "required": ["date_from", "date_to"]}},
+    {"name": "get_revenue",
+     "description": "Accrued PPA revenue in MXN (measured energy × contract "
+                    "tariff of each month) per PPA plant and in total over a date "
+                    "range, with the contracted expectation. Use for 'how much "
+                    "money did we make', 'revenue this month', 'ingresos'. CAPEX "
+                    "plants have no revenue.",
+     "input_schema": {"type": "object",
+                      "properties": {"date_from": _D, "date_to": _D, "plant": _P},
+                      "required": ["date_from", "date_to"]}},
     {"name": "get_lost_generation",
      "description": "kWh below expectation for one plant over a range, valued at "
                     "its PPA tariff in MXN, with the worst days and overlapping "
@@ -615,6 +704,7 @@ DISPATCH: Dict[str, Callable[..., dict]] = {
     "get_active_alarms": get_active_alarms,
     "get_alarm_history": get_alarm_history,
     "get_lost_generation": get_lost_generation,
+    "get_revenue": get_revenue,
 }
 
 

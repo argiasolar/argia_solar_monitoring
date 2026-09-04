@@ -28,7 +28,7 @@ API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 KEY_FILE = os.environ.get("ARGIA_ASK_KEYFILE", "/root/.argia_ask")
 MAX_TURNS = 8
-MAX_TOKENS = 1500
+MAX_TOKENS = 4000
 
 SYSTEM_TEMPLATE = """You are Ask ARGIA, the assistant of Argia Solar's PV fleet monitoring \
 (Zapopan, Mexico). You answer questions about the fleet using ONLY the tools \
@@ -51,7 +51,9 @@ for the bad days).
 3. Say which period and which data freshness the answer is based on when it \
 matters. daily_production is stamped once a day by the KPI job; telemetry is \
 5-minute live data.
-4. Money only when the tool gives a tariff; CAPEX plants have none.
+4. Money comes ONLY from get_revenue (earned) or get_lost_generation (missed). \
+Never multiply kWh by a tariff yourself, never add up plants yourself — if \
+a total is needed, call the tool without a plant. CAPEX plants earn nothing.
 5. Be short. Lead with the finding in one or two sentences, then only the \
 evidence that supports it. Under 120 words unless the user asks for detail. \
 At most one small pipe table when comparing several plants. No headings, no \
@@ -193,6 +195,11 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
             if resp.get("stop_reason") != "tool_use" or not uses:
                 ans.text = "\n".join(b.get("text", "") for b in content
                                      if b.get("type") == "text").strip()
+                if not ans.text:
+                    ans.error = (f"model returned no text (stop_reason="
+                                 f"{resp.get('stop_reason')!r})")
+                elif resp.get("stop_reason") == "max_tokens":
+                    ans.error = "answer cut off (max_tokens)"
                 break
             results = []
             for b in uses:

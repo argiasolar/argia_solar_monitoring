@@ -306,3 +306,31 @@ def test_resolve_plant_by_display_name(db):
     db.data["plants"] = [["GTO1", "TAIGENE PPA roof (Leon, GTO)", "GROWATT", "818", "PPA", "t", "2", "0.8"]]
     assert T.resolve_plant(db, "Taigene") == "GTO1"
     assert T.resolve_plant(db, "taigene") == "GTO1"
+
+
+# --------------------------------------------------------------- revenue
+def test_get_revenue_per_plant_and_total(db):
+    db.data["revenue"] = [["GTO1", "7324.8", "17338", "3", "2026-09-01", "2026-09-03"],
+                          ["MEX2", "5000", "11500", "3", "2026-09-01", "2026-09-03"]]
+    db.data["contract"] = [["GTO1", "2026", "9", "60000", "2.367"],
+                           ["MEX2", "2026", "9", "45000", "0"]]     # 0 -> plant tariff 2.3
+    out = T.get_revenue(db, "2026-09-01", "2026-09-03")
+    assert out["totals"]["revenue_mxn"] == 28838
+    g = out["plants"][0]
+    assert g["name"] == "Taigene" and g["revenue_mxn"] == 17338
+    assert g["contract_kwh"] == 6000.0                       # 60000 * 3/30
+    assert g["contract_revenue_mxn"] == 14202                # 6000 * 2.367
+    assert out["plants"][1]["contract_revenue_mxn"] == 10350  # 4500 * 2.3
+    assert out["totals"]["vs_contract_pct"] == 117.5
+    assert "not invoiced" in out["note"]
+
+
+def test_get_revenue_capex_plant_says_so(db):
+    out = T.get_revenue(db, "2026-09-01", "2026-09-03", plant="GTO2")
+    assert out["revenue_mxn"] is None and "CAPEX" in out["note"]
+    assert "revenue" not in db.calls
+
+
+def test_month_overlap_days():
+    assert T._month_overlap_days("2026-08-30", "2026-09-02") == {"2026-08": (2, 31), "2026-09": (2, 30)}
+    assert T._month_overlap_days("2026-02-01", "2026-02-28") == {"2026-02": (28, 28)}

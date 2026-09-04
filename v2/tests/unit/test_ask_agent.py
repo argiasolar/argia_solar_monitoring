@@ -126,6 +126,16 @@ def test_ask_gives_up_after_max_turns(db):
     assert len(ans.tool_calls) == 3
 
 
+def test_ask_empty_or_truncated_answer_is_flagged(db):
+    empty = {"stop_reason": "end_turn", "usage": {}, "content": []}
+    ans = A.ask("q", db, ScriptedLLM([empty]))
+    assert ans.text == "" and "no text" in ans.error and "end_turn" in ans.error
+    cut = {"stop_reason": "max_tokens", "usage": {},
+           "content": [{"type": "text", "text": "Taigene made"}]}
+    ans = A.ask("q", db, ScriptedLLM([cut]))
+    assert ans.text == "Taigene made" and "cut off" in ans.error
+
+
 def test_ask_llm_failure_is_captured(db):
     class Boom:
         model = "x"
@@ -204,7 +214,7 @@ def test_golden_offline(case):
     plan = [tool_use(t["name"], t["input"], f"t{i}") for i, t in enumerate(case["plan"])]
     # the fake's final answer is the tool results themselves — if a required
     # figure is not in them, nothing honest could have quoted it
-    llm = ScriptedLLM(plan + [final("")])
+    llm = ScriptedLLM(plan + [final("(scripted)")])
     ans = A.ask(case["question"], db, llm)
     assert ans.error is None
     assert ans.tools_used() == [t["name"] for t in case["plan"]]

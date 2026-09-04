@@ -150,7 +150,34 @@
         "t"
       ]
     ],
-    "faults_range": []
+    "faults_range": [],
+    "revenue": [
+      [
+        "GTO1",
+        "7324.8",
+        "17338",
+        "3",
+        "2026-09-01",
+        "2026-09-03"
+      ],
+      [
+        "MEX2",
+        "5000",
+        "11500",
+        "3",
+        "2026-09-01",
+        "2026-09-03"
+      ]
+    ],
+    "contract": [
+      [
+        "GTO1",
+        "2026",
+        "9",
+        "60000",
+        "2.367"
+      ]
+    ]
   },
   "cases": [
     {
@@ -318,6 +345,42 @@
       "must_not_quote": [
         "(?i)created",
         "(?i)assigned to Pedro"
+      ]
+    },
+    {
+      "id": "revenue_total_month",
+      "question": "How much money did we make this month so far?",
+      "plan": [
+        {
+          "name": "get_revenue",
+          "input": {
+            "date_from": "2026-09-01",
+            "date_to": "today"
+          }
+        }
+      ],
+      "must_quote": [
+        "28838"
+      ],
+      "must_not_quote": [
+        "\\b17338\\b.*\\bonly\\b"
+      ]
+    },
+    {
+      "id": "revenue_one_plant",
+      "question": "Vitalmex revenue in September?",
+      "plan": [
+        {
+          "name": "get_revenue",
+          "input": {
+            "date_from": "2026-09-01",
+            "date_to": "today",
+            "plant": "Vitalmex"
+          }
+        }
+      ],
+      "must_quote": [
+        "11500"
       ]
     }
   ]

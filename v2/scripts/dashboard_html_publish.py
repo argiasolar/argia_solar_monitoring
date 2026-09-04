@@ -117,7 +117,8 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
     # here silently dropped the 17th Dashboard_Inverter column —
     # fault_events — killing the "fault today" UI from the day it
     # shipped (v67) until this fix.
-    plant_cfg = client.read_table("Plants", "A1:ZZ")
+    from argia.core.config_pg import plants_records
+    plant_cfg = plants_records(client, "A1:ZZ")                   # v198 door
     from argia.report import dashboard_pg as DP           # v195 door
     prows = coerce_rows(DP.plant_records(client), NUMERIC_PLANT)
     irows = coerce_rows(DP.inverter_records(client), NUMERIC_INV)

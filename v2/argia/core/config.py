@@ -295,8 +295,12 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
 
     Stage 7.3: AB column range to fit the 2 new Plants fields. Old
     sheets with fewer columns still load (missing cells → None)."""
-    plants_raw = sheets.read_table("Plants", "A1:AZ")  # AZ: headroom — pr_baseline sits at AJ, past the old AB cutoff
-    inverters_raw = sheets.read_table("Inverters", "A1:Z")
+    # v198: through the config door — the sheet tabs or PostgreSQL
+    # plant/inverter, per ARGIA_CONFIG_SOURCE. AZ: headroom —
+    # pr_baseline sits at AJ, past the old AB cutoff.
+    from argia.core.config_pg import inverters_records, plants_records
+    plants_raw = plants_records(sheets, "A1:AZ")
+    inverters_raw = inverters_records(sheets, "A1:Z")
 
     plants: Dict[str, PlantConfig] = {}
     for row in plants_raw:

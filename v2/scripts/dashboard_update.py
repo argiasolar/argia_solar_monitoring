@@ -143,8 +143,9 @@ def run(client: SheetsClient, *, window: int, apply: bool,
     # AB, show_dashboard past AJ, fault_events past P) came from
     # appended columns falling outside a hardcoded read range. Reads
     # are cheap; silent truncation is not.
-    plants = D.parse_plants(client.read_table("Plants", "A1:ZZ"))
-    inverter_rows = client.read_table("Inverters", "A1:Z")
+    from argia.core.config_pg import inverters_records, plants_records
+    plants = D.parse_plants(plants_records(client, "A1:ZZ"))       # v198 door
+    inverter_rows = inverters_records(client, "A1:Z")
     active = D.parse_active_inverters(inverter_rows)
     ratings = D.parse_inverter_ratings(inverter_rows)
     from argia.kpi.pg_kpi_source import kpi_records

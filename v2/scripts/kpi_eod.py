@@ -185,13 +185,16 @@ def main(argv=None) -> int:
         log.error("SheetsClient failed: %s", e)
         return 3
 
-    # Bootstrap KPI_Daily if needed
-    try:
-        created = create_kpi_daily_tab_if_missing(sheets)
-        if created:
-            log.info("Created KPI_Daily tab")
-    except Exception as e:
-        log.warning("Could not bootstrap KPI_Daily: %s", e)
+    # Bootstrap KPI_Daily if needed (sheet modes only — v193)
+    from argia.store import kpi_write
+    log.info("KPI writes: %s (ARGIA_KPI_WRITE)", kpi_write.mode())
+    if kpi_write.writes_sheet():
+        try:
+            created = create_kpi_daily_tab_if_missing(sheets)
+            if created:
+                log.info("Created KPI_Daily tab")
+        except Exception as e:
+            log.warning("Could not bootstrap KPI_Daily: %s", e)
 
     try:
         portfolio = load_portfolio(sheets)
@@ -494,8 +497,10 @@ def main(argv=None) -> int:
         log.info("Stamped %d billable_kwh cell(s)%s", stamped,
                  " (dry-run)" if args.dry_run else "")
 
-    # Prune (optional)
-    if args.prune or args.prune_apply:
+    # Prune (optional; the sheet's hot window — nothing to prune in PG)
+    if (args.prune or args.prune_apply) and not kpi_write.writes_sheet():
+        log.info("Prune: skipped (ARGIA_KPI_WRITE=pg, the sheet is not written)")
+    elif args.prune or args.prune_apply:
         today_iso = now_mx().date().isoformat()
         result = prune_old_rows(
             sheets, today_iso=today_iso,

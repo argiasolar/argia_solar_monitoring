@@ -305,6 +305,17 @@ def upsert_kpi_rows(
                 f"expected {len(KPI_DAILY_HEADER)}"
             )
 
+    # v193 (phase 2b): the PostgreSQL side, per ARGIA_KPI_WRITE. In
+    # 'pg' mode this IS the write; in 'both' it runs first and the sheet
+    # follows (shadow period); in 'sheet' nothing happens here.
+    from argia.store import kpi_write
+    pg_stats = None
+    if kpi_write.writes_pg():
+        pg_stats = kpi_write.upsert_rows(KPI_DAILY_HEADER, new_rows, date_key,
+                                         dry_run=dry_run)
+        if not kpi_write.writes_sheet():
+            return pg_stats
+
     # Build key map from new rows (type-agnostic on date_iso)
     new_by_key = {_kpi_key(r[0], r[1]): r for r in new_rows}
 
@@ -436,6 +447,13 @@ def stamp_column(
     """
     if not stamps:
         return 0
+    # v193 (phase 2b): PostgreSQL side, per ARGIA_KPI_WRITE (see
+    # upsert_kpi_rows). A column daily_production lacks raises — loudly.
+    from argia.store import kpi_write
+    if kpi_write.writes_pg():
+        n_pg = kpi_write.stamp(col_name, stamps, date_key, dry_run=dry_run)
+        if not kpi_write.writes_sheet():
+            return n_pg
     try:
         data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
     except Exception as e:  # noqa: BLE001

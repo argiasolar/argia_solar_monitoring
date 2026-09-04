@@ -157,10 +157,22 @@ def gather_mtd(today: dt.date):
     return out
 
 
+def job_name_from_execstart(value: str) -> str:
+    """The run_job.sh job name out of a systemd ExecStart value. Pure.
+
+    ``systemctl show -p ExecStart --value`` does NOT print a plain
+    command line — it prints the structured form
+    ``{ path=/.../run_job.sh ; argv[]=/.../run_job.sh telemetry x.py ... }``
+    so a naive '\\S+' after run_job.sh captures the ';' of the path=
+    field. Only a real job-name token counts, which skips it.
+    """
+    m = _re.search(r"run_job\.sh\s+([A-Za-z0-9_.-]+)", value or "")
+    return m.group(1) if m else ""
+
+
 def unit_log_path(unit: str) -> str:
     """The job log a systemd unit writes to, via its run_job.sh name.
 
-    ExecStart is '.../run_job.sh telemetry telemetry_5m.py ...', and
     run_job.sh logs to $HOME/argia_logs/<name>.log.
     """
     import subprocess
@@ -170,8 +182,8 @@ def unit_log_path(unit: str) -> str:
             capture_output=True, text=True, timeout=10).stdout
     except Exception:  # noqa: BLE001
         return ""
-    m = _re.search(r"run_job\.sh\s+(\S+)", out or "")
-    return "/root/argia_logs/%s.log" % m.group(1) if m else ""
+    name = job_name_from_execstart(out)
+    return "/root/argia_logs/%s.log" % name if name else ""
 
 
 def unit_error(unit: str) -> str:

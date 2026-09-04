@@ -582,3 +582,36 @@ class TestMailHeader:
     def test_date_still_shown(self):
         html = dpm.render_html(_mkdata())
         assert "2026-09-02" in html and "MX" in html
+
+
+class TestJobNameFromExecStart:
+    """Caught in production on 2026-09-04: systemctl show -p ExecStart
+    --value prints a STRUCTURED value, not a command line, so a naive
+    '\\S+' after run_job.sh captured the ';' of the path= field and every
+    unit resolved to /root/argia_logs/;.log."""
+
+    REAL = ("{ path=/root/argia_v2/v2/pi/run_job.sh ; "
+            "argv[]=/root/argia_v2/v2/pi/run_job.sh telemetry "
+            "telemetry_5m.py --skip-brand SOLAREDGE ; ignore_errors=no ; "
+            "start_time=[Fri 2026-09-04 03:30:00 CEST] ; pid=20613 ; "
+            "code=exited ; status=0 }")
+
+    def test_structured_systemd_value(self):
+        assert dpm.job_name_from_execstart(self.REAL) == "telemetry"
+
+    def test_never_returns_a_separator(self):
+        assert ";" not in dpm.job_name_from_execstart(self.REAL)
+
+    def test_plain_command_line_still_works(self):
+        assert dpm.job_name_from_execstart(
+            "/root/argia_v2/v2/pi/run_job.sh cfepush cfe_engine_push.py") \
+            == "cfepush"
+
+    def test_hyphenated_job_name(self):
+        assert dpm.job_name_from_execstart(
+            "{ path=/x/run_job.sh ; argv[]=/x/run_job.sh telemetry-se a.py }"
+        ) == "telemetry-se"
+
+    def test_no_match_is_blank_not_a_bogus_path(self):
+        assert dpm.job_name_from_execstart("") == ""
+        assert dpm.job_name_from_execstart("/usr/bin/true") == ""

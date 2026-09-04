@@ -22,6 +22,21 @@ MX_TZ = ZoneInfo("America/Mexico_City")
 UTC = dt.timezone.utc
 
 
+def parse_pg_ts(raw: str) -> dt.datetime:
+    """PostgreSQL prints '2026-09-03 19:00:10+00'; make it a real UTC
+    datetime. Accepts the '+00' short offset that
+    ``datetime.fromisoformat`` rejects on older Pythons, and any
+    already-ISO spelling. Naive input is treated as UTC.
+    """
+    s = (raw or "").strip().replace(" ", "T")
+    if not s:
+        raise ValueError("empty timestamp")
+    if len(s) >= 3 and s[-3] in "+-" and s[-2:].isdigit():
+        s += ":00"                      # '+00' -> '+00:00'
+    d = dt.datetime.fromisoformat(s)
+    return d.astimezone(UTC) if d.tzinfo else d.replace(tzinfo=UTC)
+
+
 def now_utc() -> dt.datetime:
     """Current UTC time, second precision, timezone-aware."""
     return dt.datetime.now(UTC).replace(microsecond=0)

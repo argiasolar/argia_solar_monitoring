@@ -28,13 +28,14 @@ import datetime as dt
 import html as _html
 import logging
 import os
+import re as _re
 import sys
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from argia.alerts import emailer, subscriptions
-from argia.core.time_utils import MX_TZ
+from argia.core.time_utils import MX_TZ, parse_pg_ts
 from argia.store import pg_mirror
 
 LOG = logging.getLogger("argia.daily_perf_mail")
@@ -156,13 +157,85 @@ def gather_mtd(today: dt.date):
     return out
 
 
-def gather_issues():
-    """Active alert keys + severities from alert_state (what the alert
-    mailer tracks), plus plants under a logged maintenance window."""
+def unit_log_path(unit: str) -> str:
+    """The job log a systemd unit writes to, via its run_job.sh name.
+
+    ExecStart is '.../run_job.sh telemetry telemetry_5m.py ...', and
+    run_job.sh logs to $HOME/argia_logs/<name>.log.
+    """
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["systemctl", "show", unit, "-p", "ExecStart", "--value"],
+            capture_output=True, text=True, timeout=10).stdout
+    except Exception:  # noqa: BLE001
+        return ""
+    m = _re.search(r"run_job\.sh\s+(\S+)", out or "")
+    return "/root/argia_logs/%s.log" % m.group(1) if m else ""
+
+
+def unit_error(unit: str) -> str:
+    """The newest ERROR line from a failed unit's own job log.
+
+    This is the difference between 'unit-failed' and 'sheet write failed:
+    ... above the limit of 10000000 cells' (the 2026-09-03 incident).
+    """
+    path = unit_log_path(unit)
+    if not path or not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "rb") as fh:                 # tail ~64 KB
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 65536))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    return last_error_line(tail)
+
+
+def inverter_labels():
+    """{serial: 'Inverter 3'} so a silent-inverter alert names the unit
+    an engineer can find on site, not only its serial."""
     from argia.store.pgq import psql_rows
-    alerts = [(r[0], r[1]) for r in psql_rows(
-        "SELECT key, coalesce(severity,'CRITICAL') FROM alert_state"
-        " WHERE active ORDER BY 2, 1;") if len(r) >= 2]
+    try:
+        return {r[0]: r[1] for r in psql_rows(
+            "SELECT DISTINCT ON (inverter_sn) inverter_sn, inverter_label"
+            " FROM telemetry WHERE ts_utc > now() - interval '7 days'"
+            " ORDER BY inverter_sn, ts_utc DESC;") if len(r) >= 2 and r[1]}
+    except RuntimeError:
+        return {}
+
+
+def gather_issues():
+    """Active alerts from alert_state (what the alert mailer tracks) —
+    key, severity, since when, and whatever detail makes each one
+    actionable — plus plants under a logged maintenance window."""
+    from argia.store.pgq import psql_rows
+    labels = inverter_labels()
+    alerts = []
+    for r in psql_rows(
+            "SELECT key, coalesce(severity,'CRITICAL'), first_seen"
+            " FROM alert_state WHERE active ORDER BY 2, 1;"):
+        if len(r) < 2:
+            continue
+        key, sev = r[0], r[1]
+        first_seen = None
+        if len(r) > 2 and r[2]:
+            try:
+                first_seen = parse_pg_ts(r[2])
+            except ValueError:
+                first_seen = None
+        head, _, rest = key.partition(":")
+        extra = {}
+        if head == "unit-failed" and rest:
+            err = unit_error(rest)
+            if err:
+                extra["error"] = err
+        elif head == "inverter-silent" and ":" in rest:
+            lab = labels.get(rest.split(":", 1)[1])
+            if lab:
+                extra["label"] = lab
+        alerts.append((key, sev, first_seen, extra or None))
     try:
         maint = sorted({r[0] for r in psql_rows(
             "SELECT DISTINCT plant_key FROM maintenance_event"
@@ -181,23 +254,177 @@ _ISSUE_PHRASE = {
     "inverter-silent": "inverter silent",
     "recon-fail": "reconciliation FAIL",
     "satellite-drift": "irradiance sensor drift suspected",
+    "unit-failed": "scheduled job failed",
+    "cfe-probe": "CFE tariff probe warning",
+    "cfe-coverage": "CFE tariff coverage gap",
+}
+
+# What the alert MEANS and what to do about it. "[CRITICAL] server:
+# unit-failed" told Tomasz nothing on 2026-09-03 (v185) — an alert has
+# to name the thing that broke and say what it implies.
+_ISSUE_WHY = {
+    "plant-dark": "Nothing has arrived from this plant since midnight. "
+                  "The inverters may still be producing — it is the data "
+                  "path (datalogger, site internet, vendor portal) that "
+                  "is down. Today's kWh for this plant cannot be trusted.",
+    "plant-stale": "The newest reading is older than %d minutes during "
+                   "daylight. Usually a datalogger or vendor-API hiccup "
+                   "that clears itself; if it persists past sunset, treat "
+                   "it as a dark plant." % STALE_MIN,
+    "inverter-silent": "The plant is reporting but this inverter is not. "
+                       "A single dead inverter is invisible in the plant "
+                       "total — check the unit and its comms on site.",
+    "recon-fail": "Metered energy and vendor energy disagree beyond "
+                  "tolerance for that day. Settle the meter reading "
+                  "before this day is invoiced.",
+    "satellite-drift": "The on-site irradiance sensor and the satellite "
+                       "estimate have disagreed for several days. Clean "
+                       "or recalibrate the pyranometer — performance "
+                       "ratios are computed from it.",
+    "unit-failed": "A scheduled server job exited with an error. Whatever "
+                   "that job produces is missing or stale until it runs "
+                   "clean again.",
+    "cfe-probe": "The CFE tariff scraper reported a problem. New tariffs "
+                 "may be missing for the current month.",
+    "cfe-coverage": "The CFE tariff database is missing tariffs or "
+                    "divisions it expects to have by now.",
+}
+
+# systemd unit -> what it actually does, in words an operator can use.
+_UNIT_ROLE = {
+    "argia-telemetry": "Telemetry collector (Growatt + Huawei)",
+    "argia-telemetry-se": "Telemetry collector (SolarEdge)",
+    "argia-kpi": "Nightly KPI close",
+    "argia-kpimirror": "KPI mirror to Postgres",
+    "argia-recon": "Meter reconciliation",
+    "argia-report-am": "Morning report build",
+    "argia-report-pm": "Evening report build",
+    "argia-alerts-snap": "Alert snapshot",
+    "argia-alerts-daily": "Daily alert digest",
+    "argia-mailer": "Alert mailer",
+    "argia-dashboard": "Dashboard build",
+    "argia-dash-update": "Dashboard refresh",
+    "argia-client-pages": "Client report pages",
+    "argia-finreport": "Financial report build",
+    "argia-cfe-ingest": "CFE tariff ingest",
+    "argia-cfe-push": "CFE tariff push to the Engine app",
+    "argia-monitoring-gen": "Portal page generator",
+    "argia-archive": "Telemetry archive to Drive",
+    "argia-strings": "String-level collector",
+    "argia-satcheck": "Satellite irradiance check",
+    "argia-dbdump": "Database backup",
+    "argia-sync": "Sheet sync",
 }
 
 
-def describe_issue(key: str) -> str:
-    """'plant-stale:GTO1' -> 'GTO1: telemetry stale'. Pure."""
+def friendly_unit(unit: str) -> str:
+    """'argia-telemetry-se.service' -> 'Telemetry collector (SolarEdge)'.
+
+    Pure. Unknown units keep their own name rather than vanishing —
+    a name we do not recognise is still more use than 'server'.
+    """
+    base = (unit or "").strip()
+    for suffix in (".service", ".timer"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+    return _UNIT_ROLE.get(base) or base or "server"
+
+
+def humanize_since(first_seen, now=None) -> str:
+    """How long an alert has been open, e.g. '3 days' / '2 h' / '25 min'.
+
+    Pure. ``first_seen`` may be a datetime or None; None gives "".
+    """
+    if first_seen is None:
+        return ""
+    now = now or dt.datetime.now(first_seen.tzinfo)
+    secs = (now - first_seen).total_seconds()
+    if secs < 0:
+        return ""
+    if secs < 3600:
+        return "%d min" % max(1, int(secs // 60))
+    if secs < 86400:
+        return "%d h" % int(secs // 3600)
+    days = int(secs // 86400)
+    return "1 day" if days == 1 else "%d days" % days
+
+
+def last_error_line(text: str, limit: int = 180) -> str:
+    """The newest ERROR line of a job log, compacted to one readable line.
+
+    Pure. Strips the timestamp/logger prefix and truncates, so the mail
+    can carry the real reason ("sheet write failed: ... above the limit
+    of 10000000 cells") instead of a bare "unit-failed".
+    """
+    for line in reversed((text or "").splitlines()):
+        if " ERROR " not in line and not line.startswith("ERROR"):
+            continue
+        msg = line.split(" ERROR ", 1)[-1].strip()
+        msg = msg.split(": ", 1)[-1].strip() if msg.startswith("argia.")             else msg
+        msg = " ".join(msg.split())
+        return msg[: limit - 1] + "\u2026" if len(msg) > limit else msg
+    return ""
+
+
+def issue_who(key: str, labels=None) -> str:
+    """Who the alert is about: the customer name (and code) for a plant,
+    the job's role for a server unit. Pure."""
     head, _, rest = key.partition(":")
-    phrase = _ISSUE_PHRASE.get(head, head)
     plant = subscriptions.alert_plant(key)
     if plant:
-        tail = rest.split(":", 1)[1] if ":" in rest else ""
-        extra = f" ({tail})" if tail else ""
-        return f"{plant}: {phrase}{extra}"
-    return f"server: {phrase}" if phrase == head else phrase
+        name = (labels or {}).get(plant)
+        return f"{name} ({plant})" if name else plant
+    if head == "unit-failed" and rest:
+        return friendly_unit(rest)
+    return "Server"
+
+
+def issue_detail(key: str, extra=None) -> str:
+    """The troubleshooting handle: inverter SN, unit name, date. Pure."""
+    head, _, rest = key.partition(":")
+    bits = []
+    if head == "inverter-silent" and ":" in rest:
+        sn = rest.split(":", 1)[1]
+        lab = (extra or {}).get("label")
+        bits.append(f"{lab} \u00b7 SN {sn}" if lab else f"SN {sn}")
+    elif head == "recon-fail" and ":" in rest:
+        bits.append("for %s" % rest.split(":", 1)[1])
+    elif head == "unit-failed" and rest:
+        bits.append(rest)
+    err = (extra or {}).get("error")
+    if err:
+        bits.append("last error: %s" % err)
+    return " \u00b7 ".join(b for b in bits if b)
+
+
+def issue_record(key: str, severity: str, first_seen=None, extra=None,
+                 labels=None, now=None) -> dict:
+    """One open issue, in the shape both templates render. Pure."""
+    head = key.partition(":")[0]
+    return {
+        "key": key,
+        "sev": severity,
+        "who": issue_who(key, labels),
+        "what": _ISSUE_PHRASE.get(head, head),
+        "detail": issue_detail(key, extra),
+        "why": _ISSUE_WHY.get(head, ""),
+        "since": humanize_since(first_seen, now),
+    }
+
+
+def describe_issue(key: str, labels=None) -> str:
+    """One-line summary: 'GTO1: telemetry stale'. Pure."""
+    head, _, rest = key.partition(":")
+    r = issue_record(key, "", labels=labels)
+    plant = subscriptions.alert_plant(key)
+    who = r["who"] if (plant or head == "unit-failed") else "server"
+    if plant and head == "inverter-silent" and ":" in rest:
+        return f"{who}: {r['what']} ({rest.split(':', 1)[1]})"
+    return f"{who}: {r['what']}"
 
 
 def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
-              alerts, maint, today: dt.date, now_hm: str) -> dict:
+              alerts, maint, today: dt.date, now_hm: str, now=None) -> dict:
     """Assemble everything the templates need. Pure, unit-tested."""
     ppa_keys = {k for k, _, _ in plants}
     rows = []
@@ -206,8 +433,8 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
         inv_total = inv_counts.get(key, 0)
         mtd_kwh, paired, exp = mtd_map.get(key, (0.0, 0.0, 0.0))
         vs_exp = 100.0 * paired / exp if exp > 0 else None
-        plant_alerts = [(k, s) for k, s in alerts
-                        if subscriptions.alert_plant(k) == key]
+        plant_alerts = [(a[0], a[1]) for a in alerts
+                        if subscriptions.alert_plant(a[0]) == key]
         if key in maint:
             status, cls = "maintenance", "warn"
         elif kwh <= 0.0:
@@ -237,9 +464,14 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
     tot_mtd = sum(r["mtd_kwh"] for r in rows)
     tot_paired = sum(mtd_map.get(r["key"], (0, 0, 0))[1] for r in rows)
     tot_exp = sum(mtd_map.get(r["key"], (0, 0, 0))[2] for r in rows)
-    issues = [(describe_issue(k), s) for k, s in alerts
-              if subscriptions.alert_plant(k) in ppa_keys
-              or subscriptions.alert_plant(k) is None]
+    labels = {r["key"]: r["label"] for r in rows}
+    issues = [issue_record(a[0], a[1],
+                           first_seen=a[2] if len(a) > 2 else None,
+                           extra=a[3] if len(a) > 3 else None,
+                           labels=labels, now=now)
+              for a in alerts
+              if subscriptions.alert_plant(a[0]) in ppa_keys
+              or subscriptions.alert_plant(a[0]) is None]
     tot_kwp = sum(r["kwp"] for r in rows)
     inv_seen = sum(today_map.get(r["key"], (0, None, 0))[2] for r in rows)
     inv_all = sum(inv_counts.get(r["key"], 0) for r in rows)
@@ -295,7 +527,13 @@ def render_text(data: dict) -> str:
     L.append("")
     if data["issues"]:
         L.append("Open issues:")
-        L.extend(f"  • [{s}] {txt}" for txt, s in data["issues"])
+        for i in data["issues"]:
+            age = f" · open {i['since']}" if i["since"] else ""
+            L.append(f"  • [{i['sev']}] {i['who']} — {i['what']}{age}")
+            if i["detail"]:
+                L.append(f"      {i['detail']}")
+            if i["why"]:
+                L.append(f"      {i['why']}")
     else:
         L.append("Open issues: none")
     L += ["",
@@ -380,13 +618,31 @@ def render_html(data: dict) -> str:
         f'<td style="{tb};text-align:right">{e(_pct(data["tot_vs_exp"]))}'
         '</td></tr>')
     if data["issues"]:
-        items = "".join(
-            '<li style="padding:3px 0;color:#243041">'
-            '<b style="color:%s">[%s]</b> %s</li>'
-            % ("#b3261e" if s == "CRITICAL" else "#8a6d1a", e(s), e(txt))
-            for txt, s in data["issues"])
-        issues_html = ('<ul style="margin:6px 0 0;padding-left:20px">'
-                       + items + "</ul>")
+        blocks = []
+        for i in data["issues"]:
+            crit = i["sev"] == "CRITICAL"
+            col = "#b3261e" if crit else "#8a6d1a"
+            bg = "#fdf4f3" if crit else "#fffdf4"
+            age = ('<span style="float:right;color:#8a94a1;font-size:11px;'
+                   'font-weight:400">open %s</span>' % e(i["since"])
+                   if i["since"] else "")
+            detail = ('<div style="margin-top:3px;font-size:12px;'
+                      'color:#3b4658;font-family:Consolas,Menlo,monospace">'
+                      '%s</div>' % e(i["detail"])) if i["detail"] else ""
+            why = ('<div style="margin-top:4px;font-size:12px;'
+                   'color:#6b7686;line-height:1.45">%s</div>' % e(i["why"])
+                   ) if i["why"] else ""
+            blocks.append(
+                '<div style="margin:8px 0 0;padding:9px 12px;background:%s;'
+                'border:1px solid #e7dfd8;border-left:4px solid %s;'
+                'border-radius:6px">'
+                '<div style="font-size:13px;color:#243041">%s'
+                '<b style="color:%s;font-size:11px;letter-spacing:.04em">'
+                '%s</b> &nbsp;<b style="color:#16324f">%s</b>'
+                ' &mdash; %s</div>%s%s</div>'
+                % (bg, col, age, col, e(i["sev"]), e(i["who"]),
+                   e(i["what"]), detail, why))
+        issues_html = "".join(blocks)
     else:
         issues_html = ('<p style="margin:6px 0 0;color:#1d7a2c">'
                        'No open issues.</p>')
@@ -399,11 +655,23 @@ color:#243041">
  style="max-width:640px;width:100%">
 <tr><td style="background:#ffffff;border:1px solid #e3e8ee;
 border-bottom:3px solid #16324f;border-radius:12px 12px 0 0;
-padding:14px 22px">
-<img src="cid:argialogo" alt="ARGIA SOLAR" height="26"
- style="height:26px;vertical-align:middle">
-<span style="float:right;color:#5f6b7a;font-size:13px;line-height:26px">
-Daily PPA performance · {data["date"]} · {data["time"]} MX</span>
+padding:16px 22px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="font-size:17px;font-weight:600;letter-spacing:2.5px;
+color:#16324f;white-space:nowrap;vertical-align:middle">DAILY&nbsp;PPA
+&nbsp;PERFORMANCE</td>
+<td align="right" style="vertical-align:middle">
+<img src="cid:argialogo" alt="ARGIA SOLAR" height="19"
+ style="height:19px;display:block"></td>
+</tr>
+<tr>
+<td style="padding-top:5px;color:#8a94a1;font-size:12.5px">
+Live telemetry &#183; not yet reconciled</td>
+<td align="right" style="padding-top:5px;font-size:14px;font-weight:600;
+color:#16324f;white-space:nowrap">{data["date"]} &#183;
+{data["time"]} MX</td>
+</tr></table>
 </td></tr>
 <tr><td style="background:#fbfcfe;border:1px solid #e3e8ee;
 border-top:none;padding:18px 22px">

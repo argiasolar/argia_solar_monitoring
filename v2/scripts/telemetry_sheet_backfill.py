@@ -31,7 +31,7 @@ import subprocess
 import sys
 
 from argia.core.sheets import SheetsClient
-from argia.core.time_utils import MX_TZ, UTC
+from argia.core.time_utils import MX_TZ, UTC, parse_pg_ts
 from argia.telemetry.schema import ARGIA_SCHEMA, ARGIA_TAB_NAME
 from argia.telemetry.sheets_writer import ensure_telemetry_tab, write_telemetry_rows
 
@@ -48,19 +48,6 @@ SELECT_SQL = (
     " WHERE (ts_utc AT TIME ZONE 'America/Mexico_City')::date = DATE '%s'"
     "%s ORDER BY ts_utc, plant_key, inverter_sn;"
 )
-
-
-def parse_pg_ts(raw: str) -> dt.datetime:
-    """PostgreSQL prints '2026-09-03 19:00:10+00'; make it a real UTC datetime.
-
-    Pure. Accepts the '+00' short offset that ``datetime.fromisoformat``
-    rejects on older Pythons, and any already-ISO spelling.
-    """
-    s = (raw or "").strip().replace(" ", "T")
-    if len(s) >= 3 and s[-3] in "+-" and s[-2:].isdigit():
-        s += ":00"                      # '+00' -> '+00:00'
-    d = dt.datetime.fromisoformat(s)
-    return d.astimezone(UTC) if d.tzinfo else d.replace(tzinfo=UTC)
 
 
 def sheet_row(rec: dict) -> list:

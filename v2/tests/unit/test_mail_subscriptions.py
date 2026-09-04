@@ -259,7 +259,7 @@ class TestDailySummary:
         d = _mkdata(alerts=[("plant-dark:QRO1", "CRITICAL"),   # CAPEX
                             ("plant-stale:GTO1", "CRITICAL"),
                             ("disk-full", "WARNING")])
-        texts = [t for t, _ in d["issues"]]
+        texts = [i["who"] + " " + i["what"] for i in d["issues"]]
         assert any("GTO1" in t for t in texts)
         assert any("disk" in t for t in texts)
         assert not any("QRO1" in t for t in texts)
@@ -430,3 +430,155 @@ class TestV180Branding:
         assert d["tot_kwp"] == 500.0 + 597.78
         assert abs(d["tot_yield"] - d["tot_today"] / d["tot_kwp"]) < 1e-9
         assert d["tot_inv"] == "10/10"
+
+
+class TestIssueDetail:
+    """v185 — '[CRITICAL] server: unit-failed' told Tomasz nothing on
+    2026-09-03. An open issue must name the thing that broke, carry a
+    troubleshooting handle, and say what it means."""
+
+    def test_unit_alert_names_the_job_not_just_server(self):
+        r = dpm.issue_record("unit-failed:argia-telemetry.service",
+                             "CRITICAL")
+        assert r["who"] == "Telemetry collector (Growatt + Huawei)"
+        assert "argia-telemetry.service" in r["detail"]
+        assert r["why"]
+
+    def test_solaredge_unit_is_distinguishable_from_the_other_collector(self):
+        a = dpm.issue_record("unit-failed:argia-telemetry.service", "C")
+        b = dpm.issue_record("unit-failed:argia-telemetry-se.service", "C")
+        assert a["who"] != b["who"]
+        assert "SolarEdge" in b["who"]
+
+    def test_unknown_unit_keeps_its_own_name(self):
+        assert dpm.friendly_unit("argia-brand-new.service") \
+            == "argia-brand-new"
+        assert dpm.friendly_unit("") == "server"
+
+    def test_unit_error_line_reaches_the_reader(self):
+        r = dpm.issue_record(
+            "unit-failed:argia-telemetry.service", "CRITICAL",
+            extra={"error": "sheet write failed: above the limit of "
+                            "10000000 cells"})
+        assert "10000000 cells" in r["detail"]
+
+    def test_plant_alert_leads_with_the_customer_name(self):
+        r = dpm.issue_record("plant-stale:GTO1", "CRITICAL",
+                             labels={"GTO1": "Taigene"})
+        assert r["who"] == "Taigene (GTO1)"
+
+    def test_plant_alert_without_a_label_still_names_the_plant(self):
+        assert dpm.issue_record("plant-dark:NL1", "CRITICAL")["who"] == "NL1"
+
+    def test_silent_inverter_carries_serial_and_label(self):
+        r = dpm.issue_record("inverter-silent:GTO1:MWKNE9500D", "WARNING",
+                             extra={"label": "Inverter 5"},
+                             labels={"GTO1": "Taigene"})
+        assert "MWKNE9500D" in r["detail"] and "Inverter 5" in r["detail"]
+        assert r["who"] == "Taigene (GTO1)"
+
+    def test_recon_fail_carries_the_day_in_question(self):
+        r = dpm.issue_record("recon-fail:GTO2:2026-08-26", "WARNING")
+        assert "2026-08-26" in r["detail"]
+
+    def test_every_known_alert_kind_explains_itself(self):
+        for kind in dpm._ISSUE_PHRASE:
+            r = dpm.issue_record(f"{kind}:GTO1", "CRITICAL")
+            assert r["why"], f"{kind} has no explanation"
+            assert r["what"] != kind or kind not in dpm._ISSUE_PHRASE
+
+    def test_unknown_alert_kind_degrades_without_crashing(self):
+        r = dpm.issue_record("brand-new-thing", "WARNING")
+        assert r["what"] == "brand-new-thing" and r["who"] == "Server"
+
+
+class TestHumanizeSince:
+    def test_none_is_blank(self):
+        assert dpm.humanize_since(None) == ""
+
+    def test_scales(self):
+        import datetime as _dt
+        now = _dt.datetime(2026, 9, 4, 12, 0, tzinfo=_dt.timezone.utc)
+        mk = lambda **kw: dpm.humanize_since(now - _dt.timedelta(**kw), now)
+        assert mk(minutes=25) == "25 min"
+        assert mk(hours=5) == "5 h"
+        assert mk(days=1) == "1 day"
+        assert mk(days=3) == "3 days"
+
+    def test_future_timestamp_is_blank_not_negative(self):
+        import datetime as _dt
+        now = _dt.datetime(2026, 9, 4, 12, 0, tzinfo=_dt.timezone.utc)
+        assert dpm.humanize_since(now + _dt.timedelta(hours=2), now) == ""
+
+
+class TestLastErrorLine:
+    LOG = (
+        "2026-09-04 02:40:36 INFO argia.telemetry_5m: [TAM1] 4 inverters\n"
+        "2026-09-04 02:40:41 ERROR argia.telemetry_5m: [MEX1] sheet write "
+        "failed: <HttpError 400 ... above the limit of 10000000 cells.>\n"
+        "2026-09-04 02:40:44 INFO argia.telemetry_5m: DONE\n"
+    )
+
+    def test_picks_the_newest_error_and_drops_the_log_prefix(self):
+        out = dpm.last_error_line(self.LOG)
+        assert out.startswith("[MEX1] sheet write failed")
+        assert "10000000 cells" in out
+        assert "2026-09-04" not in out
+
+    def test_no_error_is_blank(self):
+        assert dpm.last_error_line("2026-09-04 INFO all good\n") == ""
+        assert dpm.last_error_line("") == ""
+
+    def test_long_lines_are_truncated(self):
+        long = "2026-09-04 02:40:41 ERROR argia.x: " + "y" * 500
+        assert len(dpm.last_error_line(long)) <= 180
+
+
+class TestIssueRendering:
+    def _data(self):
+        return _mkdata(alerts=[
+            ("unit-failed:argia-telemetry.service", "CRITICAL", None,
+             {"error": "sheet write failed: above the limit of "
+                       "10000000 cells"}),
+            ("plant-stale:GTO1", "CRITICAL"),
+        ])
+
+    def test_html_shows_job_name_reason_and_explanation(self):
+        html = dpm.render_html(self._data())
+        assert "Telemetry collector (Growatt + Huawei)" in html
+        assert "argia-telemetry.service" in html
+        assert "10000000 cells" in html
+        assert "missing or stale until it runs clean" in html
+        assert "server: unit-failed" not in html
+
+    def test_text_shows_the_same_substance(self):
+        txt = dpm.render_text(self._data())
+        assert "Telemetry collector (Growatt + Huawei)" in txt
+        assert "argia-telemetry.service" in txt
+        assert "10000000 cells" in txt
+
+    def test_plant_issue_uses_the_customer_name(self):
+        html = dpm.render_html(self._data())
+        assert "Cliente Uno (GTO1)" in html
+
+
+class TestMailHeader:
+    def test_title_is_present_and_larger_than_the_logo(self):
+        html = dpm.render_html(_mkdata())
+        assert "DAILY&nbsp;PPA" in html
+        assert 'font-size:17px;font-weight:600' in html
+
+    def test_logo_is_smaller_than_it_was(self):
+        html = dpm.render_html(_mkdata())
+        assert 'height="19"' in html and 'height:19px' in html
+        assert 'height="26"' not in html
+
+    def test_logo_sits_on_the_right_of_the_lockup(self):
+        html = dpm.render_html(_mkdata())
+        title = html.index("DAILY&nbsp;PPA")
+        logo = html.index("cid:argialogo")
+        assert title < logo, "title must lead, logo follows on the right"
+
+    def test_date_still_shown(self):
+        html = dpm.render_html(_mkdata())
+        assert "2026-09-02" in html and "MX" in html

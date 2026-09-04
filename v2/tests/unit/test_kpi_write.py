@@ -142,3 +142,15 @@ class TestKpiEod:
         src = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "kpi_eod.py").read_text(encoding="utf-8")
         assert "if kpi_write.writes_sheet():\n        try:\n            created = create_kpi_daily_tab_if_missing(sheets)" in src
         assert "and not kpi_write.writes_sheet():" in src
+
+
+class TestNoSheetCopyBehindTheWriter:
+    """v193.1: once daily_production is written on the server, no scheduled
+    sheet -> PG copy may run behind it (a later copy is a stale copy)."""
+
+    def test_kpi_export_action_has_no_schedule(self):
+        import pathlib
+        wf = (pathlib.Path(__file__).resolve().parents[3] / ".github" / "workflows"
+              / "v2-kpi-export.yml").read_text(encoding="utf-8")
+        assert "workflow_dispatch:" in wf
+        assert "schedule:" not in wf and "cron:" not in wf

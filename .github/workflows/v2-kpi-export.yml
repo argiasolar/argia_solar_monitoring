@@ -1,14 +1,14 @@
 name: v2-kpi-export
 
-# Daily export of the KPI_Daily hot window to the `data` branch.
-# The pio06 reporting server pulls that branch and upserts into PostgreSQL.
+# Export of the KPI_Daily hot window to the `data` branch — MANUAL ONLY
+# since v193.1 (Sheets retirement, phase 2b). The daily 13:40 UTC schedule
+# fed pio06's argia-sync (sync_kpi.py -> daily_production). daily_production
+# is now written on the server: by the 14:15 CEST kpi_pg_mirror during the
+# shadow period and directly by kpi_eod (ARGIA_KPI_WRITE=pg) after it —
+# a sheet copy arriving afterwards would only ever be stale.
 # The data branch is a single force-pushed commit — repo history stays clean.
 
 on:
-  schedule:
-    - cron: "40 13 * * *"  # 13:40 UTC = 07:40 MX — after pio06's argia-kpi
-                           # (06:00 MX) stamps yesterday; was 07:10 UTC from
-                           # the Pi era and exported a stale day
   workflow_dispatch:
     inputs:
       days:

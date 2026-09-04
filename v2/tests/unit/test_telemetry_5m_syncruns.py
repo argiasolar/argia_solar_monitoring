@@ -100,7 +100,12 @@ def fresh_result():
 
 
 @pytest.fixture
-def sheets():
+def sheets(monkeypatch):
+    # v188: the sheet tab is behind ARGIA_SHEET_JOBLOG (default off). These
+    # tests exercise the sheet path, so switch it on; the PG path is
+    # covered in test_sync_run.py.
+    monkeypatch.setenv("ARGIA_SHEET_JOBLOG", "1")
+    monkeypatch.delenv("ARGIA_PG_MIRROR", raising=False)
     return FakeSheets()
 
 

@@ -39,6 +39,18 @@ LOG = logging.getLogger(__name__)
 
 SYNC_TAB = "SyncRuns"
 
+# v188: the run log lives in PostgreSQL (`sync_run`) — see
+# argia/store/sync_run.py. The SyncRuns sheet tab is OFF by default; set
+# ARGIA_SHEET_JOBLOG=1 to keep appending there as well (the switch exists
+# so the cut is reversible, same pattern as ARGIA_SHEET_PLANT_TABS).
+SHEET_JOBLOG_ENV = "ARGIA_SHEET_JOBLOG"
+
+
+def sheet_joblog_enabled(env=None) -> bool:
+    env = os.environ if env is None else env
+    return str(env.get(SHEET_JOBLOG_ENV, "0")).strip().lower() in (
+        "1", "true", "yes", "on")
+
 
 def _default_write_if(argv: List[str]) -> bool:
     return "--dry-run" not in argv
@@ -55,6 +67,19 @@ def _run_id() -> str:
 
 
 def _append_row(row: List) -> None:
+    """Record one run: PostgreSQL always (where the mirror is on), the
+    SyncRuns sheet only behind ARGIA_SHEET_JOBLOG."""
+    from argia.store import sync_run
+    wrote_pg = sync_run.record(row, LOG)
+    if not sheet_joblog_enabled():
+        if not wrote_pg:
+            LOG.warning("job_log: no run-log sink is active (PG mirror off, "
+                        "sheet log off) — run not recorded")
+        return
+    _append_sheet_row(row)
+
+
+def _append_sheet_row(row: List) -> None:
     from argia.core.sheets import SheetsClient
     sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
     if not sheet_id:

@@ -21,7 +21,8 @@ def run_instrumented(main, argv, env=True):
         lambda tab, r: rows.append((tab, r[0]))
     with patch("argia.core.sheets.SheetsClient", return_value=fake_sheets):
         with patch.dict("os.environ",
-                        {"GOOGLE_SHEET_ID_V2": "sheet1" if env else ""}):
+                        {"GOOGLE_SHEET_ID_V2": "sheet1" if env else "",
+                         "ARGIA_SHEET_JOBLOG": "1"}):     # sheet path under test
             wrapped = instrument("testjob")(main)
             try:
                 rc = wrapped(argv)
@@ -104,7 +105,8 @@ class TestQuotaRetry20260708:
         fake = MagicMock()
         fake.append_rows.side_effect = side_effects
         with patch("argia.core.sheets.SheetsClient", return_value=fake):
-            with patch.dict("os.environ", {"GOOGLE_SHEET_ID_V2": "s1"}):
+            with patch.dict("os.environ", {"GOOGLE_SHEET_ID_V2": "s1",
+                                           "ARGIA_SHEET_JOBLOG": "1"}):
                 from argia.core.job_log import _append_row
                 _append_row(["r"])
         return fake, sleeps

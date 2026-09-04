@@ -50,6 +50,7 @@ from argia.core.config import (
 from argia.core.sheets import SheetsClient
 from argia.core.time_utils import now_mx, now_utc
 from argia.orchestrator import RunResult, TAB_SYNC, new_run_id
+from argia.core.job_log import sheet_joblog_enabled
 from argia.meteo.growatt_irradiance import (
     GrowattIrradianceClient,
     GrowattWebSession,
@@ -870,27 +871,34 @@ def _finalize_and_log_run(
         )
     result.finalize()
 
+    row = result.to_sheet_row()
+    if dry_run:
+        log.info("[SyncRuns] DRY RUN — would log: %s", row)
+        return
+
+    # v188: PostgreSQL is the run log; the sheet tab only behind
+    # ARGIA_SHEET_JOBLOG (see argia/core/job_log.py).
+    from argia.store import sync_run
+    if sync_run.record(row, log):
+        log.info(
+            "[sync_run] logged run %s status=%s processed=%d skipped=%d "
+            "rows=%d errors=%d",
+            result.run_id, result.status,
+            result.plants_processed, result.plants_skipped,
+            result.rows_written, len(result.errors),
+        )
+    if not sheet_joblog_enabled():
+        return
+
     try:
         sheets.ensure_tab(TAB_SYNC)
         sheets.ensure_header(TAB_SYNC, SYNC_RUNS_HEADER)
     except Exception as e:  # noqa: BLE001
         log.error("[SyncRuns] could not ensure tab/header: %s", e)
         return
-
-    row = result.to_sheet_row()
-    if dry_run:
-        log.info("[SyncRuns] DRY RUN — would log: %s", row)
-        return
-
     try:
         sheets.append_rows(TAB_SYNC, [row])
-        log.info(
-            "[SyncRuns] logged run %s status=%s processed=%d skipped=%d "
-            "rows=%d errors=%d",
-            result.run_id, result.status,
-            result.plants_processed, result.plants_skipped,
-            result.rows_written, len(result.errors),
-        )
+        log.info("[SyncRuns] logged run %s to the sheet", result.run_id)
     except Exception as e:  # noqa: BLE001
         log.error("[SyncRuns] append failed (telemetry data unaffected): %s", e)
 

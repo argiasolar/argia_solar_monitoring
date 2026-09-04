@@ -175,7 +175,8 @@ def row_to_kpi(row: Dict) -> Optional[KpiDailyRow]:
 def load_kpi_daily(sheets: SheetsClient) -> List[KpiDailyRow]:
     """Read all rows from KPI_Daily. Returns empty list on tab error."""
     try:
-        raw = sheets.read_table(KPI_DAILY_TAB, "A1:O")
+        from argia.kpi.pg_kpi_source import kpi_records
+        raw = kpi_records(sheets, "A1:O")     # v190: sheet or PG
     except Exception as e:
         LOG.warning("Could not read %s: %s — returning []", KPI_DAILY_TAB, e)
         return []

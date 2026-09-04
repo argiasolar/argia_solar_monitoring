@@ -94,7 +94,8 @@ log = logging.getLogger("argia.alerts_daily")
 def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
     """KPI_Daily rows for one day: plant_key -> {energy, sy, expected, data_class}."""
     out: Dict[str, Dict] = {}
-    data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
+    from argia.kpi.pg_kpi_source import kpi_grid
+    data = kpi_grid(sheets, "A1:ZZ")          # v190: sheet or PG
     if not data:
         return out
     header = [normalize_text(h) for h in data[0]]

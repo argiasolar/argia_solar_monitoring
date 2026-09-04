@@ -61,6 +61,8 @@ def main(argv=None) -> int:
         LOG.info("dry-run: %d rows, %d bytes of SQL — not applied",
                  len(rows), len(sql))
         return 0
+    from argia.store.kpi_mirror import ENSURE_SQL
+    psql_exec(ENSURE_SQL)          # v190 columns, idempotent
     psql_exec(sql)
     # vendor-protected rows keep their pr; re-derive it now from the
     # corrected energy + the irradiance this very mirror just delivered

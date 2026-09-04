@@ -95,7 +95,8 @@ def load_kpi_energy(sheets, period: Period) -> Dict[Tuple[str, str], float]:
     maintenance/penalty feature lands); falls back to ``energy_kwh``.
     Missing tab → {}."""
     try:
-        data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
+        from argia.kpi.pg_kpi_source import kpi_grid
+        data = kpi_grid(sheets, "A1:ZZ")      # v190: sheet or PG
     except Exception:  # noqa: BLE001
         LOG.warning("%s not readable — actual income unavailable",
                     KPI_DAILY_TAB)

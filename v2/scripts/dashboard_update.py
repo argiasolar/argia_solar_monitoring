@@ -147,7 +147,8 @@ def run(client: SheetsClient, *, window: int, apply: bool,
     inverter_rows = client.read_table("Inverters", "A1:Z")
     active = D.parse_active_inverters(inverter_rows)
     ratings = D.parse_inverter_ratings(inverter_rows)
-    kpi_by_day = kpi_expected_map(client.read_table("KPI_Daily", "A1:V"))
+    from argia.kpi.pg_kpi_source import kpi_records
+    kpi_by_day = kpi_expected_map(kpi_records(client, "A1:V"))   # v190
 
     from argia.telemetry import pg_source
     if pg_source.source() == "pg":

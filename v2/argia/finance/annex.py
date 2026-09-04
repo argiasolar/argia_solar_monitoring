@@ -153,7 +153,8 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
         return plant.tariff_mxn_per_kwh
 
     # --- read KPI_Daily for this plant over the window (by header name) ---
-    raw = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
+    from argia.kpi.pg_kpi_source import kpi_grid
+    raw = kpi_grid(sheets, "A1:ZZ")            # v190: sheet or PG
     header = [normalize_text(h) for h in (raw[0] if raw else [])]
     idx = {n: i for i, n in enumerate(header) if n}
 

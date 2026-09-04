@@ -913,7 +913,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
     """Read KPI_Daily + Alerts + telemetry and assemble the report model."""
     # plant-level from KPI_Daily
     kpi: Dict[str, Dict] = {}
-    data = sheets.read_range(KPI_DAILY_TAB, "A1:ZZ")
+    from argia.kpi.pg_kpi_source import kpi_grid
+    data = kpi_grid(sheets, "A1:ZZ")           # v190: sheet or PG
     header = [normalize_text(h) for h in (data[0] if data else [])]
     idx = {n: header.index(n) for n in header if n}
     for row in (data[1:] if data else []):

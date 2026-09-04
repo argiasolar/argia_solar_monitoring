@@ -38,11 +38,43 @@ COLMAP = {
     "data_class": "data_class",
     "inverters_reporting": "inverters_reporting",
     "status_note": "status_note",
+    # v190 (Sheets retirement, phase 2a): the remaining KPI_Daily columns,
+    # so daily_production is the COMPLETE record and the readers can
+    # leave the sheet. Same protected/frozen semantics apply to all.
+    "irradiance_source": "irradiance_source",
+    "pr_confidence": "pr_confidence",
+    "capacity_factor": "capacity_factor",
+    "capacity_factor_confidence": "capacity_factor_confidence",
+    "inverters_with_reboot": "inverters_with_reboot",
+    "notes": "notes",
+    "written_at_utc": "written_at_utc",
+    "specific_yield": "specific_yield",
+    "soiling_loss_pct": "soiling_loss_pct",
+    "production_pct": "production_pct",
+    "design_kwh": "design_kwh",
 }
 NUMERIC = {"energy_kwh", "irradiance_kwh_m2", "pr", "pr_stc",
            "billable_kwh", "expected_kwh", "availability",
-           "cloud_cover_pct"}
-INTEGER = {"inverters_reporting"}
+           "cloud_cover_pct", "capacity_factor", "specific_yield",
+           "soiling_loss_pct", "production_pct", "design_kwh"}
+INTEGER = {"inverters_reporting", "inverters_with_reboot"}
+
+# Idempotent: the v190 columns. Run before every mirror (CREATE/ADD IF NOT
+# EXISTS is cheap and makes deploy order irrelevant).
+ENSURE_SQL = """
+ALTER TABLE daily_production
+  ADD COLUMN IF NOT EXISTS irradiance_source          text,
+  ADD COLUMN IF NOT EXISTS pr_confidence              text,
+  ADD COLUMN IF NOT EXISTS capacity_factor            numeric,
+  ADD COLUMN IF NOT EXISTS capacity_factor_confidence text,
+  ADD COLUMN IF NOT EXISTS inverters_with_reboot      integer,
+  ADD COLUMN IF NOT EXISTS notes                      text,
+  ADD COLUMN IF NOT EXISTS written_at_utc             text,
+  ADD COLUMN IF NOT EXISTS specific_yield             numeric,
+  ADD COLUMN IF NOT EXISTS soiling_loss_pct           numeric,
+  ADD COLUMN IF NOT EXISTS production_pct             numeric,
+  ADD COLUMN IF NOT EXISTS design_kwh                 numeric;
+""".strip()
 
 # columns a vendor-corrected row keeps no matter what the sheet says
 PROTECTED = ("energy_kwh", "billable_kwh", "pr", "pr_stc", "status_note")

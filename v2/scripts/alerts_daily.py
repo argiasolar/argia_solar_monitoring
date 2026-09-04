@@ -393,6 +393,13 @@ def main(argv=None) -> int:
     for line in digest.log_lines():
         log.info("%s", line)
 
+    # v196: mail newly OPEN alerts (incl. the digest) to the 'maintenance'
+    # subscribers — the server side of the retired Apps Script notifier.
+    # Mailed records come back with 'email' in channels_sent.
+    from argia.alerts.ledger_mail import mail_new_alerts
+    records = mail_new_alerts(result.records, dry_run=args.dry_run)
+    mailed = records != list(result.records)
+
     if args.dry_run:
         log.info("[DRY RUN] no rows written")
         return 0
@@ -401,8 +408,9 @@ def main(argv=None) -> int:
     # Rows only ever update in place or append (history never shrinks), so a
     # single block write of all records is idempotent and race-free for a
     # once-a-day job.
-    if result.opened or result.touched or result.resolved or digest.changed:
-        n = write_ledger(sheets, result.records)
+    if result.opened or result.touched or result.resolved or digest.changed \
+            or mailed:
+        n = write_ledger(sheets, records)
         log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:
         log.info("ledger unchanged — nothing written")

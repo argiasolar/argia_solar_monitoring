@@ -151,17 +151,29 @@ def main(argv=None) -> int:
                                 "text/html")
     log.info("Report %s uploaded to Drive folder '%s'",
              date_iso, REPORTS_FOLDER_NAME)
-    try:
-        kind = ("morning_yesterday" if args.when == "yesterday"
-                and not args.date else "evening_today")
-        append_outbox(sheets, date_iso=date_iso, kind=kind,
-                      pdf_file_id=pdf_id, html_file_id=html_id,
-                      now_utc_iso=dt.datetime.now(dt.timezone.utc)
-                      .strftime("%Y-%m-%dT%H:%M:%SZ"))
-        log.info("Report_Outbox row appended (%s)", kind)
-    except Exception as e:  # noqa: BLE001
-        # e-mail queueing must never fail the report itself
-        log.error("Report_Outbox append failed (report IS uploaded): %s", e)
+    kind = ("morning_yesterday" if args.when == "yesterday"
+            and not args.date else "evening_today")
+    # v196: the server mails the PDF itself (the 'reports' channel);
+    # the Report_Outbox queue for the Apps Script notifier stays only
+    # while ARGIA_SHEET_OUTBOX is on (default on; the server sets 0).
+    if pdf_path:
+        try:
+            from argia.report.report_mail import send_report
+            send_report(pdf_path, date_iso, kind)
+        except Exception as e:  # noqa: BLE001
+            log.error("report mail failed (report IS uploaded): %s", e)
+    if os.environ.get("ARGIA_SHEET_OUTBOX", "1").strip() not in ("0", "false", "no"):
+        try:
+            append_outbox(sheets, date_iso=date_iso, kind=kind,
+                          pdf_file_id=pdf_id, html_file_id=html_id,
+                          now_utc_iso=dt.datetime.now(dt.timezone.utc)
+                          .strftime("%Y-%m-%dT%H:%M:%SZ"))
+            log.info("Report_Outbox row appended (%s)", kind)
+        except Exception as e:  # noqa: BLE001
+            # e-mail queueing must never fail the report itself
+            log.error("Report_Outbox append failed (report IS uploaded): %s", e)
+    else:
+        log.info("Report_Outbox not written (ARGIA_SHEET_OUTBOX=0)")
     return 0
 
 

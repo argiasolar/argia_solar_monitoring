@@ -201,11 +201,16 @@ def main(argv=None) -> int:
     for r in result.opened:
         log.info("OPEN   %s  %s", r.alert_id, r.message)
 
+    # v196: mail newly OPEN alerts to the 'maintenance' subscribers
+    from argia.alerts.ledger_mail import mail_new_alerts
+    records = mail_new_alerts(result.records, dry_run=args.dry_run)
+    mailed = records != list(result.records)
+
     if args.dry_run:
         log.info("[DRY RUN] no rows written")
         return 0
-    if result.opened or result.touched:
-        n = write_ledger(sheets, result.records)
+    if result.opened or result.touched or mailed:
+        n = write_ledger(sheets, records)
         log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:
         log.info("ledger unchanged — nothing written")

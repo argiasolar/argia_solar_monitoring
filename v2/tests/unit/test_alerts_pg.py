@@ -113,7 +113,7 @@ class TestDoors:
     def test_engine_scripts_use_the_one_write_path(self):
         for name in ("alerts_daily.py", "alerts_snapshot.py"):
             src = (V2 / "scripts" / name).read_text(encoding="utf-8")
-            assert "write_ledger(sheets, result.records)" in src
+            assert "write_ledger(sheets, records)" in src        # v196: post-mail records
             assert 'write_values("Alerts"' not in src and "write_values(\n" not in src
 
 

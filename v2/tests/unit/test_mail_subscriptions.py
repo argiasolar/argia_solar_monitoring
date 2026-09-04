@@ -154,8 +154,9 @@ class TestWiring:
             in SCHEMA_SRC
 
     def test_channels_agree_everywhere(self):
-        assert subs.CHANNELS == ("maintenance", "financial", "daily")
-        assert "MAIL_CHANNELS = ('maintenance', 'financial', 'daily')" \
+        # v196: + 'reports' (the daily PDF reports, ex Report_Outbox)
+        assert subs.CHANNELS == ("maintenance", "financial", "daily", "reports")
+        assert "MAIL_CHANNELS = ('maintenance', 'financial', 'daily', 'reports')" \
             in SETUP_SRC
 
     def test_each_mailer_reads_its_own_channel(self):

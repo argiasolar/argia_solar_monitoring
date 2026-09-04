@@ -22,19 +22,25 @@ from __future__ import annotations
 
 from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
-CHANNELS = ("maintenance", "financial", "daily")
+CHANNELS = ("maintenance", "financial", "daily", "reports")
 
+# v196: 'reports' = the morning/evening PDF reports the Apps Script
+# notifier used to mail from Report_Outbox. The CHECK is re-created so an
+# existing table (created with three channels) accepts the fourth.
 ENSURE_SQL = """CREATE TABLE IF NOT EXISTS mail_subscription (
     email    text NOT NULL,
     channel  text NOT NULL
-             CHECK (channel IN ('maintenance','financial','daily')),
+             CHECK (channel IN ('maintenance','financial','daily','reports')),
     plants   text NOT NULL DEFAULT '',
     enabled  boolean NOT NULL DEFAULT true,
     username text NOT NULL DEFAULT '',
     added_by text,
     added_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (email, channel)
-);"""
+);
+ALTER TABLE mail_subscription DROP CONSTRAINT IF EXISTS mail_subscription_channel_check;
+ALTER TABLE mail_subscription ADD CONSTRAINT mail_subscription_channel_check
+    CHECK (channel IN ('maintenance','financial','daily','reports'));"""
 
 # Alert-key prefixes whose second ':'-segment is a plant key. Everything
 # else (unit-failed, disk-full, postgres-down, cfe-*) is infrastructure.

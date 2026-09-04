@@ -1003,23 +1003,27 @@ def maint_delete():
 # to argia/alerts/subscriptions.ENSURE_SQL (the bundle cannot import
 # the argia package; a unit test compares the two).
 # ---------------------------------------------------------------------------
-MAIL_CHANNELS = ('maintenance', 'financial', 'daily')
+MAIL_CHANNELS = ('maintenance', 'financial', 'daily', 'reports')
 MAIL_CHANNEL_LABEL = {
     'maintenance': 'Maintenance — live alerts',
     'financial': 'Financial reports',
     'daily': 'Daily PPA performance (19:00)',
+    'reports': 'Daily PDF reports (morning + evening)',
 }
 MAIL_ENSURE_SQL = """CREATE TABLE IF NOT EXISTS mail_subscription (
     email    text NOT NULL,
     channel  text NOT NULL
-             CHECK (channel IN ('maintenance','financial','daily')),
+             CHECK (channel IN ('maintenance','financial','daily','reports')),
     plants   text NOT NULL DEFAULT '',
     enabled  boolean NOT NULL DEFAULT true,
     username text NOT NULL DEFAULT '',
     added_by text,
     added_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (email, channel)
-);"""
+);
+ALTER TABLE mail_subscription DROP CONSTRAINT IF EXISTS mail_subscription_channel_check;
+ALTER TABLE mail_subscription ADD CONSTRAINT mail_subscription_channel_check
+    CHECK (channel IN ('maintenance','financial','daily','reports'));"""
 
 
 def _mail_ensure():

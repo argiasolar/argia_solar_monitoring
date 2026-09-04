@@ -229,3 +229,51 @@ class TestParityRules:
     def test_render_states_the_verdict(self, cmp):
         rep = cmp.compare_maps({"a": 1}, {"a": 1})
         assert "VERDICT: CLEAN" in cmp.render("Loans", rep)
+
+
+class TestParityAuthority:
+    """v191.1: the live gate found SLP1-L2 (a test loan deleted through
+    /setup/finance on 2026-09-01, finance_audit #2) still in the sheet and
+    SLP1-L3 (the real credit) only in PG. Audited loan_ids are PG-authoritative."""
+
+    @pytest.fixture
+    def cmp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "finance_parity", V2 / "scripts" / "finance_parity.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_audited_loan_differences_are_expected_not_failures(self, cmp):
+        exp = cmp.loan_expected(frozenset({"SLP1-L3"}))
+        sheet = {"SLP1-L1": 1, "SLP1-L2": 2}
+        pg = {"SLP1-L1": 1, "SLP1-L3": 3}
+        rep = cmp.compare_maps(sheet, pg, expected=exp)
+        assert not rep["ok"]                      # SLP1-L2 is NOT audited
+        assert rep["only_sheet"] == ["SLP1-L2"] and rep["only_pg"] == []
+        assert ("only_pg", "SLP1-L3") in rep["expected"]
+        rep = cmp.compare_maps(sheet, pg, expected=cmp.loan_expected({"SLP1-L2", "SLP1-L3"}))
+        assert rep["ok"] and len(rep["expected"]) == 2
+
+    def test_schedule_keys_use_the_loan_id_part(self, cmp):
+        exp = cmp.loan_expected(frozenset({"SLP1-L3"}))
+        assert exp(("SLP1-L3", "2026-06")) and not exp(("NL2-L1", "2026-06"))
+
+    def test_field_diffs_on_audited_loans_are_listed_not_failed(self, cmp):
+        a = Loan("X", "P", "n", "b", "MXN", 100.0, 12, "2026-01", "2026-12")
+        b = Loan("X", "P", "n", "b", "MXN", 50.0, 12, "2026-01", "2026-12")
+        rep = cmp.compare_maps({"X": a}, {"X": b}, expected=cmp.loan_expected({"X"}))
+        assert rep["ok"] and rep["diffs"] == []
+        assert rep["expected"][0][0] == "diff"
+        assert "expected (PG authoritative, audited): 1" in cmp.render("Loans", rep)
+
+    def test_unaudited_loan_diff_still_fails(self, cmp):
+        a = Loan("X", "P", "n", "b", "MXN", 100.0, 12, "2026-01", "2026-12")
+        b = Loan("X", "P", "n", "b", "MXN", 50.0, 12, "2026-01", "2026-12")
+        assert not cmp.compare_maps({"X": a}, {"X": b}, expected=cmp.loan_expected(set()))["ok"]
+
+    def test_run_compares_design_from_contract_monthly_not_the_legacy_tab(self, cmp):
+        src = (V2 / "scripts" / "finance_parity.py").read_text(encoding="utf-8")
+        assert 'sheets.read_range("Contract_Monthly", "A1:D")' in src
+        assert "not read by any job" in src

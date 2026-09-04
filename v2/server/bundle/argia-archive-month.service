@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA monthly archive from PostgreSQL to Drive (KPI + alerts CSV)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh archive-month archive_month_pg.py --apply

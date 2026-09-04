@@ -17,8 +17,11 @@ name: v2-archive-month
 # as Editor — run preflight to verify).
 
 on:
-  schedule:
-    - cron: "0 9 2 * *"
+  # v197: no schedule. The monthly archive now runs on pio06 from
+  # PostgreSQL (scripts/archive_month_pg.py, argia-archive-month.timer,
+  # 2nd of month 03:00 MX) as CSV under Monthly_Archive/<year>/ in the
+  # same Drive root as the telemetry export. Manual runs stay possible
+  # while the sheet exists.
   workflow_dispatch:
     inputs:
       month:

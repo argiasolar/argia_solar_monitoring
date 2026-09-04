@@ -19,9 +19,11 @@ on:
         required: true
         default: true
         type: boolean
-  schedule:
-    - cron: "15 13 * * *"   # 07:15 MX
-    - cron: "15 19 * * *"   # 13:15 MX
+  # v197: no schedule. The watchdog's only channel (Watchdog_Alerts ->
+  # the Apps Script notifier) died on 2026-09-02, and the server's
+  # alert_mailer (every 30 min: freshness, failed units, silent
+  # inverters) and daily_perf_mail cover the same questions from
+  # PostgreSQL. Manual runs stay possible while the sheet exists.
 
 concurrency:
   group: v2-watchdog

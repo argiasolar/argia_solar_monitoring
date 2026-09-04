@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA monthly archive (2nd of month, 03:00 MX; after the 1st's close and EOD jobs)
+[Timer]
+OnCalendar=*-*-02 03:00:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

@@ -71,10 +71,9 @@ from argia.archive.kpi_daily import (
     date_key,
 )
 from argia.core.alerts_state import (
-    ALERTS_HEADER,
     create_alerts_tab_if_missing,
     load_alerts_ledger,
-    record_to_row,
+    write_ledger,
 )
 from argia.core.config import load_portfolio
 from argia.core.normalize import normalize_text, safe_float
@@ -403,12 +402,8 @@ def main(argv=None) -> int:
     # single block write of all records is idempotent and race-free for a
     # once-a-day job.
     if result.opened or result.touched or result.resolved or digest.changed:
-        block = [record_to_row(r) for r in result.records]
-        end_col = chr(ord("A") + len(ALERTS_HEADER) - 1)   # N for 14 cols
-        sheets.write_values(
-            "Alerts", f"A2:{end_col}{len(block) + 1}", block,
-        )
-        log.info("Wrote %d alert row(s) to Alerts", len(block))
+        n = write_ledger(sheets, result.records)
+        log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:
         log.info("ledger unchanged — nothing written")
     return 0

@@ -48,10 +48,9 @@ from argia.analytics.acute import (
     evaluate_acute,
 )
 from argia.core.alerts_state import (
-    ALERTS_HEADER,
     create_alerts_tab_if_missing,
     load_alerts_ledger,
-    record_to_row,
+    write_ledger,
 )
 from argia.core.config import load_portfolio
 from argia.core.sheets import SheetsClient
@@ -206,10 +205,8 @@ def main(argv=None) -> int:
         log.info("[DRY RUN] no rows written")
         return 0
     if result.opened or result.touched:
-        block = [record_to_row(r) for r in result.records]
-        end_col = chr(ord("A") + len(ALERTS_HEADER) - 1)
-        sheets.write_values("Alerts", f"A2:{end_col}{len(block) + 1}", block)
-        log.info("Wrote %d alert row(s) to Alerts", len(block))
+        n = write_ledger(sheets, result.records)
+        log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:
         log.info("ledger unchanged — nothing written")
     return 0

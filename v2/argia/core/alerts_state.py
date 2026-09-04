@@ -206,8 +206,17 @@ def _parse_state(raw) -> AlertState:
 
 
 def load_alerts_ledger(sheets: SheetsClient) -> AlertsLedger:
-    """Read the Alerts tab. Returns an empty ledger if the tab doesn't
-    exist or has no rows — that's the first-run state and not an error."""
+    """Read the Alerts ledger. Returns an empty ledger if the tab doesn't
+    exist or has no rows — that's the first-run state and not an error.
+
+    v194: ARGIA_ALERTS_SOURCE=pg reads the ``alert_ledger`` table
+    instead (argia.core.alerts_pg), through the same parser. A PG read
+    failure is NOT an empty ledger: reconciling against nothing would
+    re-open every alert and re-mail it, so it raises."""
+    from argia.core import alerts_pg
+    if alerts_pg.source() == "pg":
+        rows = alerts_pg.read_records()
+        return records_from_rows(rows)
     try:
         rows = sheets.read_table("Alerts", "A1:O")
     except Exception as e:
@@ -215,7 +224,11 @@ def load_alerts_ledger(sheets: SheetsClient) -> AlertsLedger:
             "Could not read Alerts tab (%s). Returning empty ledger.", e,
         )
         return AlertsLedger(records=())
+    return records_from_rows(rows)
 
+
+def records_from_rows(rows) -> AlertsLedger:
+    """read_table-style dicts -> ledger. PURE, source-agnostic."""
     records: List[AlertRecord] = []
     for i, row in enumerate(rows, start=2):
         alert_id = normalize_text(row.get("alert_id"))
@@ -387,10 +400,31 @@ def _iso(d: dt.datetime) -> str:
     return d.astimezone(UTC).replace(microsecond=0).isoformat()
 
 
+def write_ledger(sheets: SheetsClient, records) -> int:
+    """Persist the reconciled ledger — the ONE write path of the alert
+    engine (alerts_daily, alerts_snapshot). Rows only ever update in
+    place or append, so the sheet gets a single block write and PG an
+    upsert keyed by alert_id. Returns rows written."""
+    from argia.core import alerts_pg
+    block = [record_to_row(r) for r in records]
+    if not block:
+        return 0
+    if alerts_pg.source() == "pg":
+        return alerts_pg.write_rows(block)
+    end_col = chr(ord("A") + len(ALERTS_HEADER) - 1)
+    sheets.write_values("Alerts", f"A2:{end_col}{len(block) + 1}", block)
+    return len(block)
+
+
 def create_alerts_tab_if_missing(sheets: SheetsClient) -> bool:
     """Create the Alerts tab with header only (no default rows).
 
-    Returns True if it created the tab, False if already present."""
+    Returns True if it created the tab, False if already present.
+    v194: in pg mode ensures the ``alert_ledger`` table instead."""
+    from argia.core import alerts_pg
+    if alerts_pg.source() == "pg":
+        alerts_pg.ensure()
+        return False
     sheets.ensure_tab("Alerts")
     existing = sheets.read_range("Alerts", "A1:O1")
     hdr = [str(c).strip() for c in (existing[0] if existing else [])]

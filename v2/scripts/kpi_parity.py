@@ -54,12 +54,35 @@ def index(grid) -> Dict[Tuple[str, str], Dict[str, Any]]:
     return out
 
 
-def compare(sheet_grid, pg_grid, min_date: str) -> Dict:
+# Where PostgreSQL is the DESIGNED authority and the sheet is expected to
+# lag (argia/store/kpi_mirror.py): on a vendor-corrected row the protected
+# columns carry the billing-basis energy, the PR re-derived from it and
+# the provenance note; on a CLOSED month nothing may be re-imported at
+# all. A difference there is the design working, not a parity failure.
+PG_WINS_COLS = {"energy_kwh", "billable_kwh", "pr", "pr_stc", "status_note"}
+
+
+def classify(k, col, frozen, vendor) -> str:
+    """'expected' when PG is the designed authority for this cell, else
+    'unexpected'. Pure."""
+    if col in PG_WINS_COLS and (vendor or frozen):
+        return "expected"
+    return "unexpected"
+
+
+def compare(sheet_grid, pg_grid, min_date: str,
+            frozen_months=frozenset(), vendor_rows=frozenset()) -> Dict:
+    """``frozen_months``: {(plant, 'YYYY-MM')} with a closed reconciliation.
+    ``vendor_rows``: {(date, plant)} whose PG status_note carries vendor
+    provenance. ``ok`` means: rows present on the sheet are all in PG, and
+    every remaining cell difference is one where PG is designed to win."""
     s = {k: v for k, v in index(sheet_grid).items() if k[0] >= min_date}
     p = {k: v for k, v in index(pg_grid).items() if k[0] >= min_date}
     only_s, only_p = sorted(set(s) - set(p)), sorted(set(p) - set(s))
     diffs: List[Tuple] = []
     for k in sorted(set(s) & set(p)):
+        frozen = (k[1], k[0][:7]) in frozen_months
+        vendor = k in vendor_rows
         for col in K.HEADER:
             if col in ("date_iso", "plant_key") or col in IGNORE:
                 continue
@@ -68,26 +91,48 @@ def compare(sheet_grid, pg_grid, min_date: str) -> Dict:
                 continue
             if isinstance(a, float) and isinstance(b, float) and abs(a - b) <= TOL:
                 continue
-            diffs.append((k, col, a, b))
+            diffs.append((k, col, a, b, classify(k, col, frozen, vendor)))
+    unexpected = [d for d in diffs if d[4] == "unexpected"]
     return {"n_sheet": len(s), "n_pg": len(p), "only_sheet": only_s,
-            "only_pg": only_p, "diffs": diffs,
-            "ok": not only_s and not only_p and not diffs}
+            "only_pg": only_p, "diffs": diffs, "unexpected": unexpected,
+            "expected": [d for d in diffs if d[4] == "expected"],
+            # PG may hold MORE history than the pruned sheet — that is fine
+            "ok": not only_s and not unexpected}
 
 
 def render(rep: Dict, min_date: str) -> str:
     L = [f"KPI parity since {min_date}: sheet rows={rep['n_sheet']} pg rows={rep['n_pg']}",
-         f"  only in sheet: {len(rep['only_sheet'])} {rep['only_sheet'][:4]}",
-         f"  only in pg   : {len(rep['only_pg'])} {rep['only_pg'][:4]}",
-         f"  cell diffs   : {len(rep['diffs'])}"]
+         f"  only in sheet: {len(rep['only_sheet'])} {rep['only_sheet'][:4]}   (must be 0)",
+         f"  only in pg   : {len(rep['only_pg'])}   (PG keeps more history than the pruned sheet — fine)",
+         f"  expected diffs (PG is the authority: vendor-corrected rows / closed months): {len(rep['expected'])}"]
     by_col: Dict[str, int] = {}
-    for _, col, _, _ in rep["diffs"]:
+    for _, col, _, _, _ in rep["expected"]:
         by_col[col] = by_col.get(col, 0) + 1
     for col, n in sorted(by_col.items(), key=lambda x: -x[1]):
         L.append(f"     {col:<28} {n}")
-    for k, col, a, b in rep["diffs"][:8]:
+    L.append(f"  UNEXPECTED diffs: {len(rep['unexpected'])}")
+    by_col = {}
+    for _, col, _, _, _ in rep["unexpected"]:
+        by_col[col] = by_col.get(col, 0) + 1
+    for col, n in sorted(by_col.items(), key=lambda x: -x[1]):
+        L.append(f"     {col:<28} {n}")
+    for k, col, a, b, _ in rep["unexpected"][:8]:
         L.append(f"     {k[0]} {k[1]} {col}: sheet={a!r} pg={b!r}")
-    L.append("  VERDICT: " + ("IDENTICAL" if rep["ok"] else "DIFFERENT"))
+    L.append("  VERDICT: " + ("IDENTICAL (up to PG-authoritative corrections)"
+                              if rep["ok"] else "DIFFERENT"))
     return "\n".join(L)
+
+
+def load_pg_context():
+    """(frozen_months, vendor_rows) from PostgreSQL. Server-only."""
+    from argia.store.pgq import psql_rows
+    frozen = {(r[0], r[1][:7]) for r in psql_rows(
+        "SELECT plant_key, ref_month::text FROM reconciliation_monthly "
+        "WHERE closed_at IS NOT NULL;")}
+    vendor = {(r[1], r[0]) for r in psql_rows(
+        "SELECT plant_key, prod_date::text FROM daily_production "
+        "WHERE status_note LIKE '%vendor daily counter%';")}
+    return frozenset(frozen), frozenset(vendor)
 
 
 def main(argv=None) -> int:
@@ -100,7 +145,8 @@ def main(argv=None) -> int:
     min_date = (dt.date.today() - dt.timedelta(days=a.days)).isoformat()
     sheet_grid = SheetsClient(sid).read_range("KPI_Daily", "A1:ZZ")
     pg_grid = K.read_grid(min_date)
-    rep = compare(sheet_grid, pg_grid, min_date)
+    frozen, vendor = load_pg_context()
+    rep = compare(sheet_grid, pg_grid, min_date, frozen, vendor)
     print(render(rep, min_date))
     return 0 if rep["ok"] else 1
 

@@ -37,6 +37,9 @@ def main(argv=None) -> int:
     parser.add_argument("--days", type=int, default=25,
                         help="window size (guards against rewriting history)")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--fill-new-columns", action="store_true",
+                        help="v190 one-off: populate the new columns on "
+                             "closed-month rows (fills NULLs only)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: "
@@ -61,9 +64,17 @@ def main(argv=None) -> int:
         LOG.info("dry-run: %d rows, %d bytes of SQL — not applied",
                  len(rows), len(sql))
         return 0
-    from argia.store.kpi_mirror import ENSURE_SQL
+    from argia.store.kpi_mirror import ENSURE_SQL, build_fill_nulls_sql
     psql_exec(ENSURE_SQL)          # v190 columns, idempotent
     psql_exec(sql)
+    if args.fill_new_columns:
+        # one-off after v190: closed-month rows never received the new
+        # columns (the freeze blocks every write) — fill NULLs only
+        fill = build_fill_nulls_sql(rows)
+        if fill:
+            psql_exec(fill)
+            LOG.info("filled NULL v190 columns from the sheet (fill-only, "
+                     "never overwrites)")
     # vendor-protected rows keep their pr; re-derive it now from the
     # corrected energy + the irradiance this very mirror just delivered
     # (otherwise healed-day PR waits for the 23:50 recon pass)

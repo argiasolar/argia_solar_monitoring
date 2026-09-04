@@ -169,3 +169,33 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
             + ",\n".join(tuples)
             + "\nON CONFLICT (plant_key, prod_date) DO UPDATE SET "
             + ", ".join(sets) + ";")
+
+
+# v190 columns that were never populated on rows in CLOSED months (the
+# freeze blocks every write, new columns included). Filling a NULL can
+# never change a stored value, so this bypasses the freeze on purpose —
+# and ONLY fills NULLs: COALESCE(stored, new), the reverse of the mirror.
+NEW_V190_COLS = ("irradiance_source", "pr_confidence", "capacity_factor",
+                 "capacity_factor_confidence", "inverters_with_reboot",
+                 "notes", "written_at_utc", "specific_yield",
+                 "soiling_loss_pct", "production_pct", "design_kwh")
+
+
+def build_fill_nulls_sql(rows: List[Dict[str, Any]],
+                         cols=NEW_V190_COLS) -> Optional[str]:
+    """One UPDATE per row that sets each listed column to
+    COALESCE(stored, sheet) — i.e. fills only NULLs. Pure."""
+    if not rows:
+        return None
+    stmts = []
+    for r in rows:
+        sets = [f"{c} = COALESCE(daily_production.{c}, {_lit(r.get(c))})"
+                for c in cols if r.get(c) is not None]
+        if not sets:
+            continue
+        stmts.append(
+            "UPDATE daily_production SET " + ", ".join(sets)
+            + f" WHERE plant_key = {_lit(r['plant_key'])}"
+            + f" AND prod_date = DATE '{r['prod_date']}'"
+            + " AND (" + " OR ".join(f"{c} IS NULL" for c in cols) + ");")
+    return "\n".join(stmts) if stmts else None

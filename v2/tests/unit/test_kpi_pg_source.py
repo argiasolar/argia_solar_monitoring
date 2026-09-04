@@ -158,3 +158,73 @@ class TestParity:
         rep = compare(self._g([self._row(), self._row(pk="NL1")]),
                       self._g([self._row()]), "2026-01-01")
         assert rep["only_sheet"] == [("2026-09-03", "NL1")]
+
+
+class TestParityKnowsWherePgWins:
+    """The gate's first live run: every difference fell into a class where
+    PostgreSQL is the designed authority. The gate must say so, and must
+    still fail on anything else."""
+
+    def _g(self, rows):
+        return [list(K.HEADER)] + rows
+
+    def _row(self, d="2026-08-02", pk="GTO1", **over):
+        r = [""] * len(K.HEADER)
+        r[0], r[1] = d, pk
+        for c, v in over.items():
+            r[K.HEADER.index(c)] = v
+        return r
+
+    def test_pr_on_a_vendor_row_is_expected_not_a_failure(self):
+        from scripts.kpi_parity import compare
+        rep = compare(self._g([self._row(pr=0.3429)]),
+                      self._g([self._row(pr=0.4505)]), "2026-01-01",
+                      frozenset(), frozenset({("2026-08-02", "GTO1")}))
+        assert rep["ok"] and len(rep["expected"]) == 1 and not rep["unexpected"]
+
+    def test_status_note_on_a_frozen_month_is_expected(self):
+        from scripts.kpi_parity import compare
+        rep = compare(self._g([self._row(status_note="Above plan")]),
+                      self._g([self._row(status_note="Above plan | billable raised")]),
+                      "2026-01-01", frozenset({("GTO1", "2026-08")}), frozenset())
+        assert rep["ok"]
+
+    def test_the_same_diff_on_an_open_non_vendor_row_fails(self):
+        from scripts.kpi_parity import compare
+        rep = compare(self._g([self._row(pr=0.3429)]),
+                      self._g([self._row(pr=0.4505)]), "2026-01-01")
+        assert not rep["ok"] and rep["unexpected"][0][1] == "pr"
+
+    def test_a_non_protected_column_differing_always_fails(self):
+        from scripts.kpi_parity import compare
+        rep = compare(self._g([self._row(specific_yield=4.45)]),
+                      self._g([self._row(specific_yield="")]), "2026-01-01",
+                      frozenset({("GTO1", "2026-08")}), frozenset({("2026-08-02", "GTO1")}))
+        assert not rep["ok"]                      # new column NULL is NOT ok
+
+    def test_more_history_in_pg_is_fine_missing_in_pg_is_not(self):
+        from scripts.kpi_parity import compare
+        a = self._row(d="2026-08-02")
+        old = self._row(d="2024-03-01")
+        assert compare(self._g([a]), self._g([a, old]), "2024-01-01")["ok"]
+        assert not compare(self._g([a, old]), self._g([a]), "2024-01-01")["ok"]
+
+
+class TestFillNullsOnly:
+    def test_sql_fills_only_nulls_and_ignores_the_freeze_on_purpose(self):
+        sql = M.build_fill_nulls_sql([{"prod_date": "2026-07-01", "plant_key": "GTO1",
+                                       "specific_yield": 4.4565, "design_kwh": None,
+                                       "irradiance_source": "shinemaster_history"}])
+        assert "specific_yield = COALESCE(daily_production.specific_yield, 4.4565)" in sql
+        assert "irradiance_source = COALESCE(daily_production.irradiance_source, 'shinemaster_history')" in sql
+        assert "design_kwh" not in sql.split("WHERE")[0]      # None: nothing to fill
+        assert "reconciliation_monthly" not in sql             # no freeze: cannot change a value
+        assert "IS NULL" in sql
+
+    def test_never_touches_protected_columns(self):
+        sql = M.build_fill_nulls_sql([{"prod_date": "2026-07-01", "plant_key": "GTO1",
+                                       "energy_kwh": 1.0, "specific_yield": 2.0}])
+        assert "energy_kwh" not in sql
+
+    def test_nothing_to_fill_is_none(self):
+        assert M.build_fill_nulls_sql([{"prod_date": "2026-07-01", "plant_key": "GTO1"}]) is None

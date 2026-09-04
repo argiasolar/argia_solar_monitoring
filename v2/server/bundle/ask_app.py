@@ -19,6 +19,9 @@ Routes:
   GET  /ask/       the chat page
   POST /ask/api    {"question": str, "history": [{"role","content"}]}
                    -> {"answer", "tool_calls", "model", ...}
+  GET  /ask/me     {"allowed": bool} for the signed-in user — the
+                   landing page uses it to show the card only to
+                   people who may use the assistant
   GET  /ask/healthz
 """
 import html
@@ -89,6 +92,8 @@ header img{height:28px}header .t{font-weight:600}header .who{margin-left:auto;fo
 header a{color:#1c2733;font-size:13px;margin-left:14px}
 main{max-width:900px;margin:0 auto;padding:18px 16px 120px}
 .msg{margin:12px 0;padding:12px 14px;border-radius:12px;line-height:1.45;white-space:pre-wrap}
+.a p{margin:0 0 8px}.a p:last-child{margin:0}.a table.md{display:table;white-space:normal;font-size:13px}
+.a table.md td,.a table.md th{text-align:left}.a code{background:#f0f2f4;padding:0 4px;border-radius:4px;font-size:12px}
 .q{background:#1c2733;color:#fff;margin-left:15%}
 .a{background:#fff;border:1px solid #e0e3e7;margin-right:10%}
 .a.err{background:#fce8e6;border-color:#f3b8b2;color:#a50e0e}
@@ -121,6 +126,22 @@ const chips=document.getElementById('chips');EX.forEach(t=>{const s=document.cre
 const log=document.getElementById('log'),f=document.getElementById('f'),q=document.getElementById('q'),b=document.getElementById('b');
 let history=[];
 function el(cls,txt){const d=document.createElement('div');d.className='msg '+cls;d.textContent=txt;log.appendChild(d);window.scrollTo(0,document.body.scrollHeight);return d;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');}
+function md(text){/* markdown-lite: paragraphs, **bold**, `code`, pipe tables, - bullets; headings become plain lines */
+ const out=[];const lines=text.replace(/\\r/g,'').split('\\n');let i=0;
+ while(i<lines.length){let ln=lines[i];
+  if(/^\s*\|/.test(ln)){const rows=[];while(i<lines.length&&/^\s*\|/.test(lines[i])){rows.push(lines[i]);i++;}
+   const cells=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+   const body=rows.filter(r=>!/^\s*\|?\s*:?-{2,}/.test(r));
+   if(body.length){out.push('<table class="md">'+body.map((r,k)=>'<tr>'+cells(r).map(c=>(k?'<td>':'<th>')+inline(c)+(k?'</td>':'</th>')).join('')+'</tr>').join('')+'</table>');}
+   continue;}
+  if(/^\s*[-*] /.test(ln)){const items=[];while(i<lines.length&&/^\s*[-*] /.test(lines[i])){items.push(lines[i].replace(/^\s*[-*] /,''));i++;}
+   out.push('<ul>'+items.map(x=>'<li>'+inline(x)+'</li>').join('')+'</ul>');continue;}
+  if(!ln.trim()){i++;continue;}
+  const para=[];while(i<lines.length&&lines[i].trim()&&!/^\s*\|/.test(lines[i])&&!/^\s*[-*] /.test(lines[i])){para.push(lines[i].replace(/^#+\s*/,''));i++;}
+  out.push('<p>'+para.map(inline).join('<br>')+'</p>');}
+ return out.join('');}
 function fmt(v){if(v===null||v===undefined)return '—';if(typeof v==='number')return Number.isInteger(v)?v.toString():v.toFixed(Math.abs(v)<10?2:1);if(Array.isArray(v))return v.length?v.join(', '):'—';if(typeof v==='object')return JSON.stringify(v);return String(v);}
 function table(rows){if(!rows.length||typeof rows[0]!=='object')return null;const cols=Object.keys(rows[0]);const t=document.createElement('table');t.innerHTML='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+fmt(r[c]).replace(/</g,'&lt;')+'</td>').join('')+'</tr>').join('');return t;}
 function render(call){const d=document.createElement('details');const args=Object.entries(call.input).map(([k,v])=>k+'='+v).join(', ');
@@ -133,7 +154,7 @@ f.onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text)retur
  try{const res=await fetch('/ask/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,history})});
   const j=await res.json();wait.remove();
   if(!res.ok||j.error){el('a err',(j.error||('HTTP '+res.status))+(j.answer?'\\n'+j.answer:''));}
-  else{const d=el('a',j.answer||'(no answer)');const src=document.createElement('div');src.className='src';
+  else{const d=el('a','');d.innerHTML=md(j.answer||'(no answer)');const src=document.createElement('div');src.className='src';
    const used=(j.tool_calls||[]).map(c=>c.name);const fr=(j.tool_calls||[]).map(c=>c.result&&c.result.source).find(s=>s)||{};
    src.textContent='Sources: '+(used.length?used.join(', '):'none')+(fr.telemetry_latest_utc?' · telemetry '+fr.telemetry_latest_utc+' UTC':'')+(fr.daily_kpi_latest_date?' · daily KPI through '+fr.daily_kpi_latest_date:'')+' · '+j.model+' · '+j.latency_ms+' ms';
    d.appendChild(src);(j.tool_calls||[]).forEach(c=>d.appendChild(render(c)));
@@ -200,6 +221,14 @@ def api():
     out = ans.as_dict()
     out['user'] = user
     return jsonify(out), (200 if not ans.error else 502)
+
+
+@app.get('/me')
+@app.get('/ask/me')
+def me():
+    r = jsonify({'user': actor(), 'allowed': allowed(actor())})
+    r.headers['Cache-Control'] = 'no-store'
+    return r
 
 
 @app.get('/healthz')

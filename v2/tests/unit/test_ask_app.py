@@ -145,3 +145,25 @@ def test_page_json_is_valid_javascript_strings():
     import ask_app as aa
     assert "'\\n'" in aa.PAGE
     assert json.dumps(aa.MAX_HISTORY)   # numeric substitution, not a str
+
+
+class TestMe:
+    def test_me_tells_the_landing_page_who_may_use_it(self, app):
+        cli = app.app.test_client()
+        assert cli.get("/ask/me", headers=hdr("tomasz")).get_json() == {"user": "tomasz", "allowed": True}
+        assert cli.get("/ask/me", headers=hdr("pedro")).get_json()["allowed"] is False
+        assert cli.get("/ask/me").get_json() == {"user": "", "allowed": False}
+
+
+def test_landing_page_card_is_hidden_until_ask_me_allows():
+    src = (BUNDLE / "report_gen.py").read_text(encoding="utf-8")
+    assert '.askonly{display:none;}' in src
+    assert 'href="ask/" class="askonly"' in src
+    assert "fetch('/ask/me'" in src
+
+
+def test_system_prompt_language_and_brevity_rules():
+    from argia.ask import agent as A
+    assert "answer in English" in A.SYSTEM_TEMPLATE
+    assert "Under 120 words" in A.SYSTEM_TEMPLATE
+    assert "No headings, no" in A.SYSTEM_TEMPLATE

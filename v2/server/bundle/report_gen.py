@@ -436,6 +436,8 @@ details summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--ink);}
 details[open] summary{margin-bottom:6px;}
 /* revealed by the whoami fetch only for admins — see I18N_JS */
 .adminonly{display:none;}
+/* revealed by /ask/me only for accounts the ask service allow-lists */
+.askonly{display:none;}
 /* user menu: identity chip + everything that belongs to the person
    (account, language, log out) in one place instead of loose buttons */
 .usermenu{margin-left:auto;position:relative;}
@@ -508,7 +510,15 @@ window.addEventListener('DOMContentLoaded',()=>{
      .forEach(x=>x.style.display='inline-flex');}
    const c=document.createElement('span');c.className='car';
    c.textContent='▾';el.appendChild(c);})
-  .catch(()=>{el.remove();});});
+  .catch(()=>{el.remove();});
+ // Ask ARGIA (phase 0) is allow-listed per account inside its own
+ // service; the card appears only for those accounts, so nobody
+ // clicks into a 403.
+ fetch('/ask/me',{credentials:'same-origin'})
+  .then(r=>r.ok?r.json():null)
+  .then(d=>{if(d&&d.allowed)document.querySelectorAll('.askonly')
+   .forEach(x=>x.style.display='');})
+  .catch(()=>{});});
 function setLang(l){
  document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.l===l));
@@ -1553,6 +1563,11 @@ def landing_page():
               '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0'
               ' 0 0 2-2V8z"/><path d="M14 2v6h6"/>'
               '<path d="M8 13h8M8 17h5"/></svg>')
+    # a speech bubble for the assistant
+    ic_ask = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"'
+              ' stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.5-4.5A8 8 0 1 1 21 12z"/>'
+              '<path d="M9 12h6M9 9h6"/></svg>')
     body.append(f'''<div class="nav navbig">
 <a href="financial/">{ic_fin}<span class="nb"><b>{t("Financial Report","Reporte Financiero")}</b>
  <span>{t("PPA + LaaS · revenue, debt service, DSCR","PPA + LaaS · ingreso, deuda, DSCR")}</span></span></a>
@@ -1562,6 +1577,8 @@ def landing_page():
  <span>{t("portfolio overview + status","resumen del portafolio + estado")}</span></span></a>
 <a href="monitoring/">{ic_mon}<span class="nb"><b>{t("Live Monitoring","Monitoreo en Vivo")}</b>
  <span>{t("5-minute fleet view · inverters · reconciliation","vista de flota cada 5 min · inversores · conciliación")}</span></span></a>
+<a href="ask/" class="askonly">{ic_ask}<span class="nb"><b>{t("Ask ARGIA","Pregunta a ARGIA")}</b>
+ <span>{t("questions over the monitoring data · phase 0","preguntas sobre los datos de monitoreo · fase 0")}</span></span></a>
 </div>''')
     body.append(f'<h1 class="sect" style="margin-top:14px">{t("Plant performance","Desempeño por planta")}</h1>')
     import re as _re

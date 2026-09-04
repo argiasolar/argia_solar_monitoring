@@ -67,41 +67,62 @@ def build_system(rows: Callable[[str], List[List[str]]],
 
 
 # ------------------------------------------------------------------ client
-def load_api_key(path: str = KEY_FILE) -> str:
-    """ANTHROPIC_API_KEY from the environment, else from ``path`` (a
-    root-only file with ``ANTHROPIC_API_KEY=...``). Never logged."""
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if key:
-        return key
+def _keyfile(path: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
     try:
         with open(path, encoding="utf-8") as fh:
             for ln in fh:
                 ln = ln.strip()
-                if ln.startswith("ANTHROPIC_API_KEY="):
-                    key = ln.split("=", 1)[1].strip().strip('"').strip("'")
+                if "=" in ln and not ln.startswith("#"):
+                    k, v = ln.split("=", 1)
+                    out[k.strip()] = v.strip().strip('"').strip("'")
     except OSError:
         pass
+    return out
+
+
+def load_api_key(path: str = KEY_FILE) -> str:
+    """ANTHROPIC_API_KEY from the environment, else from ``path`` (a
+    root-only file with ``ANTHROPIC_API_KEY=...``). Never logged."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip() or \
+        _keyfile(path).get("ANTHROPIC_API_KEY", "")
     if not key:
         raise RuntimeError(f"no API key: set ANTHROPIC_API_KEY or put "
                            f"ANTHROPIC_API_KEY=... in {path}")
     return key
 
 
+def load_workspace_id(path: str = KEY_FILE) -> str:
+    """Optional: a Console key that is not scoped to a workspace must
+    send ``anthropic-workspace-id``. ANTHROPIC_WORKSPACE_ID from the
+    environment or the key file; '' when the key is workspace-scoped."""
+    return (os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+            or _keyfile(path).get("ANTHROPIC_WORKSPACE_ID", ""))
+
+
 class AnthropicLLM:
     """Messages API over ``requests``; one call per ``complete``."""
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL,
-                 max_tokens: int = MAX_TOKENS, timeout: int = 90):
+                 max_tokens: int = MAX_TOKENS, timeout: int = 90,
+                 workspace_id: str = ""):
         self.api_key, self.model = api_key, model
         self.max_tokens, self.timeout = max_tokens, timeout
+        self.workspace_id = workspace_id or load_workspace_id()
+
+    def headers(self) -> Dict[str, str]:
+        h = {"x-api-key": self.api_key, "anthropic-version": API_VERSION,
+             "content-type": "application/json"}
+        if self.workspace_id:
+            h["anthropic-workspace-id"] = self.workspace_id
+        return h
 
     def complete(self, system: str, messages: List[dict], tools: List[dict]) -> dict:
         import requests                          # lazy: tests never need it
         body = {"model": self.model, "max_tokens": self.max_tokens,
                 "system": system, "messages": messages, "tools": tools}
-        r = requests.post(API_URL, json=body, timeout=self.timeout, headers={
-            "x-api-key": self.api_key, "anthropic-version": API_VERSION,
-            "content-type": "application/json"})
+        r = requests.post(API_URL, json=body, timeout=self.timeout,
+                          headers=self.headers())
         if r.status_code != 200:
             raise RuntimeError(f"Anthropic API {r.status_code}: {r.text[:300]}")
         return r.json()

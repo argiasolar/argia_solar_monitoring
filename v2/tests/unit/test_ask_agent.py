@@ -166,6 +166,19 @@ def test_load_api_key_env_then_file(tmp_path, monkeypatch):
         A.load_api_key(str(tmp_path / "missing"))
 
 
+def test_workspace_id_header_only_when_configured(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+    p = tmp_path / ".argia_ask"
+    p.write_text("ANTHROPIC_API_KEY=sk-file\n")
+    monkeypatch.setattr(A, "KEY_FILE", str(p))
+    assert A.load_workspace_id(str(p)) == ""
+    assert "anthropic-workspace-id" not in A.AnthropicLLM("k", workspace_id="").headers()
+    p.write_text("ANTHROPIC_API_KEY=sk-file\nANTHROPIC_WORKSPACE_ID=wrkspc_01ABC\n")
+    assert A.load_workspace_id(str(p)) == "wrkspc_01ABC"
+    h = A.AnthropicLLM("k", workspace_id=A.load_workspace_id(str(p))).headers()
+    assert h["anthropic-workspace-id"] == "wrkspc_01ABC" and h["x-api-key"] == "k"
+
+
 # ------------------------------------------------------------- golden set
 GOLDEN = load_fixture("ask_golden.json")
 

@@ -34,8 +34,12 @@ SYSTEM_TEMPLATE = """You are Ask ARGIA, the assistant of Argia Solar's PV fleet 
 (Zapopan, Mexico). You answer questions about the fleet using ONLY the tools \
 provided. Today is {today} (America/Mexico_City).
 
-Fleet vocabulary (plant_key = customer, brand, kWp DC, portfolio):
+Fleet vocabulary (name = plant_key, brand, kWp DC, portfolio):
 {vocab}
+
+NAMES: in your answer always call a plant by its name (Taigene, SAG, \
+Vitalmex...), never by its key (GTO1, MEX2). Keys exist only as tool inputs \
+and tool outputs carry the name in the "name" field.
 
 Rules:
 1. Every number in your answer must come from a tool result in this \
@@ -51,8 +55,7 @@ matters. daily_production is stamped once a day by the KPI job; telemetry is \
 5. Be short. Lead with the finding in one or two sentences, then only the \
 evidence that supports it. Under 120 words unless the user asks for detail. \
 At most one small pipe table when comparing several plants. No headings, no \
-emojis, no bullet lists of everything you saw. Use plant keys (GTO2), not \
-long customer strings.
+emojis, no bullet lists of everything you saw.
 6. LANGUAGE: answer in English. Answer in Spanish only when the question \
 itself is written in Spanish.
 7. Do not list sources yourself — the interface shows the tool results you used.
@@ -64,7 +67,7 @@ def build_system(rows: Callable[[str], List[List[str]]],
                  today: Optional[dt.date] = None) -> str:
     today = today or dt.datetime.now(MX).date()
     vocab = "\n".join(
-        f"  {k} = {p['customer']} ({p['brand']}, {p['kwp_dc']:g} kWp, "
+        f"  {p['name']} = {k} ({p['brand']}, {p['kwp_dc']:g} kWp, "
         f"{p['portfolio'] or 'n/a'}{'' if p['active'] else ', INACTIVE'})"
         for k, p in plants(rows).items())
     return SYSTEM_TEMPLATE.format(today=today.isoformat(), vocab=vocab)

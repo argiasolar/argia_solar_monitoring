@@ -262,3 +262,47 @@ def test_registry_and_dispatch_agree():
         assert t["input_schema"]["type"] == "object"
         for req in t["input_schema"].get("required", []):
             assert req in t["input_schema"]["properties"]
+
+
+# ------------------------------------------------------------ plant names
+@pytest.mark.parametrize("customer, name", [
+    ("TAIGENE PPA roof (Leon, GTO)", "Taigene"),
+    ("SAG PPA roof (CDMX, MEX)", "SAG"),
+    ("VITALMEX PPA roof (CDMX, MEX)", "Vitalmex"),
+    ("HIRSCHMANN-MEXICO (San Miguel, GTO)", "Hirschmann-Mexico"),
+    ("PLASTIC OMNIUM PPA roof (Monterrey, NL)", "Plastic Omnium"),
+    ("SMS CAPEX roof (CDMX, MEX)", "SMS"),
+    ("", ""),
+])
+def test_display_name_matches_the_portfolio_map_rule(customer, name):
+    assert T.display_name(customer) == name
+
+
+def test_every_tool_result_carries_the_plant_name(db):
+    db.data.update({"daily_range": [], "lost": [["0", "0", "0", "0", "0", "0"]],
+                    "lost_days": [], "maintenance": [], "inverters": [],
+                    "inverter_day": [], "alarms_active": [], "alarms_range": [],
+                    "faults_range": [], "inverter_count": [["1", "1"]]})
+    assert T.get_plant_overview(db, "GTO1")["plant"]["name"] == "Taigene"
+    assert T.get_generation(db, "GTO1", "today", "today")["name"] == "Taigene"
+    assert T.get_inverter_performance(db, "GTO1")["name"] == "Taigene"
+    assert T.get_active_alarms(db, "GTO1")["name"] == "Taigene"
+    assert T.get_active_alarms(db)["name"] is None
+    db.data["alarms_active"] = [["inverter-silent:GTO1:SN4", "WARNING", "a", "b"],
+                                ["infra-disk:pio06", "WARNING", "a", "b"]]
+    al = T.get_active_alarms(db)["alarms"]
+    assert (al[0]["name"], al[0]["plant_key"]) == ("Taigene", "GTO1")
+    assert (al[1]["name"], al[1]["plant_key"]) == (None, None)
+    assert T.get_alarm_history(db, "today", "today", "GTO1")["name"] == "Taigene"
+    assert T.get_lost_generation(db, "GTO1", "today", "today")["name"] == "Taigene"
+    assert [p["name"] for p in T.get_performance(db, "today", "today")["plants"]] == \
+        ["Taigene", "Vitalmex", "Some Owner"]
+    db.data["today_energy"] = []
+    db.data["now_kw"] = []
+    assert T.get_portfolio_overview(db)["plants"][0]["name"] == "Taigene"
+
+
+def test_resolve_plant_by_display_name(db):
+    db.data["plants"] = [["GTO1", "TAIGENE PPA roof (Leon, GTO)", "GROWATT", "818", "PPA", "t", "2", "0.8"]]
+    assert T.resolve_plant(db, "Taigene") == "GTO1"
+    assert T.resolve_plant(db, "taigene") == "GTO1"

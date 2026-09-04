@@ -163,11 +163,12 @@
         }
       ],
       "must_quote": [
-        "inverter-silent:GTO1:SN4"
+        "Taigene"
       ],
       "must_not_quote": [
         "OLD1",
-        "Gone Co"
+        "Gone Co",
+        "\\bGTO1\\b"
       ]
     },
     {
@@ -212,7 +213,10 @@
         }
       ],
       "must_quote": [
-        "GTO1"
+        "Taigene"
+      ],
+      "must_not_quote": [
+        "\\bGTO1\\b"
       ]
     },
     {
@@ -228,8 +232,11 @@
         }
       ],
       "must_quote": [
-        "GTO1",
+        "Taigene",
         "87.3"
+      ],
+      "must_not_quote": [
+        "\\bGTO1\\b"
       ]
     },
     {
@@ -281,7 +288,10 @@
         }
       ],
       "must_quote": [
-        "GTO1"
+        "Taigene"
+      ],
+      "must_not_quote": [
+        "\\bGTO1\\b"
       ]
     },
     {

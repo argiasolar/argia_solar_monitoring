@@ -88,8 +88,9 @@ def test_ask_passes_system_with_vocabulary_and_today(db):
     llm = ScriptedLLM([final("ok")])
     A.ask("hi", db, llm)
     sysmsg = llm.requests[0]["system"]
-    assert "GTO1 = Taigene (GROWATT, 500 kWp, PPA)" in sysmsg
-    assert "OLD1 = Gone Co (GROWATT, 100 kWp, PPA, INACTIVE)" in sysmsg
+    assert "Taigene = GTO1 (GROWATT, 500 kWp, PPA)" in sysmsg
+    assert "never by its key" in sysmsg
+    assert "Gone Co = OLD1 (GROWATT, 100 kWp, PPA, INACTIVE)" in sysmsg
     assert dt.datetime.now(T.MX).date().isoformat() in sysmsg
     assert llm.requests[0]["tools"] == T.TOOLS
 

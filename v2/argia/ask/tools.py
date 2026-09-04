@@ -102,6 +102,23 @@ def _range(date_from: Any, date_to: Any) -> tuple:
 
 
 # ------------------------------------------------------------------ plants
+def display_name(customer: Any) -> str:
+    """Human name, never the plant code — the same rule the portfolio
+    map follows (v177.1: 'do not use the code names like GTO1').
+    'TAIGENE PPA roof (Leon, GTO)' -> 'Taigene'; short all-caps
+    acronyms (SAG, SMS) survive. Pure; mirrors monitoring_gen."""
+    s = str(customer or "").split("(")[0].split(",")[0]
+    for cut in (" PPA", " CAPEX", " roof", " land"):
+        i = s.find(cut)
+        if i > 0:
+            s = s[:i]
+    parts = s.strip().split()
+    if len(parts) == 1 and len(parts[0]) <= 3 and parts[0].isupper():
+        return parts[0]
+    return " ".join("-".join(p[:1].upper() + p[1:].lower()
+                             for p in w.split("-")) for w in parts)
+
+
 def plants(rows: Rows) -> Dict[str, dict]:
     """Configured plants keyed by plant_key (active and inactive)."""
     out: Dict[str, dict] = {}
@@ -110,7 +127,8 @@ def plants(rows: Rows) -> Dict[str, dict]:
                   " coalesce(tariff_mxn_per_kwh,0), coalesce(pr_baseline,0)"
                   " FROM plant ORDER BY plant_key /*tag:plants*/;"):
         if len(r) >= 8:
-            out[r[0]] = {"plant_key": r[0], "customer": r[1], "brand": r[2],
+            out[r[0]] = {"plant_key": r[0], "name": display_name(r[1]),
+                         "customer": r[1], "brand": r[2],
                          "kwp_dc": _f(r[3]), "portfolio": r[4],
                          "active": r[5] == "t",
                          "tariff_mxn_per_kwh": _f(r[6]) or None,
@@ -130,10 +148,11 @@ def resolve_plant(rows: Rows, name: Any) -> str:
         return key
     frag = str(name).strip().lower()
     hits = [k for k, p in ps.items()
-            if frag in p["customer"].lower() or frag in k.lower()]
+            if frag in p["customer"].lower() or frag in p["name"].lower()
+            or frag in k.lower()]
     if len(hits) == 1:
         return hits[0]
-    vocab = ", ".join(f"{k}={p['customer']}" for k, p in ps.items())
+    vocab = ", ".join(f"{k}={p['name']}" for k, p in ps.items())
     if not hits:
         raise ToolError(f"unknown plant {name!r}. Known plants: {vocab}")
     raise ToolError(f"{name!r} is ambiguous ({', '.join(hits)}). "
@@ -199,14 +218,24 @@ def _perf(rows: Rows, date_from: str, date_to: str,
     return out
 
 
+def _alarm_plant(key: str, ps: Dict[str, dict]) -> Dict[str, Optional[str]]:
+    """Alarm keys look like 'plant-stale:GTO2' or
+    'inverter-silent:GTO1:SN4'; the second segment is the plant when it
+    is one. Infra alarms have none."""
+    parts = (key or "").split(":")
+    pk = parts[1].upper() if len(parts) > 1 and parts[1].upper() in ps else None
+    return {"plant_key": pk, "name": ps[pk]["name"] if pk else None}
+
+
 def _active_alarms(rows: Rows, plant: Optional[str] = None) -> List[dict]:
     where = f" AND key LIKE {_q('%' + plant + '%')}" if plant else ""
+    ps = plants(rows)
     out = []
     for r in rows("SELECT key, coalesce(severity,''), first_seen::text,"
                   " last_seen::text FROM alert_state WHERE active"
                   f" {where} ORDER BY first_seen /*tag:alarms_active*/;"):
         if len(r) >= 4:
-            out.append({"key": r[0], "severity": r[1],
+            out.append({"key": r[0], **_alarm_plant(r[0], ps), "severity": r[1],
                         "first_seen": r[2], "last_seen": r[3]})
     return out
 
@@ -258,7 +287,7 @@ def get_portfolio_overview(rows: Rows) -> dict:
     for k, p in ps.items():
         if not p["active"]:
             continue
-        row = {"plant_key": k, "customer": p["customer"], "brand": p["brand"],
+        row = {"plant_key": k, "name": p["name"], "brand": p["brand"],
                "portfolio": p["portfolio"], "kwp_dc": p["kwp_dc"]}
         row.update(live.get(k, {"today_kwh": None, "current_kw": None,
                                 "last_sample_age_min": None}))
@@ -321,7 +350,8 @@ def get_generation(rows: Rows, plant: Any, date_from: Any, date_to: Any) -> dict
                          "pr": _r(_f(r[4]), 3),
                          "availability_pct": _r((_f(r[5]) or 0) * 100) if _f(r[5]) is not None else None,
                          "data_class": r[6] or None, "note": r[7] or None})
-    return {"plant_key": k, "date_from": a, "date_to": b, "days": days,
+    return {"plant_key": k, "name": plants(rows)[k]["name"],
+            "date_from": a, "date_to": b, "days": days,
             "totals": _perf(rows, a, b, k).get(k, {}),
             "note": "expected_kwh is the irradiance-based expectation stamped "
                     "by the daily KPI job; vs_expected only counts days that "
@@ -341,7 +371,7 @@ def get_performance(rows: Rows, date_from: Any, date_to: Any,
     out = []
     for pk, v in perf.items():
         p = ps.get(pk, {})
-        out.append({"plant_key": pk, "customer": p.get("customer"),
+        out.append({"plant_key": pk, "name": p.get("name"),
                     "portfolio": p.get("portfolio"), "kwp_dc": p.get("kwp_dc"),
                     "specific_yield_kwh_per_kwp": _r((v["production_kwh"] or 0) / p["kwp_dc"])
                     if p.get("kwp_dc") else None, **v})
@@ -409,7 +439,8 @@ def get_inverter_performance(rows: Rows, plant: Any, date: Any = "today") -> dic
     for x in inv:
         y = x.get("specific_yield_kwh_per_kw")
         x["underperforming"] = bool(median and y is not None and y < 0.8 * median)
-    return {"plant_key": k, "date": d, "brand": brand, "inverters": inv,
+    return {"plant_key": k, "name": plants(rows)[k]["name"], "date": d,
+            "brand": brand, "inverters": inv,
             "median_specific_yield_kwh_per_kw": median,
             "flags": {"silent": [x["label"] for x in inv if x["silent"]],
                       "underperforming": [x["label"] for x in inv if x["underperforming"]],
@@ -423,7 +454,8 @@ def get_active_alarms(rows: Rows, plant: Any = None) -> dict:
     """Alarms currently active in the alert engine plus open maintenance
     events (a plant under maintenance is suppressed from alarms)."""
     k = resolve_plant(rows, plant) if plant else None
-    return {"plant_key": k, "alarms": _active_alarms(rows, k),
+    return {"plant_key": k, "name": plants(rows)[k]["name"] if k else None,
+            "alarms": _active_alarms(rows, k),
             "open_maintenance": _maintenance(rows, k, None, None, True),
             "note": "alarm keys: plant-dark / plant-stale / inverter-silent / "
                     "recon-fail / infra. Vendor fault codes are per inverter — "
@@ -440,17 +472,18 @@ def get_alarm_history(rows: Rows, date_from: Any, date_to: Any,
     k = resolve_plant(rows, plant) if plant else None
     where = f" AND key LIKE {_q('%' + k + '%')}" if k else ""
     alarms = []
+    ps = plants(rows)
     for r in rows("SELECT key, coalesce(severity,''), first_seen::text,"
                   " last_seen::text, active FROM alert_state"
                   f" WHERE first_seen::date <= DATE {_q(b)}"
                   f" AND last_seen::date >= DATE {_q(a)} {where}"
                   " ORDER BY first_seen DESC LIMIT 200 /*tag:alarms_range*/;"):
         if len(r) >= 5:
-            alarms.append({"key": r[0], "severity": r[1], "first_seen": r[2],
-                           "last_seen": r[3], "active": r[4] == "t"})
+            alarms.append({"key": r[0], **_alarm_plant(r[0], ps), "severity": r[1],
+                           "first_seen": r[2], "last_seen": r[3], "active": r[4] == "t"})
     pwhere = f" AND t.plant_key = {_q(k)}" if k else ""
     faults = []
-    brands = {pk: p["brand"] for pk, p in plants(rows).items()}
+    brands = {pk: p["brand"] for pk, p in ps.items()}
     for r in rows(f"SELECT {MX_D}, t.plant_key, coalesce(i.inverter_label, t.inverter_sn),"
                   " fault_code::text, count(*) FROM telemetry t"
                   " LEFT JOIN inverter i ON i.plant_key = t.plant_key"
@@ -460,11 +493,13 @@ def get_alarm_history(rows: Rows, date_from: Any, date_to: Any,
                   f" {pwhere} GROUP BY 1, 2, 3, 4 ORDER BY 1 DESC, 2, 3"
                   " LIMIT 300 /*tag:faults_range*/;"):
         if len(r) >= 5 and not is_normal_state(brands.get(r[1], ""), r[3]):
-            faults.append({"date": r[0], "plant_key": r[1], "inverter": r[2],
+            faults.append({"date": r[0], "plant_key": r[1],
+                           "name": ps.get(r[1], {}).get("name"), "inverter": r[2],
                            "fault_code": r[3],
                            "fault": explain_fault(brands.get(r[1], ""), r[3]),
                            "samples": _i(r[4])})
-    return {"plant_key": k, "date_from": a, "date_to": b, "alarms": alarms,
+    return {"plant_key": k, "name": plants(rows)[k]["name"] if k else None,
+            "date_from": a, "date_to": b, "alarms": alarms,
             "inverter_faults": faults,
             "maintenance": _maintenance(rows, k, a, b, False),
             "source": {"tables": ["alert_state", "telemetry", "maintenance_event"],
@@ -500,7 +535,7 @@ def get_lost_generation(rows: Rows, plant: Any, date_from: Any, date_to: Any) ->
                           "expected_kwh": _r(_f(w[2])),
                           "shortfall_kwh": _r((_f(w[2]) or 0) - (_f(w[1]) or 0)),
                           "note": w[3] or None})
-    return {"plant_key": k, "date_from": a, "date_to": b,
+    return {"plant_key": k, "name": p["name"], "date_from": a, "date_to": b,
             "lost_kwh": _r(lost), "days_below_expected": _i(row[1]),
             "days_with_expectation": _i(row[2]), "days_in_range": _i(row[3]),
             "expected_kwh": _r(_f(row[4])), "production_kwh": _r(_f(row[5])),

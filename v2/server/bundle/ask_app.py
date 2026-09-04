@@ -118,10 +118,10 @@ button:disabled{opacity:.5}
 <div class="a msg">Ask about the fleet — production, expected, PR, availability, inverters, alarms, lost energy. Every figure comes from the monitoring database; the tool results are shown under each answer so you can check them. Follow-ups ("why?", "and in July?") keep the context.
 <div class="chips" id="chips"></div></div>
 </main>
-<form id="f"><div class="row"><input id="q" autocomplete="off" placeholder="e.g. Why did GTO1 produce less yesterday?" maxlength="__MAXQ__"><button id="b">Ask</button></div>
+<form id="f"><div class="row"><input id="q" autocomplete="off" placeholder="e.g. Why did Taigene produce less yesterday?" maxlength="__MAXQ__"><button id="b">Ask</button></div>
 <div class="hint">Model: __MODEL__ · answers are logged</div></form>
 <script>
-const EX=["Anything I should worry about today?","Why did GTO1 produce less yesterday?","Which plant performed worst last month?","¿Qué alarmas hay activas ahora?","How much did MEX2's shortfall cost in August?","Compare August with July for the PPA plants"];
+const EX=["Anything I should worry about today?","Why did Taigene produce less yesterday?","Which plant performed worst last month?","¿Qué alarmas hay activas ahora?","How much did Vitalmex's shortfall cost in August?","Compare August with July for the PPA plants"];
 const chips=document.getElementById('chips');EX.forEach(t=>{const s=document.createElement('span');s.textContent=t;s.onclick=()=>{q.value=t;f.requestSubmit();};chips.appendChild(s);});
 const log=document.getElementById('log'),f=document.getElementById('f'),q=document.getElementById('q'),b=document.getElementById('b');
 let history=[];

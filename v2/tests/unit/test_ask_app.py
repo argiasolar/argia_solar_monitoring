@@ -20,9 +20,10 @@ ME = "tomasz.zemelka@argia.com.mx"
 
 
 @pytest.fixture()
-def app(monkeypatch):
+def app(monkeypatch, tmp_path):
     monkeypatch.setenv("ARGIA_ASK_EMAILS", ME)
     monkeypatch.setenv("ARGIA_ASK_USERS", "")
+    monkeypatch.setenv("ARGIA_ASK_ALLOW", str(tmp_path / "ask_allow.txt"))
     import ask_app as aa
     importlib.reload(aa)
     emails = {"tomasz": ME, "pedro": "pedro@argia.com.mx", "owner": ""}
@@ -192,3 +193,20 @@ class TestLanguage:
         assert 'data-l="en"' in html and 'data-l="es"' in html
         assert "¿Qué alarmas hay activas ahora?" in html and "Which alarms are active now?" in html
         assert "localStorage.getItem('argia_lang')" in html     # shared with the reports site
+
+
+class TestAllowFile:
+    def test_colleagues_added_by_file_without_restart(self, app, tmp_path):
+        cli = app.app.test_client()
+        assert cli.get("/ask/", headers=hdr("pedro")).status_code == 403
+        (tmp_path / "ask_allow.txt").write_text(
+            "# Ask ARGIA users\nPedro@Argia.com.mx   # by e-mail\n\nowner  # by username\n")
+        assert cli.get("/ask/", headers=hdr("pedro")).status_code == 200      # e-mail match
+        assert cli.get("/ask/", headers=hdr("owner")).status_code == 200      # username match
+        assert cli.get("/ask/", headers=hdr("mallory")).status_code == 403
+        j = cli.get("/ask/healthz").get_json()
+        assert j["allow_file_entries"] == ["owner", "pedro@argia.com.mx"]
+
+    def test_missing_file_is_not_an_error(self, app):
+        assert app.allow_file_entries("/nonexistent/x") == set()
+        assert app.app.test_client().get("/ask/", headers=hdr("tomasz")).status_code == 200

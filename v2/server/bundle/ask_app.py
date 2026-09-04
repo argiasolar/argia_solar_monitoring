@@ -6,6 +6,11 @@ login and passes the signed-in username in X-Remote-User. This app
 never authenticates anyone — nginx and auth_app do. It only decides
 WHO may use the assistant, and that list is explicit:
 
+  ARGIA_ASK_ALLOW   a file, one e-mail or username per line, '#'
+                    comments (default /opt/argia/auth/ask_allow.txt).
+                    Read on every request, so adding a colleague is
+                    one line on the server — no deploy, like the mail
+                    recipients.
   ARGIA_ASK_USERS   comma-separated usernames          (default: none)
   ARGIA_ASK_EMAILS  comma-separated e-mails, matched against the
                     account's e-mail in users.db
@@ -50,6 +55,7 @@ ALLOWED_EMAILS = {e.strip().lower() for e in
                   os.environ.get('ARGIA_ASK_EMAILS',
                                  'tomasz.zemelka@argia.com.mx').split(',')
                   if e.strip()}
+ALLOW_FILE = os.environ.get('ARGIA_ASK_ALLOW', '/opt/argia/auth/ask_allow.txt')
 MAX_QUESTION = 1000
 MAX_HISTORY = 12                 # turns kept for follow-ups ("why?")
 
@@ -67,15 +73,26 @@ def email_of(username):
         return ''
 
 
+def allow_file_entries(path=None):
+    """Lower-cased entries of the allow file; missing file = none."""
+    try:
+        with open(path or ALLOW_FILE, encoding='utf-8') as fh:
+            return {ln.split('#', 1)[0].strip().lower() for ln in fh
+                    if ln.split('#', 1)[0].strip()}
+    except OSError:
+        return set()
+
+
 def allowed(username, email_lookup=None):
     email_lookup = email_lookup or email_of
     u = (username or '').strip().lower()
     if not u:
         return False
-    if u in ALLOWED_USERS:
+    extra = allow_file_entries()
+    if u in ALLOWED_USERS or u in extra:
         return True
     email = (email_lookup(u) or '').strip().lower()
-    return bool(ALLOWED_EMAILS) and email in ALLOWED_EMAILS
+    return bool(email) and (email in ALLOWED_EMAILS or email in extra)
 
 
 def actor():
@@ -253,7 +270,9 @@ def healthz():
     return jsonify({'ok': True, 'model': agent.DEFAULT_MODEL,
                     'tools': [t['name'] for t in tools.TOOLS],
                     'allowed_users': sorted(ALLOWED_USERS),
-                    'allowed_emails': sorted(ALLOWED_EMAILS)})
+                    'allowed_emails': sorted(ALLOWED_EMAILS),
+                    'allow_file': ALLOW_FILE,
+                    'allow_file_entries': sorted(allow_file_entries())})
 
 
 if __name__ == '__main__':

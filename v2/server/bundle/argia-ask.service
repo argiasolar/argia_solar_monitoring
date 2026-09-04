@@ -16,6 +16,8 @@ Environment=ARGIA_V2_DIR=/root/argia_v2/v2
 Environment=ARGIA_ASK_PORT=8513
 Environment=ARGIA_ASK_KEYFILE=/root/.argia_ask
 Environment=ARGIA_ASK_EMAILS=tomasz.zemelka@argia.com.mx
+# more people: one e-mail per line in this file, read live, no restart
+Environment=ARGIA_ASK_ALLOW=/opt/argia/auth/ask_allow.txt
 Environment=ARGIA_ASK_MODEL=claude-sonnet-5
 ExecStart=/usr/bin/python3 /opt/argia/bundle/ask_app.py
 Restart=always

@@ -1448,14 +1448,14 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 .lrow{{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px}}
 .lrow .lsub{{display:block;color:#8a94a1;font-size:11px}}
 .ldot{{width:14px;height:14px;border-radius:50%;border:3px solid;flex:none}}
-.owrap{text-align:center;cursor:pointer}
-.omark{width:26px;height:26px;display:block;margin:0 auto;
+.owrap{{text-align:center;cursor:pointer}}
+.omark{{width:26px;height:26px;display:block;margin:0 auto;
  border-radius:7px;background:#fff;padding:2px;box-sizing:border-box;
- border:1.5px solid #16324f;box-shadow:0 1px 5px rgba(0,0,0,.35)}
-.owrap:hover .omark{border-color:#2b6cb0}
-.olab{margin-top:2px;font:600 10.5px/1.2 system-ui,sans-serif;
+ border:1.5px solid #16324f;box-shadow:0 1px 5px rgba(0,0,0,.35)}}
+.owrap:hover .omark{{border-color:#2b6cb0}}
+.olab{{margin-top:2px;font:600 10.5px/1.2 system-ui,sans-serif;
  color:#16324f;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;
- white-space:nowrap}
+ white-space:nowrap}}
 .pwrap{{position:relative;cursor:pointer}}
 .plab{{position:absolute;top:100%;left:50%;transform:translateX(-50%);
  margin-top:2px;white-space:nowrap;font-weight:700;font-size:11.5px;

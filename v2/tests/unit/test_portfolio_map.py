@@ -392,3 +392,49 @@ class TestV186OfficeMarker:
     def test_office_marker_is_styled_and_labelled(self):
         assert ".omark{" in GEN_SRC and ".olab{" in GEN_SRC
         assert "office.bindTooltip" in GEN_SRC
+
+
+class TestFStringBraceEscaping:
+    """v186 regression: CSS pasted into an f-string template shipped with
+    single braces, so `.owrap{text-align:center}` was read as a
+    placeholder and the whole portfolio page died with
+    `NameError: name 'text' is not defined` — after the unit suite had
+    gone green, because nothing here renders the template.
+
+    Inside these f-string page templates every CSS brace must be
+    doubled. A `<style>` block never contains a legitimate single-brace
+    placeholder, so this is exact.
+    """
+
+    import re as _re
+
+    STYLE = _re.compile(r"<style>(.*?)</style>", _re.S)
+    FSTR = _re.compile(r"f'''(.*?)'''|f\"\"\"(.*?)\"\"\"", _re.S)
+
+    def _style_blocks(self, src):
+        for m in self.FSTR.finditer(src):
+            body = m.group(1) or m.group(2) or ""
+            for st in self.STYLE.finditer(body):
+                yield st.group(1)
+
+    def test_monitoring_gen_css_braces_are_all_doubled(self):
+        blocks = list(self._style_blocks(GEN_SRC))
+        assert blocks, "no <style> block found inside an f-string template"
+        for css in blocks:
+            stripped = css.replace("{{", "").replace("}}", "")
+            # what is left must be a real placeholder like {STYLE}
+            for tok in self._re.findall(r"\{([^{}]*)\}", stripped):
+                assert tok.strip().isidentifier(), (
+                    "single-brace CSS inside an f-string (parsed as a "
+                    "placeholder): {%s}" % tok.strip()[:70])
+            # ...and no unpaired brace may survive
+            leftover = self._re.sub(r"\{[A-Za-z_][A-Za-z0-9_]*\}", "",
+                                    stripped)
+            bad = [ln for ln in leftover.splitlines()
+                   if "{" in ln or "}" in ln]
+            assert not bad, "unbalanced brace: " + " | ".join(
+                b.strip()[:70] for b in bad[:3])
+
+    def test_the_office_css_specifically_is_escaped(self):
+        assert ".owrap{{" in GEN_SRC and ".omark{{" in GEN_SRC
+        assert ".owrap{text-align" not in GEN_SRC

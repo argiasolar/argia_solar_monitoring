@@ -31,6 +31,8 @@ import sys
 import tempfile
 from typing import List, Tuple
 
+from argia.core.job_log import apply_flag_write_if, instrument
+
 LOG = logging.getLogger("argia.archive_month_pg")
 
 ROOT_FOLDER = "Monthly_Archive"
@@ -107,6 +109,7 @@ def export(drive, base_id: str, ym: str, apply: bool) -> int:
     return 0
 
 
+@instrument("archive_month_pg", write_if=apply_flag_write_if)
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--month", default=None, help="YYYY-MM (default: previous month)")

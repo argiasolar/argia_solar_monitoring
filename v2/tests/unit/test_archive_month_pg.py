@@ -83,3 +83,12 @@ class TestSchedules:
         assert "run_job.sh archive-month archive_month_pg.py --apply" in svc
         tmr = (V2 / "server" / "bundle" / "argia-archive-month.timer").read_text(encoding="utf-8")
         assert "OnCalendar=*-*-02 03:00:00 America/Mexico_City" in tmr and "Persistent=true" in tmr
+
+
+class TestWatched:
+    def test_archive_is_instrumented_and_watched_by_the_mailer(self):
+        src = (V2 / "scripts" / "archive_month_pg.py").read_text(encoding="utf-8")
+        assert '@instrument("archive_month_pg", write_if=apply_flag_write_if)' in src
+        mailer = (V2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
+        for u in ("argia-archive-month", "argia-dailyperf", "argia-invoice", "argia-recon-close"):
+            assert f'"{u}"' in mailer, u

@@ -36,15 +36,15 @@ def load_design_monthly(sheets) -> DesignMap:
 
     Missing tab or malformed rows degrade to an empty/partial map with a
     log line — the baseline is an enhancement, never a failure mode."""
-    data = None
-    used = None
-    for tab in DESIGN_TAB_CANDIDATES:
-        try:
-            data = sheets.read_range(tab, "A1:D")
-            used = tab
-            break
-        except Exception:  # noqa: BLE001 — try next name
-            continue
+    # v191: the grid comes through the finance door (sheet tab or
+    # PostgreSQL contract_monthly.design_kwh, per ARGIA_FINANCE_SOURCE).
+    from argia.finance.pg_source import design_grid
+    data, used = design_grid(sheets, DESIGN_TAB_CANDIDATES)
+    return parse_design_grid(data, used)
+
+
+def parse_design_grid(data, used=None) -> DesignMap:
+    """The parser, source-agnostic (PURE): header + rows -> map."""
     if not data or len(data) < 2:
         LOG.warning("Design_Monthly tab not found or empty — 'vs design' "
                     "will be blank until it is filled")

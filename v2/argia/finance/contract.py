@@ -102,13 +102,23 @@ def _f(value) -> Optional[float]:
 
 def load_contract_monthly(sheets) -> Dict[MonthKey, ContractMonth]:
     """Read Contract_Monthly into {(plant_key, year, month): row}.
-    Missing tab → {} with a warning."""
+    Missing tab → {} with a warning.
+
+    v191: the grid comes through ``argia.finance.pg_source.contract_grid``
+    — the sheet tab or PostgreSQL ``contract_monthly``, whichever
+    ARGIA_FINANCE_SOURCE selects; the parsing below is identical."""
+    from argia.finance.pg_source import contract_grid
     try:
-        data = sheets.read_range(CONTRACT_TAB, "A1:H")
+        data = contract_grid(sheets)
     except Exception:  # noqa: BLE001
         LOG.warning("%s tab not found — contract expectations, tariffs "
                     "and penalty bases will be unavailable", CONTRACT_TAB)
         return {}
+    return parse_contract_grid(data)
+
+
+def parse_contract_grid(data) -> Dict[MonthKey, ContractMonth]:
+    """The parser, source-agnostic (PURE): header + rows -> map."""
     if not data or len(data) < 2:
         LOG.warning("%s tab is empty", CONTRACT_TAB)
         return {}

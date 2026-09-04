@@ -115,13 +115,22 @@ def current_month(today: Optional[date] = None) -> str:
 # ---------------------------------------------------------------------------
 
 def load_loans(sheets) -> Dict[str, Loan]:
-    """Read the Loans tab into {loan_id: Loan}. Missing tab → {}."""
+    """Read the Loans tab into {loan_id: Loan}. Missing tab → {}.
+
+    v191: records come through ``argia.finance.pg_source.loans_records``
+    (sheet tab or PostgreSQL ``loan``, per ARGIA_FINANCE_SOURCE)."""
+    from argia.finance.pg_source import loans_records
     try:
-        records = sheets.read_table(LOANS_TAB)
+        records = loans_records(sheets)
     except Exception:  # noqa: BLE001 — degrade, never fail the caller
         LOG.warning("%s tab not found — finance queries will be empty",
                     LOANS_TAB)
         return {}
+    return loans_from_records(records)
+
+
+def loans_from_records(records) -> Dict[str, Loan]:
+    """The parser, source-agnostic (PURE)."""
     out: Dict[str, Loan] = {}
     for rec in records:
         lid = str(rec.get("loan_id") or "").strip()
@@ -147,13 +156,23 @@ def load_loans(sheets) -> Dict[str, Loan]:
 
 
 def load_loan_schedule(sheets) -> List[ScheduleRow]:
-    """Read the Loan_Schedule tab. Missing tab → []."""
+    """Read the Loan_Schedule tab. Missing tab → [].
+
+    v191: records come through ``argia.finance.pg_source
+    .schedule_records`` (sheet tab or PostgreSQL ``loan_schedule`` joined
+    to ``loan``, per ARGIA_FINANCE_SOURCE)."""
+    from argia.finance.pg_source import schedule_records
     try:
-        records = sheets.read_table(SCHEDULE_TAB)
+        records = schedule_records(sheets)
     except Exception:  # noqa: BLE001
         LOG.warning("%s tab not found — finance queries will be empty",
                     SCHEDULE_TAB)
         return []
+    return schedule_from_records(records)
+
+
+def schedule_from_records(records) -> List[ScheduleRow]:
+    """The parser, source-agnostic (PURE)."""
     rows: List[ScheduleRow] = []
     for rec in records:
         lid = str(rec.get("loan_id") or "").strip()

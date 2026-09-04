@@ -161,7 +161,15 @@ def load_maintenance_events(sheets) -> List[MaintenanceEvent]:
 
     Note: reads the WHOLE row range (``A1:ZZ``) — narrow ranges silently
     drop columns (house rule).
+
+    v191: with ARGIA_FINANCE_SOURCE=pg this returns the PostgreSQL
+    ``maintenance_event`` rows instead (the /setup/ UI's table, the only
+    place events have been entered since 2026-09) — so every caller that
+    only ever asked the sheet now sees them too.
     """
+    from argia.finance.pg_source import source
+    if source() == "pg":
+        return load_maintenance_events_pg()
     try:
         rows = sheets.read_table(MAINTENANCE_EVENTS_TAB, "A1:ZZ")
     except Exception:  # noqa: BLE001

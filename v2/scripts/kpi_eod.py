@@ -439,7 +439,12 @@ def main(argv=None) -> int:
     contracts = load_contract_monthly(sheets)
     # Two sources, same fail-closed rules: the legacy sheet tab and the
     # /setup/ UI's PostgreSQL table (pio06). Both flow into deemed.
-    events = load_maintenance_events(sheets) + load_maintenance_events_pg()
+    events = load_maintenance_events(sheets)
+    # v191: in pg mode the loader above already IS the PG table; adding
+    # it again would double-count every event.
+    from argia.finance.pg_source import source as _fin_source
+    if _fin_source() != "pg":
+        events = events + load_maintenance_events_pg()
 
     def _contract_daily_for(pk, y, m):
         row = contracts.get((str(pk).upper(), y, m))

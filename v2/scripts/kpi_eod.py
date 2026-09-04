@@ -458,8 +458,8 @@ def main(argv=None) -> int:
     def _dash_rows():
         if "rows" not in _dash_cache:
             try:
-                _dash_cache["rows"] = sheets.read_table(
-                    "Dashboard_Plant", "A1:ZZ")
+                from argia.report import dashboard_pg as _DP   # v195 door
+                _dash_cache["rows"] = _DP.plant_records(sheets)
             except Exception as e:  # noqa: BLE001
                 log.warning("Dashboard_Plant unreadable for deemed "
                             "measured-in-window: %s", e)

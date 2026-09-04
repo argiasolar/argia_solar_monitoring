@@ -810,7 +810,8 @@ class TestLiveExpectedFromDashboard:
         import argia.report.daily as RD
         src = inspect.getsource(RD.build_report_data)
         assert "live_expected_from_dashboard" in src
-        assert 'read_table("Dashboard_Plant", "A1:ZZ")' in src
+        # v195: through the dashboard door (sheet tab or PG table)
+        assert "_DP.plant_records(sheets)" in src
 
 
 class TestSunriseGuardAndIncomeCard:

@@ -182,8 +182,26 @@ def run(client: SheetsClient, *, window: int, apply: bool,
             exp_s = f"{exp:9.1f}" if exp is not None else f"{'-':>9s}"
             print(f"{day.isoformat():10s} {pk:6s} {kwh:9.1f} {theo:11.1f} {exp_s}")
 
-    rewrite_tab(client, INVERTER_TAB, to_matrix(D.INVERTER_COLUMNS, inv_rows), apply)
-    rewrite_tab(client, PLANT_TAB, to_matrix(D.PLANT_COLUMNS, plant_rows), apply)
+    inv_matrix = to_matrix(D.INVERTER_COLUMNS, inv_rows)
+    plant_matrix = to_matrix(D.PLANT_COLUMNS, plant_rows)
+    # v195: the PostgreSQL twin, per ARGIA_DASHBOARD_SOURCE (sheet|both|pg)
+    from argia.report import dashboard_pg as DP
+    if DP.writes_pg():
+        if apply:
+            n_i = DP.rewrite(DP.INVERTER_TABLE, D.INVERTER_COLUMNS, inv_matrix)
+            n_p = DP.rewrite(DP.PLANT_TABLE, D.PLANT_COLUMNS, plant_matrix)
+            print(f"[apply] PostgreSQL: {DP.INVERTER_TABLE} {n_i} rows, "
+                  f"{DP.PLANT_TABLE} {n_p} rows")
+        else:
+            print(f"[dry-run] PostgreSQL: would rewrite {DP.INVERTER_TABLE} "
+                  f"({len(inv_matrix) - 1} rows) and {DP.PLANT_TABLE} "
+                  f"({len(plant_matrix) - 1} rows)")
+    if DP.writes_sheet():
+        rewrite_tab(client, INVERTER_TAB, inv_matrix, apply)
+        rewrite_tab(client, PLANT_TAB, plant_matrix, apply)
+    else:
+        print(f"[{'apply' if apply else 'dry-run'}] sheet tabs not written "
+              f"(ARGIA_DASHBOARD_SOURCE={DP.mode()})")
     return 0
 
 

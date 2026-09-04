@@ -118,10 +118,9 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
     # fault_events — killing the "fault today" UI from the day it
     # shipped (v67) until this fix.
     plant_cfg = client.read_table("Plants", "A1:ZZ")
-    prows = coerce_rows(client.read_table("Dashboard_Plant", "A1:ZZ"),
-                        NUMERIC_PLANT)
-    irows = coerce_rows(client.read_table("Dashboard_Inverter", "A1:ZZ"),
-                        NUMERIC_INV)
+    from argia.report import dashboard_pg as DP           # v195 door
+    prows = coerce_rows(DP.plant_records(client), NUMERIC_PLANT)
+    irows = coerce_rows(DP.inverter_records(client), NUMERIC_INV)
     plants = active_plants(plant_cfg)
     # v84: the Dashboard tabs now store ALL active plants (CAPEX rows
     # feed the per-client pages); this internal page must embed ONLY

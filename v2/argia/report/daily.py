@@ -992,7 +992,8 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
     # intraday buckets (single engine — no second estimator). Loaded
     # once; a missing/empty tab degrades to the old design-only view.
     try:
-        _dash_rows = sheets.read_table("Dashboard_Plant", "A1:ZZ")
+        from argia.report import dashboard_pg as _DP       # v195 door
+        _dash_rows = _DP.plant_records(sheets)
     except Exception:  # noqa: BLE001 - report must render regardless
         _dash_rows = []
     live_exp = live_expected_from_dashboard(_dash_rows, date_iso,

@@ -83,7 +83,13 @@ def build_upsert_sql(common_rows: Sequence[Sequence]) -> Optional[str]:
         tuples.append('(' + ','.join(vals) + ')')
     if not tuples:
         return None
-    upd = ', '.join(f'{c}=EXCLUDED.{c}' for c in COLS
+    # v189.1 — the sheet's v89 rule, "a BLANK never overwrites data":
+    # SolarEdge re-sends the day's history each poll with the weather
+    # snapshot attached only to the latest row (v81), so a plain
+    # col=EXCLUDED.col erased GTO2's env fields on every refetch (found by
+    # the Phase-1 parity gate: 647 of 651 rows NULL on 2026-09-03).
+    # COALESCE keeps the stored value whenever the new one is NULL.
+    upd = ', '.join(f'{c}=COALESCE(EXCLUDED.{c}, telemetry.{c})' for c in COLS
                     if c not in ('ts_utc', 'plant_key', 'inverter_sn'))
     return (f'INSERT INTO telemetry ({",".join(COLS)}) VALUES\n'
             + ',\n'.join(tuples)

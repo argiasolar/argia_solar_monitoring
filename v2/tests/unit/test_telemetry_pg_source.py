@@ -182,3 +182,74 @@ class TestExportDates:
     def test_explicit_date_wins(self):
         from scripts.telemetry_archive import export_dates
         assert export_dates(dt.date(2026, 9, 4), 3, "2026-08-20") == ["2026-08-20"]
+
+
+class TestMirrorNeverOverwritesWithNull:
+    """v189.1 — found by the parity gate: the PG mirror lacked the sheet's
+    v89 rule ('a BLANK never overwrites data'), so every SolarEdge refetch
+    erased GTO2's env fields (647 of 651 rows NULL on 2026-09-03)."""
+
+    def test_upsert_uses_coalesce_for_every_non_key_column(self):
+        from argia.store import pg_mirror as m
+        sql = m.build_upsert_sql([[
+            "2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "7E05117B-0F",
+            "Inv 3", 1, 0, 0, 17.2, "", None, None, None, None, None]])
+        assert "ON CONFLICT (plant_key, inverter_sn, ts_utc) DO UPDATE SET" in sql
+        for c in m.COLS:
+            if c in ("ts_utc", "plant_key", "inverter_sn"):
+                continue
+            assert f"{c}=COALESCE(EXCLUDED.{c}, telemetry.{c})" in sql, c
+        assert "=EXCLUDED." not in sql.replace("COALESCE(EXCLUDED.", "")
+
+    def test_blank_env_becomes_null_in_values_so_coalesce_keeps_the_old(self):
+        from argia.store import pg_mirror as m
+        sql = m.build_upsert_sql([[
+            "2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "7E05117B-0F",
+            "Inv 3", 1, 0, 0, 17.2, "", "", "", "", "", ""]])
+        # the five env columns render as NULL in VALUES (...)
+        vals = sql.split("VALUES\n", 1)[1].split("\nON CONFLICT")[0]
+        assert vals.count("NULL") >= 5
+
+
+class TestEnvBackfill:
+    def test_updates_only_where_pg_is_null_and_sheet_has_a_value(self):
+        from scripts.telemetry_env_backfill_pg import build_updates
+        rows = reader.parse_rows([list(ARGIA_SCHEMA.columns),
+            ["2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "A", "Inv", 1,
+             0, 0, 17.2, "", 0.0, 0.0, 80.6, 15.0, 13.6],
+            ["2026-09-03T12:06:01+00:00", "", "SOLAREDGE", "GTO2", "A", "Inv", 1,
+             0, 0, 17.2, "", "", "", "", "", ""]])          # nothing to give
+        ups = build_updates(rows)
+        assert len(ups) == 1
+        u = ups[0]
+        assert "cloud_cover_pct=COALESCE(cloud_cover_pct, 80.6)" in u
+        assert "WHERE plant_key='GTO2' AND inverter_sn='A'" in u
+        assert "IS NULL" in u                                 # idempotent guard
+
+
+class TestParityTolerance:
+    def test_storage_rounding_is_not_a_difference(self):
+        from scripts.telemetry_parity import compare
+        mk = lambda t: reader.parse_rows([list(ARGIA_SCHEMA.columns),
+            ["2026-09-04T10:55:18+00:00", "", "GROWATT", "SLP1", "X", "I", 1,
+             100, 1, t, 0, 900, 0.07, 10, 30, 40]])[0]
+        assert compare([mk(37.100002)], [mk(37.1)])["ok"]
+        assert compare([mk(17.240479)], [mk(17.24)])["ok"]
+
+    def test_a_real_difference_still_fails(self):
+        from scripts.telemetry_parity import compare
+        mk = lambda t: reader.parse_rows([list(ARGIA_SCHEMA.columns),
+            ["2026-09-04T10:55:18+00:00", "", "GROWATT", "SLP1", "X", "I", 1,
+             100, 1, t, 0, 900, 0.07, 10, 30, 40]])[0]
+        assert not compare([mk(37.1)], [mk(37.2)])["ok"]
+
+    def test_value_vs_none_is_a_difference(self):
+        from scripts.telemetry_parity import compare
+        a = reader.parse_rows([list(ARGIA_SCHEMA.columns),
+            ["2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "A", "I", 1,
+             0, 0, 17, "", 0.0, 0.0, 80.6, 15.0, 13.6]])[0]
+        b = reader.parse_rows([list(ARGIA_SCHEMA.columns),
+            ["2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "A", "I", 1,
+             0, 0, 17, "", "", "", "", "", ""]])[0]
+        rep = compare([a], [b])
+        assert not rep["ok"] and len(rep["field_diffs"]) == 5

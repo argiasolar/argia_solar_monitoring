@@ -351,7 +351,9 @@ class TestPortfolioSummary20260707:
         assert st["availability"] == pytest.approx(0.7157, abs=1e-3)
         assert st["income_mxn"] == pytest.approx(
             2559 * 1.975 + 1006 * 2.596, rel=1e-6)
-        assert st["co2_kg"] == pytest.approx(3565 * 0.438, rel=1e-6)
+        # no date given -> the currently applicable national factor;
+        # neither GTO1 nor SLP1 has a contracted override (v186)
+        assert st["co2_kg"] == pytest.approx(3565 * 0.444, rel=1e-6)
 
     def test_maintenance_plant_excluded_from_of_plan(self):
         # v92: a plant under maintenance must not drag the fleet of-plan %.
@@ -566,7 +568,7 @@ class TestAuditTextsCurrent20260708:
         page that reaches customers — it must keep pace with the math."""
         html = render_html(TestRenderSmoke()._data())
         footer = html.split("<footer>")[1]
-        for phrase in ("Of design", "0.438", "kWp-weighted",
+        for phrase in ("Of design", "0.444", "kWp-weighted",
                        "PPA tariff", "reliably measured",
                        "Evening editions"):
             assert phrase in footer, f"footer missing: {phrase}"

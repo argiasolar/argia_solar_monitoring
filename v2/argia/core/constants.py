@@ -9,9 +9,16 @@ copy.
 from __future__ import annotations
 
 # Grid emission factor for "avoided CO2" claims on grid-displacing solar,
-# in kg CO2e per kWh delivered. Tomasz standardised on 0.438 kg/kWh
-# (SEMARNAT/CRE Mexican grid factor, decision 2026-09-01) — the report
-# site already used it, and the invoice annex disagreed at 0.444 until
-# the August close caught the mismatch. Change the number here and it
-# changes everywhere the constant is imported.
-CO2_KG_PER_KWH = 0.438
+# in kg CO2e per kWh delivered.
+#
+# This is now a REGISTER, not one number: argia.core.co2 holds the
+# SEMARNAT/CRE factor per year plus per-plant contracted overrides (SAG
+# uses 0.202 across their whole history). Prefer co2.factor(year,
+# plant_key) — it is exact for the year and plant being reported.
+#
+# CO2_KG_PER_KWH stays as the plain national factor currently in force
+# (2024 onward: 0.444) for the few places that legitimately have no year
+# or plant in hand. Tomasz set the register on 2026-09-04; before that
+# the surfaces had drifted to three different numbers (0.435 on the map,
+# 0.438 here and in the report, 0.444 in the annex).
+from argia.core.co2 import CURRENT as CO2_KG_PER_KWH  # noqa: F401

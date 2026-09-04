@@ -572,8 +572,9 @@ function compute(){
  const d0=$('d0').value, d1=$('d1').value; if(!d0||!d1||d0>d1)return;
  const days=Math.round((new Date(d1)-new Date(d0))/864e5)+1;
  let idx=[];for(let i=0;i<D.length;i++)if(D[i]>=d0&&D[i]<=d1)idx.push(i);
- let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0,avloss=0,xsum=0,exsum=0;
+ let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0,avloss=0,xsum=0,exsum=0,co2=0;
  idx.forEach(i=>{prod+=E[i];if(RV)rev+=RV[i];if(C)ctr+=C[i];
+  co2+=E[i]/1000*((CO2Y&&CO2Y[D[i].slice(0,4)])||CO2F);
   const a=AV[D[i]];if(a!=null)avs.push(a);
   if(a!=null&&X&&X[i]!=null&&a<1)avloss+=X[i]*(1-a);
   if(X&&X[i]!=null){xsum+=X[i];exsum+=E[i];}
@@ -587,7 +588,7 @@ function compute(){
  document.querySelectorAll('.rdays').forEach(e=>e.textContent=days+' d');
  const semTile=(id,cls)=>{const e=$(id);if(!e)return;
   e.classList.remove('good','warn','bad');if(cls)e.classList.add(cls);};
- $('r_co2').textContent=(prod/1000*CO2F).toFixed(1);
+ $('r_co2').textContent=co2.toFixed(1);
  // diagnostic "why" for colored tiles (numbers+dates, EN only) — the
  // text lives on the tile's BACK face; .haswhy arms the hover flip
  const why=(id,txt)=>{const e=$(id);if(!e)return;
@@ -1051,9 +1052,13 @@ def plant_page(k):
         tiles.append(f'<div class="tile"><div class="tlabel">{money_lab}{money_tip}</div>'
                      f'<div class="tval"><span id="r_rev">—</span> <span class="unit" id="r_rev_u">MXN</span></div>'
                      f'<div class="tsub">{money_sub}</div></div>')
+    _cf = co2_factor(None, k)
+    _csub = (f'{_cf} tCO2/MWh ' + t("contracted", "contratado")
+             if k.upper() in CO2_PLANT_OVERRIDE
+             else f'{_cf} tCO2/MWh ' + t("current", "actual"))
     tiles.append(f'<div class="tile"><div class="tlabel">{t("CO2 avoided, selected range","CO2 evitado, rango elegido")}</div>'
                  f'<div class="tval"><span id="r_co2">—</span> <span class="unit">t</span></div>'
-                 f'<div class="tsub">{CO2_T_PER_MWH} tCO2/MWh</div></div>')
+                 f'<div class="tsub">{_csub}</div></div>')
     if not is_ppa and p['inv'] > 0 and rlist:
         life_sav = sum(rlist)
         pct = life_sav / p['inv'] * 100
@@ -1220,7 +1225,8 @@ def plant_page(k):
                 + ';const X=' + (json.dumps(xlist) if xlist else 'null')
                 + ';const AV=' + json.dumps(avmap)
                 + ';const DQ=' + json.dumps(dqmap)
-                + f';const VSL="{vs_lab}";const CO2F={CO2_T_PER_MWH};'
+                + f';const VSL="{vs_lab}";const CO2F={co2_factor(None, k)};'
+                + ';const CO2Y=' + json.dumps(co2_factors_js(k)) + ';'
                 + f'const SLA={plant_sla};const TARIFF={p["tariff"] if is_ppa else 0};'
                 + f'const ASOF="{asof}";</script>' + PLANT_JS)
 
@@ -1458,7 +1464,34 @@ def capex_index():
 
 
 # ================= page: landing (report.argia.com.mx) =================
-CO2_T_PER_MWH = 0.438      # Mexico grid emission factor (SEMARNAT/CRE 2023)
+# Grid emission factor register — LITERAL COPY of argia/core/co2.py,
+# because the bundle runs outside the package. test_constants.py keeps
+# the two byte-comparable: change one and the test names the other.
+# kg CO2e per kWh (= t CO2 per MWh, same number).
+CO2_BY_YEAR = {2020: 0.494, 2021: 0.423, 2022: 0.435,
+               2023: 0.438, 2024: 0.444}
+CO2_PLANT_OVERRIDE = {'MEX1': 0.202}   # SAG — contracted, all years
+CO2_T_PER_MWH = CO2_BY_YEAR[max(CO2_BY_YEAR)]   # currently applicable
+
+
+def co2_factor(year=None, plant_key=None):
+    """kg CO2e/kWh for a year and plant. Years outside the table clamp
+    to the nearest published one; a contracted plant override wins."""
+    if plant_key and plant_key.upper() in CO2_PLANT_OVERRIDE:
+        return CO2_PLANT_OVERRIDE[plant_key.upper()]
+    if year is None:
+        return CO2_T_PER_MWH
+    y = int(year)
+    lo, hi = min(CO2_BY_YEAR), max(CO2_BY_YEAR)
+    return CO2_BY_YEAR[min(max(y, lo), hi)]
+
+
+def co2_factors_js(plant_key=None):
+    """{'2024': 0.444, ...} for the page's range calculator, so a
+    multi-year selection is summed per year instead of one scalar."""
+    last = max(max(CO2_BY_YEAR), int(asof[:4]) + 1)
+    return {str(y): co2_factor(y, plant_key)
+            for y in range(min(CO2_BY_YEAR), last + 1)}
 HOME_KWH_YR = 2000.0       # avg Mexican household consumption per year, approx.
 
 
@@ -1468,7 +1501,10 @@ def landing_page():
     this_m = asof[:7]
     mtd = sum(v for (k2, m2), v in monthly_kwh.items() if m2 == this_m)
     rev_life = sum(a[2] for a in atoms)                    # actual MXN, PPA + LaaS
-    co2 = life / 1000.0 * CO2_T_PER_MWH                    # tonnes
+    # per plant per year — SAG's contracted factor differs, and the
+    # published national factor changes year to year (v186)
+    co2 = sum(v / 1000.0 * co2_factor(m2[:4], k2)
+              for (k2, m2), v in monthly_kwh.items())        # tonnes
 
     body = [chrome_top('ARGIA — Reports', 'ARGIA — Reportes',
                        f'{len(plants)} {t("plants","plantas")} · 2 LaaS · '
@@ -1480,7 +1516,7 @@ def landing_page():
  <div class="tsub">{first} → {asof}</div></div>
 <div class="tile"><div class="tlabel">{t("CO2 avoided","CO2 evitado")}</div>
  <div class="thero">{co2:,.0f} <span class="unit">t</span></div>
- <div class="tsub">{t("grid factor","factor de red")} {CO2_T_PER_MWH} tCO2/MWh</div></div>
+ <div class="tsub">{t("grid factor by year","factor de red por año")} · {CO2_T_PER_MWH} tCO2/MWh {t("current","actual")}</div></div>
 <div class="tile"><div class="tlabel">{t("Revenue generated","Ingreso generado")}</div>
  <div class="thero">{rev_life/1e6:,.1f} <span class="unit">M MXN</span></div>
  <div class="tsub">PPA + LaaS · {t("accrued","devengado")}</div></div>
@@ -1543,7 +1579,7 @@ def landing_page():
     body.append('<div class="nav">' + ''.join(cards) + '</div>')
     body.append(f'''<div class="card audit"><details><summary>{t("How these numbers are calculated","Cómo se calculan estos números")}</summary>
 <p><b>{t("Clean energy:","Energía limpia:")}</b> {t("sum of measured daily production of all 10 plants (PostgreSQL argia_mont: v1 history 2024-02-29 → 2026-06-30 + v2 KPI from 2026-07-01; totals verified against the v1/v2 reconciliation).","suma de la producción diaria medida de las 10 plantas (PostgreSQL argia_mont: historia v1 2024-02-29 → 2026-06-30 + KPI v2 desde 2026-07-01; totales verificados contra la conciliación v1/v2).")}</p>
-<p><b>{t("CO2 avoided:","CO2 evitado:")}</b> {t("energy × 0.438 tCO2/MWh, the official Mexican grid emission factor (SEMARNAT/CRE) — an estimate of displaced grid generation.","energía × 0.438 tCO2/MWh, el factor de emisión oficial de la red mexicana (SEMARNAT/CRE) — estimación de generación de red desplazada.")}</p>
+<p><b>{t("CO2 avoided:","CO2 evitado:")}</b> {t(f"energy × the official Mexican grid emission factor (SEMARNAT/CRE) for the year the energy was produced — {CO2_T_PER_MWH} tCO2/MWh from 2024 onward, lower in earlier years — except where a customer contracted a different factor. An estimate of displaced grid generation.", f"energía × el factor de emisión oficial de la red mexicana (SEMARNAT/CRE) del año en que se produjo — {CO2_T_PER_MWH} tCO2/MWh desde 2024, menor en años anteriores — salvo donde el cliente contrató un factor distinto. Estimación de generación de red desplazada.")}</p>
 <p><b>{t("Revenue generated:","Ingreso generado:")}</b> {t("accrued PPA revenue (measured energy × contract tariff of each month) + LaaS fees at the loan-schedule FX of each month. An accrual estimate, not invoiced amounts; no IVA.","ingreso PPA devengado (energía medida × tarifa contractual de cada mes) + cuotas LaaS al tipo de cambio mensual de la tabla del crédito. Estimado devengado, no facturado; sin IVA.")}</p>
 <p>{t("Access is restricted to authorized ARGIA users. Data through","Acceso restringido a usuarios autorizados de ARGIA. Datos hasta")} {asof}.</p>
 </details></div>''')

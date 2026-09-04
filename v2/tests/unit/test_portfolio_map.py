@@ -159,12 +159,11 @@ class TestV177_1Feedback:
     def test_carto_tiles_are_gone(self):
         assert "cartocdn" not in GEN_SRC   # anonymous use now refused
 
-    def test_satellite_default_with_streets_toggle(self):
+    def test_both_basemaps_offered(self):
         assert ("server.arcgisonline.com/ArcGIS/rest/services/"
                 "World_Imagery") in GEN_SRC
         assert "World_Boundaries_and_Places" in GEN_SRC   # name overlay
         assert "tile.openstreetmap.org" in GEN_SRC
-        assert "sat.addTo(map);" in GEN_SRC
         assert "L.control.layers" in GEN_SRC
 
     def test_no_lifetime_tiles_in_kpi_row(self):
@@ -342,3 +341,54 @@ class TestPlantLegend:
             encoding="utf-8")
         assert '<a href="portfolio/">{ic_map}' in rep
         assert "ic_map" in rep and "Mapa del portafolio" in rep
+
+
+class TestV186MapDefaults:
+    """Tomasz, 2026-09-04: open on the street map, solar potential off,
+    and put the León office on the map."""
+
+    def test_streets_is_the_default_basemap(self):
+        assert "streets.addTo(map);" in GEN_SRC
+        assert "sat.addTo(map);" not in GEN_SRC
+
+    def test_streets_is_listed_first_in_the_layer_control(self):
+        assert "{{'Streets':streets,'Satellite':sat}}" in GEN_SRC
+
+    def test_solar_potential_starts_unchecked(self):
+        # the overlay is still built and still offered in the control —
+        # it just must not add itself to the map on load
+        assert "pv=L.imageOverlay(" in GEN_SRC
+        assert "pv.addTo(map)" not in GEN_SRC
+        assert "'Solar potential (PVOUT)': pv" in GEN_SRC
+
+
+class TestV186OfficeMarker:
+    def test_office_constant_carries_address_and_link(self):
+        import re as _re
+        blk = GEN_SRC.split("OFFICE = {", 1)[1].split("}", 1)[0]
+        assert "argia.com.mx" in blk
+        assert "Provincias del Campestre 1904-4" in blk
+        assert "Balcones del Campestre" in blk
+        assert "37138" in blk
+        lat = float(_re.search(r"'lat':\s*([0-9.]+)", blk).group(1))
+        lon = float(_re.search(r"'lon':\s*(-[0-9.]+)", blk).group(1))
+        # inside the León, Guanajuato municipality bounding box
+        assert 21.00 < lat < 21.25, lat
+        assert -101.85 < lon < -101.55, lon
+
+    def test_marker_uses_the_site_favicon_and_opens_the_website(self):
+        assert 'src="/favicon.png"' in GEN_SRC
+        assert "window.open(OF.url,'_blank','noopener')" in GEN_SRC
+
+    def test_office_does_not_move_the_fleet_framing(self):
+        """The office is not a plant: it must not enter `bounds`, or the
+        map would reframe around an eleventh point."""
+        head, _, tail = GEN_SRC.partition("var office=L.marker")
+        assert "bounds.push" not in tail.split("</script>")[0]
+
+    def test_office_is_not_in_the_plant_legend(self):
+        assert 'data-k="OFFICE"' not in GEN_SRC
+
+    def test_office_marker_is_styled_and_labelled(self):
+        assert ".omark{" in GEN_SRC and ".olab{" in GEN_SRC
+        assert "office.bindTooltip" in GEN_SRC

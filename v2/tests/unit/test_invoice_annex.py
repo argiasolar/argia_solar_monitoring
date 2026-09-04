@@ -8,6 +8,7 @@ mirrors; the truth table pins measured/deemed/billing/performance and
 the no-data-day handling.
 """
 
+import pathlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -269,3 +270,55 @@ class TestRenderAnnexHtml:
     def test_header_text_is_readable(self):
         h = self._html()
         assert "font-size:19px" in h        # the anexo title
+
+
+class TestCo2FactorOnTheAnnex:
+    """v186 — the annex carries a factor register, not one scalar, so a
+    2023 month is billed at 2023's factor and SAG gets the 0.202 they
+    contracted for their whole history."""
+
+    def _pl(self, pk):
+        from argia.core import co2
+        p = _payload()
+        p["plant_key"] = pk
+        p["co2_factor"] = co2.factor(None, pk)
+        p["co2_factor_by_year"] = co2.factors_by_year(pk)
+        p["co2_factor_contracted"] = pk in co2.PLANT_OVERRIDE
+        return p
+
+    def test_ordinary_plant_uses_the_year_factor(self):
+        r = rollup_month(self._pl("MEX2"), "2026-07")
+        assert r["co2_kg"] == pytest.approx(1100.0 * 0.444, abs=0.1)
+
+    def test_sag_uses_its_contracted_factor(self):
+        r = rollup_month(self._pl("MEX1"), "2026-07")
+        assert r["co2_kg"] == pytest.approx(1100.0 * 0.202, abs=0.1)
+
+    def test_an_older_month_uses_that_years_factor(self):
+        p = self._pl("MEX2")
+        p["days"] = ["2023-07-01", "2023-07-02", "2023-07-03"]
+        p["tariff_by_month"] = {"2023-07": 2.0}
+        r = rollup_month(p, "2023-07")
+        assert r["co2_kg"] == pytest.approx(
+            r["billable_kwh"] * 0.438, abs=0.1)
+
+    def test_a_payload_without_the_year_map_still_works(self):
+        # older cached payloads carry only the scalar
+        p = _payload()
+        p["co2_factor"] = 0.444
+        assert rollup_month(p, "2026-07")["co2_kg"] == pytest.approx(
+            1100.0 * 0.444, abs=0.1)
+
+    def test_the_page_discloses_which_factor_it_applied(self):
+        from argia.finance import annex
+        src = pathlib.Path(annex.__file__).read_text(encoding="utf-8")
+        assert 'id="c_co2f"' in src
+        assert "SEMARNAT/CRE" in src and "contratado" in src
+
+    def test_money_is_untouched_by_the_factor_change(self):
+        """The CO2 line must never move a billing number."""
+        a = rollup_month(self._pl("MEX1"), "2026-07")
+        b = rollup_month(self._pl("MEX2"), "2026-07")
+        assert a["amount_mxn"] == b["amount_mxn"]
+        assert a["billable_kwh"] == b["billable_kwh"]
+        assert a["co2_kg"] != b["co2_kg"]

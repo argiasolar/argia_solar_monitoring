@@ -36,6 +36,24 @@ except Exception:                                     # noqa: BLE001
     def is_normal_state(vendor, raw):
         return (raw or '').strip() in ('', '0')
 
+# Grid emission factor register (argia/core/co2.py). The fallback keeps
+# the page rendering if the checkout is missing; test_constants.py pins
+# the fallback numbers to the canonical table.
+try:
+    from argia.core.co2 import factor as co2_factor
+except Exception:                                     # noqa: BLE001
+    _CO2_BY_YEAR = {2020: 0.494, 2021: 0.423, 2022: 0.435,
+                    2023: 0.438, 2024: 0.444}
+    _CO2_OVERRIDE = {'MEX1': 0.202}
+
+    def co2_factor(year=None, plant_key=None):
+        if plant_key and str(plant_key).upper() in _CO2_OVERRIDE:
+            return _CO2_OVERRIDE[str(plant_key).upper()]
+        if year is None:
+            return _CO2_BY_YEAR[max(_CO2_BY_YEAR)]
+        lo, hi = min(_CO2_BY_YEAR), max(_CO2_BY_YEAR)
+        return _CO2_BY_YEAR[min(max(int(year), lo), hi)]
+
 OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/monitoring.argia.com.mx/www'
 MX = ZoneInfo('America/Mexico_City')
 STALE_MIN = 30
@@ -1179,7 +1197,19 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p></div
 # 'financial' in auth (it shows fleet-wide PPA revenue). Regenerates
 # with this script every 5 minutes, so "generating now" is real.
 
-CO2_T_PER_MWH = 0.435   # CFE national grid emission factor (approx.)
+# ARGIA Solar head office, León (v186, Tomasz). APPROXIMATE colonia-level
+# position — argia.com.mx publishes the address but no coordinates and the
+# geocoding APIs are not reachable from the build host, so this is an
+# estimate for Balcones del Campestre. Drop a pin in Google Maps and paste
+# the exact lat/lon here to correct it; nothing else needs to change.
+OFFICE = {
+    'lat': 21.1283, 'lon': -101.6660,
+    'name': 'ARGIA Solar',
+    'lines': ['Provincias del Campestre 1904-4',
+              'Balcones del Campestre',
+              'León, Guanajuato · C.P. 37138'],
+    'url': 'https://www.argia.com.mx',
+}
 
 
 def display_name(customer):
@@ -1319,7 +1349,7 @@ def portfolio_page():
             "var pv=L.imageOverlay('assets/pvout_mexico.png',"
             + json.dumps(pv_bounds) + ",{opacity:.55,attribution:"
             "'PVOUT &copy; Global Solar Atlas 2.0 / Solargis "
-            "(World Bank), CC BY 4.0'});\npv.addTo(map);"
+            "(World Bank), CC BY 4.0'});"
         )
         pv_overlays = "{'Solar potential (PVOUT)': pv}"
         pv_legend = (
@@ -1341,9 +1371,12 @@ def portfolio_page():
     tot_today_mxn = sum(r['today_mxn'] or 0 for r in rows)
     tot_life_mwh = sum(r['life_mwh'] for r in rows)
     tot_life_mxn = sum(r['life_mxn'] or 0 for r in rows)
-    co2 = tot_life_mwh * CO2_T_PER_MWH
+    # per plant — SAG's contracted factor differs from the national one,
+    # so a single fleet scalar would overstate the total (v186)
+    co2 = sum(r['life_mwh'] * co2_factor(None, r['key']) for r in rows)
     n_live = sum(1 for r in rows if r['status'] == 'live')
     data_js = json.dumps(rows, ensure_ascii=False)
+    office_js = json.dumps(OFFICE, ensure_ascii=False)
     # v177.1 (Tomasz): NO lifetime tiles up top — they crowded the row
     # (lifetime figures stay on each plant's hover card); values must
     # fit their tile, so .tval scales down instead of overflowing.
@@ -1352,7 +1385,7 @@ def portfolio_page():
 <div class="tile {'good' if n_live else 'off'}"><div class="tlab" data-en="Generating now" data-es="Generando ahora">Generating now</div><div class="tval">{tot_live:,.0f} kW</div><div class="tsub">{n_live}/{len(rows)} <span data-en="plants live" data-es="plantas en vivo">plants live</span></div></div>
 <div class="tile"><div class="tlab" data-en="Energy today" data-es="Energía hoy">Energy today</div><div class="tval">{tot_today:,.0f} kWh</div><div class="tsub" data-en="live, preliminary" data-es="en vivo, preliminar">live, preliminary</div></div>
 <div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval">≈{tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
-<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈{co2:,.0f} t</div><div class="tsub" data-en="lifetime · CFE grid factor" data-es="histórico · factor CFE">lifetime · CFE grid factor</div></div>
+<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈{co2:,.0f} t</div><div class="tsub" data-en="lifetime · SEMARNAT/CRE grid factor" data-es="histórico · factor de red SEMARNAT/CRE">lifetime · SEMARNAT/CRE grid factor</div></div>
 </div>'''
     # plant legend under the map (v183, Tomasz): every plant with
     # name, code, city, kWp and an include/exclude checkbox, split
@@ -1415,6 +1448,14 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 .lrow{{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px}}
 .lrow .lsub{{display:block;color:#8a94a1;font-size:11px}}
 .ldot{{width:14px;height:14px;border-radius:50%;border:3px solid;flex:none}}
+.owrap{text-align:center;cursor:pointer}
+.omark{width:26px;height:26px;display:block;margin:0 auto;
+ border-radius:7px;background:#fff;padding:2px;box-sizing:border-box;
+ border:1.5px solid #16324f;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+.owrap:hover .omark{border-color:#2b6cb0}
+.olab{margin-top:2px;font:600 10.5px/1.2 system-ui,sans-serif;
+ color:#16324f;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;
+ white-space:nowrap}
 .pwrap{{position:relative;cursor:pointer}}
 .plab{{position:absolute;top:100%;left:50%;transform:translateX(-50%);
  margin-top:2px;white-space:nowrap;font-weight:700;font-size:11.5px;
@@ -1445,10 +1486,11 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 <script>
 var P={data_js};
 var map=L.map('map',{{scrollWheelZoom:true}});
-// Satellite by default — real roofs and terrain, the Google-Earth
-// look (Esri World Imagery, no API key) with a place-name overlay;
-// a colored street map is one click away. CARTO was dropped in
-// v177.1: its anonymous tiles started demanding an API key.
+// Streets by default (Tomasz, v186) — the map opens as a readable
+// road map and satellite is one click away in the layer control.
+// Esri World Imagery is the satellite layer (no API key) with a
+// place-name overlay. CARTO was dropped in v177.1: its anonymous
+// tiles started demanding an API key.
 var sat=L.layerGroup([
  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
   {{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}}),
@@ -1456,9 +1498,9 @@ var sat=L.layerGroup([
   {{maxZoom:19}})]);
 var streets=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
  {{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}});
-sat.addTo(map);
+streets.addTo(map);
 {pv_js}
-L.control.layers({{'Satellite':sat,'Streets':streets}},{pv_overlays},
+L.control.layers({{'Streets':streets,'Satellite':sat}},{pv_overlays},
  {{position:'topright'}}).addTo(map);
 function nf(v){{return v==null?'—':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
 var bounds=[];var MK={{}};
@@ -1490,6 +1532,22 @@ P.forEach(function(p){{
  MK[p.key]=m;
 }});
 if(bounds.length)map.fitBounds(bounds,{{padding:[60,60]}});
+// ARGIA head office — the company mark, not a plant: it is deliberately
+// left out of `bounds` so the fleet framing is unchanged, and clicking
+// it leaves the portal for argia.com.mx.
+var OF={office_js};
+var office=L.marker([OF.lat,OF.lon],{{
+ icon:L.divIcon({{className:'',
+  html:'<div class="owrap"><img class="omark" src="/favicon.png" alt="">'
+   +'<div class="olab">'+OF.name+'</div></div>',
+  iconSize:[28,28],iconAnchor:[14,14]}}),
+ zIndexOffset:1000,riseOnHover:true}}).addTo(map);
+office.bindTooltip('<div class="ptip"><h3>'+OF.name+'</h3>'
+ +'<div style="color:#5f6368;font-size:12px;line-height:1.5">'
+ +OF.lines.join('<br>')+'</div>'
+ +'<div class="go">argia.com.mx &rarr;</div></div>',
+ {{direction:'top',offset:[0,-18],opacity:1}});
+office.on('click',function(){{window.open(OF.url,'_blank','noopener');}});
 var HID={{}};try{{HID=JSON.parse(localStorage.getItem('argia_map_hide')||'{{}}');}}catch(e){{}}
 document.querySelectorAll('.ptog').forEach(function(cb){{
  var k=cb.dataset.k;

@@ -40,7 +40,7 @@ import logging
 from typing import Dict, List, Optional
 
 from argia.core.config import Portfolio
-from argia.core.constants import CO2_KG_PER_KWH
+from argia.core import co2 as co2reg
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
 from argia.archive.kpi_daily import KPI_DAILY_TAB
@@ -212,7 +212,10 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
         "days": days,
         "atoms": atoms,
         "tariff_by_month": tariff_by_month,
-        "co2_factor": CO2_KG_PER_KWH,
+        "co2_factor": co2reg.factor(None, pk),
+        "co2_factor_by_year": co2reg.factors_by_year(pk),
+        "co2_factor_label": co2reg.label(pk),
+        "co2_factor_contracted": pk in co2reg.PLANT_OVERRIDE,
         "history": history or {},
     }
 
@@ -249,7 +252,8 @@ def rollup_month(payload: Dict, ym: str) -> Dict:
     days = payload["days"]
     atoms = payload["atoms"]
     tariff = payload["tariff_by_month"].get(ym)
-    co2f = payload["co2_factor"]
+    co2f = (payload.get("co2_factor_by_year") or {}).get(
+        str(ym)[:4], payload["co2_factor"])
     h = (payload.get("history") or {}).get(ym)
 
     measured = deemed = 0.0
@@ -376,6 +380,8 @@ border-radius:8px;padding:10px 12px;min-height:64px}}
 .card .val{{font-size:21px;font-weight:600}}
 .card.pay .val{{color:var(--blued)}}
 .card.co2 .val{{color:var(--green)}}
+.card .fnote{{color:var(--muted);font-size:10px;margin-top:3px;
+ line-height:1.3}}
 .sec{{background:var(--card);border:1px solid var(--line);
 border-radius:8px;padding:10px 14px}}
 .sec h2{{font-size:12.5px;font-weight:600;margin:0 0 8px;
@@ -418,7 +424,8 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
     <div class="card"><div class="lab">Energía Producida</div>
       <div class="val" id="c_prod">&mdash;</div></div>
     <div class="card co2"><div class="lab">CO₂ Emisiones
-      Evitadas</div><div class="val" id="c_co2">&mdash;</div></div>
+      Evitadas</div><div class="val" id="c_co2">&mdash;</div>
+      <div class="fnote" id="c_co2f"></div></div>
   </div>
   <div class="sec"><h2>Generación Fotovoltaica (kWh)</h2>
     <div id="chart_gen"></div>
@@ -489,7 +496,8 @@ function rollupMonth(ym){{
   }}else if(t!=null){{ amount=(measured+deemed)*t; }}
   const billable=measured+deemed;
   return {{ym, measured, deemed, billable, expected, tariff:t, amount,
-    co2: billable*D.co2_factor, has_data:any}};
+    co2: billable*((D.co2_factor_by_year||{{}})[ym.slice(0,4)]
+                   ??D.co2_factor), has_data:any}};
 }}
 
 function dailyChart(rows){{
@@ -569,6 +577,10 @@ function drawMonth(ym){{
   document.getElementById("c_prod").innerHTML=kwh0(r.measured);
   document.getElementById("c_co2").innerHTML=
     Math.round(r.co2).toLocaleString("es-MX")+" kg";
+  const cf=(D.co2_factor_by_year||{{}})[ym.slice(0,4)]??D.co2_factor;
+  document.getElementById("c_co2f").textContent=
+    "factor "+cf.toFixed(3)+" kg CO\u2082/kWh"+
+    (D.co2_factor_contracted?" (contratado)":" (SEMARNAT/CRE)");
   const rows=[];
   D.days.forEach((d,i)=>{{ if(d.slice(0,7)!==ym) return;
     const a=D.atoms[i];

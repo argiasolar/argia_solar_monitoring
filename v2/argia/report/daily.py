@@ -40,7 +40,7 @@ from argia.archive.kpi_daily import KPI_DAILY_TAB
 from argia.alerts.digest import reportable_alerts
 from argia.core.alerts_state import AlertRecord, load_alerts_ledger
 from argia.core.config import Portfolio
-from argia.core.constants import CO2_KG_PER_KWH
+from argia.core import co2 as co2reg
 import datetime as dt
 
 from argia.core.normalize import normalize_text, safe_float
@@ -175,7 +175,16 @@ def short_name(p: PlantDay) -> str:
     return n or p.plant_key
 
 
-def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
+def _year_of(date_iso: Optional[str]) -> Optional[int]:
+    """Calendar year out of an ISO date, or None. Pure."""
+    try:
+        return int(str(date_iso)[:4])
+    except (TypeError, ValueError):
+        return None
+
+
+def fleet_stats(plants: List[PlantDay],
+                date_iso: Optional[str] = None) -> Dict[str, Optional[float]]:
     """Portfolio-level numbers for the summary block. Pure.
 
     - availability is kWp-WEIGHTED (a 189 kWp plant must not count as
@@ -183,6 +192,7 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
     - income counts only plants with a tariff (all six have one today;
       the guard is for config drift, not decoration)
     """
+    year = _year_of(date_iso)
     fe = sum(p.energy_kwh or 0 for p in plants)
     fx = sum(p.expected_kwh or 0 for p in plants)
     # Portfolio %% only from plants the KPI layer deemed measurable
@@ -212,7 +222,11 @@ def fleet_stats(plants: List[PlantDay]) -> Dict[str, Optional[float]]:
         "kwp": kwp,
         "availability": avail,
         "income_mxn": income if income else None,
-        "co2_kg": fe * CO2_KG_PER_KWH,
+        # Summed per plant, not fleet-energy x one factor: SAG has a
+        # contracted factor of its own, so a single scalar would be
+        # wrong for the fleet total (v186).
+        "co2_kg": sum((p.energy_kwh or 0) * co2reg.factor(year, p.plant_key)
+                      for p in plants),
     }
 
 
@@ -570,7 +584,7 @@ def render_html(data: ReportData) -> str:
     port_color, port_title, port_why = portfolio_semaphore(
         data.plants, sem_of, n_crit, n_warn, fleet_pct, live=live)
     subtitle = ("live evening estimate" if live else "KPI-final numbers")
-    stats = fleet_stats(data.plants)
+    stats = fleet_stats(data.plants, data.date_iso)
     # v97: on a single-client page (all plants share one customer — the
     # CAPEX per-client reports, e.g. Tetra Pak = one plant) the header
     # and sentence use the COMPANY name, not "PORTFOLIO" — it isn't a
@@ -765,8 +779,10 @@ def render_html(data: ReportData) -> str:
         f'only plants whose sun was reliably measured that day; energy, '
         f'income and CO&#8322; always count every plant. Income (est.) = '
         f'energy &#215; PPA tariff, before billing adjustments. '
-        f'CO&#8322; avoided uses the national grid emission '
-        f'factor (0.438 kg/kWh). Portfolio availability is kWp-weighted. '
+        f'CO&#8322; avoided uses the SEMARNAT/CRE national grid emission '
+        f'factor for the year ({co2reg.factor(_year_of(data.date_iso)):.3f} '
+        f'kg/kWh), except where a customer contracted a different one. '
+        f'Portfolio availability is kWp-weighted. '
         f'Live editions estimate expected from the dashboard\'s intraday '
         f'irradiance buckets (same formula as end-of-day KPI, \u00b110%, '
         f'pro-rated to the last complete hour); the stamped KPI replaces '

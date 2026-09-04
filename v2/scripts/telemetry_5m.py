@@ -119,6 +119,62 @@ def _today_iso_mx() -> str:
 
 
 # ============================================================
+# Per-plant sheet mirror (v184)
+# ============================================================
+
+# The wide ``Telemetry_<KEY>`` tabs are a WRITE-ONLY mirror: every reader
+# in the system — kpi_eod (via argia.kpi.reader), alerts_snapshot,
+# watchdog, dashboard_update — reads ``Telemetry_Argia``, and Postgres
+# holds the full per-inverter history. Nine tabs x 143 columns x ~4.5k
+# rows/day is ~700k cells/day, which filled the 10M-cell workbook twice
+# (2026-08-18 and 2026-09-03) and took Telemetry_Argia — the tab KPI
+# actually needs — down with it. So the mirror is OFF by default.
+# Set ARGIA_SHEET_PLANT_TABS=1 to turn it back on.
+PLANT_TABS_ENV = "ARGIA_SHEET_PLANT_TABS"
+
+
+def plant_tabs_enabled(env=None) -> bool:
+    """True when the per-plant Telemetry_<KEY> sheet mirror is enabled.
+
+    Pure: reads one env var, defaults to OFF. Anything other than a
+    truthy token ("1", "true", "yes", "on", any case) means disabled.
+    """
+    env = os.environ if env is None else env
+    return str(env.get(PLANT_TABS_ENV, "0")).strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _mirror_plant_tab(sheets, plant_key, plant_rows, dry_run=False,
+                      enabled=None, log=None) -> int:
+    """Upsert one plant's wide rows into its Telemetry_<KEY> tab.
+
+    Returns the number of errors (0 or 1) so callers keep counting the
+    way they always have. A no-op — and never an error — when the mirror
+    is disabled or there is nothing to write.
+    """
+    if not plant_rows:
+        return 0
+    if not (plant_tabs_enabled() if enabled is None else enabled):
+        return 0
+    log = log or logging.getLogger("argia.telemetry_5m")
+    tab = plant_tab_name(plant_key)
+    try:
+        ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)
+        stats = write_telemetry_rows(
+            sheets, tab, PLANT_SCHEMA, plant_rows, dry_run=dry_run,
+        )
+        log.info("[%s] %s: %s", plant_key, tab,
+                 "DRY RUN " + str(stats) if dry_run else stats)
+    except SchemaMismatchError as e:
+        log.error("[%s] %s", plant_key, e)
+        return 1
+    except Exception as e:  # noqa: BLE001
+        log.error("[%s] sheet write failed: %s", plant_key, e)
+        return 1
+    return 0
+
+
+# ============================================================
 # Weather (shared across vendors)
 # ============================================================
 
@@ -227,21 +283,8 @@ def _process_growatt_plant(
             )
             errors += 1
 
-    if plant_rows:
-        tab = plant_tab_name(plant.plant_key)
-        try:
-            ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)
-            stats = write_telemetry_rows(
-                sheets, tab, PLANT_SCHEMA, plant_rows, dry_run=dry_run,
-            )
-            log.info("[%s] %s: %s", plant.plant_key, tab,
-                     "DRY RUN " + str(stats) if dry_run else stats)
-        except SchemaMismatchError as e:
-            log.error("[%s] %s", plant.plant_key, e)
-            errors += 1
-        except Exception as e:  # noqa: BLE001
-            log.error("[%s] sheet write failed: %s", plant.plant_key, e)
-            errors += 1
+    errors += _mirror_plant_tab(sheets, plant.plant_key, plant_rows,
+                                dry_run=dry_run, log=log)
 
     # Degraded-mode fallback (2026-07-07): the web session is the only
     # carrier of per-inverter data; when it is blocked (LoginBackoff /
@@ -307,21 +350,8 @@ def _process_huawei_plant(
             log.warning("[%s/%s] Huawei API did not return data for this SN",
                         plant.plant_key, inv.inverter_sn)
 
-    if plant_rows:
-        tab = plant_tab_name(plant.plant_key)
-        try:
-            ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)
-            stats = write_telemetry_rows(
-                sheets, tab, PLANT_SCHEMA, plant_rows, dry_run=dry_run,
-            )
-            log.info("[%s] %s: %s", plant.plant_key, tab,
-                     "DRY RUN " + str(stats) if dry_run else stats)
-        except SchemaMismatchError as e:
-            log.error("[%s] %s", plant.plant_key, e)
-            errors += 1
-        except Exception as e:  # noqa: BLE001
-            log.error("[%s] sheet write failed: %s", plant.plant_key, e)
-            errors += 1
+    errors += _mirror_plant_tab(sheets, plant.plant_key, plant_rows,
+                                dry_run=dry_run, log=log)
 
     return common_rows, errors
 
@@ -429,21 +459,8 @@ def _process_solaredge_plant(
             log.warning("[%s/%s] no telemetry returned (offline or no data)",
                         plant.plant_key, inv.inverter_sn)
 
-    if plant_rows:
-        tab = plant_tab_name(plant.plant_key)
-        try:
-            ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)
-            stats = write_telemetry_rows(
-                sheets, tab, PLANT_SCHEMA, plant_rows, dry_run=dry_run,
-            )
-            log.info("[%s] %s: %s", plant.plant_key, tab,
-                     "DRY RUN " + str(stats) if dry_run else stats)
-        except SchemaMismatchError as e:
-            log.error("[%s] %s", plant.plant_key, e)
-            errors += 1
-        except Exception as e:  # noqa: BLE001
-            log.error("[%s] sheet write failed: %s", plant.plant_key, e)
-            errors += 1
+    errors += _mirror_plant_tab(sheets, plant.plant_key, plant_rows,
+                                dry_run=dry_run, log=log)
 
     return common_rows, errors
 
@@ -514,21 +531,8 @@ def _process_sma_plant(
             log.warning("[%s/%s] no telemetry returned (offline or no data)",
                         plant.plant_key, inv.inverter_sn)
 
-    if plant_rows:
-        tab = plant_tab_name(plant.plant_key)
-        try:
-            ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)
-            stats = write_telemetry_rows(
-                sheets, tab, PLANT_SCHEMA, plant_rows, dry_run=dry_run,
-            )
-            log.info("[%s] %s: %s", plant.plant_key, tab,
-                     "DRY RUN " + str(stats) if dry_run else stats)
-        except SchemaMismatchError as e:
-            log.error("[%s] %s", plant.plant_key, e)
-            errors += 1
-        except Exception as e:  # noqa: BLE001
-            log.error("[%s] sheet write failed: %s", plant.plant_key, e)
-            errors += 1
+    errors += _mirror_plant_tab(sheets, plant.plant_key, plant_rows,
+                                dry_run=dry_run, log=log)
 
     return common_rows, errors
 

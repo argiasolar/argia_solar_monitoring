@@ -101,6 +101,16 @@ def load_invoicing_overview(year):
     Invoicing_Overview tab. Best-effort — no sheet id or an API error
     returns {} and the annex falls back to atoms (logged)."""
     import os as _os
+    from argia.finance import invoicing_pg
+    if invoicing_pg.source() == "pg":
+        # v192: the invoicing register (PostgreSQL) in the sheet's shape;
+        # a read failure degrades exactly like an unreadable tab.
+        try:
+            return parse_invoicing_overview(invoicing_pg.read_grid(), year)
+        except Exception as e:  # noqa: BLE001
+            LOG.error("invoicing register unreadable (%s) — falling back "
+                      "to KPI atoms", e)
+            return {}
     sid = _os.environ.get("ARGIA_SOLAR_SHEET_ID", "").strip()
     if not sid:
         LOG.warning("ARGIA_SOLAR_SHEET_ID not set — annex months fall "

@@ -73,6 +73,43 @@ def invoice_check(billable_kwh, billing_kwh, tol_pct=INVOICE_TOL_PCT):
             round(delta, 3), round(pct, 4))
 
 
+def register_upsert_sql(pk, ym, h, kwh, amount, tariff, billing, dk, dp,
+                        status) -> str:
+    """The register row for one invoiced plant-month. v192: carries the
+    produced / penalty / expected split too, so the register can serve
+    the annex the way Invoicing_Overview did. PURE."""
+    def _n(v, nd=3):
+        return "NULL" if v is None else repr(round(float(v), nd))
+    produced = h.get("kwh")
+    penalty = h.get("penalty") or 0.0
+    expected = h.get("expected")
+    return (
+        "INSERT INTO invoicing (plant_key, ref_month, billable_kwh,"
+        " tariff_mxn, amount_mxn, billing_kwh, delta_kwh, delta_pct,"
+        " check_status, produced_kwh, penalty_kwh, expected_kwh, source)"
+        " VALUES ("
+        f"'{pk}', DATE '{ym}-01', {kwh:.3f},"
+        f" {tariff if tariff is not None else 'NULL'},"
+        f" {round(amount, 2) if amount is not None else 'NULL'},"
+        f" {billing if billing is not None else 'NULL'},"
+        f" {dk if dk is not None else 'NULL'},"
+        f" {dp if dp is not None else 'NULL'},"
+        f" '{status}', {_n(produced)}, {_n(penalty)}, {_n(expected)},"
+        " 'invoice_publish') ON CONFLICT (plant_key, ref_month) DO UPDATE"
+        " SET billable_kwh = EXCLUDED.billable_kwh,"
+        " tariff_mxn = EXCLUDED.tariff_mxn,"
+        " amount_mxn = EXCLUDED.amount_mxn,"
+        " billing_kwh = EXCLUDED.billing_kwh,"
+        " delta_kwh = EXCLUDED.delta_kwh,"
+        " delta_pct = EXCLUDED.delta_pct,"
+        " check_status = EXCLUDED.check_status,"
+        " produced_kwh = EXCLUDED.produced_kwh,"
+        " penalty_kwh = EXCLUDED.penalty_kwh,"
+        " expected_kwh = COALESCE(EXCLUDED.expected_kwh, invoicing.expected_kwh),"
+        " source = EXCLUDED.source,"
+        " published_at = now();")
+
+
 def record_invoicing(ym, names, history):
     """Write the invoicing register rows for one month and return
     {factura_name: (kwh, mxn, status)} for the index.
@@ -93,14 +130,8 @@ def record_invoicing(ym, names, history):
     except Exception:                                  # noqa: BLE001
         pass
     if have_pg:
-        psql_exec("""CREATE TABLE IF NOT EXISTS invoicing (
-            plant_key text NOT NULL, ref_month date NOT NULL,
-            billable_kwh numeric(14,3), tariff_mxn numeric(10,4),
-            amount_mxn numeric(14,2), billing_kwh numeric(14,3),
-            delta_kwh numeric(14,3), delta_pct numeric(9,4),
-            check_status text NOT NULL, published_at timestamptz
-                NOT NULL DEFAULT now(),
-            PRIMARY KEY (plant_key, ref_month));""")
+        from argia.finance.invoicing_pg import ENSURE_SQL
+        psql_exec(ENSURE_SQL)          # v192: + produced/penalty/expected
         closing = {r[0]: float(r[1]) for r in psql_rows(
             "SELECT plant_key, billing_kwh FROM reconciliation_monthly"
             f" WHERE ref_month = DATE '{ym}-01'"
@@ -131,25 +162,8 @@ def record_invoicing(ym, names, history):
         if not have_pg:
             continue
         tariff = tariffs.get(pk)
-        psql_exec(
-            "INSERT INTO invoicing (plant_key, ref_month, billable_kwh,"
-            " tariff_mxn, amount_mxn, billing_kwh, delta_kwh, delta_pct,"
-            " check_status) VALUES ("
-            f"'{pk}', DATE '{ym}-01', {kwh:.3f},"
-            f" {tariff if tariff is not None else 'NULL'},"
-            f" {round(amount, 2) if amount is not None else 'NULL'},"
-            f" {billing if billing is not None else 'NULL'},"
-            f" {dk if dk is not None else 'NULL'},"
-            f" {dp if dp is not None else 'NULL'},"
-            f" '{status}') ON CONFLICT (plant_key, ref_month) DO UPDATE"
-            " SET billable_kwh = EXCLUDED.billable_kwh,"
-            " tariff_mxn = EXCLUDED.tariff_mxn,"
-            " amount_mxn = EXCLUDED.amount_mxn,"
-            " billing_kwh = EXCLUDED.billing_kwh,"
-            " delta_kwh = EXCLUDED.delta_kwh,"
-            " delta_pct = EXCLUDED.delta_pct,"
-            " check_status = EXCLUDED.check_status,"
-            " published_at = now();")
+        psql_exec(register_upsert_sql(pk, ym, h, kwh, amount, tariff,
+                                      billing, dk, dp, status))
     return rows
 
 
@@ -165,7 +179,8 @@ def all_records():
         by_pk = {v[0]: k for k, v in FACTURA_CLIENT.items()}
         for r in psql_rows(
                 "SELECT plant_key, to_char(ref_month, 'YYYY-MM'),"
-                " billable_kwh, amount_mxn, check_status FROM invoicing;"):
+                " billable_kwh, amount_mxn, check_status FROM invoicing"
+                " WHERE billable_kwh IS NOT NULL;"):   # v192: not EXPECTED_ONLY
             if len(r) < 5 or r[0] not in by_pk:
                 continue
             out.setdefault(r[1], {})[by_pk[r[0]]] = (

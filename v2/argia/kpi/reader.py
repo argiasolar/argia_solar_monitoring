@@ -288,8 +288,17 @@ def read_day_bundle(
     Uses the live Telemetry_Argia tab. Stage 7.3 will extend this to
     read from an archive tab for past dates.
     """
+    # v189: ARGIA_TELEMETRY_SOURCE=pg reads the same grid from the
+    # `telemetry` table (argia.telemetry.pg_source); the parsers below
+    # are untouched, so the two sources are comparable row for row.
+    from argia.telemetry import pg_source
+    src = pg_source.source()
     try:
-        raw_rows = sheets.read_range(tab_name, "A1:P")
+        if src == "pg":
+            raw_rows = pg_source.read_grid(date_iso=date_iso)
+            tab_name = "telemetry(pg)"
+        else:
+            raw_rows = sheets.read_range(tab_name, "A1:P")
     except Exception as e:
         LOG.warning("Could not read %s: %s — returning empty DayBundle", tab_name, e)
         return DayBundle(date_iso=date_iso)

@@ -67,6 +67,7 @@ logging.basicConfig(
 log = logging.getLogger("argia.alerts_snapshot")
 
 TAIL_ROWS = 600
+TAIL_HOURS_PG = 3      # v189: PG equivalent of the 600-row sheet tail
 """How many trailing telemetry rows to read. The tab is append-ordered, so
 the tail IS the newest data. 600 rows spans ~2 days at today's GitHub
 cadence and ~4-5 h at the Pi's future 10-min cadence — far more than the
@@ -87,8 +88,20 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     ``evaluate_acute``; tail_span_hours = coverage of the tail, used to
     report plants entirely absent from it.
     """
-    header = [normalize_text(h) for h in
-              (sheets.read_range(TELEMETRY_TAB, "A1:ZZ1") or [[]])[0]]
+    from argia.telemetry import pg_source
+    if pg_source.source() == "pg":
+        # v189: the same tail out of PostgreSQL — TAIL_ROWS at ~23 rows
+        # per 5-min tick is ~2 h, so take the last 3 h to be safe
+        since = dt.datetime.now(UTC) - dt.timedelta(hours=TAIL_HOURS_PG)
+        grid = pg_source.read_grid(since_utc=since)
+        header = [normalize_text(h) for h in grid[0]]
+        data = grid[1:]
+        n_rows, start = len(grid), 2
+    else:
+        header, data, n_rows, start = None, None, None, None
+    if header is None:
+        header = [normalize_text(h) for h in
+                  (sheets.read_range(TELEMETRY_TAB, "A1:ZZ1") or [[]])[0]]
     need = ("timestamp_utc", "plant_key", "inverter_sn", "power_w",
             "temperature_c", "status", "fault_code")
     if not all(n in header for n in need):
@@ -97,9 +110,10 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     end_col_i = max(idx.values())
     end_col = chr(ord("A") + end_col_i) if end_col_i < 26 else "A" + chr(ord("A") + end_col_i - 26)
 
-    n_rows = len(sheets.read_range(TELEMETRY_TAB, "A:A"))
-    start = max(2, n_rows - tail_rows + 1)
-    data = sheets.read_range(TELEMETRY_TAB, f"A{start}:{end_col}{n_rows}")
+    if data is None:
+        n_rows = len(sheets.read_range(TELEMETRY_TAB, "A:A"))
+        start = max(2, n_rows - tail_rows + 1)
+        data = sheets.read_range(TELEMETRY_TAB, f"A{start}:{end_col}{n_rows}")
 
     samples = []
     for row in data:

@@ -149,7 +149,14 @@ def run(client: SheetsClient, *, window: int, apply: bool,
     ratings = D.parse_inverter_ratings(inverter_rows)
     kpi_by_day = kpi_expected_map(client.read_table("KPI_Daily", "A1:V"))
 
-    tele = client.read_table("Telemetry_Argia", "A1:Z")
+    from argia.telemetry import pg_source
+    if pg_source.source() == "pg":
+        # v189: the rolling window straight from PostgreSQL
+        since = dt.datetime.combine(min(days), dt.time(0, 0),
+                                    tzinfo=MX_TZ).astimezone(dt.timezone.utc)
+        tele = pg_source.read_records(since_utc=since)
+    else:
+        tele = client.read_table("Telemetry_Argia", "A1:Z")
     for r in tele:
         r["timestamp_mx"] = coerce_ts(r.get("timestamp_mx"))
     samples = D.parse_samples(tele)

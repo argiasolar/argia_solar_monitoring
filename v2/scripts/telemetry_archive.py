@@ -157,6 +157,62 @@ def process_tab(sheets, drive, folders, tab, plant, stamped, keep_from,
     return plan.n_prune, plan.n_prune
 
 
+# ---------------------------------------------------------------- v189
+# PG -> Drive export. With ARGIA_TELEMETRY_SOURCE=pg the sheet is no
+# longer the thing being archived: the `telemetry` table is the record and
+# Drive keeps the human-readable daily CSVs it always did — same folders
+# (Telemetry_Archive/<plant>/<YYYY-MM>), same names
+# (telemetry_<plant>_<date>.csv), 16 ARGIA_SCHEMA columns. Idempotent: a
+# day already on Drive is skipped. Nothing is ever deleted.
+
+def export_days_pg(drive, folders, plants, dates, apply, log=LOG):
+    """Export each (plant, MX date) from PostgreSQL to Drive.
+    Returns (files_written, files_skipped_existing)."""
+    from argia.telemetry import pg_source
+    written = skipped = 0
+    for day in dates:
+        grid = pg_source.read_grid(date_iso=day)
+        header, rows = grid[0], grid[1:]
+        by_plant = {}
+        for r in rows:
+            by_plant.setdefault(str(r[3]), []).append(r)      # plant_key col
+        for pk in plants:
+            day_rows = by_plant.get(pk, [])
+            if not day_rows:
+                continue
+            name = "telemetry_%s_%s.csv" % (pk.lower(), day)
+            if not apply:
+                log.info("[%s] would export %d row(s) -> %s",
+                         pk, len(day_rows), name)
+                continue
+            folder = folders.month_folder(pk, day[:7])
+            if drive.find_file(folder, name) is not None:
+                skipped += 1
+                continue
+            with tempfile.NamedTemporaryFile(
+                    "w", suffix=".csv", delete=False, encoding="utf-8") as fh:
+                fh.write(rows_to_csv(header, day_rows))
+                tmp = fh.name
+            drive.upload_file(folder, name, tmp, "text/csv")
+            os.unlink(tmp)
+            if drive.find_file(folder, name) is None:
+                raise RuntimeError("post-upload verify failed for %s" % name)
+            log.info("[%s] exported %d row(s) -> %s", pk, len(day_rows), name)
+            written += 1
+    return written, skipped
+
+
+def export_dates(today_mx, window_days: int, explicit: str | None) -> list:
+    """Which MX dates to export: one explicit date, or every complete day
+    inside the window (yesterday back to today-window). Pure."""
+    import datetime as _dt
+    if explicit:
+        _dt.date.fromisoformat(explicit)
+        return [explicit]
+    return [(today_mx - _dt.timedelta(days=i)).isoformat()
+            for i in range(1, window_days + 1)]
+
+
 def _setup_logging(level="INFO"):
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -178,9 +234,19 @@ def main(argv=None) -> int:
                         "before deletion. Exists for the cell-limit deadlock: a "
                         "full workbook makes days stamp partial, and partial "
                         "days block pruning (live incident 2026-08-18..26).")
+    p.add_argument("--source", choices=["sheet", "pg"], default=None,
+                   help="v189: 'pg' exports from PostgreSQL to Drive and "
+                        "touches no sheet; default from "
+                        "ARGIA_TELEMETRY_SOURCE")
+    p.add_argument("--date", default=None,
+                   help="pg mode: export this one MX date only")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
     _setup_logging(args.log_level)
+
+    from argia.telemetry import pg_source
+    if (args.source or pg_source.source()) == "pg":
+        return main_pg(args)
 
     sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
     if not sheet_id:
@@ -235,6 +301,36 @@ def main(argv=None) -> int:
              tot_arch, "archived" if args.apply else "to archive", tot_del)
     if not args.apply:
         LOG.info("Dry run — re-run with --apply to archive and prune.")
+    return 0
+
+
+def main_pg(args) -> int:
+    """v189 path: PG -> Drive daily CSVs. Plants come from the portfolio
+    (still the sheet until Phase 5 — read-only here)."""
+    base_folder = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
+    if args.apply and not base_folder:
+        LOG.error("GOOGLE_ARCHIVE_FOLDER_ID not set (needed to export)")
+        return 3
+    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
+    try:
+        portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
+        plants = [args.plant.upper()] if args.plant else \
+            sorted(pk for pk in portfolio.plants)
+    except Exception as e:  # noqa: BLE001
+        LOG.error("bootstrap failed: %s", e)
+        return 3
+    drive = folders = None
+    if args.apply:
+        from argia.core.drive import DriveClient
+        drive = DriveClient()
+        folders = _FolderCache(drive, base_folder)
+    dates = export_dates(now_mx().date(), args.window_days, args.date)
+    LOG.info("=== telemetry export PG->Drive [%s] %d day(s) %s..%s, "
+             "%d plant(s) ===", "APPLY" if args.apply else "DRY RUN",
+             len(dates), dates[-1], dates[0], len(plants))
+    w, sk = export_days_pg(drive, folders, plants, dates, args.apply)
+    LOG.info("Summary: %d file(s) written, %d already on Drive, "
+             "0 deleted (export never deletes)", w, sk)
     return 0
 
 

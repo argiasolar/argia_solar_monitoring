@@ -1057,12 +1057,30 @@ def main(argv=None) -> int:
 
     # ----- Write the aggregated Argia tab in one batch -----
     if all_common:
-        # server-only PostgreSQL mirror (ARGIA_PG_MIRROR=1); never fatal
+        # PostgreSQL first. While the sheet is still written this is a
+        # mirror and never fatal; once ARGIA_SHEET_TELEMETRY=0 (v189) PG
+        # IS the record and a failed write is a failed run.
+        from argia.telemetry.pg_source import sheet_write_enabled
+        sheet_on = sheet_write_enabled()
+        pg_rows = 0
         try:
             from argia.store.pg_mirror import mirror_common_rows
-            mirror_common_rows(all_common, dry_run=args.dry_run, log=log)
+            pg_rows = mirror_common_rows(all_common, dry_run=args.dry_run,
+                                         log=log)
         except Exception as e:  # noqa: BLE001
-            log.warning("PG mirror failed (sheets unaffected): %s", e)
+            if sheet_on:
+                log.warning("PG mirror failed (sheets unaffected): %s", e)
+            else:
+                log.error("PostgreSQL telemetry write FAILED and the sheet "
+                          "is off — %d rows not stored: %s",
+                          len(all_common), e)
+                total_errors += 1
+        if not sheet_on and pg_rows == 0 and not args.dry_run:
+            log.error("no telemetry sink: sheet off and PG mirror not "
+                      "enabled (ARGIA_PG_MIRROR) — %d rows not stored",
+                      len(all_common))
+            total_errors += 1
+    if all_common and sheet_on:
         try:
             ensure_telemetry_tab(sheets, ARGIA_TAB_NAME, ARGIA_SCHEMA)
             stats = write_telemetry_rows(

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import fields, is_dataclass
 from typing import Any, Dict, List, Tuple
@@ -97,12 +98,28 @@ def render(name: str, rep: Dict, allow_only_pg: bool = False) -> str:
     return "\n".join(L)
 
 
+_LOAN_ID = re.compile(r"\b[A-Z]{2,6}\d{0,2}-L\d+\b")
+
+
+def loan_ids_in_text(text: str) -> set:
+    """Loan ids named in a free-text audit detail, e.g. the deleted
+    SLP1-L2 in 'SLP1-L2 test loan deleted; ... SLP1-L3 loaded'. PURE."""
+    return set(_LOAN_ID.findall(text or ""))
+
+
 def audited_loan_ids() -> frozenset:
-    """loan_ids touched through /setup/finance (finance_audit). Server-only."""
+    """loan_ids touched through /setup/finance: the audit row's loan_id
+    plus every loan id its detail names (a deleted loan only survives in
+    the text). Server-only."""
     from argia.store.pgq import psql_rows
-    return frozenset(r[0] for r in psql_rows(
-        "SELECT DISTINCT loan_id FROM finance_audit WHERE loan_id IS NOT NULL"
-        " AND loan_id <> '';") if r and r[0])
+    ids = set()
+    for r in psql_rows("SELECT coalesce(loan_id,''), coalesce(detail,'')"
+                       " FROM finance_audit;"):
+        if r and r[0]:
+            ids.add(r[0])
+        if len(r) > 1:
+            ids |= loan_ids_in_text(r[1])
+    return frozenset(ids)
 
 
 def loan_expected(audited) -> Any:

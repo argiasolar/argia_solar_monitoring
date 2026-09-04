@@ -107,6 +107,14 @@ class TestSameParserSameResult:
         nl2 = rows[0]
         assert nl2.is_usd and nl2.total_installments == 60 and nl2.plant_key == "NL2"
 
+    def test_design_blank_rows_are_not_malformed(self, caplog):
+        import logging
+        g = [P.DESIGN_HEADER, ["GTO1", 2026, 1, ""], ["GTO1", 2026, 2], ["GTO1", 2026, 3, 5],
+             ["GTO1", 2026, "x", 7]]
+        with caplog.at_level(logging.WARNING):
+            assert parse_design_grid(g, "t") == {("GTO1", 2026, 3): 5.0}
+        assert "skipped 1 malformed" in caplog.text        # only the 'x' month
+
     def test_design_from_contract_monthly(self):
         g = P.csv_to_grid("plant_key,year,month,design_kwh\nGTO1,2026,1,101234.500\n",
                           P.DESIGN_HEADER)
@@ -277,3 +285,10 @@ class TestParityAuthority:
         src = (V2 / "scripts" / "finance_parity.py").read_text(encoding="utf-8")
         assert 'sheets.read_range("Contract_Monthly", "A1:D")' in src
         assert "not read by any job" in src
+
+    def test_deleted_loans_are_found_in_the_audit_detail_text(self, cmp):
+        detail = ("SLP1-L2 test loan deleted; real OLIVA HERMANOS credit 17257769 "
+                  "loaded (installments 14-84, bank report 01/09/26)")
+        assert cmp.loan_ids_in_text(detail) == {"SLP1-L2"}
+        assert cmp.loan_ids_in_text("GTO1: O&M set to 3,000.00 MXN/month") == set()
+        assert cmp.loan_ids_in_text("NL2-L1 and LGTO1-L2") == {"NL2-L1", "LGTO1-L2"}

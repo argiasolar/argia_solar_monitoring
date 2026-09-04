@@ -61,7 +61,15 @@ def parse_design_grid(data, used=None) -> DesignMap:
 
     out: DesignMap = {}
     bad = 0
+    blank = 0
     for row in data[1:]:
+        # Contract_Monthly carries design_kwh on a minority of its rows
+        # (the PPA horizon rows have none) — a blank is "no design", not a
+        # malformed row (v191.1: it used to log 1,163 'malformed' rows).
+        i = idx["design_kwh"]
+        if i >= len(row) or row[i] is None or str(row[i]).strip() == "":
+            blank += 1
+            continue
         try:
             pk = str(row[idx["plant_key"]]).strip().upper()
             year = int(float(row[idx["year"]]))
@@ -75,8 +83,8 @@ def parse_design_grid(data, used=None) -> DesignMap:
             bad += 1
     if bad:
         LOG.warning("%s: skipped %d malformed row(s)", used, bad)
-    LOG.info("Design baseline loaded: %d plant-month(s) from %s",
-             len(out), used)
+    LOG.info("Design baseline loaded: %d plant-month(s) from %s (%d rows "
+             "without design_kwh)", len(out), used, blank)
     return out
 
 

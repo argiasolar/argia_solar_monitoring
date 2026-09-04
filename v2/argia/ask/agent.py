@@ -56,21 +56,25 @@ matters. daily_production is stamped once a day by the KPI job; telemetry is \
 evidence that supports it. Under 120 words unless the user asks for detail. \
 At most one small pipe table when comparing several plants. No headings, no \
 emojis, no bullet lists of everything you saw.
-6. LANGUAGE: answer in English. Answer in Spanish only when the question \
-itself is written in Spanish.
+6. LANGUAGE: answer in {language}, whatever language the question is in.
 7. Do not list sources yourself — the interface shows the tool results you used.
 8. This is phase 0: read-only. If asked to change, create or send anything, \
 say it is not available yet."""
 
 
+LANGUAGES = {"en": "English", "es": "Spanish"}
+
+
 def build_system(rows: Callable[[str], List[List[str]]],
-                 today: Optional[dt.date] = None) -> str:
+                 today: Optional[dt.date] = None, lang: str = "en") -> str:
     today = today or dt.datetime.now(MX).date()
+    language = LANGUAGES.get((lang or "en").lower(), "English")
     vocab = "\n".join(
         f"  {p['name']} = {k} ({p['brand']}, {p['kwp_dc']:g} kWp, "
         f"{p['portfolio'] or 'n/a'}{'' if p['active'] else ', INACTIVE'})"
         for k, p in plants(rows).items())
-    return SYSTEM_TEMPLATE.format(today=today.isoformat(), vocab=vocab)
+    return SYSTEM_TEMPLATE.format(today=today.isoformat(), vocab=vocab,
+                                  language=language)
 
 
 # ------------------------------------------------------------------ client
@@ -162,7 +166,7 @@ class Answer:
 
 def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
         history: Optional[List[dict]] = None, max_turns: int = MAX_TURNS,
-        system: Optional[str] = None) -> Answer:
+        system: Optional[str] = None, lang: str = "en") -> Answer:
     """Run the question to a final text answer.
 
     ``history`` is prior turns as ``[{"role": "user"|"assistant",
@@ -171,7 +175,7 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
     """
     t0 = time.monotonic()
     ans = Answer(question=question, model=getattr(llm, "model", ""))
-    system = system or build_system(rows)
+    system = system or build_system(rows, lang=lang)
     messages: List[dict] = [m for m in (history or [])
                             if m.get("role") in ("user", "assistant")
                             and isinstance(m.get("content"), str) and m["content"]]

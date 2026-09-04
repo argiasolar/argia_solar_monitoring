@@ -164,6 +164,31 @@ def test_landing_page_card_is_hidden_until_ask_me_allows():
 
 def test_system_prompt_language_and_brevity_rules():
     from argia.ask import agent as A
-    assert "answer in English" in A.SYSTEM_TEMPLATE
+    assert "answer in {language}" in A.SYSTEM_TEMPLATE
+    assert "answer in Spanish" in A.build_system(FakeDB(dict(BASE)), lang="es")
     assert "Under 120 words" in A.SYSTEM_TEMPLATE
     assert "No headings, no" in A.SYSTEM_TEMPLATE
+
+
+class TestLanguage:
+    def test_lang_reaches_the_system_prompt_and_the_response(self, app):
+        llm = ScriptedLLM([final("Taigene fue la peor.")])
+        app.app.config["LLM"] = llm
+        r = app.app.test_client().post("/ask/api", json={"question": "worst?", "lang": "es"},
+                                       headers=hdr("tomasz"))
+        assert r.get_json()["lang"] == "es"
+        assert "answer in Spanish" in llm.requests[0]["system"]
+
+    def test_unknown_lang_falls_back_to_english(self, app):
+        llm = ScriptedLLM([final("ok")])
+        app.app.config["LLM"] = llm
+        r = app.app.test_client().post("/ask/api", json={"question": "q", "lang": "de"},
+                                       headers=hdr("tomasz"))
+        assert r.get_json()["lang"] == "en"
+        assert "answer in English" in llm.requests[0]["system"]
+
+    def test_page_has_both_languages_and_no_mixed_chips(self, app):
+        html = app.app.test_client().get("/ask/", headers=hdr("tomasz")).get_data(as_text=True)
+        assert 'data-l="en"' in html and 'data-l="es"' in html
+        assert "¿Qué alarmas hay activas ahora?" in html and "Which alarms are active now?" in html
+        assert "localStorage.getItem('argia_lang')" in html     # shared with the reports site

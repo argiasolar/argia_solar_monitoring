@@ -3,6 +3,7 @@
 Options:
   --user NAME     who is asking (goes to ask_log; default $USER)
   --model ID      Anthropic model id (default: ARGIA_ASK_MODEL or claude-sonnet-5)
+  --lang en|es    answer language (default en)
   --tool NAME [--arg k=v ...]
                   run ONE tool directly, no model — prints its JSON. Use it
                   to check what the assistant would see: the numbers come
@@ -31,6 +32,7 @@ def main(argv=None) -> int:
     ap.add_argument("--model", default=agent.DEFAULT_MODEL)
     ap.add_argument("--tool", choices=sorted(tools.DISPATCH))
     ap.add_argument("--arg", action="append", default=[], metavar="k=v")
+    ap.add_argument("--lang", choices=["en", "es"], default="en")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-log", action="store_true")
     a = ap.parse_args(argv)
@@ -44,7 +46,7 @@ def main(argv=None) -> int:
         ap.error("a question (or --tool) is required")
 
     llm = agent.AnthropicLLM(agent.load_api_key(), model=a.model)
-    ans = agent.ask(a.question, pgq.psql_rows, llm)
+    ans = agent.ask(a.question, pgq.psql_rows, llm, lang=a.lang)
     if not a.no_log:
         try:
             agent.log_answer(pgq.psql_exec, a.user, ans)

@@ -17,7 +17,8 @@ to ask_log in PostgreSQL with the tools that produced it.
 
 Routes:
   GET  /ask/       the chat page
-  POST /ask/api    {"question": str, "history": [{"role","content"}]}
+  POST /ask/api    {"question": str, "lang": "en"|"es",
+                    "history": [{"role","content"}]}
                    -> {"answer", "tool_calls", "model", ...}
   GET  /ask/me     {"allowed": bool} for the signed-in user — the
                    landing page uses it to show the card only to
@@ -90,6 +91,9 @@ body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#f6f7f8;col
 header{display:flex;align-items:center;gap:14px;padding:12px 20px;background:#fff;border-bottom:1px solid #e0e3e7}
 header img{height:28px}header .t{font-weight:600}header .who{margin-left:auto;font-size:13px;color:#667}
 header a{color:#1c2733;font-size:13px;margin-left:14px}
+.lang{margin-left:14px;display:inline-flex;border:1px solid #c9ced4;border-radius:8px;overflow:hidden}
+.lang button{background:#fff;color:#1c2733;border:0;border-radius:0;padding:3px 9px;font-size:12px;cursor:pointer}
+.lang button.on{background:#1c2733;color:#fff}
 main{max-width:900px;margin:0 auto;padding:18px 16px 120px}
 .msg{margin:12px 0;padding:12px 14px;border-radius:12px;line-height:1.45;white-space:pre-wrap}
 .a p{margin:0 0 8px}.a p:last-child{margin:0}.a table.md{display:table;white-space:normal;font-size:13px}
@@ -113,16 +117,25 @@ button:disabled{opacity:.5}
 .chips span{background:#fff;border:1px solid #c9ced4;border-radius:14px;padding:4px 10px;font-size:13px;cursor:pointer}
 </style></head><body>
 <header>__LOGO__<span class="t">Ask ARGIA</span><span style="font-size:12px;color:#889;border:1px solid #c9ced4;border-radius:10px;padding:1px 7px">phase 0 · read-only</span>
-<span class="who">__USER__</span><a href="/monitoring/">Monitoring</a><a href="/">Reports</a></header>
+<span class="who">__USER__</span><span class="lang"><button type="button" data-l="en" onclick="setLang('en')">EN</button><button type="button" data-l="es" onclick="setLang('es')">ES</button></span><a href="/monitoring/" data-en="Monitoring" data-es="Monitoreo">Monitoring</a><a href="/" data-en="Reports" data-es="Reportes">Reports</a></header>
 <main id="log">
-<div class="a msg">Ask about the fleet — production, expected, PR, availability, inverters, alarms, lost energy. Every figure comes from the monitoring database; the tool results are shown under each answer so you can check them. Follow-ups ("why?", "and in July?") keep the context.
+<div class="a msg"><span data-en="Ask about the fleet — production, expected, PR, availability, inverters, alarms, lost energy. Every figure comes from the monitoring database; the tool results are shown under each answer so you can check them. Follow-ups (&quot;why?&quot;, &quot;and in July?&quot;) keep the context." data-es="Pregunta sobre la flota — producción, esperado, PR, disponibilidad, inversores, alarmas, energía perdida. Cada cifra viene de la base de datos de monitoreo; los resultados de las herramientas se muestran bajo cada respuesta para que puedas verificarlos. Las preguntas de seguimiento (&quot;¿por qué?&quot;, &quot;¿y en julio?&quot;) mantienen el contexto.">Ask about the fleet.</span>
 <div class="chips" id="chips"></div></div>
 </main>
-<form id="f"><div class="row"><input id="q" autocomplete="off" placeholder="e.g. Why did Taigene produce less yesterday?" maxlength="__MAXQ__"><button id="b">Ask</button></div>
-<div class="hint">Model: __MODEL__ · answers are logged</div></form>
+<form id="f"><div class="row"><input id="q" autocomplete="off" placeholder="e.g. Why did Taigene produce less yesterday?" data-ph-en="e.g. Why did Taigene produce less yesterday?" data-ph-es="p. ej. ¿Por qué Taigene produjo menos ayer?" maxlength="__MAXQ__"><button id="b" data-en="Ask" data-es="Preguntar">Ask</button></div>
+<div class="hint"><span data-en="Model" data-es="Modelo">Model</span>: __MODEL__ · <span data-en="answers are logged" data-es="las respuestas se registran">answers are logged</span></div></form>
 <script>
-const EX=["Anything I should worry about today?","Why did Taigene produce less yesterday?","Which plant performed worst last month?","¿Qué alarmas hay activas ahora?","How much did Vitalmex's shortfall cost in August?","Compare August with July for the PPA plants"];
-const chips=document.getElementById('chips');EX.forEach(t=>{const s=document.createElement('span');s.textContent=t;s.onclick=()=>{q.value=t;f.requestSubmit();};chips.appendChild(s);});
+const EX={en:["Anything I should worry about today?","Why did Taigene produce less yesterday?","Which plant performed worst last month?","Which alarms are active now?","How much did Vitalmex's shortfall cost in August?","Compare August with July for the PPA plants"],
+ es:["¿Hay algo de qué preocuparse hoy?","¿Por qué Taigene produjo menos ayer?","¿Qué planta rindió peor el mes pasado?","¿Qué alarmas hay activas ahora?","¿Cuánto costó el déficit de Vitalmex en agosto?","Compara agosto con julio para las plantas PPA"]};
+let LANG='en';try{LANG=(localStorage.getItem('argia_lang')==='es')?'es':'en';}catch(e){}
+function setLang(l){LANG=l;try{localStorage.setItem('argia_lang',l);}catch(e){}
+ document.documentElement.lang=l;
+ document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
+ document.querySelectorAll('.lang button').forEach(b=>b.classList.toggle('on',b.dataset.l===l));
+ const inp=document.getElementById('q');inp.placeholder=inp.dataset['ph'+(l==='es'?'Es':'En')];
+ const chips=document.getElementById('chips');chips.innerHTML='';
+ EX[l].forEach(t=>{const s=document.createElement('span');s.textContent=t;s.onclick=()=>{q.value=t;f.requestSubmit();};chips.appendChild(s);});}
+setLang(LANG);
 const log=document.getElementById('log'),f=document.getElementById('f'),q=document.getElementById('q'),b=document.getElementById('b');
 let history=[];
 function el(cls,txt){const d=document.createElement('div');d.className='msg '+cls;d.textContent=txt;log.appendChild(d);window.scrollTo(0,document.body.scrollHeight);return d;}
@@ -151,7 +164,7 @@ function render(call){const d=document.createElement('details');const args=Objec
  const rest={};for(const k in r)if(!Array.isArray(r[k])||!r[k].length||typeof r[k][0]!=='object')rest[k]=r[k];
  const p=document.createElement('pre');p.textContent=JSON.stringify(rest,null,1);d.appendChild(p);return d;}
 f.onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text)return;el('q',text);q.value='';b.disabled=true;const wait=el('a','…');
- try{const res=await fetch('/ask/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,history})});
+ try{const res=await fetch('/ask/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,history,lang:LANG})});
   const j=await res.json();wait.remove();
   if(!res.ok||j.error){el('a err',(j.error||('HTTP '+res.status))+(j.answer?'\\n'+j.answer:''));}
   else{const d=el('a','');d.innerHTML=md(j.answer||'(no answer)');const src=document.createElement('div');src.className='src';
@@ -213,13 +226,16 @@ def api():
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 503
     rows = app.config.get('ROWS') or pgq.psql_rows
-    ans = agent.ask(question, rows, llm, history=history)
+    lang = str(body.get('lang') or 'en').lower()
+    lang = lang if lang in agent.LANGUAGES else 'en'
+    ans = agent.ask(question, rows, llm, history=history, lang=lang)
     try:
         agent.log_answer(app.config.get('EXEC') or pgq.psql_exec, user, ans)
     except Exception as e:                           # noqa: BLE001
         app.logger.warning('ask_log not written: %s', e)
     out = ans.as_dict()
     out['user'] = user
+    out['lang'] = lang
     return jsonify(out), (200 if not ans.error else 502)
 
 

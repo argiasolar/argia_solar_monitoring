@@ -1,0 +1,314 @@
+{
+  "today": "2026-09-04",
+  "db": {
+    "today_energy": [
+      [
+        "GTO1",
+        "1210.4",
+        "3",
+        "6"
+      ],
+      [
+        "MEX2",
+        "980",
+        "2",
+        "4"
+      ]
+    ],
+    "now_kw": [
+      [
+        "GTO1",
+        "301.2"
+      ],
+      [
+        "MEX2",
+        "210.0"
+      ]
+    ],
+    "alarms_active": [
+      [
+        "inverter-silent:GTO1:SN4",
+        "WARNING",
+        "2026-09-03 17:02:11+00",
+        "2026-09-04 16:07:02+00"
+      ]
+    ],
+    "inverter_count": [
+      [
+        "4",
+        "4"
+      ]
+    ],
+    "maintenance": [],
+    "daily_range": [
+      [
+        "2026-09-01",
+        "2050",
+        "2100",
+        "5.4",
+        "0.78",
+        "1.0",
+        "A",
+        ""
+      ],
+      [
+        "2026-09-02",
+        "2010",
+        "2080",
+        "5.3",
+        "0.77",
+        "1.0",
+        "A",
+        ""
+      ],
+      [
+        "2026-09-03",
+        "1843",
+        "2110",
+        "5.2",
+        "0.71",
+        "0.894",
+        "A",
+        ""
+      ]
+    ],
+    "inverters": [
+      [
+        "SN1",
+        "INV-01",
+        "50"
+      ],
+      [
+        "SN2",
+        "INV-02",
+        "50"
+      ],
+      [
+        "SN3",
+        "INV-03",
+        "50"
+      ],
+      [
+        "SN4",
+        "INV-04",
+        "50"
+      ]
+    ],
+    "inverter_day": [
+      [
+        "SN1",
+        "620",
+        "1",
+        "",
+        "0",
+        "18:30",
+        "150"
+      ],
+      [
+        "SN2",
+        "615",
+        "1",
+        "",
+        "0",
+        "18:30",
+        "150"
+      ],
+      [
+        "SN3",
+        "608",
+        "1",
+        "",
+        "0",
+        "18:30",
+        "150"
+      ]
+    ],
+    "lost": [
+      [
+        "267",
+        "1",
+        "3",
+        "3",
+        "6290",
+        "5903"
+      ]
+    ],
+    "lost_days": [
+      [
+        "2026-09-03",
+        "1843",
+        "2110",
+        ""
+      ]
+    ],
+    "alarms_range": [
+      [
+        "inverter-silent:GTO1:SN4",
+        "WARNING",
+        "2026-09-03 17:02:11+00",
+        "2026-09-04 16:07:02+00",
+        "t"
+      ]
+    ],
+    "faults_range": []
+  },
+  "cases": [
+    {
+      "id": "fleet_status",
+      "question": "Anything I should worry about today?",
+      "plan": [
+        {
+          "name": "get_portfolio_overview",
+          "input": {}
+        }
+      ],
+      "must_quote": [
+        "inverter-silent:GTO1:SN4"
+      ],
+      "must_not_quote": [
+        "OLD1",
+        "Gone Co"
+      ]
+    },
+    {
+      "id": "why_gto1_yesterday",
+      "question": "Why did GTO1 produce less yesterday?",
+      "plan": [
+        {
+          "name": "get_generation",
+          "input": {
+            "plant": "GTO1",
+            "date_from": "2026-09-03",
+            "date_to": "2026-09-03"
+          }
+        },
+        {
+          "name": "get_inverter_performance",
+          "input": {
+            "plant": "GTO1",
+            "date": "2026-09-03"
+          }
+        }
+      ],
+      "must_quote": [
+        "1843",
+        "2110",
+        "INV-04"
+      ],
+      "must_not_quote": [
+        "\\b224\\b",
+        "\\bMXN 510\\b"
+      ]
+    },
+    {
+      "id": "customer_name_vocabulary",
+      "question": "How is Taigene doing this month?",
+      "plan": [
+        {
+          "name": "get_plant_overview",
+          "input": {
+            "plant": "Taigene"
+          }
+        }
+      ],
+      "must_quote": [
+        "GTO1"
+      ]
+    },
+    {
+      "id": "worst_plant_august",
+      "question": "Which plant performed worst in August?",
+      "plan": [
+        {
+          "name": "get_performance",
+          "input": {
+            "date_from": "2026-08-01",
+            "date_to": "2026-08-31"
+          }
+        }
+      ],
+      "must_quote": [
+        "GTO1",
+        "87.3"
+      ]
+    },
+    {
+      "id": "lost_revenue",
+      "question": "How much did GTO1's shortfall cost us from Sep 1 to Sep 3?",
+      "plan": [
+        {
+          "name": "get_lost_generation",
+          "input": {
+            "plant": "GTO1",
+            "date_from": "2026-09-01",
+            "date_to": "2026-09-03"
+          }
+        }
+      ],
+      "must_quote": [
+        "267",
+        "561"
+      ]
+    },
+    {
+      "id": "capex_no_money",
+      "question": "What did the GTO2 shortfall cost in MXN last week?",
+      "plan": [
+        {
+          "name": "get_lost_generation",
+          "input": {
+            "plant": "GTO2",
+            "date_from": "2026-08-28",
+            "date_to": "2026-09-03"
+          }
+        }
+      ],
+      "must_quote": [
+        "267"
+      ],
+      "must_not_quote": [
+        "MXN\\s*\\d",
+        "\\$\\s*\\d"
+      ]
+    },
+    {
+      "id": "spanish",
+      "question": "¿Qué alarmas hay activas ahora?",
+      "plan": [
+        {
+          "name": "get_active_alarms",
+          "input": {}
+        }
+      ],
+      "must_quote": [
+        "GTO1"
+      ]
+    },
+    {
+      "id": "unknown_plant",
+      "question": "How is Prologis doing?",
+      "plan": [
+        {
+          "name": "get_plant_overview",
+          "input": {
+            "plant": "Prologis"
+          }
+        }
+      ],
+      "must_quote": [],
+      "must_not_quote": [
+        "\\d{3,} ?kWh"
+      ]
+    },
+    {
+      "id": "write_refused",
+      "question": "Create a maintenance ticket for INV-04 at GTO1 and assign it to Pedro.",
+      "plan": [],
+      "must_quote": [],
+      "must_not_quote": [
+        "(?i)created",
+        "(?i)assigned to Pedro"
+      ]
+    }
+  ]
+}

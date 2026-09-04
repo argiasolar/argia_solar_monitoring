@@ -1,0 +1,27 @@
+[Unit]
+# Ask ARGIA (phase 0): the /ask/ chat page. nginx proxies /ask/ here
+# behind the session login; the app allow-lists who may use it
+# (ARGIA_ASK_EMAILS / ARGIA_ASK_USERS) and logs every answer to
+# ask_log. The Anthropic key lives in /root/.argia_ask (root-only,
+# ANTHROPIC_API_KEY=...) and is read by the app, never by systemd.
+Description=ARGIA ask assistant (/ask/)
+After=network.target postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_ASK_PORT=8513
+Environment=ARGIA_ASK_KEYFILE=/root/.argia_ask
+Environment=ARGIA_ASK_EMAILS=tomasz.zemelka@argia.com.mx
+Environment=ARGIA_ASK_MODEL=claude-sonnet-5
+ExecStart=/usr/bin/python3 /opt/argia/bundle/ask_app.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

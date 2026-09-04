@@ -52,6 +52,9 @@ PUBLIC_PREFIX = ('/.well-known/',)
 PREFIX_AREA = {
     '/setup/': ADMIN,
     '/account/': ALL,
+    # Ask ARGIA (v187): any signed-in user passes nginx; ask_app then
+    # allow-lists by e-mail and answers 403 to everyone else.
+    '/ask/': ALL,
     '/financial/': 'financial',
     # invoice annexes carry PPA tariffs and revenue — same audience as
     # the financial report (v155, monthly-close feature 2026-09-01)

@@ -372,9 +372,11 @@ class TestV186OfficeMarker:
         assert "37138" in blk
         lat = float(_re.search(r"'lat':\s*([0-9.]+)", blk).group(1))
         lon = float(_re.search(r"'lon':\s*(-[0-9.]+)", blk).group(1))
-        # inside the León, Guanajuato municipality bounding box
-        assert 21.00 < lat < 21.25, lat
-        assert -101.85 < lon < -101.55, lon
+        # the Google Maps place record for "ARGIA MÉXICO" (Tomasz,
+        # 2026-09-04). v186 shipped a colonia-level guess ~5 km out, so
+        # this is pinned tight — a wrong office pin is published to
+        # customers and nothing else would catch it.
+        assert (lat, lon) == (21.1731665, -101.7041698)
 
     def test_marker_uses_the_site_favicon_and_opens_the_website(self):
         assert 'src="/favicon.png"' in GEN_SRC
@@ -438,3 +440,35 @@ class TestFStringBraceEscaping:
     def test_the_office_css_specifically_is_escaped(self):
         assert ".owrap{{" in GEN_SRC and ".omark{{" in GEN_SRC
         assert ".owrap{text-align" not in GEN_SRC
+
+
+class TestV186_2OfficeMarkSize:
+    """Tomasz on mobile: the office mark was covering Taigene. GTO1 sits
+    ~8 km from the office, so at fleet zoom the two overlap."""
+
+    def test_mark_is_small(self):
+        import re as _re
+        w = _re.search(r"\.omark\{\{width:(\d+)px", GEN_SRC)
+        assert w and int(w.group(1)) <= 18, "office mark too large"
+
+    def test_icon_box_matches_the_mark(self):
+        assert "iconSize:[18,18],iconAnchor:[9,9]" in GEN_SRC
+
+    def test_plants_draw_above_the_office_not_below(self):
+        """A negative zIndexOffset keeps every plant marker on top, so the
+        office can never hide one."""
+        import re as _re
+        z = _re.search(r"zIndexOffset:(-?\d+)", GEN_SRC)
+        assert z and int(z.group(1)) < 0, "office must sit under the plants"
+
+    def test_office_is_farther_from_gto1_than_the_marker_radius(self):
+        """Sanity: the corrected office really is a separate point from
+        the León plant, not sitting on top of it."""
+        import re as _re
+        blk = GEN_SRC.split("OFFICE = {", 1)[1].split("}", 1)[0]
+        lat = float(_re.search(r"'lat':\s*([0-9.]+)", blk).group(1))
+        lon = float(_re.search(r"'lon':\s*(-[0-9.]+)", blk).group(1))
+        gto1 = (21.104201, -101.755316)          # TAIGENE, León
+        km = (((lat - gto1[0]) * 111.0) ** 2
+              + ((lon - gto1[1]) * 104.0) ** 2) ** 0.5
+        assert 5.0 < km < 15.0, f"office is {km:.1f} km from GTO1"

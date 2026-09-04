@@ -1197,13 +1197,11 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p></div
 # 'financial' in auth (it shows fleet-wide PPA revenue). Regenerates
 # with this script every 5 minutes, so "generating now" is real.
 
-# ARGIA Solar head office, León (v186, Tomasz). APPROXIMATE colonia-level
-# position — argia.com.mx publishes the address but no coordinates and the
-# geocoding APIs are not reachable from the build host, so this is an
-# estimate for Balcones del Campestre. Drop a pin in Google Maps and paste
-# the exact lat/lon here to correct it; nothing else needs to change.
+# ARGIA Solar head office, León. Coordinates are the Google Maps place
+# record for "ARGIA MÉXICO" (the !3d/!4d pair in its share URL), supplied
+# by Tomasz on 2026-09-04 — v186's colonia-level estimate was ~5 km off.
 OFFICE = {
-    'lat': 21.1283, 'lon': -101.6660,
+    'lat': 21.1731665, 'lon': -101.7041698,
     'name': 'ARGIA Solar',
     'lines': ['Provincias del Campestre 1904-4',
               'Balcones del Campestre',
@@ -1449,11 +1447,11 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 .lrow .lsub{{display:block;color:#8a94a1;font-size:11px}}
 .ldot{{width:14px;height:14px;border-radius:50%;border:3px solid;flex:none}}
 .owrap{{text-align:center;cursor:pointer}}
-.omark{{width:26px;height:26px;display:block;margin:0 auto;
- border-radius:7px;background:#fff;padding:2px;box-sizing:border-box;
- border:1.5px solid #16324f;box-shadow:0 1px 5px rgba(0,0,0,.35)}}
+.omark{{width:17px;height:17px;display:block;margin:0 auto;
+ border-radius:5px;background:#fff;padding:1.5px;box-sizing:border-box;
+ border:1px solid #16324f;box-shadow:0 1px 4px rgba(0,0,0,.3)}}
 .owrap:hover .omark{{border-color:#2b6cb0}}
-.olab{{margin-top:2px;font:600 10.5px/1.2 system-ui,sans-serif;
+.olab{{margin-top:1px;font:600 9px/1.2 system-ui,sans-serif;
  color:#16324f;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;
  white-space:nowrap}}
 .pwrap{{position:relative;cursor:pointer}}
@@ -1540,13 +1538,13 @@ var office=L.marker([OF.lat,OF.lon],{{
  icon:L.divIcon({{className:'',
   html:'<div class="owrap"><img class="omark" src="/favicon.png" alt="">'
    +'<div class="olab">'+OF.name+'</div></div>',
-  iconSize:[28,28],iconAnchor:[14,14]}}),
- zIndexOffset:1000,riseOnHover:true}}).addTo(map);
+  iconSize:[18,18],iconAnchor:[9,9]}}),
+ zIndexOffset:-500,riseOnHover:true}}).addTo(map);
 office.bindTooltip('<div class="ptip"><h3>'+OF.name+'</h3>'
  +'<div style="color:#5f6368;font-size:12px;line-height:1.5">'
  +OF.lines.join('<br>')+'</div>'
  +'<div class="go">argia.com.mx &rarr;</div></div>',
- {{direction:'top',offset:[0,-18],opacity:1}});
+ {{direction:'top',offset:[0,-12],opacity:1}});
 office.on('click',function(){{window.open(OF.url,'_blank','noopener');}});
 var HID={{}};try{{HID=JSON.parse(localStorage.getItem('argia_map_hide')||'{{}}');}}catch(e){{}}
 document.querySelectorAll('.ptog').forEach(function(cb){{

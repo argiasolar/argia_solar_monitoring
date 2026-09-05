@@ -26,8 +26,23 @@ from argia.core.cells import coerce_ts
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
+# v207.2: the Google client libraries are imported only when a real
+# SheetsClient is built. Production runs on NullSheets; the package must
+# not drag googleapiclient into every job that merely type-hints the
+# handle (68 modules import this one). The two names stay module-level
+# so tests can patch("argia.core.sheets.Credentials" / ".build").
+Credentials = None
+build = None
+
+
+def _load_google() -> None:
+    global Credentials, build
+    if Credentials is None:
+        from google.oauth2.service_account import Credentials as _Credentials
+        Credentials = _Credentials
+    if build is None:
+        from googleapiclient.discovery import build as _build
+        build = _build
 
 LOG = logging.getLogger("argia.core.sheets")
 
@@ -187,6 +202,7 @@ class SheetsClient:
             )
 
         info = json.loads(raw)
+        _load_google()
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         self._svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
 

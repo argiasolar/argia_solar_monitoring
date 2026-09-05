@@ -172,14 +172,10 @@ def build_fill_sql(table: str, header: List[str], existing: set,
 # ---------------------------------------------------------------- I/O
 
 def _fetch_csv(sql: str) -> str:
-    import subprocess
-    db = os.environ.get("ARGIA_PG_DB", "argia_mont")
-    r = subprocess.run(["runuser", "-u", "postgres", "--", "psql", "-d", db,
-                        "-v", "ON_ERROR_STOP=1", "--csv", "-c", sql],
-                       capture_output=True, text=True, timeout=120)
-    if r.returncode != 0:
-        raise RuntimeError("psql failed: %s" % r.stderr.strip()[:300])
-    return r.stdout
+    """v207.2: one psql wrapper (argia.store.pgq); the name stays as
+    the seam tests monkeypatch."""
+    from argia.store.pgq import psql_csv
+    return psql_csv(sql, timeout=120)
 
 
 def ensure() -> None:

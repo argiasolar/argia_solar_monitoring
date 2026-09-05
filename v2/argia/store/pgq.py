@@ -11,18 +11,35 @@ import os
 import subprocess
 from typing import List
 
-DB = os.environ.get("ARGIA_PG_DB", "argia_mont")
+DB_ENV = "ARGIA_PG_DB"
+DB_DEFAULT = "argia_mont"
 _TIMEOUT = 120
 
 
-def _run(sql: str, extra: List[str]) -> str:
+def db_name(env=None) -> str:
+    """The one place the database name is resolved (v207.2)."""
+    env = os.environ if env is None else env
+    return str(env.get(DB_ENV, DB_DEFAULT)).strip() or DB_DEFAULT
+
+
+# kept for callers that read the constant
+DB = db_name()
+
+
+def _run(sql: str, extra: List[str], timeout: int = _TIMEOUT) -> str:
     r = subprocess.run(
-        ["runuser", "-u", "postgres", "--", "psql", "-d", DB,
+        ["runuser", "-u", "postgres", "--", "psql", "-d", db_name(),
          "-v", "ON_ERROR_STOP=1", "-q"] + extra,
-        input=sql, capture_output=True, text=True, timeout=_TIMEOUT)
+        input=sql, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(f"psql failed: {r.stderr[-800:]}")
     return r.stdout
+
+
+def psql_csv(sql: str, timeout: int = _TIMEOUT) -> str:
+    """SELECT -> CSV text with a header row (what ``psql --csv`` prints).
+    v207.2: the single wrapper behind every door's ``_fetch_csv``."""
+    return _run("", ["--csv", "-c", sql], timeout=timeout)
 
 
 def psql_rows(sql: str) -> List[List[str]]:

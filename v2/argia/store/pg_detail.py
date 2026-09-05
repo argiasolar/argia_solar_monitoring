@@ -202,8 +202,12 @@ def read_string_flags(first_mx_date: str, last_mx_date: str) -> List[tuple]:
     for r in psql_rows(sql):
         if len(r) < 3 + len(STRING_FLAG_COLS):
             continue
+        raw = r[0].replace(" ", "T")
+        # psql prints "+00"; Python < 3.11 wants "+00:00"
+        if len(raw) >= 3 and raw[-3] in "+-" and raw[-2:].isdigit():
+            raw += ":00"
         try:
-            ts = _dt.datetime.fromisoformat(r[0].replace(" ", "T"))
+            ts = _dt.datetime.fromisoformat(raw)
         except ValueError:
             continue
         if ts.tzinfo is None:

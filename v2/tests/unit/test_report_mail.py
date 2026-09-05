@@ -33,6 +33,7 @@ class TestMail:
         assert s.endswith("Evening report")
 
     def test_fail_closed_without_subscribers(self, monkeypatch, tmp_path, caplog):
+        monkeypatch.setenv(RM.KINDS_ENV, "morning_yesterday")
         pdf = tmp_path / "r.pdf"; pdf.write_bytes(b"%PDF")
         monkeypatch.setattr(RM, "recipients", lambda: [])
         assert RM.send_report(str(pdf), "2026-09-04", "morning_yesterday") is False
@@ -40,6 +41,7 @@ class TestMail:
 
     def test_sends_pdf_attachment(self, monkeypatch, tmp_path):
         from argia.alerts import emailer
+        monkeypatch.setenv(RM.KINDS_ENV, "morning_yesterday")
         pdf = tmp_path / "ARGIA_Daily_2026-09-04.pdf"; pdf.write_bytes(b"%PDF-1.4 x")
         monkeypatch.setattr(RM, "recipients", lambda: ["t@x", "u@x"])
         monkeypatch.setattr(emailer, "load_smtp", lambda path=None: {"SMTP_HOST": "h", "SMTP_PORT": "25", "SMTP_USER": "svc@x"})
@@ -61,10 +63,11 @@ class TestMail:
             assert RM.send_report(str(pdf), "2026-09-04", "evening_today", dry_run=True) is True
         assert "[DRY RUN] would mail" in caplog.text
 
-    def test_evening_pdf_is_off_by_default(self, monkeypatch, tmp_path, caplog):
-        """v203: the 19:00 daily-performance mail replaces the evening PDF."""
+    def test_no_pdf_mails_by_default(self, monkeypatch, tmp_path, caplog):
+        """v204: Tomasz — 'we are still getting the old Daily Report, stop
+        sending it'. Both editions off unless ARGIA_REPORT_MAIL_KINDS says so."""
         monkeypatch.delenv(RM.KINDS_ENV, raising=False)
-        assert RM.kinds_enabled({}) == frozenset({"morning_yesterday"})
+        assert RM.kinds_enabled({}) == frozenset()
         assert RM.kinds_enabled({RM.KINDS_ENV: ""}) == frozenset()
         assert RM.kinds_enabled({RM.KINDS_ENV: "evening_today, morning_yesterday"}) == \
             frozenset({"morning_yesterday", "evening_today"})
@@ -73,6 +76,8 @@ class TestMail:
         with caplog.at_level(logging.INFO):
             assert RM.send_report(str(pdf), "2026-09-04", "evening_today", dry_run=True) is False
         assert "not in ARGIA_REPORT_MAIL_KINDS" in caplog.text
+        assert RM.send_report(str(pdf), "2026-09-04", "morning_yesterday", dry_run=True) is False
+        monkeypatch.setenv(RM.KINDS_ENV, "morning_yesterday")
         assert RM.send_report(str(pdf), "2026-09-04", "morning_yesterday", dry_run=True) is True
 
 

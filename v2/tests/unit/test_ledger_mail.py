@@ -102,3 +102,47 @@ class TestWiring:
             assert "mailed = records != list(result.records)" in src
             assert "write_ledger(sheets, records)" in src
             assert "or mailed" in src
+
+
+class TestGroupedByPlant:
+    """v204 (Tomasz): 'make it divided by plants visually easier to recognize'."""
+
+    def _alerts(self):
+        return [rec(1, "SLP2"), rec(2, "NL1", sev="CRITICAL"), rec(3, "NL1"),
+                rec(4, "PORTFOLIO", sev="CRITICAL"), rec(5, "GTO1", sev="CRITICAL")]
+
+    def test_order_critical_plants_first_portfolio_last(self):
+        groups = LM.by_plant(self._alerts())
+        assert [pk for pk, _ in groups] == ["GTO1", "NL1", "SLP2", "PORTFOLIO"]
+        nl1 = dict(groups)["NL1"]
+        assert [a.severity for a in nl1] == ["CRITICAL", "WARNING"]
+
+    def test_text_body_has_a_header_bar_per_plant(self):
+        labels = {"NL1": "Plastic Omnium", "SLP2": "Holiday Inn Express"}
+        subj, body = LM.digest_body(self._alerts(), labels)
+        assert subj == "[ARGIA] CRITICAL — 5 new alerts (GTO1, NL1, PORTFOLIO, SLP2)"
+        assert "NL1 · Plastic Omnium  —  2 alert(s), 1 critical" in body
+        assert "SLP2 · Holiday Inn Express  —  1 alert(s)" in body
+        assert body.count("=====") >= 8 and body.index("GTO1") < body.index("NL1 ·") < body.index("SLP2 ·")
+        assert body.count("Alert:      ") == 5
+
+    def test_html_has_one_section_per_plant_and_escapes(self):
+        alerts = self._alerts()
+        alerts[0] = alerts[0].__class__(**{**alerts[0].__dict__, "message": "<b>x</b> & y"})
+        html = LM.digest_html(alerts, {"NL1": "Plastic Omnium"})
+        assert html.count("border-left:6px solid") == 4                     # 4 plant headers
+        assert "NL1 · Plastic Omnium" in html and "&lt;b&gt;x&lt;/b&gt; &amp; y" in html
+        assert html.count(">CRITICAL<") == 3 and html.count(">WARNING<") == 2
+
+    def test_short_customer(self):
+        assert LM.short_customer("PLASTIC OMNIUM PPA land (Monterrey, NL)") == "Plastic Omnium"
+        assert LM.short_customer("HOLIDAY INN EXPRESS, Turistica Arizona PPA roof (SLP, SLP)") == "Holiday Inn Express"
+        assert LM.short_customer("TAIGENE PPA roof (Leon, GTO)") == "Taigene"
+        assert LM.short_customer("") == ""
+
+    def test_mailer_sends_html_and_filters_portfolios(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "argia" / "alerts" / "ledger_mail.py"
+               ).read_text(encoding="utf-8")
+        assert "emailer.build_html_email(subject, body, digest_html(alerts, labels)" in src
+        assert "subscriptions.is_mailable(r.plant_key, excluded)" in src

@@ -262,7 +262,7 @@ class TestRound4:
 
     def test_financial_assets_link_to_their_plant_page(self):
         assert "`<a href=\"../${{k.toLowerCase()}}/\"" in SRC
-        assert "m.type==='LaaS'?`<b>" in SRC               # LaaS: no page, no link
+        assert "m.type==='LaaS'?`<b title=" in SRC         # LaaS: no page, no link (v204: short name, full in title)
 
     def test_monitoring_mtd_pairs_production_with_expected_days(self):
         mon = (V2 / "server/monitoring_gen.py").read_text(encoding="utf-8")

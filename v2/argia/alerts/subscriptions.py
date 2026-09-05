@@ -20,7 +20,11 @@ a source-level test keeps the two copies identical.
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
+
+LOG = logging.getLogger("argia.alerts.subscriptions")
 
 CHANNELS = ("maintenance", "financial", "daily", "reports")
 
@@ -44,6 +48,8 @@ ALTER TABLE mail_subscription ADD CONSTRAINT mail_subscription_channel_check
 
 # Alert-key prefixes whose second ':'-segment is a plant key. Everything
 # else (unit-failed, disk-full, postgres-down, cfe-*) is infrastructure.
+LOG = logging.getLogger("argia.alerts.subscriptions")
+
 _PLANT_PREFIXES = ("plant-dark", "plant-stale", "inverter-silent",
                    "recon-fail", "satellite-drift",
                    # v203: engine (ledger) metrics rendered as issues in the
@@ -51,6 +57,47 @@ _PLANT_PREFIXES = ("plant-dark", "plant-stale", "inverter-silent",
                    "inverter_temp_high", "inverter_fault", "inverter_relative",
                    "inverter_silent", "string_fault", "energy_daily_pct",
                    "plant_offline", "plant_twin_yield", "data_stale")
+
+
+PORTFOLIOS_ENV = "ARGIA_MAIL_PORTFOLIOS"
+DEFAULT_PORTFOLIOS = "PPA"
+"""v204 (Tomasz 2026-09-05: "exclude the CAPEX plants from the mailing
+lists"): alerts about a plant are mailed only when its portfolio is in
+this comma list. CAPEX plants (GTO2, QRO1, NL2, MEX3, TAM1) stay in the
+ledger and on the portal; nobody is paged about them. Infrastructure
+alerts and the PORTFOLIO digest are not plant alerts and always pass."""
+
+
+def mail_portfolios(env=None) -> FrozenSet[str]:
+    env = os.environ if env is None else env
+    raw = env.get(PORTFOLIOS_ENV)
+    raw = DEFAULT_PORTFOLIOS if raw is None else raw
+    return frozenset(p.strip().upper() for p in raw.split(",") if p.strip())
+
+
+def excluded_plants(portfolio_by_plant: Dict[str, str],
+                    allowed: Optional[FrozenSet[str]] = None) -> FrozenSet[str]:
+    """Plant keys whose portfolio is NOT mailed. Pure."""
+    allowed = mail_portfolios() if allowed is None else allowed
+    return frozenset(k.upper() for k, pf in portfolio_by_plant.items()
+                     if (pf or "").strip().upper() not in allowed)
+
+
+def is_mailable(plant_key: Optional[str], excluded: FrozenSet[str]) -> bool:
+    """None / unknown plant (infrastructure, PORTFOLIO digest) -> True."""
+    return not plant_key or plant_key.upper() not in excluded
+
+
+def load_excluded_plants() -> FrozenSet[str]:
+    """excluded_plants() over the live plant table; empty on any error
+    (fail open: a PG hiccup must not silence PPA alerts)."""
+    try:
+        from argia.store.pgq import psql_rows
+        rows = psql_rows("SELECT plant_key, coalesce(portfolio,'') FROM plant;")
+        return excluded_plants({r[0]: r[1] for r in rows if len(r) >= 2})
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("portfolio filter unavailable (%s) — mailing all plants", e)
+        return frozenset()
 
 
 def parse_plants(text: Optional[str]) -> Optional[FrozenSet[str]]:
@@ -136,6 +183,7 @@ def portal_emails(db_path: str = "/opt/argia/auth/users.db"
     """Emails of enabled portal accounts (lowercased), or None when the
     portal DB is not readable here (dev box, tests) — callers then skip
     the portal check rather than silencing everyone."""
+    import logging
     import os
     import sqlite3
     if not os.path.exists(db_path):

@@ -662,3 +662,27 @@ class TestLedgerIssuesInTheDailyMail:
         assert "FROM alert_ledger WHERE state = 'OPEN'" in src and "metric <> 'daily_digest'" in src
         for m in ("inverter_temp_high", "inverter_silent", "inverter_relative"):
             assert m in dpm._ISSUE_PHRASE and m in dpm._ISSUE_WHY, m
+
+
+class TestPortfolioFilter:
+    """v204 (Tomasz): 'exclude the CAPEX plants from the mailing lists'."""
+
+    def test_default_is_ppa_only(self):
+        from argia.alerts import subscriptions as S
+        assert S.mail_portfolios({}) == frozenset({"PPA"})
+        assert S.mail_portfolios({S.PORTFOLIOS_ENV: "ppa, capex"}) == frozenset({"PPA", "CAPEX"})
+        assert S.mail_portfolios({S.PORTFOLIOS_ENV: ""}) == frozenset()
+
+    def test_excluded_and_mailable(self):
+        from argia.alerts import subscriptions as S
+        pf = {"GTO1": "PPA", "GTO2": "CAPEX", "QRO1": "capex", "TAM1": "", "NL1": "PPA"}
+        ex = S.excluded_plants(pf, frozenset({"PPA"}))
+        assert ex == frozenset({"GTO2", "QRO1", "TAM1"})
+        assert S.is_mailable("GTO1", ex) and not S.is_mailable("gto2", ex)
+        assert S.is_mailable(None, ex) and S.is_mailable("PORTFOLIO", ex)     # infra / digest pass
+        assert S.excluded_plants(pf, frozenset({"PPA", "CAPEX"})) == frozenset({"TAM1"})
+
+    def test_alert_mailer_applies_it_before_planning(self):
+        src = (V2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
+        assert src.index("excluded = subscriptions.load_excluded_plants()") < src.index("monitor.plan_sends(")
+        assert "subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)" in src

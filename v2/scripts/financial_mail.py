@@ -93,10 +93,7 @@ def mail_body(label: str, d0: str, d1: str) -> str:
         "Attached: the ARGIA financial report for %s\n"
         "(window %s .. %s, MXN, sin IVA).\n\n"
         "Live version with date picker:\n"
-        "  https://report.argia.com.mx/financial/\n\n"
-        "Figures are re-derived from the monitoring database at send "
-        "time.\nDSCR = (revenue - O&M) / debt service for the window.\n\n"
-        "Manage recipients: https://report.argia.com.mx/setup/\n"
+        "  https://report.argia.com.mx/financial/\n"
         % (label, d0, d1))
 
 

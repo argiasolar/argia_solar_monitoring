@@ -1305,6 +1305,21 @@ def financial_page():
  <span class="sub" id="ndays"></span>
  <a class="btn live" href="/invoices/">{t("Invoice annexes","Anexos de facturación")}</a>
 </div>
+<style>
+/* v204: the mailed PDF is this page printed — one A4 page, no exceptions */
+td.asset{{white-space:nowrap;}}
+@media print{{
+ @page{{size:A4 portrait;margin:8mm;}}
+ body{{font-size:11px;}}
+ .tiles.oneline{{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:6px;margin:8px 0;}}
+ .tile{{padding:6px 8px;}} .thero{{font-size:20px;}} .tlabel{{font-size:10px;}}
+ .card{{padding:8px 10px;margin:6px 0;}} .card h2{{font-size:12px;margin:0 0 4px;}}
+ td,th{{padding:3px 5px;font-size:10.5px;}} .sub{{font-size:9px;}}
+ .badge{{font-size:9px;padding:0 5px;}}
+ .audit,.rangebar,.pdfrow,footer{{display:none!important;}}
+ tr{{page-break-inside:avoid;}}
+}}
+</style>
 <div class="tiles oneline">
  <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero" id="k_exp">—</div></div>
  <div class="tile"><div class="tlabel">{t("Actual revenue","Ingreso real")}</div><div class="thero" id="k_act">—</div></div>
@@ -1372,9 +1387,12 @@ function compute(){{
  for(const k of order){{const p=per[k],m=META[k];
   if(p.act===0&&p.exp===0&&p.debt===0)continue;
   // plant assets link to their performance report (LaaS has no page)
-  const nm=m.type==='LaaS'?`<b>${{m.name}}</b>`
-   :`<a href="../${{k.toLowerCase()}}/" style="color:inherit"><b>${{m.name}}</b></a>`;
-  h+=`<tr><td>${{nm}}<br><span class="sub">${{k}}${{m.kwp?' · '+Math.round(m.kwp)+' kWp':''}}</span></td>
+  // v204: short asset name on one line (the long customer string wrapped
+  // to five lines and pushed the PDF onto a second page)
+  const shortName=(m.name||k).split(/ PPA| CAPEX| roof| land| LaaS|,|\(/)[0].trim();
+  const nm=m.type==='LaaS'?`<b title="${{m.name}}">${{shortName}}</b>`
+   :`<a href="../${{k.toLowerCase()}}/" style="color:inherit" title="${{m.name}}"><b>${{shortName}}</b></a>`;
+  h+=`<tr><td class="asset">${{nm}} <span class="sub">${{k}}${{m.kwp?' · '+Math.round(m.kwp)+' kWp':''}}</span></td>
    <td><span class="badge ${{m.type==='LaaS'?'laas':''}}">${{m.type}}</span></td>
    <td class="num">${{fmt(p.exp)}}</td><td class="num">${{fmt(p.act)}}</td>
    <td class="num">${{p.om?fmt(p.om):'–'}}</td><td class="num">${{fmt(p.debt)}}</td>

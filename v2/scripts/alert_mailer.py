@@ -278,6 +278,15 @@ def main(argv=None) -> int:
               + monitor.recon_alerts(gather_recon_fails())
               + monitor.cfe_alerts(gather_cfe_status(),
                                    today=now_mx.date()))
+    # v204: only the mailed portfolios (ARGIA_MAIL_PORTFOLIOS, default PPA)
+    # page anyone — CAPEX plants stay on the portal and in the ledger
+    excluded = subscriptions.load_excluded_plants()
+    dropped = [a for a in active
+               if not subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)]
+    if dropped:
+        LOG.info("portfolio filter: %d alert(s) not mailed (%s)", len(dropped),
+                 ", ".join(sorted({subscriptions.alert_plant(a.key) for a in dropped})))
+    active = [a for a in active if a not in dropped]
     # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest —
     # the 07:07 MX tick, after the whole morning chain has run.
     digest = now_mx.hour == 7 and now_mx.minute < 30

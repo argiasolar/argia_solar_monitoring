@@ -22,11 +22,11 @@ LABEL = {"morning_yesterday": "Morning report — yesterday's full day",
          "evening_today": "Evening report — today so far"}
 
 KINDS_ENV = "ARGIA_REPORT_MAIL_KINDS"
-DEFAULT_KINDS = "morning_yesterday"
-"""v203 (Tomasz 2026-09-05: "why are we still sending the old
-templates?"): the evening PDF duplicated the 19:00 MX daily-performance
-mail, so by default only the MORNING edition (final, KPI-stamped
-numbers) is mailed. Comma list; empty string = no PDF mails at all."""
+DEFAULT_KINDS = ""
+"""v204 (Tomasz 2026-09-05: "we are still getting the old Daily Report —
+stop sending it"): no PDF daily mails by default. The PDFs are still
+rendered to Drive and the portal; set ARGIA_REPORT_MAIL_KINDS to
+'morning_yesterday' and/or 'evening_today' to mail them again."""
 
 
 def kinds_enabled(env=None) -> frozenset:

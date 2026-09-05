@@ -63,6 +63,23 @@ class TestMailShape:
         assert "2026-08-01 .. 2026-08-31" in body
         assert "report.argia.com.mx/financial/" in body
         assert "sin IVA" in body
+        # v204 (Tomasz): no boilerplate in the mail
+        for gone in ("re-derived", "DSCR =", "Manage recipients", "/setup/"):
+            assert gone not in body, gone
+
+    def test_pdf_is_a_one_pager(self):
+        """v204: the mailed PDF is the financial page printed; the print
+        rules keep it on one A4 page — short asset names, 5 tiles in a
+        row, no methodology card."""
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "server" / "bundle" / "report_gen.py"
+               ).read_text(encoding="utf-8")
+        fin = src[src.index("def financial_page"):src.index("def financial_page") + 12000]
+        # the page is an f-string: braces are doubled in the source
+        assert "@page{{size:A4 portrait;margin:8mm;}}" in fin
+        assert "repeat(5,minmax(0,1fr))!important" in fin
+        assert ".audit,.rangebar,.pdfrow,footer{{display:none!important;}}" in fin
+        assert "const shortName=(m.name||k).split(" in fin and 'td.asset{{white-space:nowrap;}}' in fin
 
 
 class TestReportGenWindowParams:

@@ -47,7 +47,7 @@ from argia.core.config import (
     PlantConfig,
     load_portfolio,
 )
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import SheetsClient, open_sheets
 from argia.core.time_utils import now_mx, now_utc
 from argia.orchestrator import RunResult, TAB_SYNC, new_run_id
 from argia.core.job_log import sheet_joblog_enabled
@@ -934,12 +934,8 @@ def main(argv=None) -> int:
     _setup_logging(args.log_level)
     log = logging.getLogger("argia.telemetry_5m")
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        log.error("GOOGLE_SHEET_ID_V2 is not set")
-        return 3
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
     except Exception as e:  # noqa: BLE001
         log.error("Failed to construct SheetsClient: %s", e)
         return 3

@@ -36,7 +36,7 @@ from argia.core.config import load_portfolio            # noqa: E402
 from argia.core.job_log import (                        # noqa: E402
     apply_flag_write_if, instrument,
 )
-from argia.core.sheets import SheetsClient              # noqa: E402
+from argia.core.sheets import open_sheets              # noqa: E402
 from argia.finance.income import Period                 # noqa: E402
 from argia.finance.webreport import (                   # noqa: E402
     build_daily_atoms, render_financial_report_html,
@@ -81,11 +81,11 @@ def main(argv=None) -> int:
     else:
         window = default_window()
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        print("GOOGLE_SHEET_ID_V2 not set")
+    try:
+        client = open_sheets()          # v199: NullSheets once retired
+    except Exception as e:  # noqa: BLE001
+        print(f"sheets bootstrap failed: {e}")
         return 3
-    client = SheetsClient(sheet_id=sheet_id)
     portfolio = load_portfolio(client)
 
     data = build_daily_atoms(client, portfolio, window)

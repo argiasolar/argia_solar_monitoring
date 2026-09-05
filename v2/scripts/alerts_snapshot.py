@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
-import os
 import sys
 
 from argia.alerts.engine import (
@@ -53,7 +52,7 @@ from argia.core.alerts_state import (
     write_ledger,
 )
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import SheetsClient, open_sheets
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.time_utils import UTC, now_mx
 from argia.core.job_log import instrument
@@ -154,12 +153,8 @@ def main(argv=None) -> int:
         log.info("outside daylight (%s MX) — acute checks are a no-op", mx)
         return 0
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        log.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
         portfolio = load_portfolio(sheets)
     except Exception as e:  # noqa: BLE001
         log.error("bootstrap failed: %s", e)

@@ -91,6 +91,85 @@ def _rows_equivalent(old_row, new_row) -> bool:
                for i in range(len(new_row)))
 
 
+class SheetsRetired(RuntimeError):
+    """A code path reached Google Sheets after the workbook was retired."""
+
+
+class SheetsRequired(RuntimeError):
+    """GOOGLE_SHEET_ID_V2 is unset but a switch still points at the sheet."""
+
+
+class NullSheets:
+    """v199: what a job gets instead of a SheetsClient once the workbook
+    is retired (GOOGLE_SHEET_ID_V2 unset). Every reader and writer has a
+    PostgreSQL door, so nothing should ever call it — and if something
+    does, it fails LOUDLY with the tab and method, never silently with an
+    empty grid (an empty Plants tab would look like a fleet of zero)."""
+
+    sheet_id = ""
+
+    def __getattr__(self, name: str):
+        def _boom(*args, **kwargs):
+            tab = args[0] if args else kwargs.get("tab", "")
+            raise SheetsRetired(
+                f"Google Sheets is retired (GOOGLE_SHEET_ID_V2 unset) but "
+                f"SheetsClient.{name}({tab!r}) was called — this code path "
+                f"still depends on the workbook; route it through its "
+                f"PostgreSQL door")
+        return _boom
+
+    def __repr__(self) -> str:
+        return "NullSheets()"
+
+
+# The switches that still send a reader/writer to the workbook unless
+# they say 'pg' ('sheet' reads/writes it; 'both' writes it as well).
+_SHEET_SWITCHES = (
+    "ARGIA_TELEMETRY_SOURCE", "ARGIA_KPI_SOURCE", "ARGIA_FINANCE_SOURCE",
+    "ARGIA_INVOICING_SOURCE", "ARGIA_ALERTS_SOURCE", "ARGIA_DASHBOARD_SOURCE",
+    "ARGIA_CONFIG_SOURCE", "ARGIA_KPI_WRITE",
+)
+
+
+def sheet_still_needed(env=None) -> List[str]:
+    """Which switches (by name) still route to the workbook. Pure over
+    ``env``. A switch left unset counts as its code default — 'sheet'
+    until v200 flips the defaults — so an unset switch is a reason."""
+    env = os.environ if env is None else env
+    reasons: List[str] = []
+    for name in _SHEET_SWITCHES:
+        v = str(env.get(name, "sheet")).strip().lower() or "sheet"
+        if v != "pg":
+            reasons.append(f"{name}={v}")
+    if str(env.get("ARGIA_SHEET_TELEMETRY", "1")).strip() not in ("0", "false", "no"):
+        reasons.append("ARGIA_SHEET_TELEMETRY=on")
+    if str(env.get("ARGIA_SHEET_OUTBOX", "1")).strip() not in ("0", "false", "no"):
+        reasons.append("ARGIA_SHEET_OUTBOX=on")
+    if str(env.get("ARGIA_SHEET_JOBLOG", "0")).strip() in ("1", "true", "yes"):
+        reasons.append("ARGIA_SHEET_JOBLOG=on")
+    return reasons
+
+
+def open_sheets(env=None):
+    """The one way a job obtains its sheets handle (v199).
+
+    GOOGLE_SHEET_ID_V2 set  -> a real SheetsClient (today's behaviour).
+    unset, nothing needs it -> NullSheets (the workbook is retired).
+    unset, a switch needs it -> SheetsRequired, naming the switches, so a
+    half-retired configuration fails at bootstrap, not mid-run.
+    """
+    env = os.environ if env is None else env
+    sid = str(env.get("GOOGLE_SHEET_ID_V2", "")).strip()
+    if sid:
+        return SheetsClient(sheet_id=sid)
+    reasons = sheet_still_needed(env)
+    if reasons:
+        raise SheetsRequired(
+            "GOOGLE_SHEET_ID_V2 is unset but the workbook is still needed by: "
+            + ", ".join(reasons))
+    return NullSheets()
+
+
 class SheetsClient:
     """Wrapper around the Google Sheets API. Constructor reads credentials."""
 

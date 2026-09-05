@@ -32,7 +32,7 @@ import tempfile
 
 from argia.core.config import load_portfolio
 from argia.core.drive import DriveClient
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import now_mx
 from argia.report.daily import build_report_data, render_html
 
@@ -93,16 +93,12 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     date_iso = resolve_report_date(args.date, args.when, now_mx())
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
     folder_id = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
-    if not sheet_id:
-        log.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
     if not folder_id and not args.dry_run:
         log.error("GOOGLE_ARCHIVE_FOLDER_ID not set (needed for upload)")
         return 3
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
         portfolio = load_portfolio(sheets)
     except Exception as e:  # noqa: BLE001
         log.error("bootstrap failed: %s", e)

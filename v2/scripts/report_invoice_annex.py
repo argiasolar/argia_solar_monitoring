@@ -32,7 +32,7 @@ import sys
 import tempfile
 
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import now_mx
 from argia.finance.annex import (FACTURA_NAME, build_annex_data,
                                  load_invoicing_overview,
@@ -132,12 +132,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     _setup_logging(args.log_level)
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        LOG.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
         portfolio = load_portfolio(sheets)
     except Exception as e:  # noqa: BLE001
         LOG.error("bootstrap failed: %s", e)

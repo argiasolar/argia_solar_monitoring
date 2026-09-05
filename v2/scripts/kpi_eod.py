@@ -70,7 +70,7 @@ from argia.archive.kpi_daily import (
     upsert_kpi_rows,
 )
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import now_mx
 from argia.kpi import (
     compute_plant_energy,
@@ -174,13 +174,8 @@ def main(argv=None) -> int:
     _setup_logging(args.log_level)
     log = logging.getLogger("argia.kpi_eod")
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        log.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
-
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
     except Exception as e:
         log.error("SheetsClient failed: %s", e)
         return 3

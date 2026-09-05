@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from argia.core.config import load_portfolio          # noqa: E402
 from argia.core.job_log import instrument             # noqa: E402
-from argia.core.sheets import SheetsClient            # noqa: E402
+from argia.core.sheets import open_sheets            # noqa: E402
 from argia.report.daily import (                      # noqa: E402
     build_report_data, render_html,
 )
@@ -79,16 +79,12 @@ def main(argv=None) -> int:
 
     date_iso = args.date or default_date()
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
     folder_id = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
-    if not sheet_id:
-        log.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
     if not folder_id and not args.dry_run:
         log.error("GOOGLE_ARCHIVE_FOLDER_ID not set (needed for upload)")
         return 3
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
         portfolio = load_portfolio(sheets)
     except Exception as e:  # noqa: BLE001
         log.error("bootstrap failed: %s", e)

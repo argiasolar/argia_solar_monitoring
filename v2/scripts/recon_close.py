@@ -19,12 +19,11 @@ import argparse
 import calendar
 import datetime as dt
 import logging
-import os
 import sys
 from typing import Dict, Optional
 
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import MX_TZ
 from argia.recon import engine as E
 from argia.store import pg_mirror
@@ -104,11 +103,11 @@ def close_month(ref_month: str, dry_run: bool) -> int:
     days = calendar.monthrange(first.year, first.month)[1]
     last = first.replace(day=days)
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        LOG.error("GOOGLE_SHEET_ID_V2 not set")
+    try:
+        portfolio = load_portfolio(open_sheets())   # v199
+    except Exception as e:  # noqa: BLE001
+        LOG.error("bootstrap failed: %s", e)
         return 0
-    portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
     inputs = month_inputs(first, last)
 
     manually_closed = {r[0] for r in psql_rows(

@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
-import os
 import sys
 from typing import Dict, List, Optional
 
@@ -77,7 +76,7 @@ from argia.core.alerts_state import (
 )
 from argia.core.config import load_portfolio
 from argia.core.normalize import normalize_text, safe_float
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import SheetsClient, open_sheets
 from argia.core.time_utils import UTC, now_mx
 from argia.kpi import compute_plant_energy, read_day_bundle
 from argia.core.job_log import instrument
@@ -280,12 +279,8 @@ def main(argv=None) -> int:
 
     date_iso = args.date or (now_mx().date() - dt.timedelta(days=1)).isoformat()
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        log.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199: NullSheets once retired
         portfolio = load_portfolio(sheets)
     except Exception as e:  # noqa: BLE001
         log.error("bootstrap failed: %s", e)

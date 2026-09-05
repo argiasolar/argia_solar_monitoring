@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import os
 import sys
 from zoneinfo import ZoneInfo
 
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import SheetsClient, open_sheets
 from argia.report import dashboard as D
 
 MX_TZ = ZoneInfo("America/Mexico_City")
@@ -214,11 +213,11 @@ def main(argv=None) -> int:
     ap.add_argument("--window", type=int, default=7,
                     help="rolling window of days to rebuild (default 7)")
     args = ap.parse_args(argv)
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2")
-    if not sheet_id:
-        print("ERROR: GOOGLE_SHEET_ID_V2 not set", file=sys.stderr)
+    try:
+        client = open_sheets()          # v199: NullSheets once retired
+    except Exception as e:  # noqa: BLE001
+        print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    client = SheetsClient(sheet_id)
     return run(client, window=args.window, apply=args.apply)
 
 

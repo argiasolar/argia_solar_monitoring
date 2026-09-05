@@ -37,7 +37,7 @@ import sys
 import tempfile
 
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import now_mx
 from argia.archive.kpi_daily import KPI_DAILY_TAB
 from argia.telemetry.retention import (
@@ -248,17 +248,13 @@ def main(argv=None) -> int:
     if (args.source or pg_source.source()) == "pg":
         return main_pg(args)
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        LOG.error("GOOGLE_SHEET_ID_V2 not set")
-        return 3
     base_folder = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
     if args.apply and not base_folder:
         LOG.error("GOOGLE_ARCHIVE_FOLDER_ID not set (needed to archive)")
         return 3
 
     try:
-        sheets = SheetsClient(sheet_id=sheet_id)
+        sheets = open_sheets()          # v199 (sheet mode: the id is required)
         portfolio = load_portfolio(sheets)
     except Exception as e:  # noqa: BLE001
         LOG.error("bootstrap failed: %s", e)
@@ -311,9 +307,8 @@ def main_pg(args) -> int:
     if args.apply and not base_folder:
         LOG.error("GOOGLE_ARCHIVE_FOLDER_ID not set (needed to export)")
         return 3
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
     try:
-        portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
+        portfolio = load_portfolio(open_sheets())       # v199
         plants = [args.plant.upper()] if args.plant else \
             sorted(pk for pk in portfolio.plants)
     except Exception as e:  # noqa: BLE001

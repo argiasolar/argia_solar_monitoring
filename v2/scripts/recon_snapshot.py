@@ -21,7 +21,7 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 from argia.core.config import PlantConfig, load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import MX_TZ
 from argia.recon import backfill as B
 from argia.recon import counters as C
@@ -356,11 +356,11 @@ def main(argv=None) -> int:
         LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
         return 0
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        LOG.error("GOOGLE_SHEET_ID_V2 not set")
+    try:
+        portfolio = load_portfolio(open_sheets())   # v199
+    except Exception as e:  # noqa: BLE001
+        LOG.error("bootstrap failed: %s", e)
         return 1
-    portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
     active = portfolio.active_plants()
     brand_by_plant = {p.plant_key: p.brand.upper() for p in active}
     snap_date = args.date or _today_mx().isoformat()

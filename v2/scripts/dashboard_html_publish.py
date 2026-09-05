@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 import google.auth.transport.requests
 from google.oauth2.service_account import Credentials
 
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import SheetsClient, open_sheets
 from argia.report import dashboard_html
 from argia.core.job_log import apply_flag_write_if, instrument
 
@@ -169,11 +169,11 @@ def main(argv=None) -> int:
                          "dashboard.html, falling back to the system tmp "
                          "dir — NEVER inside the repo)")
     args = ap.parse_args(argv)
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2")
-    if not sheet_id:
-        print("ERROR: GOOGLE_SHEET_ID_V2 not set", file=sys.stderr)
+    try:
+        client = open_sheets()          # v199: NullSheets once retired
+    except Exception as e:  # noqa: BLE001
+        print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    client = SheetsClient(sheet_id)
     return run(client, out_path=args.out, apply=args.apply,
                bucket=os.environ.get("GCS_DASHBOARD_BUCKET"))
 

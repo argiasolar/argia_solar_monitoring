@@ -29,7 +29,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.core.time_utils import MX_TZ
 from argia.kpi.strings import ENSURE_TABLE_SQL, channel_day_stats, upsert_sqls
 from argia.store import pg_mirror
@@ -78,11 +78,11 @@ def main(argv=None) -> int:
     from argia.store.pgq import psql_exec
 
     date_iso = args.date or dt.datetime.now(MX_TZ).date().isoformat()
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        LOG.error("GOOGLE_SHEET_ID_V2 not set")
+    try:
+        portfolio = load_portfolio(open_sheets())   # v199
+    except Exception as e:  # noqa: BLE001
+        LOG.error("bootstrap failed: %s", e)
         return 1
-    portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
     plants = [p for p in portfolio.plants.values()
               if p.brand.upper() == "GROWATT" and p.active
               and (not args.plant_key or p.plant_key == args.plant_key)]

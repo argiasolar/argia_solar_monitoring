@@ -35,7 +35,7 @@ class TestMail:
     def test_fail_closed_without_subscribers(self, monkeypatch, tmp_path, caplog):
         pdf = tmp_path / "r.pdf"; pdf.write_bytes(b"%PDF")
         monkeypatch.setattr(RM, "recipients", lambda: [])
-        assert RM.send_report(str(pdf), "2026-09-04", "evening_today") is False
+        assert RM.send_report(str(pdf), "2026-09-04", "morning_yesterday") is False
         assert "no enabled 'reports' subscribers" in caplog.text
 
     def test_sends_pdf_attachment(self, monkeypatch, tmp_path):
@@ -53,12 +53,27 @@ class TestMail:
         assert att[0].get_content_type() == "application/pdf"
 
     def test_missing_pdf_or_dry_run(self, monkeypatch, tmp_path, caplog):
+        monkeypatch.setenv(RM.KINDS_ENV, "morning_yesterday,evening_today")
         assert RM.send_report("/nope.pdf", "2026-09-04", "evening_today") is False
         pdf = tmp_path / "r.pdf"; pdf.write_bytes(b"%PDF")
         monkeypatch.setattr(RM, "recipients", lambda: ["t@x"])
         with caplog.at_level(logging.INFO):
             assert RM.send_report(str(pdf), "2026-09-04", "evening_today", dry_run=True) is True
         assert "[DRY RUN] would mail" in caplog.text
+
+    def test_evening_pdf_is_off_by_default(self, monkeypatch, tmp_path, caplog):
+        """v203: the 19:00 daily-performance mail replaces the evening PDF."""
+        monkeypatch.delenv(RM.KINDS_ENV, raising=False)
+        assert RM.kinds_enabled({}) == frozenset({"morning_yesterday"})
+        assert RM.kinds_enabled({RM.KINDS_ENV: ""}) == frozenset()
+        assert RM.kinds_enabled({RM.KINDS_ENV: "evening_today, morning_yesterday"}) == \
+            frozenset({"morning_yesterday", "evening_today"})
+        pdf = tmp_path / "r.pdf"; pdf.write_bytes(b"%PDF")
+        monkeypatch.setattr(RM, "recipients", lambda: ["t@x"])
+        with caplog.at_level(logging.INFO):
+            assert RM.send_report(str(pdf), "2026-09-04", "evening_today", dry_run=True) is False
+        assert "not in ARGIA_REPORT_MAIL_KINDS" in caplog.text
+        assert RM.send_report(str(pdf), "2026-09-04", "morning_yesterday", dry_run=True) is True
 
 
 class TestWiring:

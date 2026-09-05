@@ -21,6 +21,24 @@ re-send at most daily. (2026-08-27 harness — the first server night put
 PLANT_STALE_MIN = 45          # in-window silence that raises an alert
 DISK_ALERT_PCT = 85.0
 
+# v202 anti-noise round 2 (Tomasz 2026-09-05: "meaningless notifications").
+# Sep 2-4 inbox: TAM1 dark re-mailed every 6 h for three days (12 mails
+# saying the same thing), NL2's flaky datalogger mailed "stale 53 min"
+# and "recovered" within the hour, and every transient telemetry exit
+# code became "job failed" + "recovered".
+CONFIRM_PREFIXES = ("plant-stale", "unit-failed", "inverter-silent",
+                    "recon-fail", "cfe-")
+"""Keys that must survive TWO consecutive ticks (30 min) before their
+first mail. A plant with no telemetry at all (plant-dark), a full disk or
+a dead PostgreSQL still mail on sight."""
+LONG_RUNNING_HOURS = 24.0
+LONG_RESEND_HOURS = 24.0
+"""A CRITICAL active for more than a day is a known outage: re-mail once
+a day, not four times."""
+RECOVERY_MIN_HOURS = 3.0
+"""A recovery earns its own mail only when the outage lasted this long;
+shorter ones ride along with the next mail that goes out anyway."""
+
 SEV_CRIT = "CRITICAL"
 SEV_WARN = "WARNING"
 
@@ -191,12 +209,20 @@ def plan_sends(active: List[Alert],
     for a in active:
         st = state.get(a.key)
         is_new = st is None or not st[1]
-        # state rows may be (ts, active) or (ts, active, ever_sent);
-        # a tracked-but-never-mailed WARN must still make its first digest
+        # state rows may be (ts, active), (ts, active, ever_sent) or
+        # (ts, active, ever_sent, first_seen); a tracked-but-never-mailed
+        # WARN must still make its first digest
         ever_sent = st[2] if (st is not None and len(st) > 2) else True
+        first_seen = st[3] if (st is not None and len(st) > 3 and st[1]) else None
+        if is_new and needs_confirmation(a.key):
+            continue                        # seen once: wait for the next tick
         age_h = None if is_new else (now - st[0]).total_seconds() / 3600.0
+        crit_resend = resend_hours
+        if first_seen is not None and \
+                (now - first_seen).total_seconds() / 3600.0 >= LONG_RUNNING_HOURS:
+            crit_resend = max(resend_hours, LONG_RESEND_HOURS)
         if warn_digest is None or a.severity == SEV_CRIT:
-            if is_new or age_h >= resend_hours:
+            if is_new or not ever_sent or age_h >= crit_resend:
                 to_send.append(a)
         else:                                   # WARNING under the policy
             if warn_digest and (is_new or not ever_sent
@@ -207,13 +233,37 @@ def plan_sends(active: List[Alert],
     return to_send, recovered
 
 
+def needs_confirmation(key: str) -> bool:
+    """Pure: does this key wait for a second sighting before mailing?"""
+    return key.startswith(CONFIRM_PREFIXES)
+
+
 def recoveries_to_mail(recovered: List[str],
-                       severity_by_key: Dict[str, str]) -> List[str]:
+                       severity_by_key: Dict[str, str],
+                       mailed_keys: Optional[set] = None,
+                       active_hours: Optional[Dict[str, float]] = None,
+                       with_alerts: bool = False,
+                       min_hours: float = RECOVERY_MIN_HOURS) -> List[str]:
     """Only CRITICAL recoveries earn a mail line; a WARNING quietly
     clearing is tomorrow's digest simply not mentioning it. Unknown
-    severity mails (safe side)."""
-    return [k for k in recovered
-            if severity_by_key.get(k, SEV_CRIT) == SEV_CRIT]
+    severity mails (safe side).
+
+    v202: a recovery of something never mailed (``mailed_keys`` given and
+    the key not in it) is never mailed — nobody was told it was down.
+    A short outage (``active_hours`` below ``min_hours``) rides along
+    only when a mail goes out anyway (``with_alerts``); unknown duration
+    mails (safe side)."""
+    out = []
+    for k in recovered:
+        if severity_by_key.get(k, SEV_CRIT) != SEV_CRIT:
+            continue
+        if mailed_keys is not None and k not in mailed_keys:
+            continue
+        if not with_alerts and active_hours is not None and k in active_hours \
+                and active_hours[k] < min_hours:
+            continue
+        out.append(k)
+    return out
 
 
 def render_body(to_send: List[Alert], recovered: List[str],

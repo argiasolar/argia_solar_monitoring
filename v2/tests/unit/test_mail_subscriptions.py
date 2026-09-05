@@ -621,3 +621,44 @@ class TestJobNameFromExecStart:
     def test_no_match_is_blank_not_a_bogus_path(self):
         assert dpm.job_name_from_execstart("") == ""
         assert dpm.job_name_from_execstart("/usr/bin/true") == ""
+
+
+class TestLedgerIssuesInTheDailyMail:
+    """v203: the 19:00 mail also lists the engine's OPEN ledger alerts
+    (temperature, vendor faults, peer lag, silent inverter). SLP2 read "OK"
+    on 2026-09-04 with a CRITICAL inverter_fault open in the ledger."""
+
+    def test_ledger_keys_are_plant_alerts(self):
+        from argia.alerts import subscriptions as S
+        assert S.alert_plant("inverter_fault:SLP2:JFM7DXN039") == "SLP2"
+        assert S.alert_plant("inverter_silent:SLP2:JFM7DXN03J") == "SLP2"
+        assert S.alert_plant("energy_daily_pct:GTO2") == "GTO2"
+        assert S.alert_plant("disk-full") is None
+
+    def test_a_ledger_critical_flags_the_plant_and_renders(self):
+        msg = ("SLP2 JFM7DXN039: vendor fault FT=302 (x10) in 10/166 daylight samples "
+               "[CRITICAL] — Growatt error 302: no AC connection")
+        d = _mkdata(plants=[("SLP2", "Holiday Inn Express", 279.0)],
+                    today_map={"SLP2": (1513.0, 5.0, 2)}, inv_counts={"SLP2": 2},
+                    yday_map={"SLP2": 1400.0}, mtd_map={"SLP2": (5000.0, 5000.0, 4800.0)},
+                    alerts=[("inverter_fault:SLP2:JFM7DXN039", "CRITICAL", None,
+                             {"message": msg, "label": "Inverter 2"})])
+        row = d["rows"][0]
+        assert row["status"] == "issues" and row["cls"] == "bad"
+        assert len(d["issues"]) == 1
+        i = d["issues"][0]
+        assert i["what"] == "inverter reports a fault code"
+        assert i["who"].startswith("Holiday Inn Express") and "SLP2" in i["who"]
+        assert "Inverter 2" in i["detail"] and "SN JFM7DXN039" in i["detail"] and "no AC connection" in i["detail"]
+        assert "utility or a breaker" in i["why"]
+        text = dpm.render_text(d)
+        assert "inverter reports a fault code" in text and "no AC connection" in text
+        html = dpm.render_html(d)
+        assert "no AC connection" in html
+
+    def test_gather_wires_the_ledger(self):
+        src = (V2 / "scripts" / "daily_perf_mail.py").read_text(encoding="utf-8")
+        assert "alerts.extend(ledger_issues(labels))" in src
+        assert "FROM alert_ledger WHERE state = 'OPEN'" in src and "metric <> 'daily_digest'" in src
+        for m in ("inverter_temp_high", "inverter_silent", "inverter_relative"):
+            assert m in dpm._ISSUE_PHRASE and m in dpm._ISSUE_WHY, m

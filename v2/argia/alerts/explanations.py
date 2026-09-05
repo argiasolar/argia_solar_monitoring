@@ -50,6 +50,22 @@ _CATALOG: Dict[str, Dict[str, str]] = {
             "the vendor portal against last week. A string at ~0 A in "
             "good sun confirms a physical problem worth a site visit."),
     },
+    "inverter_silent": {
+        "meaning": (
+            "This inverter stopped sending data while the other inverters "
+            "at the site kept producing — so it is not the weather and not "
+            "the site's internet. Either the inverter is off (breaker, AC "
+            "loss, fault) or only its datalogger link died while it kept "
+            "producing. When it reappears, its own energy counter settles "
+            "it: a counter that kept climbing means a comms gap and no "
+            "energy lost; a flat counter means the unit was off."),
+        "check": (
+            "Open the vendor portal: is the inverter online there? If the "
+            "portal shows it producing, it is the datalogger/RS485 link "
+            "(SLP2 has had midday link drops on both units). If the portal "
+            "shows it offline, check the AC breaker and the fault log, and "
+            "call the site."),
+    },
     "inverter_temp_high": {
         "meaning": (
             "The inverter's internal temperature is high. It will derate "

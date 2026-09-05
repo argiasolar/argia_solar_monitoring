@@ -53,6 +53,7 @@ ENGINE_METRICS = frozenset({
     "inverter_relative",
     "energy_daily_pct",
     "plant_twin_yield",
+    "inverter_silent",
 })
 
 # v92 — metrics a maintenance window EXPLAINS. When a plant is in a logged
@@ -124,6 +125,15 @@ def candidate_from_relative_breach(b) -> Candidate:
     )
 
 
+def _catalog_suffix(codes: str) -> str:
+    """v203: name the code when the catalog knows it (Growatt FT=...)."""
+    if "FT=" not in (codes or ""):
+        return ""
+    from argia.alerts.fault_catalog import explain_fault
+    text = explain_fault("GROWATT", codes) or ""
+    return f" — {text}" if text.startswith("Growatt error") else ""
+
+
 def candidate_from_fault_breach(b) -> Candidate:
     """Map a vendor_flags.FaultBreach to a Candidate."""
     return Candidate(
@@ -135,7 +145,7 @@ def candidate_from_fault_breach(b) -> Candidate:
         severity=b.severity.value,
         value=float(b.samples_faulted),
         threshold=None,
-        message=b.message,
+        message=b.message + _catalog_suffix(b.codes),
     )
 
 
@@ -224,6 +234,9 @@ class ReconcileResult:
                 f"resolved={len(self.resolved)} total_rows={len(self.records)}")
 
 
+_RANK = {"INFO": 0, "WARNING": 1, "CRITICAL": 2}
+
+
 def reconcile_alerts(
     ledger: AlertsLedger,
     candidates: List[Candidate],
@@ -267,18 +280,36 @@ def reconcile_alerts(
         cand = by_key.get(rec.alert_key)
         if cand is not None:
             seen_keys.add(rec.alert_key)
-            new = touch_alert(rec, now_utc, value=cand.value,
-                              message=cand.message)
-            if cand.severity != new.severity:
-                # escalation/de-escalation: reflect current severity in
-                # place, and refresh the explanation (its urgency prefix
-                # depends on severity)
-                from dataclasses import replace as _replace
-                new = _replace(new, severity=cand.severity,
-                               threshold=cand.threshold,
-                               explanation=explain(cand.metric,
-                                                   cand.severity,
-                                                   cand.value))
+            if (not resolve_missing and _RANK.get(cand.severity, 0)
+                    < _RANK.get(rec.severity, 0)):
+                # v202: the ACUTE tier never de-escalates. One cooler
+                # sample after a CRITICAL one is the afternoon, not a
+                # recovery — NL1 (81 degC at noon) sat at WARNING for ten
+                # days because every evening snapshot rewrote it. The
+                # DAILY run, judging the whole day, is the only tier that
+                # may lower a severity (or resolve). Keep value/message
+                # too: the record describes the peak, not the last look.
+                new = touch_alert(rec, now_utc)
+            else:
+                new = touch_alert(rec, now_utc, value=cand.value,
+                                  message=cand.message)
+                if cand.severity != new.severity:
+                    # escalation/de-escalation: reflect current severity
+                    # in place, refresh the explanation (its urgency
+                    # prefix depends on severity); an escalation to
+                    # CRITICAL re-arms the mail so it goes out once more
+                    # at the new severity (ledger_mail sends unmailed
+                    # OPEN records).
+                    from dataclasses import replace as _replace
+                    escalated = (_RANK.get(cand.severity, 0)
+                                 > _RANK.get(new.severity, 0))
+                    new = _replace(new, severity=cand.severity,
+                                   threshold=cand.threshold,
+                                   explanation=explain(cand.metric,
+                                                       cand.severity,
+                                                       cand.value),
+                                   channels_sent=("" if escalated
+                                                  else new.channels_sent))
             records[i] = new
             touched.append(new)
         elif resolve_missing and rec.metric in ENGINE_METRICS:

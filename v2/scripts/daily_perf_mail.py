@@ -248,6 +248,7 @@ def gather_issues():
             if lab:
                 extra["label"] = lab
         alerts.append((key, sev, first_seen, extra or None))
+    alerts.extend(ledger_issues(labels))
     try:
         maint = sorted({r[0] for r in psql_rows(
             "SELECT DISTINCT plant_key FROM maintenance_event"
@@ -258,9 +259,50 @@ def gather_issues():
     return alerts, maint
 
 
+def ledger_issues(labels=None):
+    """v203: the engine's OPEN alerts (alert_ledger — temperature, vendor
+    faults, peer lag, silent inverter, string flags, plant offline) as
+    issues, next to the mailer's infrastructure/freshness ones. Until now
+    this mail only knew alert_state, so SLP2 read "OK" on 2026-09-04 with a
+    CRITICAL vendor fault open in the ledger. Digest rows are a mail
+    vehicle, not an issue."""
+    from argia.store.pgq import psql_rows
+    out = []
+    try:
+        rows = psql_rows(
+            "SELECT metric, plant_key, coalesce(inverter_sn,''), severity,"
+            " opened_utc, message FROM alert_ledger WHERE state = 'OPEN'"
+            " AND metric <> 'daily_digest' ORDER BY plant_key, metric;")
+    except RuntimeError:
+        return out
+    for r in rows:
+        if len(r) < 6 or not r[0] or not r[1]:
+            continue
+        metric, plant, sn, sev, opened, msg = r[0], r[1], r[2], r[3] or "WARNING", r[4], r[5]
+        try:
+            first_seen = parse_pg_ts(opened.replace("T", " ")) if opened else None
+        except (ValueError, AttributeError):
+            first_seen = None
+        extra = {"message": msg or ""}
+        if sn and (labels or {}).get(sn):
+            extra["label"] = labels[sn]
+        out.append((f"{metric}:{plant}:{sn}" if sn else f"{metric}:{plant}", sev,
+                    first_seen, extra))
+    return out
+
+
 # ------------------------------------------------------------------ pure
 
 _ISSUE_PHRASE = {
+    "inverter_temp_high": "inverter running hot",
+    "inverter_fault": "inverter reports a fault code",
+    "inverter_relative": "inverter below its peers",
+    "inverter_silent": "inverter silent while the plant produces",
+    "string_fault": "new string diagnostic flag",
+    "energy_daily_pct": "production far below expected",
+    "plant_offline": "plant produced nothing",
+    "plant_twin_yield": "below its twin plant",
+    "data_stale": "telemetry gap",
     "plant-dark": "no telemetry today",
     "plant-stale": "telemetry stale",
     "inverter-silent": "inverter silent",
@@ -275,6 +317,27 @@ _ISSUE_PHRASE = {
 # unit-failed" told Tomasz nothing on 2026-09-03 (v185) — an alert has
 # to name the thing that broke and say what it implies.
 _ISSUE_WHY = {
+    "inverter_temp_high": "Internal temperature above 65 degC (critical from "
+                          "75): the unit derates to protect itself and heat "
+                          "shortens its life. Check fans, filters, heatsink, "
+                          "shade on the enclosure.",
+    "inverter_fault": "The inverter's own fault code — its diagnosis, not "
+                      "an inference. Grid-side codes (Growatt 300-304) mean "
+                      "the utility or a breaker, not the PV array.",
+    "inverter_relative": "Much less energy per kW than its siblings under the "
+                         "same sun: the problem is this unit (strings, "
+                         "breaker, restarts), not the weather.",
+    "inverter_silent": "Stopped sending while the others produce. When it "
+                       "reappears its own counter tells comms gap (no energy "
+                       "lost) from a unit that was off.",
+    "string_fault": "A string diagnostic flag the unit never showed before — "
+                    "a broken string, blown fuse or new mismatch on the DC side.",
+    "energy_daily_pct": "The plant produced far less than the weather "
+                        "allowed: outage, curtailment or a wrong expected.",
+    "plant_offline": "Telemetry arrived but every inverter stayed at zero "
+                     "all day.",
+    "plant_twin_yield": "Its twin site under the same sky did much better.",
+    "data_stale": "The engine saw a long gap in this plant's telemetry.",
     "plant-dark": "Nothing has arrived from this plant since midnight. "
                   "The inverters may still be producing — it is the data "
                   "path (datalogger, site internet, vendor portal) that "
@@ -395,6 +458,15 @@ def issue_detail(key: str, extra=None) -> str:
     """The troubleshooting handle: inverter SN, unit name, date. Pure."""
     head, _, rest = key.partition(":")
     bits = []
+    if (extra or {}).get("message"):
+        # ledger issue: the engine's own sentence (value, threshold, what
+        # the counter said) is the detail
+        sn = rest.split(":", 1)[1] if ":" in rest else ""
+        lab = (extra or {}).get("label")
+        if sn:
+            bits.append(f"{lab} \u00b7 SN {sn}" if lab else f"SN {sn}")
+        bits.append(extra["message"])
+        return " \u00b7 ".join(b for b in bits if b)
     if head == "inverter-silent" and ":" in rest:
         sn = rest.split(":", 1)[1]
         lab = (extra or {}).get("label")

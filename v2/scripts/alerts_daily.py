@@ -218,9 +218,19 @@ def build_candidates(
     return cands
 
 
-def daily_temp_candidates(bundle, portfolio) -> List[Candidate]:
+TEMP_CLEAR_C = 60.0
+"""v202 hysteresis: an OPEN temperature alert stays open (WARNING) while
+the day-peak is still above this, and resolves only after a full day
+below it. MEX1 (peaks 57-71 degC) used to open, resolve two days later
+and re-open — one mail per cycle — for what is one condition."""
+
+
+def daily_temp_candidates(bundle, portfolio,
+                          open_keys=frozenset()) -> List[Candidate]:
     """Daily owner of inverter_temp_high: fires on the day's MAX temperature,
-    so an acute-opened alert resolves once a full day stays below WARN."""
+    so an acute-opened alert resolves once a full day stays below the
+    CLEAR level (60 degC) — below WARN alone is not enough for a key in
+    ``open_keys`` (the ledger's OPEN temperature alerts)."""
     from argia.core.alerts_state import make_inverter_alert_key
     out: List[Candidate] = []
     for plant in portfolio.active_plants():
@@ -230,12 +240,23 @@ def daily_temp_candidates(bundle, portfolio) -> List[Candidate]:
                 sn = str(r.inverter_sn).strip()
                 peak[sn] = max(peak.get(sn, -999.0), float(r.temperature_c))
         for sn, t in sorted(peak.items()):
+            key = make_inverter_alert_key(plant.plant_key, sn,
+                                          "inverter_temp_high")
             if t < TEMP_WARN_C:
+                if key in open_keys and t >= TEMP_CLEAR_C:
+                    out.append(Candidate(
+                        alert_key=key, plant_key=plant.plant_key,
+                        inverter_sn=sn, metric="inverter_temp_high",
+                        severity="WARNING", value=round(t, 1),
+                        threshold=TEMP_WARN_C,
+                        message=(f"{plant.plant_key} {sn}: day-peak temperature "
+                                 f"{t:.1f} degC — still above the clear level "
+                                 f"{TEMP_CLEAR_C:.0f} [WARNING]"),
+                    ))
                 continue
             crit = t >= TEMP_CRIT_C
             out.append(Candidate(
-                alert_key=make_inverter_alert_key(plant.plant_key, sn,
-                                                  "inverter_temp_high"),
+                alert_key=key,
                 plant_key=plant.plant_key, inverter_sn=sn,
                 metric="inverter_temp_high",
                 severity="CRITICAL" if crit else "WARNING",
@@ -243,6 +264,32 @@ def daily_temp_candidates(bundle, portfolio) -> List[Candidate]:
                 message=(f"{plant.plant_key} {sn}: day-peak temperature "
                          f"{t:.1f} degC [{'CRITICAL' if crit else 'WARNING'}]"),
             ))
+    return out
+
+
+def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]:
+    """Daily owner of inverter_silent (v203): every daylight gap of one
+    inverter while its siblings produced, classified through the vendor
+    counter — comms-only (WARNING) or the unit was OFF (CRITICAL)."""
+    from argia.analytics.silent import evaluate_silent_gaps
+    from argia.core.alerts_state import make_inverter_alert_key
+    from argia.core.time_utils import MX_TZ
+    y, m, d = (int(x) for x in date_iso.split("-"))
+    day_end = dt.datetime(y, m, d, 20, 0, tzinfo=MX_TZ).astimezone(UTC)
+    out: List[Candidate] = []
+    for plant in portfolio.active_plants():
+        invs = portfolio.inverters_for(plant.plant_key)
+        rated = {i.inverter_sn: float(i.rated_kw or 0) for i in invs}
+        rows = [(r.timestamp_utc, str(r.inverter_sn).strip(), r.etoday_kwh, r.power_w)
+                for r in bundle.rows_for_plant(plant.plant_key)]
+        for b in evaluate_silent_gaps(plant.plant_key, rows, rated, day_end,
+                                      configured=[i.inverter_sn for i in invs]):
+            out.append(Candidate(
+                alert_key=make_inverter_alert_key(plant.plant_key, b.inverter_sn,
+                                                  "inverter_silent"),
+                plant_key=plant.plant_key, inverter_sn=b.inverter_sn,
+                metric="inverter_silent", severity=b.severity.value,
+                value=b.gap_min, threshold=None, message=b.message))
     return out
 
 
@@ -340,10 +387,18 @@ def main(argv=None) -> int:
     log.info("Evaluating %s: %d inverter readings, %d KPI plant rows",
              date_iso, len(readings), len(kpi))
 
+    # the ledger is loaded before the candidates: the temperature rule
+    # needs to know which alerts are OPEN (hysteresis, v202)
+    create_alerts_tab_if_missing(sheets)
+    ledger = load_alerts_ledger(sheets)
+    open_temp_keys = frozenset(
+        r.alert_key for r in ledger.records
+        if r.metric == "inverter_temp_high" and (r.is_open() or r.is_silenced()))
     candidates = build_candidates(
         readings, kpi, fault_samples, string_day, string_baseline, stale,
-        temp_candidates=daily_temp_candidates(bundle, portfolio),
-        offline_candidates=daily_offline_candidates(readings),
+        temp_candidates=daily_temp_candidates(bundle, portfolio, open_temp_keys),
+        offline_candidates=(daily_offline_candidates(readings)
+                            + daily_silent_candidates(bundle, portfolio, date_iso)),
     )
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
@@ -369,8 +424,6 @@ def main(argv=None) -> int:
                      ", ".join(sorted(maint)))
 
     # --- reconcile against ledger ---
-    create_alerts_tab_if_missing(sheets)
-    ledger = load_alerts_ledger(sheets)
     result = reconcile_alerts(ledger, candidates, dt.datetime.now(UTC))
     log.info("Reconcile: %s", result.summary())
     for r in result.opened:

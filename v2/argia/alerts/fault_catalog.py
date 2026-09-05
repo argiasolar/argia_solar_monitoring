@@ -53,6 +53,31 @@ SOLAREDGE_MODE = {
     "IDLE": "idle",
 }
 
+# Growatt three-phase (MAX / MID / MOD series) error codes — the
+# grid-side and thermal ones we have actually seen in the fleet, from the
+# published Growatt error table (deenergy.com.au/growatt-fault-code,
+# mirrors the MAX manual). Stored as "FT=<code>" (faultType) in our
+# fault_code summary; FC1=/FC2= are the bit-coded faultCode1/2 and stay
+# uncatalogued. SLP1 2026-08-02..04 (300, both units, grid outage) and
+# SLP2 2026-09-03 (302, 50 min) are the real cases behind this list.
+GROWATT_FAULT_TYPE = {
+    300: "grid voltage out of range (AC V outrange) — utility side, not the PV array",
+    301: "grid frequency out of range (AC F outrange) — utility side",
+    302: "no AC connection — the inverter lost the grid (breaker open, "
+         "utility outage, or the AC cable); it stops until the grid is back",
+    303: "neutral-to-PE voltage above 30 V — AC wiring / grounding issue",
+    304: "grid frequency out of permissible range — utility side",
+    402: "output DC injection too high (High DCI) — inverter side, restart; repeat = service",
+    404: "bus sample fault — inverter internal, service if it repeats",
+    405: "relay fault — inverter internal, service",
+    407: "auto-test failed — commissioning / grid-code setting",
+    408: "over temperature — the inverter shut down on heat: check cooling, fans, heatsink, shade",
+    409: "bus over-voltage — DC side / inverter internal, service if it repeats",
+    420: "GFCI / residual current fault — insulation or leakage on the DC side, site check",
+}
+
+_GW_FT_RE = re.compile(r"FT=(\d+)")
+
 _HU_RE = re.compile(r"^IS=(\d+),RS=(\d+)$")
 _SE_RE = re.compile(r"^MODE=([A-Z_]+)$")
 
@@ -85,6 +110,9 @@ def explain_fault(vendor: str, raw: str) -> Optional[str]:
                         "check the SolarEdge portal")
 
     if v == "GROWATT":
+        m = _GW_FT_RE.search(s)
+        if m and int(m.group(1)) in GROWATT_FAULT_TYPE:
+            return f"Growatt error {m.group(1)}: {GROWATT_FAULT_TYPE[int(m.group(1))]}"
         return (f"Growatt code {s} — model-specific, check the Growatt "
                 "OSS portal (codes vary by series)")
     return f"vendor code {s} — not in catalog, check the vendor portal"

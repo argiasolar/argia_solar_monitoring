@@ -166,19 +166,20 @@ def gather_recon_fails() -> List[Tuple[str, str, str]]:
 
 
 def load_state() -> Tuple[Dict[str, tuple], Dict[str, str]]:
-    """({key: (ts, active, ever_sent)}, {key: severity})."""
+    """({key: (ts, active, ever_sent, first_seen)}, {key: severity})."""
     state: Dict[str, tuple] = {}
     sev: Dict[str, str] = {}
     for r in psql_rows("SELECT key, coalesce(last_sent, first_seen),"
                        " active, (last_sent IS NOT NULL),"
-                       " coalesce(severity, 'CRITICAL')"
+                       " coalesce(severity, 'CRITICAL'), first_seen"
                        " FROM alert_state;"):
-        if len(r) >= 5:
+        if len(r) >= 6:
             try:
                 ts = dt.datetime.fromisoformat(r[1])
+                first = dt.datetime.fromisoformat(r[5])
             except ValueError:
                 continue
-            state[r[0]] = (ts, r[2] == "t", r[3] == "t")
+            state[r[0]] = (ts, r[2] == "t", r[3] == "t", first)
             sev[r[0]] = r[4]
     return state, sev
 
@@ -192,7 +193,9 @@ def persist(active: List[monitor.Alert], sent_keys: List[str],
             f"INSERT INTO alert_state (key, severity) VALUES"
             f" ({_txt(a.key)}, {_txt(a.severity)})"
             f" ON CONFLICT (key) DO UPDATE SET last_seen = now(),"
-            f" active = true, severity = EXCLUDED.severity{sent};")
+            f" active = true, severity = EXCLUDED.severity,"
+            f" first_seen = CASE WHEN alert_state.active"
+            f" THEN alert_state.first_seen ELSE now() END{sent};")
     for k in recovered:
         stmts.append(f"UPDATE alert_state SET active = false"
                      f" WHERE key = {_txt(k)};")
@@ -281,7 +284,12 @@ def main(argv=None) -> int:
     state, sev_by_key = load_state()
     to_send, recovered = monitor.plan_sends(active, state, now,
                                             warn_digest=digest)
-    mail_recovered = monitor.recoveries_to_mail(recovered, sev_by_key)
+    mailed_keys = {k for k, st in state.items() if len(st) > 2 and st[2]}
+    active_hours = {k: (now - st[3]).total_seconds() / 3600.0
+                    for k, st in state.items() if len(st) > 3}
+    mail_recovered = monitor.recoveries_to_mail(
+        recovered, sev_by_key, mailed_keys=mailed_keys,
+        active_hours=active_hours, with_alerts=bool(to_send))
     LOG.info("active=%d to_send=%d recovered=%d (mailable=%d) digest=%s"
              " recipients=%d mail_cfg=%s",
              len(active), len(to_send), len(recovered),

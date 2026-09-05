@@ -87,6 +87,44 @@ class TestReconcileLifecycle:
         assert day2.records[0].severity == "CRITICAL"
         assert day2.records[0].threshold == 0.70
 
+    def test_escalation_rearms_the_mail(self):
+        """v202: a WARNING that was mailed and then becomes CRITICAL must be
+        mailed again — channels_sent is cleared on escalation only."""
+        from argia.core.alerts_state import mark_channels_sent
+        day1 = reconcile_alerts(_ledger(), [_cand(sev="WARNING", threshold=0.85)], NOW)
+        mailed = [mark_channels_sent(day1.records[0], ["email"])]
+        same = reconcile_alerts(_ledger(mailed), [_cand(sev="WARNING", threshold=0.85)], LATER)
+        assert same.records[0].channels_sent == "email"          # touched, not re-armed
+        up = reconcile_alerts(_ledger(mailed), [_cand(sev="CRITICAL", threshold=0.70)], LATER)
+        assert up.records[0].severity == "CRITICAL" and up.records[0].channels_sent == ""
+        down = reconcile_alerts(_ledger(up.records), [_cand(sev="WARNING", threshold=0.85)],
+                                LATER + dt.timedelta(days=1))
+        assert down.records[0].severity == "WARNING" and down.records[0].channels_sent == ""
+
+    def test_acute_tier_never_de_escalates(self):
+        """v202: NL1 case — 81 degC at noon (CRITICAL), 66 degC at 18:00
+        (WARNING candidate). The snapshot tier keeps CRITICAL and the peak
+        message; only the daily tier (resolve_missing=True) lowers it."""
+        crit = _cand(metric="inverter_temp_high", key="nl1:inv:i9:inverter_temp_high",
+                     sev="CRITICAL", value=81.6, threshold=75.0, msg="81.6 degC")
+        warn = _cand(metric="inverter_temp_high", key="nl1:inv:i9:inverter_temp_high",
+                     sev="WARNING", value=66.0, threshold=65.0, msg="66.0 degC")
+        noon = reconcile_alerts(_ledger(), [crit], NOW, resolve_missing=False)
+        evening = reconcile_alerts(_ledger(noon.records), [warn],
+                                   NOW + dt.timedelta(hours=6), resolve_missing=False)
+        r = evening.records[0]
+        assert r.severity == "CRITICAL" and r.value == 81.6 and r.message == "81.6 degC"
+        assert r.last_seen_utc.startswith("2026-07-03T18:00")           # still touched
+        assert evening.touched and not evening.opened
+        # the acute tier still escalates upward
+        up = reconcile_alerts(_ledger(reconcile_alerts(_ledger(), [warn], NOW,
+                                                       resolve_missing=False).records),
+                              [crit], LATER, resolve_missing=False)
+        assert up.records[0].severity == "CRITICAL" and up.records[0].value == 81.6
+        # the daily tier may lower it
+        daily = reconcile_alerts(_ledger(evening.records), [warn], LATER, resolve_missing=True)
+        assert daily.records[0].severity == "WARNING" and daily.records[0].value == 66.0
+
     def test_foreign_metric_rows_left_alone(self):
         # A manual/other-engine OPEN row (metric NOT in ENGINE_METRICS, e.g.
         # pr_daily) must never be auto-resolved when absent from candidates.
@@ -179,3 +217,60 @@ class TestScriptLoadingPath:
         cands = build_candidates(readings, {})          # no plant rows needed
         crit = [c for c in cands if c.severity == "CRITICAL"]
         assert len(crit) == 1 and crit[0].inverter_sn == "INV3"
+
+
+class TestDailyTemperatureHysteresis:
+    """v202: an OPEN temperature alert resolves only after a full day
+    below TEMP_CLEAR_C (60), not the moment the peak dips under WARN."""
+
+    class _Bundle:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def rows_for_plant(self, pk):
+            return [r for r in self._rows if r.plant_key == pk]
+
+    class _Plant:
+        plant_key = "MEX1"
+
+    class _Portfolio:
+        def active_plants(self):
+            return [TestDailyTemperatureHysteresis._Plant()]
+
+    def _cands(self, temps, open_keys=frozenset()):
+        from scripts.alerts_daily import daily_temp_candidates
+        rows = [_temp_row(t, sn) for sn, t in temps]
+        return daily_temp_candidates(self._Bundle(rows), self._Portfolio(), open_keys)
+
+    def test_thresholds_unchanged_for_new_alerts(self):
+        assert self._cands([("ES1", 62.0)]) == []
+        w = self._cands([("ES1", 66.5)])
+        assert [c.severity for c in w] == ["WARNING"] and w[0].value == 66.5
+        c = self._cands([("ES1", 76.2)])
+        assert [x.severity for x in c] == ["CRITICAL"] and c[0].threshold == 75.0
+
+    def test_open_alert_survives_a_62_degree_day_and_clears_at_59(self):
+        key = "mex1:inv:es1:inverter_temp_high"
+        held = self._cands([("ES1", 62.0)], frozenset({key}))
+        assert len(held) == 1 and held[0].severity == "WARNING"
+        assert held[0].alert_key == key and "clear level 60" in held[0].message
+        assert self._cands([("ES1", 59.9)], frozenset({key})) == []
+        # another inverter's key does not keep this one open
+        assert self._cands([("ES1", 62.0)], frozenset({"mex1:inv:es2:inverter_temp_high"})) == []
+
+    def test_script_passes_the_open_keys(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "alerts_daily.py"
+               ).read_text(encoding="utf-8")
+        assert "daily_temp_candidates(bundle, portfolio, open_temp_keys)" in src
+        assert src.index("ledger = load_alerts_ledger(sheets)") < src.index("candidates = build_candidates(")
+
+
+def _temp_row(temp, sn):
+    from argia.kpi.reader import InverterRow
+    return InverterRow(
+        timestamp_utc=dt.datetime(2026, 9, 4, 18, 0, tzinfo=UTC),
+        plant_key="MEX1", inverter_sn=sn, inverter_label="", vendor="", status=1,
+        power_w=1000.0, etoday_kwh=100.0, temperature_c=temp, fault_code="",
+        irradiance_wm2=None, irradiance_kwh_m2_5m=None, cloud_cover_pct=None,
+        ambient_temp_c=None)

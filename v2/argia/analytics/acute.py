@@ -58,6 +58,16 @@ ACUTE_STALE_MIN = 120
 """No sample for a plant in this many daylight minutes -> acute data gap.
 Generous vs GitHub's jittery cadence (verified 1-2 h gaps are normal)."""
 
+# v203 — one inverter silent while its siblings produce (SLP2 2026-09-04:
+# Inverter 1 sent nothing 14:20-19:59 MX while Inverter 2 reported
+# 105 kW; the portal said "stale", nobody was told). Per-inverter ZERO
+# stays daily-only (transient) — per-inverter SILENCE next to a
+# producing sibling is not transient at 45 min.
+SILENT_WARN_MIN = 45
+SILENT_CRIT_MIN = 180
+SIBLING_MIN_W = 5000.0
+"""A sibling counts as 'producing' above this (daylight, not dusk)."""
+
 DAYLIGHT_START_HOUR = 6
 DAYLIGHT_END_HOUR = 20
 
@@ -97,8 +107,14 @@ def evaluate_acute(
     fresh_window_min: int = FRESH_WINDOW_MIN,
     stale_min: int = ACUTE_STALE_MIN,
     absent_gap_hours: Optional[float] = None,
+    configured_inverters: Optional[Dict[str, List[str]]] = None,
 ) -> List[AcuteBreach]:
     """Evaluate the acute conditions against the newest samples.
+
+    ``configured_inverters`` ({plant: [sn]} of ACTIVE, in-service units)
+    enables the per-inverter silence check — an inverter absent from the
+    tail is only reportable when the caller says how long the tail is
+    (``absent_gap_hours``).
 
     ``samples`` is [(timestamp_utc, plant_key, inverter_sn, power_w,
     temperature_c, status, fault_code), ...] — the recent tail of telemetry.
@@ -174,6 +190,43 @@ def evaluate_acute(
                     message=(f"{plant}: ALL {len(powers)} reporting "
                              f"inverter(s) at 0 W at "
                              f"{now_mx:%H:%M} MX [CRITICAL]"),
+                ))
+
+    # --- per-inverter: silent while a sibling produces (v203) ---
+    if configured_inverters and DARK_CHECK_START_HOUR <= now_mx.hour < DARK_CHECK_END_HOUR:
+        for plant, sns in sorted(configured_inverters.items()):
+            if plant not in active_plants:
+                continue
+            fresh = fresh_by_plant.get(plant, [])
+            producing = [r for r in fresh if (r[3] or 0) >= SIBLING_MIN_W]
+            if not producing:
+                continue            # a dark plant is plant_offline / data_stale
+            max_kw = max(r[3] for r in producing) / 1000.0
+            for sn in sorted(sns):
+                if any(r[2] == sn for r in producing):
+                    continue
+                s = latest.get((plant, sn))
+                if s is None:
+                    if absent_gap_hours is None:
+                        continue    # short tail: cannot say how long
+                    age_min = absent_gap_hours * 60.0
+                    since = f">= {absent_gap_hours:.1f} h"
+                else:
+                    age_min = (now_utc - s[0]).total_seconds() / 60.0
+                    since = f"since {utc_to_mx(s[0]):%H:%M} MX"
+                if age_min < SILENT_WARN_MIN:
+                    continue
+                crit = age_min >= SILENT_CRIT_MIN
+                breaches.append(AcuteBreach(
+                    metric="inverter_silent", plant_key=plant, inverter_sn=sn,
+                    severity=Severity.CRITICAL if crit else Severity.WARNING,
+                    value=round(age_min / 60.0, 1),
+                    message=(f"{plant} {sn}: no data for {age_min:.0f} min "
+                             f"({since}) while {len(producing)} sibling(s) "
+                             f"report up to {max_kw:.0f} kW — inverter off or "
+                             f"datalogger link; the vendor counter decides "
+                             f"when it reappears "
+                             f"[{'CRITICAL' if crit else 'WARNING'}]"),
                 ))
 
     # --- plant-level: acute data gap ---

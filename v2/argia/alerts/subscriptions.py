@@ -45,7 +45,12 @@ ALTER TABLE mail_subscription ADD CONSTRAINT mail_subscription_channel_check
 # Alert-key prefixes whose second ':'-segment is a plant key. Everything
 # else (unit-failed, disk-full, postgres-down, cfe-*) is infrastructure.
 _PLANT_PREFIXES = ("plant-dark", "plant-stale", "inverter-silent",
-                   "recon-fail", "satellite-drift")
+                   "recon-fail", "satellite-drift",
+                   # v203: engine (ledger) metrics rendered as issues in the
+                   # 19:00 mail — "<metric>:<plant>:<sn>"
+                   "inverter_temp_high", "inverter_fault", "inverter_relative",
+                   "inverter_silent", "string_fault", "energy_daily_pct",
+                   "plant_offline", "plant_twin_yield", "data_stale")
 
 
 def parse_plants(text: Optional[str]) -> Optional[FrozenSet[str]]:

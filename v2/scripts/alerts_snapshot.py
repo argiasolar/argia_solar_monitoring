@@ -166,9 +166,13 @@ def main(argv=None) -> int:
     log.info("acute evaluation at %s MX over %d tail sample(s)", mx, len(samples))
 
     now_utc = dt.datetime.now(UTC)
+    configured = {p.plant_key: [i.inverter_sn for i in portfolio.inverters_for(p.plant_key)
+                                 if i.active]
+                  for p in portfolio.active_plants()}
     breaches = evaluate_acute(
         samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
-        absent_gap_hours=span_h if span_h >= 2.0 else None)
+        absent_gap_hours=span_h if span_h >= 2.0 else None,
+        configured_inverters=configured)
     candidates = [candidate_from_acute_breach(b) for b in breaches]
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)

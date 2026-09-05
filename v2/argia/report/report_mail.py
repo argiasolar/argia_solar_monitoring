@@ -21,6 +21,20 @@ CHANNEL = "reports"
 LABEL = {"morning_yesterday": "Morning report — yesterday's full day",
          "evening_today": "Evening report — today so far"}
 
+KINDS_ENV = "ARGIA_REPORT_MAIL_KINDS"
+DEFAULT_KINDS = "morning_yesterday"
+"""v203 (Tomasz 2026-09-05: "why are we still sending the old
+templates?"): the evening PDF duplicated the 19:00 MX daily-performance
+mail, so by default only the MORNING edition (final, KPI-stamped
+numbers) is mailed. Comma list; empty string = no PDF mails at all."""
+
+
+def kinds_enabled(env=None) -> frozenset:
+    env = os.environ if env is None else env
+    raw = env.get(KINDS_ENV)
+    raw = DEFAULT_KINDS if raw is None else raw
+    return frozenset(k.strip() for k in raw.split(",") if k.strip())
+
 
 def subject_body(date_iso: str, kind: str) -> Tuple[str, str]:
     """Pure."""
@@ -42,6 +56,11 @@ def send_report(pdf_path: str, date_iso: str, kind: str,
                 dry_run: bool = False) -> bool:
     """True when the mail went out (or would, in dry-run)."""
     from argia.alerts import emailer
+    if kind not in kinds_enabled():
+        LOG.info("report mail: '%s' not in %s=%s — not mailed (the PDF is on "
+                 "Drive and the portal)", kind, KINDS_ENV,
+                 ",".join(sorted(kinds_enabled())) or "(none)")
+        return False
     if not pdf_path or not os.path.exists(pdf_path):
         LOG.warning("report mail: no PDF to attach — nothing sent")
         return False

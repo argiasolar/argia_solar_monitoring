@@ -171,6 +171,75 @@ DATES = [r[0] for r in q(
     f"LIMIT {DAY_PAGES};") if r and r[0]]
 FIRST_DATE = DATES[-1] if DATES else TODAY
 
+# ---------------------------------------------- v202: temperature + peers
+# The GCS dashboard (dashboard_html) always showed the DAY-PEAK inverter
+# temperature with amber >= 65 / red >= 75 and a per-kW peer comparison;
+# the portal only showed the latest sample. Tomasz 2026-09-05: "inverter
+# temperatures ... not on new dashboards", "peer inverter comparisons".
+TEMP_WARN_C, TEMP_CRIT_C = 65.0, 75.0     # = argia.analytics.acute
+PEER_WARN, PEER_CRIT = 0.85, 0.70         # = inverter_relative thresholds
+
+
+def temp_class(t):
+    """'' | 'warn' | 'bad' for a temperature (None -> ''). Pure."""
+    if t is None:
+        return ''
+    return 'bad' if t >= TEMP_CRIT_C else ('warn' if t >= TEMP_WARN_C else '')
+
+
+def peer_ratios(etoday_by_sn, rated_by_sn):
+    """{sn: ratio} — each inverter's kWh per rated kW against the MEDIAN
+    of its producing peers (leave-one-out), the inverter_relative rule.
+    Needs >= 2 producing peers and a rating for every unit compared;
+    unrated units are skipped, an unrated peer is left out of the pool.
+    Pure."""
+    perkw = {sn: e / rated_by_sn[sn] for sn, e in etoday_by_sn.items()
+             if e is not None and rated_by_sn.get(sn) and e > 0}
+    out = {}
+    for sn in etoday_by_sn:
+        if sn not in rated_by_sn or not rated_by_sn[sn]:
+            continue
+        peers = sorted(v for k, v in perkw.items() if k != sn)
+        if len(peers) < 2:
+            continue
+        mid = len(peers) // 2
+        med = peers[mid] if len(peers) % 2 else (peers[mid - 1] + peers[mid]) / 2
+        if med <= 0:
+            continue
+        mine = (etoday_by_sn[sn] or 0.0) / rated_by_sn[sn]
+        out[sn] = mine / med
+    return out
+
+
+def peer_class(r):
+    if r is None:
+        return ''
+    return 'bad' if r < PEER_CRIT else ('warn' if r < PEER_WARN else '')
+
+
+RATED = {pk: {sn: rated for sn, _l, rated in lst} for pk, lst in CONFIG_INV.items()}
+
+PEAK_T = {}   # date -> plant -> sn -> day-peak temperature
+for r in q(f"SELECT {MX_D}, plant_key, inverter_sn, max(temperature_c)"
+           " FROM telemetry WHERE temperature_c IS NOT NULL"
+           " AND ts_utc > now() - interval '32 days' GROUP BY 1, 2, 3;"):
+    if len(r) >= 4 and f(r[3]) is not None:
+        PEAK_T.setdefault(r[0], {}).setdefault(r[1], {})[r[2]] = f(r[3])
+
+# open alerts from the ledger (the same records the daily PDF lists);
+# the digest row is a mail vehicle, not an issue
+ALERTS_OPEN = {}   # plant -> [dict]
+for r in q("SELECT plant_key, coalesce(inverter_sn,''), metric, severity,"
+           " left(opened_utc, 10), message FROM alert_ledger"
+           " WHERE state = 'OPEN' AND metric <> 'daily_digest'"
+           " ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 ELSE 1 END,"
+           " opened_utc;"):
+    if len(r) >= 6:
+        ALERTS_OPEN.setdefault(r[0], []).append({
+            'sn': r[1], 'metric': r[2], 'sev': r[3], 'since': r[4],
+            'msg': r[5]})
+
+
 # ------------------------------------------------- per-date aggregates
 # Latest USABLE sample per inverter per date (empty vendor replies are
 # data gaps, not outages — see 2026-08-26 MEX1 incident).
@@ -795,6 +864,29 @@ def intraday_svg(pk, kwp, pr, d):
     return svg + '<div style="margin-top:6px">' + ''.join(leg) + '</div>'
 
 
+def alerts_card(pk):
+    """Open ledger alerts for one plant — what the daily PDF lists and
+    what the maintenance mails announce, on the page people look at."""
+    rows = ALERTS_OPEN.get(pk, [])
+    if not rows:
+        return ('<div class="card"><h2 data-en="Open alerts" data-es="Alertas abiertas">Open alerts</h2>'
+                '<p class="note" data-en="No open alerts for this plant." data-es="Sin alertas abiertas para esta planta.">'
+                'No open alerts for this plant.</p></div>')
+    trs = ''.join(
+        f'<tr><td><span class="pill {"bad" if a["sev"] == "CRITICAL" else "warn"}">{esc(a["sev"])}</span></td>'
+        f'<td>{esc(a["sn"]) or "plant"}</td><td>{esc(a["metric"])}</td><td>{esc(a["since"])}</td>'
+        f'<td>{esc(a["msg"])}</td></tr>' for a in rows)
+    n_crit = sum(1 for a in rows if a['sev'] == 'CRITICAL')
+    return (f'<div class="card"><h2 data-en="Open alerts ({len(rows)}, {n_crit} critical)"'
+            f' data-es="Alertas abiertas ({len(rows)}, {n_crit} críticas)">Open alerts ({len(rows)}, {n_crit} critical)</h2>'
+            '<table><tr><th data-en="Severity" data-es="Severidad">Severity</th><th data-en="Inverter" data-es="Inversor">Inverter</th>'
+            '<th data-en="Metric" data-es="Métrica">Metric</th><th data-en="Since" data-es="Desde">Since</th>'
+            '<th data-en="Message" data-es="Mensaje">Message</th></tr>' + trs + '</table>'
+            '<p class="note" data-en="From the alert ledger (daily + snapshot engines). Resolved by the daily run once the condition clears for a whole day."'
+            ' data-es="Del registro de alertas (motores diario y de instantáneas). Se resuelven cuando la condición desaparece un día completo.">'
+            'From the alert ledger; resolved by the daily run once the condition clears for a whole day.</p></div>')
+
+
 # ----------------------------------------------------------- plant page
 def plant_page(pk, d):
     """One plant, one day. d == TODAY -> live page with live KPIs."""
@@ -808,6 +900,7 @@ def plant_page(pk, d):
 
     inv_cells = []
     portal = VENDOR_PORTAL.get(str(meta.get('brand', '')).upper())
+    peers = peer_ratios({i['sn']: i['etoday'] for i in invs}, RATED.get(pk, {}))
     for i in sorted(invs, key=lambda v: v['label']):
         stale = live and i['age_min'] > STALE_MIN
         fault = i['status'] == 3
@@ -819,7 +912,17 @@ def plant_page(pk, d):
         if i['fault'] and (fault or not is_normal_state(meta['brand'],
                                                         i['fault'])):
             detail = explain_fault(meta['brand'], i['fault']) or ''
-        temp = '—' if i['temp'] is None else f"{i['temp']:.0f}"
+        peak = PEAK_T.get(d, {}).get(pk, {}).get(i['sn'])
+        tnow = '—' if i['temp'] is None else f"{i['temp']:.0f}"
+        tpk = '—' if peak is None else f"{peak:.0f}"
+        tcls = temp_class(peak)
+        temp = (f'<span class="pill {tcls}">{tnow} / {tpk}</span>' if tcls
+                else f'{tnow} / {tpk}')
+        pr_ = peers.get(i['sn'])
+        pcls = peer_class(pr_)
+        peer_txt = '—' if pr_ is None else f"{100 * pr_:.0f}%"
+        peer_html = (f'<span class="pill {pcls}">{peer_txt}</span>' if pcls
+                     else peer_txt)
         pill_html = f'<span class="pill {pill_cls}">{esc(pill_txt)}</span>'
         if portal:
             pill_html = (f'<a class="statlink" href="{esc(portal)}"'
@@ -831,6 +934,7 @@ def plant_page(pk, d):
             f'<td>{pill_html}'
             f'{(" <span class=note>" + esc(detail) + "</span>") if detail else ""}</td>'
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'
+            f'<td>{peer_html}</td>'
             f'<td>{temp}</td><td>{esc(i["last_mx"])}</td></tr>')
     # configured inverters that never answered this day — the dead ones
     seen_sns = {i['sn'] for i in invs}
@@ -853,7 +957,7 @@ def plant_page(pk, d):
             f' ({(rated or 0):,.0f} kW) but never reported" data-es="configurado'
             ' activo pero sin reportar">configured active'
             f' ({(rated or 0):,.0f} kW) but never reported</span></td>'
-            '<td>—</td><td>—</td><td>—</td><td>—</td></tr>')
+            '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>')
     recon_rows = ''.join(
         f'<tr><td>{esc(r[0])}</td><td>{fmt_kwh(f(r[1]))}</td>'
         f'<td>{fmt_kwh(f(r[2]))}</td><td>{fmt_kwh(f(r[3]))}</td>'
@@ -915,9 +1019,10 @@ def plant_page(pk, d):
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
 <div class="card"><h2 data-en="Inverters — {'latest sample' if live else 'last sample of the day'}" data-es="Inversores — última muestra">Inverters — latest sample</h2>
-<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th>°C</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
-<p class="note" data-en="Status comes from the inverter's own status flag; raw vendor state strings are shown as detail. A full fault-code catalog (human explanations per vendor code) arrives with the alerting phase."
- data-es="El estado proviene de la bandera del propio inversor; las cadenas de estado se muestran como detalle. El catálogo de códigos de falla llega con la fase de alertas.">Status comes from the inverter's own status flag.</p></div>
+<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
+<p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% — the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail."
+ data-es="vs pares = kWh por kW nominal de este inversor contra la mediana de los demás inversores de la planta (ámbar < 85%, rojo < 70%). °C = temperatura interna, última muestra / pico del día (ámbar ≥ 65, rojo ≥ 75). El estado proviene de la bandera del propio inversor.">vs peers = kWh per rated kW against the median of the other inverters (amber &lt; 85%, red &lt; 70%). °C = internal temperature, latest / day peak (amber ≥ 65, red ≥ 75).</p></div>
+{alerts_card(pk) if live else ''}
 <div class="card"><h2 data-en="Last 7 days — production (click a date)" data-es="Últimos 7 días — producción (clic en la fecha)">Last 7 days — production (click a date)</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th>kWh</th><th data-en="Expected" data-es="Esperado">Expected</th><th>%</th></tr>{daily_rows}</table></div>
 <div class="card"><h2 data-en="Daily reconciliation — interval vs vendor counter" data-es="Conciliación diaria — intervalos vs contador">Daily reconciliation — interval vs vendor counter</h2>

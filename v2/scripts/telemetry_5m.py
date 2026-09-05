@@ -59,6 +59,7 @@ from argia.meteo.growatt_irradiance import (
     interval_kwh_m2_from_wm2,
 )
 from argia.meteo.open_meteo import CloudCoverClient
+from argia.store import pg_detail
 from argia.vendors import growatt_token
 from argia.telemetry import growatt_row, huawei_row, sma_row, solaredge_row
 from argia.telemetry.growatt_row import WeatherSnapshot
@@ -155,9 +156,15 @@ def _mirror_plant_tab(sheets, plant_key, plant_rows, dry_run=False,
     """
     if not plant_rows:
         return 0
+    log = log or logging.getLogger("argia.telemetry_5m")
+    # v203: the wide row is kept in PostgreSQL (telemetry_detail) whether or
+    # not the sheet tab mirror is on — fail-soft, never an error here
+    try:
+        pg_detail.mirror_plant_rows(plant_key, plant_rows, dry_run=dry_run, log=log)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[%s] detail mirror raised: %s", plant_key, str(e)[:160])
     if not (plant_tabs_enabled() if enabled is None else enabled):
         return 0
-    log = log or logging.getLogger("argia.telemetry_5m")
     tab = plant_tab_name(plant_key)
     try:
         ensure_telemetry_tab(sheets, tab, PLANT_SCHEMA)

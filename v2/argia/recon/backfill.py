@@ -65,7 +65,7 @@ def build_fix_sql(plant_key: str, date_iso: str, vendor_kwh: float,
     head = INVERTER_NOTE if basis == "inverter_counters" else VENDOR_NOTE
     note = (head + " (" + (detail + "; " if detail else "")
             + (f"kpi had {old_kpi_kwh:.1f}" if old_kpi_kwh is not None
-               else "kpi was missing") + ")")
+               else "row created by the nightly reconciliation") + ")")
     return (
         "INSERT INTO daily_production (plant_key, prod_date, energy_kwh,"
         " source, status_note) VALUES"

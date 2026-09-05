@@ -45,7 +45,7 @@ def test_classify_zero_vendor():
 def test_fix_sql_fill_missing():
     sql = build_fix_sql("gto1", "2026-08-25", 2809.9, None)
     assert "('GTO1', DATE '2026-08-25', 2809.900, 'v2'" in sql
-    assert "kpi was missing" in sql
+    assert "row created by the nightly reconciliation" in sql
     assert "OR daily_production.energy_kwh < 2809.900" in sql
 
 
@@ -146,7 +146,7 @@ class TestInverterCounterRule:
         assert "energy from inverter counters (inverter_counters; vendor plant daily 1368.6; kpi had 1368.6)" in sql
         assert "WHERE daily_production.energy_kwh IS NULL OR daily_production.energy_kwh < 1513.400" in sql
         legacy = B.build_fix_sql("SLP2", "2026-09-04", 1368.6, None)
-        assert "energy from vendor daily counter (kpi was missing)" in legacy
+        assert "energy from vendor daily counter (row created by the nightly reconciliation)" in legacy
 
     def test_pr_resync_covers_both_notes(self):
         sql = B.build_pr_resync_sql()

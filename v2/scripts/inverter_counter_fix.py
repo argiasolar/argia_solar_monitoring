@@ -98,10 +98,13 @@ def main(argv=None) -> int:
         print(f"  {f['date']} {f['plant_key']:5s} stored={f['stored'] if f['stored'] is not None else '-':>9} "
               f"-> {f['reference']:9.1f} ({f['basis']}; inverters={f['inverter_kwh']} vendor={f['vendor_kwh']})"
               + ("  CLOSED month — untouched" if f["closed"] else ""))
-    if not a.apply or not open_fixes:
-        print("(report only)" if not a.apply else "nothing to apply")
+    if not a.apply:
+        print("(report only)")
         return 0
     from argia.store.pgq import psql_exec
+    # the two resyncs always run on --apply: a KPI re-stamp after a heal
+    # can leave billable below energy (MEX1 2026-09-01) even with no new
+    # correction to make
     for f in open_fixes:
         detail = (f"{f['basis']}; vendor plant daily {f['vendor_kwh']:.1f}"
                   if f["vendor_kwh"] is not None and f["basis"] == E.BASIS_INV else f["basis"])

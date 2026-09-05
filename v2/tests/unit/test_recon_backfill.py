@@ -169,6 +169,7 @@ class TestInverterCounterRule:
     def test_fix_script_skips_the_running_day(self):
         src = (V2 / "scripts" / "inverter_counter_fix.py").read_text(encoding="utf-8")
         assert "if k[1] < today_mx" in src
+        assert src.index("for f in open_fixes:") > src.index("resyncs always run on --apply")
 
     def test_recon_wiring(self):
         snap = (V2 / "scripts" / "recon_snapshot.py").read_text(encoding="utf-8")

@@ -166,6 +166,10 @@ class TestInverterCounterRule:
             ("SLP2", E.BASIS_INV, 1513.4, False), ("MEX1", E.BASIS_VENDOR_DAILY, 3200.0, True),
             ("NL1", E.BASIS_VENDOR_DAILY, 2800.0, False)]
 
+    def test_fix_script_skips_the_running_day(self):
+        src = (V2 / "scripts" / "inverter_counter_fix.py").read_text(encoding="utf-8")
+        assert "if k[1] < today_mx" in src
+
     def test_recon_wiring(self):
         snap = (V2 / "scripts" / "recon_snapshot.py").read_text(encoding="utf-8")
         assert "B.classify_day(kpi, r.reference_kwh)" in snap

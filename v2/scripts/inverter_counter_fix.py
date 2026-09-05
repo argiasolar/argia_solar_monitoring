@@ -75,7 +75,11 @@ def load_rows(days: int) -> List[Tuple]:
     closed = {(r[0], r[1][:7]) for r in psql_rows(
         "SELECT plant_key, ref_month::text FROM reconciliation_monthly"
         " WHERE closed_at IS NOT NULL;") if len(r) >= 2}
-    keys = sorted(set(inv) | set(vend) | set(stored))
+    # today (MX) is still running — its counters are partial and its
+    # daily_production row does not exist yet; the nightly recon owns it
+    from argia.core.time_utils import MX_TZ
+    today_mx = dt.datetime.now(MX_TZ).date().isoformat()
+    keys = sorted(k for k in set(inv) | set(vend) | set(stored) if k[1] < today_mx)
     return [(pk, d, inv.get((pk, d)), vend.get((pk, d)), stored.get((pk, d)),
              (pk, d[:7]) in closed) for pk, d in keys]
 

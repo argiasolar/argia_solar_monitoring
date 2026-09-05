@@ -44,18 +44,28 @@ def _txt(s: str) -> str:
     return "'" + str(s).replace("'", "''") + "'"
 
 
+INVERTER_NOTE = "energy from inverter counters"
+VENDOR_NOTE = "energy from vendor daily counter"
+
+
 def build_fix_sql(plant_key: str, date_iso: str, vendor_kwh: float,
-                  old_kpi_kwh: Optional[float]) -> str:
-    """UPSERT correcting one plant-day from the vendor counter.
+                  old_kpi_kwh: Optional[float],
+                  basis: str = "vendor_plant_daily",
+                  detail: str = "") -> str:
+    """UPSERT correcting one plant-day from the day's reference.
 
     MISSING -> insert a new row (source v2). UNDER -> raise energy_kwh.
     The WHERE guard re-checks in SQL that we only ever fill-or-raise, so
-    a concurrent sheet sync can never make this statement lower a value.
+    a concurrent sync can never make this statement lower a value.
+    v206: ``basis`` names the reference — the inverters' own counters
+    (INVERTER_NOTE) or the vendor plant daily (VENDOR_NOTE); both notes
+    mark the row as counter-authoritative for the protected upsert.
     """
     pk = str(plant_key).strip().upper()
-    note = ("energy from vendor daily counter (history backfill"
-            + (f"; kpi had {old_kpi_kwh:.1f}" if old_kpi_kwh is not None
-               else "; kpi was missing") + ")")
+    head = INVERTER_NOTE if basis == "inverter_counters" else VENDOR_NOTE
+    note = (head + " (" + (detail + "; " if detail else "")
+            + (f"kpi had {old_kpi_kwh:.1f}" if old_kpi_kwh is not None
+               else "kpi was missing") + ")")
     return (
         "INSERT INTO daily_production (plant_key, prod_date, energy_kwh,"
         " source, status_note) VALUES"
@@ -125,7 +135,8 @@ def build_pr_resync_sql(plausible_max: float = PR_RESYNC_PLAUSIBLE_MAX
         " ELSE NULL END"
         " FROM plant p"
         " WHERE p.plant_key = d.plant_key"
-        " AND d.status_note LIKE '%vendor daily counter%'"
+        " AND (d.status_note LIKE '%vendor daily counter%'"
+        "      OR d.status_note LIKE '%inverter counters%')"
         " AND d.energy_kwh IS NOT NULL"
         " AND d.irradiance_kwh_m2 > 0.5"
         " AND p.kwp_dc > 0"

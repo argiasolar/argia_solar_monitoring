@@ -266,35 +266,51 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
                      rep, conf, completeness)
         r = E.daily_recon(ikwh, vendor_daily, kpi, completeness)
         LOG.info("recon %s %s: %s (%s)", date_iso, pk, r.status, r.note)
-        # Self-heal: a KPI day missing or below the vendor counter is
-        # filled/raised (never lowered) so a later sheet re-sync cannot
-        # re-introduce an undercount. Provenance lands in status_note.
-        if not dry_run and vendor_daily is not None:
-            cls, _delta = B.classify_day(kpi, vendor_daily)
+        # Self-heal (v206): a KPI day missing or below the day's REFERENCE
+        # — the inverters' own counters, the vendor plant daily only where
+        # higher — is filled/raised (never lowered). Provenance lands in
+        # status_note ("energy from inverter counters (...)").
+        if not dry_run and r.reference_kwh is not None:
+            cls, _delta = B.classify_day(kpi, r.reference_kwh)
             if cls in (B.CLASS_MISSING, B.CLASS_UNDER):
-                psql_exec(B.build_fix_sql(pk, date_iso, vendor_daily, kpi))
+                detail = (f"{r.reference_basis}; vendor plant daily "
+                          f"{vendor_daily:.1f}" if vendor_daily is not None
+                          and r.reference_basis == E.BASIS_INV
+                          else r.reference_basis)
+                psql_exec(B.build_fix_sql(pk, date_iso, r.reference_kwh, kpi,
+                                          basis=r.reference_basis, detail=detail))
                 LOG.info("recon %s %s: daily_production %s -> corrected "
-                         "to vendor %.1f kWh", date_iso, pk, cls,
-                         vendor_daily)
+                         "to %s %.1f kWh", date_iso, pk, cls,
+                         r.reference_basis, r.reference_kwh)
         values.append(
             f"({_txt(pk)}, DATE '{date_iso}', {_num(r.interval_kwh)},"
             f" {_num(r.vendor_daily_kwh)}, {_num(r.kpi_kwh)},"
             f" {_num(r.completeness_pct)}, {_num(r.variance_pct)},"
-            f" {_txt(r.status)}, {_txt(r.note)})")
+            f" {_txt(r.status)}, {_txt(r.note)},"
+            f" {_num(r.reference_kwh)}, {_txt(r.reference_basis)})")
     if not values or dry_run:
         return 0
+    psql_exec(RECON_DAILY_ENSURE_SQL)
     psql_exec(
         "INSERT INTO reconciliation_daily (plant_key, prod_date,"
         " interval_kwh, vendor_daily_kwh, kpi_kwh, completeness_pct,"
-        " variance_pct, status, note) VALUES\n" + ",\n".join(values) +
+        " variance_pct, status, note, reference_kwh, reference_basis)"
+        " VALUES\n" + ",\n".join(values) +
         "\nON CONFLICT (plant_key, prod_date) DO UPDATE SET"
         " interval_kwh=EXCLUDED.interval_kwh,"
         " vendor_daily_kwh=EXCLUDED.vendor_daily_kwh,"
         " kpi_kwh=EXCLUDED.kpi_kwh,"
         " completeness_pct=EXCLUDED.completeness_pct,"
         " variance_pct=EXCLUDED.variance_pct, status=EXCLUDED.status,"
-        " note=EXCLUDED.note, checked_at=now();")
+        " note=EXCLUDED.note, reference_kwh=EXCLUDED.reference_kwh,"
+        " reference_basis=EXCLUDED.reference_basis, checked_at=now();")
     return len(values)
+
+
+RECON_DAILY_ENSURE_SQL = (
+    "ALTER TABLE reconciliation_daily"
+    " ADD COLUMN IF NOT EXISTS reference_kwh numeric(12,3),"
+    " ADD COLUMN IF NOT EXISTS reference_basis text;")
 
 
 def stamp_pr_stc(gamma_by_plant: Dict[str, Optional[float]],

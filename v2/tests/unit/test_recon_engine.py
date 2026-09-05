@@ -82,7 +82,7 @@ def test_daily_missing_interval_is_review_not_fail():
 def test_daily_kpi_divergence_lands_in_note():
     r = daily_recon(1000.0, 1000.0, 950.0, 100.0)
     assert r.status == STATUS_PASS
-    assert "KPI row vs vendor" in r.note
+    assert "KPI row vs reference" in r.note
 
 
 def test_daily_zero_zero_day_passes():
@@ -178,3 +178,54 @@ def test_close_no_data():
     mc = monthly_close(None, None, None, None, None, None, 0, 31)
     assert mc.status == STATUS_NO_DATA
     assert mc.billing_kwh is None
+
+
+
+# ----------------------------------------------------------- v206: inverter counters first
+from argia.recon.engine import (BASIS_DAILY_REF, BASIS_INV, BASIS_VENDOR_DAILY,
+                                BASIS_NONE, monthly_close, reference_kwh)
+
+
+def test_reference_prefers_the_inverter_counters():
+    # SLP2 2026-09-04: inverters 1513.4, vendor plant daily 1368.6 (upload gap)
+    assert reference_kwh(1513.4, 1368.6) == (1513.4, BASIS_INV)
+    # equal within 1 %: still the inverters (0.1 kWh granularity)
+    assert reference_kwh(1000.0, 1005.0) == (1000.0, BASIS_INV)
+    # our own sampling missed part of the day: the vendor saw more -> never lower
+    assert reference_kwh(900.0, 1000.0) == (1000.0, BASIS_VENDOR_DAILY)
+    assert reference_kwh(None, 1000.0) == (1000.0, BASIS_VENDOR_DAILY)
+    assert reference_kwh(1000.0, None) == (1000.0, BASIS_INV)
+    assert reference_kwh(None, None) == (None, BASIS_NONE)
+
+
+def test_daily_vendor_below_inverters_is_review_not_fail():
+    r = daily_recon(1513.4, 1368.6, 1368.6, 100.0)
+    assert r.status == STATUS_REVIEW and r.reference_kwh == 1513.4 and r.reference_basis == BASIS_INV
+    assert "vendor upload gap; inverter counters kept" in r.note
+    assert "KPI row vs reference -9.57%" in r.note          # the stored row is short — the fix raises it
+    # the other direction (we lost data) still fails beyond 3 %
+    r = daily_recon(900.0, 1000.0, None, 100.0)
+    assert r.status == STATUS_FAIL and r.reference_kwh == 1000.0 and r.reference_basis == BASIS_VENDOR_DAILY
+
+
+def test_billing_prefers_the_daily_reference_sum_when_complete():
+    v, basis = select_billing(98542.2, 98540.0, 98500.0, 98000.0, 31, 31,
+                              daily_ref_sum_kwh=98600.0, daily_ref_days=31)
+    assert (v, basis) == (98600.0, BASIS_DAILY_REF)
+    # a partial month of references falls back to the lifetime delta
+    v, basis = select_billing(98542.2, 98540.0, 98500.0, 98000.0, 31, 31,
+                              daily_ref_sum_kwh=90000.0, daily_ref_days=28)
+    assert (v, basis) == (98542.2, BASIS_LIFETIME)
+    # legacy call shape unchanged
+    assert select_billing(98542.2, None, None, None, 0, 31) == (98542.2, BASIS_LIFETIME)
+
+
+def test_close_check3_flags_a_lifetime_delta_above_the_references():
+    mc = monthly_close(98000.0, 98500.0, 98540.0, 100000.0, 198542.2, 99.0, 31, 31,
+                       daily_ref_sum_kwh=96000.0, daily_ref_days=31)
+    assert mc.billing_basis == BASIS_DAILY_REF and mc.billing_kwh == 96000.0
+    assert mc.status == STATUS_REVIEW and "CHECK3" in mc.note and "days without inverter data" in mc.note
+    # references above the lifetime delta = vendor upload gaps: informational
+    mc = monthly_close(98000.0, 98500.0, 98540.0, 100000.0, 198542.2, 99.0, 31, 31,
+                       daily_ref_sum_kwh=100500.0, daily_ref_days=31)
+    assert mc.status == STATUS_PASS and "vendor upload gaps; counters kept" in mc.note

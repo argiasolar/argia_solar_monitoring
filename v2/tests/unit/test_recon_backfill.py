@@ -11,6 +11,13 @@ from argia.recon.backfill import (
 )
 from argia.recon.counters import huawei_daily_series, solaredge_daily_series
 
+# v206
+import pathlib
+from argia.recon import backfill as B
+from argia.recon import engine as E
+
+V2 = pathlib.Path(__file__).resolve().parents[2]
+
 
 # ---------------------------------------------------------------- classify
 def test_classify_ok_within_1pct():
@@ -129,3 +136,41 @@ def test_recon_dates_historical_base_unaffected():
     base = dt.date(2026, 8, 20)
     ds = RS.recon_dates(base, 2, hour_mx=9, today=dt.date(2026, 8, 26))
     assert ds == ["2026-08-20", "2026-08-19"]
+
+
+
+class TestInverterCounterRule:
+    def test_fix_sql_names_the_basis_and_never_lowers(self):
+        sql = B.build_fix_sql("slp2", "2026-09-04", 1513.4, 1368.6, basis="inverter_counters",
+                              detail="inverter_counters; vendor plant daily 1368.6")
+        assert "energy from inverter counters (inverter_counters; vendor plant daily 1368.6; kpi had 1368.6)" in sql
+        assert "WHERE daily_production.energy_kwh IS NULL OR daily_production.energy_kwh < 1513.400" in sql
+        legacy = B.build_fix_sql("SLP2", "2026-09-04", 1368.6, None)
+        assert "energy from vendor daily counter (kpi was missing)" in legacy
+
+    def test_pr_resync_covers_both_notes(self):
+        sql = B.build_pr_resync_sql()
+        assert "'%vendor daily counter%'" in sql and "'%inverter counters%'" in sql
+
+    def test_fix_script_plan(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "inverter_counter_fix", V2 / "scripts" / "inverter_counter_fix.py")
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        rows = [("SLP2", "2026-09-04", 1513.4, 1368.6, 1368.6, False),   # the case
+                ("GTO1", "2026-09-04", 4864.8, 4860.0, 4864.8, False),   # fine
+                ("MEX1", "2026-08-20", 3000.0, 3200.0, 3000.0, True),    # vendor higher, CLOSED month
+                ("NL1", "2026-09-03", None, 2800.0, None, False)]        # missing row, vendor only
+        out = m.plan(rows)
+        assert [(f["plant_key"], f["basis"], f["reference"], f["closed"]) for f in out] == [
+            ("SLP2", E.BASIS_INV, 1513.4, False), ("MEX1", E.BASIS_VENDOR_DAILY, 3200.0, True),
+            ("NL1", E.BASIS_VENDOR_DAILY, 2800.0, False)]
+
+    def test_recon_wiring(self):
+        snap = (V2 / "scripts" / "recon_snapshot.py").read_text(encoding="utf-8")
+        assert "B.classify_day(kpi, r.reference_kwh)" in snap
+        assert "basis=r.reference_basis" in snap and "RECON_DAILY_ENSURE_SQL" in snap
+        assert "reference_kwh=EXCLUDED.reference_kwh" in snap
+        close = (V2 / "scripts" / "recon_close.py").read_text(encoding="utf-8")
+        assert "greatest(interval_kwh, vendor_daily_kwh)" in close
+        assert 's.get("ref_sum"), s.get("ref_days", 0))' in close

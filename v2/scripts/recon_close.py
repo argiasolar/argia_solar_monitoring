@@ -55,16 +55,24 @@ def month_inputs(first: dt.date, last: dt.date) -> Dict[str, dict]:
         return out.setdefault(pk, {
             "interval_sum": None, "daily_sum": None, "daily_days": 0,
             "monthly": None, "life_start": None, "life_end": None,
-            "completeness": None})
+            "completeness": None, "ref_sum": None, "ref_days": 0})
 
+    # v206: Σ of the daily references (inverter counters; vendor plant
+    # daily only where higher). Rows written before v206 have no
+    # reference column — GREATEST of the two sides is the same rule.
     for r in psql_rows(
-            "SELECT plant_key, sum(interval_kwh), avg(completeness_pct)"
+            "SELECT plant_key, sum(interval_kwh), avg(completeness_pct),"
+            " sum(coalesce(reference_kwh, greatest(interval_kwh, vendor_daily_kwh))),"
+            " count(*) FILTER (WHERE coalesce(reference_kwh,"
+            "   greatest(interval_kwh, vendor_daily_kwh)) IS NOT NULL)"
             " FROM reconciliation_daily"
             f" WHERE prod_date BETWEEN DATE '{first}' AND DATE '{last}'"
             " GROUP BY 1;"):
         s = slot(r[0])
         s["interval_sum"] = _f(r[1])
         s["completeness"] = _f(r[2])
+        s["ref_sum"] = _f(r[3]) if len(r) > 3 else None
+        s["ref_days"] = int(_f(r[4]) or 0) if len(r) > 4 else 0
 
     for r in psql_rows(
             "SELECT plant_key, sum(daily_kwh),"
@@ -125,7 +133,8 @@ def close_month(ref_month: str, dry_run: bool) -> int:
         mc = E.monthly_close(
             s.get("interval_sum"), s.get("daily_sum"), s.get("monthly"),
             s.get("life_start"), s.get("life_end"), s.get("completeness"),
-            s.get("daily_days", 0), days)
+            s.get("daily_days", 0), days,
+            s.get("ref_sum"), s.get("ref_days", 0))
         auto_close = mc.status == E.STATUS_PASS
         LOG.info("=== %s %s: %s basis=%s billing=%s\n    %s", ref_month, pk,
                  mc.status, mc.billing_basis, mc.billing_kwh, mc.note)

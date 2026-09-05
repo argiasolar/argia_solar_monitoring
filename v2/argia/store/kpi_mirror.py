@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional
 # and "energy corrected from vendor daily counter (was …)" echoed back
 # from the sheet by kpi_sheet_fix). Both mark a vendor-authoritative row.
 VENDOR_NOTE_MARK = "vendor daily counter"
+INVERTER_NOTE_MARK = "inverter counters"      # v206
 VENDOR_NOTE_PREFIX = VENDOR_NOTE_MARK  # backward-compat alias
 
 # sheet header -> daily_production column (mirrors bundle/sync_kpi.py)
@@ -134,8 +135,11 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
     if not rows:
         return None
     cols = ["plant_key", "prod_date"] + sorted(set(COLMAP.values())) + ["source"]
-    vendor_guard = (f"daily_production.status_note LIKE "
-                    f"'%{VENDOR_NOTE_MARK}%'")
+    # v206: a row healed from the inverters' own counters is protected
+    # the same way as one healed from the vendor plant daily
+    vendor_guard = (f"(daily_production.status_note LIKE "
+                    f"'%{VENDOR_NOTE_MARK}%' OR daily_production.status_note"
+                    f" LIKE '%{INVERTER_NOTE_MARK}%')")
     # A CLOSED month is invoiced history: no import path may modify any
     # column of its rows (2026-09-01 — the sibling sync_kpi.py path
     # un-fixed the freshly closed August 45 minutes after the close).

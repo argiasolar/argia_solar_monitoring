@@ -46,8 +46,9 @@ def test_upsert_sql_protects_vendor_rows():
     # every protected column keeps the stored value on vendor rows;
     # the guard is a SUBSTRING match so both note flavors are covered
     for c in PROTECTED:
-        assert (f"CASE WHEN daily_production.status_note LIKE "
-                f"'%{VENDOR_NOTE_MARK}%' THEN daily_production.{c}") in sql
+        assert (f"CASE WHEN (daily_production.status_note LIKE "
+                f"'%{VENDOR_NOTE_MARK}%' OR daily_production.status_note LIKE "
+                f"'%inverter counters%') THEN daily_production.{c}") in sql      # v206: both notes
 
 
 def test_billable_is_a_protected_column():

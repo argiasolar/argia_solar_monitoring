@@ -64,17 +64,35 @@ class TestHtml:
 
 
 class TestParsers:
-    def test_timers(self):
-        t = ("NEXT  LEFT  LAST  PASSED  UNIT  ACTIVATES\n"
-             "Sat 2026-09-05 12:00:00 CEST     2h 1min    Fri 2026-09-04 12:00:00 CEST  21h ago      argia-kpi.timer           argia-kpi.service\n"
-             "-                                -          Fri 2026-09-04 14:15:00 CEST  20h ago      argia-kpimirror.timer     argia-kpimirror.service\n"
-             "Fri 2026-10-02 11:00:00 CEST     3 weeks 6 days  -                        -            argia-archive-month.timer argia-archive-month.service\n"
-             "\n3 timers listed.\n")
-        rows = cat.parse_timers(t)
-        assert [r["unit"] for r in rows] == ["argia-kpi.timer", "argia-kpimirror.timer", "argia-archive-month.timer"]
-        assert rows[0]["left"] == "2h 1min" and rows[0]["svc"] == "argia-kpi.service"
-        assert rows[1]["next"] == "" and rows[1]["last"].startswith("Fri 2026-09-04 14:15")
-        assert rows[2]["last"] == "" and rows[2]["left"] == "3 weeks 6 days"
+    def test_timers_from_systemd_json(self):
+        now = 1_788_570_000_000_000                       # 2026-09-05 01:00:00 UTC
+        t = ('[{"next":1788571020000000,"left":1788571020000000,"last":1788570720090959,'
+             '"passed":206752874332,"unit":"argia-monitoring-gen.timer","activates":"argia-monitoring-gen.service"},'
+             '{"next":null,"left":null,"last":1788480900000000,"passed":1,"unit":"argia-kpimirror.timer",'
+             '"activates":"argia-kpimirror.service"},'
+             '{"next":1790917200000000,"left":0,"last":0,"passed":0,"unit":"argia-archive-month.timer",'
+             '"activates":"argia-archive-month.service"}]')
+        fmt = lambda us: f"T{us // 1_000_000}"
+        rows = cat.parse_timers(t, now_us=now, fmt=fmt)
+        assert [r["unit"] for r in rows] == ["argia-monitoring-gen.timer", "argia-kpimirror.timer", "argia-archive-month.timer"]
+        assert rows[0] == {"next": "T1788571020", "left": "17min", "last": "T1788570720", "passed": "0s",
+                           "unit": "argia-monitoring-gen.timer", "svc": "argia-monitoring-gen.service"}
+        assert rows[1]["next"] == "" and rows[1]["left"] == "" and rows[1]["passed"] == "1 day"   # disabled timer
+        assert rows[2]["last"] == "" and rows[2]["passed"] == "" and rows[2]["left"] == "3 weeks 6 days"
+
+    def test_jobs_card_asks_systemd_for_json(self):
+        src = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
+        assert "'list-timers', '--all', '--no-pager', '--output=json', 'argia-*'" in src
+
+    def test_timers_tolerate_garbage(self):
+        assert cat.parse_timers("", now_us=1) == [] and cat.parse_timers("not json", now_us=1) == []
+        assert cat.parse_timers('[{"unit":"ssh.service"}]', now_us=1) == []
+
+    def test_span(self):
+        M = 1_000_000
+        assert cat._span(8 * M) == "8s" and cat._span(188 * M) == "3min 8s"
+        assert cat._span(5280 * M) == "1h 28min" and cat._span(3600 * M) == "1h"
+        assert cat._span(2 * 86400 * M + 3 * 3600 * M) == "2 days 3h" and cat._span(-5) == "0s"
 
     def test_failed_units(self):
         assert cat.parse_failed_units("argia-sync.service loaded failed failed X\nssh.service loaded failed failed Y\n") == ["argia-sync.service"]
@@ -109,6 +127,9 @@ class TestSources:
         assert "ARGIA_CONFIG_SOURCE" in h and ">pg<" in h and "GOOGLE_SHEET_ID_V2" in h
         assert "1abcSECRET" not in h and "hunter2" not in h and "sk-xyz" not in h
         assert "still needed by" in h
+        rows = {n: v for n, v, _, _ in cat.switch_rows(cat.parse_env_switches(self.ENV))}
+        assert rows["ARGIA_SHEET_TELEMETRY"] == "1 (default)" and rows["ARGIA_TELEMETRY_SOURCE"] == "sheet (default)"
+        assert rows["ARGIA_SHEET_OUTBOX"] == "0" and rows["ARGIA_KPI_WRITE"] == "both"      # set = shown bare
         done = {k: "pg" for k, _, _ in cat.SWITCH_META}
         done.update({"ARGIA_SHEET_TELEMETRY": "0", "ARGIA_SHEET_OUTBOX": "0", "ARGIA_SHEET_JOBLOG": "0"})
         assert "not needed by any job" in cat.sources_card_html(done)

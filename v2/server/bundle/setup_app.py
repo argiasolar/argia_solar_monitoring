@@ -1861,7 +1861,7 @@ def cfe_push_card():
 
 def jobs_card():
     try:
-        out = subprocess.run(['systemctl', 'list-timers', '--all', '--no-pager', 'argia-*'],
+        out = subprocess.run(['systemctl', 'list-timers', '--all', '--no-pager', '--output=json', 'argia-*'],
                              capture_output=True, text=True, timeout=20).stdout
         failed = subprocess.run(['systemctl', '--failed', '--no-legend', '--plain'],
                                 capture_output=True, text=True, timeout=20).stdout
@@ -1874,7 +1874,7 @@ def jobs_card():
     rows = [[t['unit'].replace('.timer', ''), t['next'] or '—', t['left'], t['last'] or '—', t['passed']]
             for t in timers]
     return ('<div class="card"><h2 data-en="Jobs &amp; timers" data-es="Tareas y temporizadores">Jobs &amp; timers</h2>'
-            + head + _table(['Unit', 'Next', 'In', 'Last', 'Ago'], rows) + '</div>')
+            + head + _table(['Unit', 'Next (server time)', 'In', 'Last', 'Ago'], rows) + '</div>')
 
 
 def runs_card():

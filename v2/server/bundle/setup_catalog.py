@@ -160,32 +160,53 @@ def drawer_page(d: Dict, sections: Sequence[Tuple[str, str]]) -> str:
 
 # ---------------------------------------------------------------- parsers (System drawer)
 
-def parse_timers(text: str) -> List[Dict[str, str]]:
-    """`systemctl list-timers --all --no-pager 'argia-*'` -> rows.
-    Columns are separated by 2+ spaces: NEXT LEFT LAST PASSED UNIT
-    ACTIVATES; a disabled timer prints '-' for NEXT/LEFT, a never-run
-    one '-' for LAST/PASSED. Pure."""
+def _span(us: int) -> str:
+    """Microseconds -> '4min 8s' / '1h 28min' / '3 weeks 5 days'. Pure."""
+    sec = max(int(us) // 1_000_000, 0)
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}min" + (f" {sec % 60}s" if sec % 60 else "")
+    if sec < 86400:
+        return f"{sec // 3600}h" + (f" {(sec % 3600) // 60}min" if (sec % 3600) // 60 else "")
+    days = sec // 86400
+    if days < 14:
+        return f"{days} day{'s' if days != 1 else ''}" + (f" {(sec % 86400) // 3600}h" if (sec % 86400) // 3600 else "")
+    weeks, rest = days // 7, days % 7
+    return f"{weeks} weeks" + (f" {rest} day{'s' if rest != 1 else ''}" if rest else "")
+
+
+def parse_timers(text: str, now_us: Optional[int] = None,
+                 fmt=None) -> List[Dict[str, str]]:
+    """`systemctl list-timers --all --no-pager --output=json 'argia-*'`
+    -> rows. systemd's JSON gives next / last as microseconds since the
+    epoch (0 / null when a timer is disabled or has never run); 'left'
+    and 'passed' are recomputed from now_us because older systemd
+    reports 'left' as the absolute time. Times are rendered with fmt
+    (default: server local time). Pure."""
+    import datetime as _dt
+    import json
+    import time as _time
+    if now_us is None:
+        now_us = int(_time.time() * 1_000_000)
+    if fmt is None:
+        def fmt(us):
+            return _dt.datetime.fromtimestamp(us / 1_000_000).strftime("%a %Y-%m-%d %H:%M")
+    try:
+        data = json.loads(text or "[]")
+    except ValueError:
+        return []
     rows = []
-    for ln in text.splitlines():
-        if ".timer" not in ln or ln.startswith("NEXT"):
+    for t in data if isinstance(data, list) else []:
+        unit = str(t.get("unit") or "")
+        if ".timer" not in unit:
             continue
-        parts = [p.strip() for p in re.split(r"\s{2,}", ln.strip())]
-        unit_ix = next((i for i, p in enumerate(parts) if ".timer" in p), -1)
-        if unit_ix < 0:
-            continue
-        # a long unit name can leave only ONE space before ACTIVATES
-        tail = parts[unit_ix].split()
-        parts = parts[:unit_ix] + tail + parts[unit_ix + 1:]
-        head = parts[:unit_ix]
-        # normalise to 4 leading columns: '-' NEXT means LEFT is also '-'
-        cols = []
-        for p in head:
-            cols.append("" if p == "-" else p)
-        while len(cols) < 4:
-            cols.append("")
-        rows.append({"next": cols[0], "left": cols[1], "last": cols[2], "passed": cols[3],
-                     "unit": parts[unit_ix],
-                     "svc": parts[unit_ix + 1] if unit_ix + 1 < len(parts) else ""})
+        nxt, last = t.get("next") or 0, t.get("last") or 0
+        rows.append({"next": fmt(nxt) if nxt else "",
+                     "left": _span(nxt - now_us) if nxt else "",
+                     "last": fmt(last) if last else "",
+                     "passed": _span(now_us - last) if last else "",
+                     "unit": unit, "svc": str(t.get("activates") or "")})
     return rows
 
 
@@ -233,8 +254,10 @@ def switch_rows(sw: Dict[str, str]) -> List[Tuple[str, str, str, bool]]:
     """(name, effective value, what it gates, on-PG?) per switch. Pure."""
     rows = []
     for name, what, done in SWITCH_META:
-        v = sw.get(name, SWITCH_DEFAULTS.get(name, "sheet (default)"))
-        eff = v if v else SWITCH_DEFAULTS.get(name, "sheet")
+        if name in sw and sw[name] != "":
+            eff = sw[name]
+        else:
+            eff = SWITCH_DEFAULTS.get(name, "sheet") + " (default)"
         rows.append((name, eff, what, eff.split(" ")[0] == done))
     return rows
 

@@ -154,7 +154,11 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
             continue
         base = f"COALESCE(EXCLUDED.{c}, daily_production.{c})"
         if c in PROTECTED:
-            base = (f"CASE WHEN {vendor_guard}"
+            # v206.2: a protected column keeps its STORED value on a
+            # counter-healed row — but an empty one is not a value to keep
+            # (SLP2 2026-09-04: billable_kwh stayed NULL because the guard
+            # also blocked the very first stamp)
+            base = (f"CASE WHEN {vendor_guard} AND daily_production.{c} IS NOT NULL"
                     f" THEN daily_production.{c} ELSE {base} END")
         sets.append(f"{c} = CASE WHEN {frozen}"
                     f" THEN daily_production.{c} ELSE {base} END")

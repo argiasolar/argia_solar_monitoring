@@ -48,7 +48,8 @@ def test_upsert_sql_protects_vendor_rows():
     for c in PROTECTED:
         assert (f"CASE WHEN (daily_production.status_note LIKE "
                 f"'%{VENDOR_NOTE_MARK}%' OR daily_production.status_note LIKE "
-                f"'%inverter counters%') THEN daily_production.{c}") in sql      # v206: both notes
+                f"'%inverter counters%') AND daily_production.{c} IS NOT NULL"
+                f" THEN daily_production.{c}") in sql      # v206: both notes; v206.2: NULL is not a value to keep
 
 
 def test_billable_is_a_protected_column():

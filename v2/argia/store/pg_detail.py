@@ -172,3 +172,43 @@ def mirror_plant_rows(plant_key: str, plant_rows: Sequence[Sequence[Any]],
         return 0
     lg.info("[PG] mirrored %d detail rows for %s", n, plant_key)
     return n
+
+
+# ------------------------------------------------------------- v207 reader
+STRING_FLAG_COLS = ("str_break", "str_unmatch", "str_unblance")
+
+
+def read_string_flags(first_mx_date: str, last_mx_date: str) -> List[tuple]:
+    """(ts_utc, plant_key, inverter_sn, {str_break, str_unmatch,
+    str_unblance}) for every wide row whose MX day is within the window
+    (inclusive). Only rows that carry at least one flag column are
+    returned: non-Growatt inverters have no string bits and contribute
+    nothing, exactly like their empty sheet columns used to.
+
+    v207: the daily string-flag alert read the per-plant sheet tabs; from
+    v199 that read raised SheetsRetired and the rule silently produced
+    nothing while the bits sat in this table (v203)."""
+    import datetime as _dt
+    from argia.store.pgq import psql_rows
+    cols = ", ".join(STRING_FLAG_COLS)
+    sql = (
+        "SELECT ts_utc, plant_key, inverter_sn, " + cols +
+        " FROM telemetry_detail"
+        " WHERE (ts_utc AT TIME ZONE 'America/Mexico_City')::date"
+        f" BETWEEN DATE '{first_mx_date}' AND DATE '{last_mx_date}'"
+        " AND (" + " OR ".join(c + " IS NOT NULL" for c in STRING_FLAG_COLS) + ")"
+        " ORDER BY ts_utc;")
+    out = []
+    for r in psql_rows(sql):
+        if len(r) < 3 + len(STRING_FLAG_COLS):
+            continue
+        try:
+            ts = _dt.datetime.fromisoformat(r[0].replace(" ", "T"))
+        except ValueError:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=_dt.timezone.utc)
+        flags = {c: (r[3 + i] if r[3 + i] != "" else None)
+                 for i, c in enumerate(STRING_FLAG_COLS)}
+        out.append((ts, r[1], r[2], flags))
+    return out

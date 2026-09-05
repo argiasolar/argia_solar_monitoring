@@ -66,7 +66,6 @@ from argia.analytics.perf_indicators import (
 )
 from argia.archive.kpi_daily import (
     DATA_CLASS_FULL,
-    KPI_DAILY_TAB,
     date_key,
 )
 from argia.core.alerts_state import (
@@ -119,56 +118,47 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
     return out
 
 
-def _read_string_samples(sheets, portfolio, date_iso: str):
-    """Read str_break/str_unmatch/str_unblance from the deep per-plant tabs.
+def split_string_samples(rows, date_iso: str, base_start: str, active_keys):
+    """Pure: PG wide rows -> (day_samples, baseline_samples) shaped for
+    ``evaluate_string_new_bits``. ``rows`` are
+    (ts_utc, plant_key, inverter_sn, {str_break, str_unmatch, str_unblance});
+    a row lands in the day list when its MX day is ``date_iso`` and in
+    the baseline when it is within [base_start, date_iso)."""
+    from argia.core.time_utils import utc_to_mx
+    day_s, base_s = [], []
+    for ts, pk, sn, flags in rows:
+        if pk not in active_keys or ts is None:
+            continue
+        mx_day = utc_to_mx(ts).date().isoformat()
+        entry = (ts, pk, str(sn), dict(flags))
+        if mx_day == date_iso:
+            day_s.append(entry)
+        elif base_start <= mx_day < date_iso:
+            base_s.append(entry)
+    return day_s, base_s
 
-    Returns (day_samples, baseline_samples) shaped for
-    ``evaluate_string_new_bits``. Plants without a deep tab, or whose tab
-    lacks the string columns (non-Growatt schemas leave them blank), simply
-    contribute nothing — string alerting degrades gracefully per plant.
-    """
+
+def _read_string_samples(portfolio, date_iso: str):
+    """Read str_break/str_unmatch/str_unblance from ``telemetry_detail``
+    (v207 — the per-plant sheet tabs are gone) for the day and its
+    trailing baseline. A PG read failure degrades to no string samples,
+    but LOUDLY (WARNING): silence here is exactly what v199–v206 got
+    wrong."""
     import datetime as _dt
+    from argia.store import pg_detail
     y, m, d = (int(x) for x in date_iso.split("-"))
     day0 = _dt.date(y, m, d)
     base_start = (day0 - _dt.timedelta(days=STRING_BASELINE_DAYS)).isoformat()
-    cols = ("str_break", "str_unmatch", "str_unblance")
-    day_s, base_s = [], []
-    for plant in portfolio.active_plants():
-        tab = f"Telemetry_{plant.plant_key}"
-        try:
-            data = sheets.read_range(tab, "A1:ZZ")
-        except Exception as e:  # noqa: BLE001
-            log.info("string flags: no deep tab for %s (%s) — skipped",
-                     plant.plant_key, e)
-            continue
-        if not data:
-            continue
-        header = [normalize_text(h) for h in data[0]]
-        if not all(c in header for c in cols) or "timestamp_utc" not in header:
-            continue
-        ic = {c: header.index(c) for c in cols}
-        iu = header.index("timestamp_utc")
-        isn = header.index("inverter_sn")
-        imx = header.index("timestamp_mx") if "timestamp_mx" in header else None
-        for row in data[1:]:
-            if iu >= len(row) or isn >= len(row):
-                continue
-            mx_day = str(row[imx])[:10] if imx is not None else ""
-            if not (base_start <= mx_day <= date_iso):
-                continue
-            try:
-                ts = _dt.datetime.fromisoformat(
-                    str(row[iu]).replace("Z", "+00:00"))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=UTC)
-            except ValueError:
-                continue
-            vals = {c: (row[ic[c]] if ic[c] < len(row) else None) for c in cols}
-            entry = (ts, plant.plant_key, str(row[isn]), vals)
-            if mx_day == date_iso:
-                day_s.append(entry)
-            else:
-                base_s.append(entry)
+    try:
+        rows = pg_detail.read_string_flags(base_start, date_iso)
+    except Exception as e:  # noqa: BLE001
+        log.warning("string flags: telemetry_detail unreadable (%s) — "
+                    "string rule skipped for %s", e, date_iso)
+        return [], []
+    active = {p.plant_key for p in portfolio.active_plants()}
+    day_s, base_s = split_string_samples(rows, date_iso, base_start, active)
+    log.info("string flags: %d day / %d baseline samples from telemetry_detail",
+             len(day_s), len(base_s))
     return day_s, base_s
 
 
@@ -378,9 +368,8 @@ def main(argv=None) -> int:
     stale = evaluate_data_stale(
         ts_by_plant, [p.plant_key for p in portfolio.active_plants()], date_iso)
 
-    # --- string flags: deep per-plant tabs, day vs trailing baseline ---
-    string_day, string_baseline = _read_string_samples(
-        sheets, portfolio, date_iso)
+    # --- string flags: telemetry_detail, day vs trailing baseline (v207) ---
+    string_day, string_baseline = _read_string_samples(portfolio, date_iso)
 
     # --- plant-level aggregates from KPI_Daily (stamped by kpi_eod) ---
     kpi = _read_kpi_day(sheets, date_iso)

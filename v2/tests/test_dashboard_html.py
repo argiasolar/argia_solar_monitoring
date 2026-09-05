@@ -480,10 +480,15 @@ def test_publisher_reads_full_width():
     operational reads must use A1:ZZ."""
     import inspect
     import scripts.dashboard_html_publish as P
+    from argia.core import config_pg
+    from argia.report import dashboard_pg
     src = inspect.getsource(P)
-    assert 'read_table("Plants", "A1:ZZ")' in src
-    assert 'read_table("Dashboard_Plant", "A1:ZZ")' in src
-    assert 'read_table("Dashboard_Inverter", "A1:ZZ")' in src
+    # v198/v195: the reads go through doors; the width lives in the call
+    # site (Plants) and in the doors' sheet fallbacks (Dashboard tabs)
+    assert 'plants_records(client, "A1:ZZ")' in src
+    assert 'read_table("Dashboard_Plant", "A1:ZZ")' in inspect.getsource(dashboard_pg)
+    assert 'read_table("Dashboard_Inverter", "A1:ZZ")' in inspect.getsource(dashboard_pg)
+    assert inspect.signature(config_pg.plants_records).parameters["a1"].default == "A1:ZZ"
 
 
 def test_selector_honors_show_dashboard():

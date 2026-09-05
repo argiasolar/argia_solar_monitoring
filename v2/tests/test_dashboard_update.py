@@ -216,6 +216,11 @@ def test_update_reads_full_width():
     """v78 read-range regression: see test_dashboard_html counterpart."""
     import inspect
     import scripts.dashboard_update as U
+    from argia.core import config_pg
     src = inspect.getsource(U)
-    assert 'read_table("Plants", "A1:ZZ")' in src
-    assert 'read_table("Inverters", "A1:Z")' in src
+    # v198: Plants / Inverters come through the config door; the call
+    # sites still name the full width and the door defaults agree
+    assert 'plants_records(client, "A1:ZZ")' in src
+    assert 'inverters_records(client, "A1:Z")' in src
+    assert inspect.signature(config_pg.plants_records).parameters["a1"].default == "A1:ZZ"
+    assert inspect.signature(config_pg.inverters_records).parameters["a1"].default == "A1:Z"

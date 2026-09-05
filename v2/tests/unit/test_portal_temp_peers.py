@@ -67,13 +67,16 @@ class TestPeers:
         pc = NS["peer_class"]
         assert pc(None) == "" and pc(0.9) == "" and pc(0.82) == "warn" and pc(0.67) == "bad"
 
-    def test_needs_two_producing_peers_and_ratings(self):
+    def test_needs_a_producing_peer_and_ratings(self):
         pr = NS["peer_ratios"]
-        assert pr({"A": 100.0, "B": 90.0}, {"A": 10, "B": 10}) == {}          # one peer only
+        two = pr({"A": 100.0, "B": 90.0}, {"A": 10, "B": 10})               # SLP2-shaped plant
+        assert abs(two["A"] - 100 / 90) < 1e-9 and abs(two["B"] - 0.9) < 1e-9
+        assert pr({"A": 100.0}, {"A": 10}) == {}                              # nobody to compare with
         # C unrated: it is neither compared nor part of anyone's pool
-        assert pr({"A": 100.0, "B": 90.0, "C": 95.0}, {"A": 10, "B": 10}) == {}
+        r = pr({"A": 100.0, "B": 90.0, "C": 95.0}, {"A": 10, "B": 10})
+        assert set(r) == {"A", "B"} and abs(r["B"] - 0.9) < 1e-9
         r = pr({"A": 0.0, "B": 90.0, "C": 95.0}, {"A": 10, "B": 10, "C": 10})
-        assert r == {"A": 0.0}          # the dead unit is 0%; B and C have one producing peer each
+        assert r["A"] == 0.0 and abs(r["B"] - 90 / 95) < 1e-9 and abs(r["C"] - 95 / 90) < 1e-9   # dead unit is 0%
         r = pr({"A": None, "B": 90.0, "C": 95.0, "D": 92.0}, {"A": 10, "B": 10, "C": 10, "D": 10})
         assert r["A"] == 0.0 and 0.95 < r["B"] < 1.0 and 1.0 < r["C"] < 1.05
 

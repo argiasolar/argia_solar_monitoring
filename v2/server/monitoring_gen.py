@@ -190,7 +190,8 @@ def temp_class(t):
 def peer_ratios(etoday_by_sn, rated_by_sn):
     """{sn: ratio} — each inverter's kWh per rated kW against the MEDIAN
     of its producing peers (leave-one-out), the inverter_relative rule.
-    Needs >= 2 producing peers and a rating for every unit compared;
+    Needs >= 1 producing peer (a two-inverter plant compares against its
+    sibling, like the alert rule) and a rating for every unit compared;
     unrated units are skipped, an unrated peer is left out of the pool.
     Pure."""
     perkw = {sn: e / rated_by_sn[sn] for sn, e in etoday_by_sn.items()
@@ -200,7 +201,7 @@ def peer_ratios(etoday_by_sn, rated_by_sn):
         if sn not in rated_by_sn or not rated_by_sn[sn]:
             continue
         peers = sorted(v for k, v in perkw.items() if k != sn)
-        if len(peers) < 2:
+        if len(peers) < 1:
             continue
         mid = len(peers) // 2
         med = peers[mid] if len(peers) % 2 else (peers[mid - 1] + peers[mid]) / 2

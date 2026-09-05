@@ -31,6 +31,10 @@ WINDOW_END_HOUR = 17
 COMMS_RATIO = 0.70
 """Counter growth across the gap >= this share of the siblings' per-kW
 growth -> the inverter produced through the gap (comms only)."""
+MIN_SIBLING_SAMPLES = 3
+"""Fewer producing sibling samples inside the gap = the plant as a whole
+was dark (NL2 2026-09-04: both units gone 13:14-14:35, one straggler
+sample) — plant-level rules own that."""
 MIN_SIBLING_KWH_PER_KW = 0.05
 """Below this the siblings barely produced during the gap (dusk, heavy
 cloud): nothing to compare against, the gap is reported as unclassified."""
@@ -104,7 +108,7 @@ def evaluate_silent_gaps(
             gap_min = (end - a).total_seconds() / 60.0
             sib_in_gap = [r for r in rows if r[1] != sn and a < r[0] < end
                           and (r[3] or 0) > 0]
-            if not sib_in_gap:
+            if len(sib_in_gap) < MIN_SIBLING_SAMPLES:
                 continue         # whole plant was dark: plant-level rules own it
             # siblings' growth per rated kW over the gap window
             per_kw: List[float] = []

@@ -348,9 +348,14 @@ class TestPostRedirectGet:
             assert "_post_done(" in body, name
             assert "return render(" not in body, name
 
-    def test_post_done_is_a_303_to_setup_home(self):
+    def test_post_done_is_a_303_to_the_drawer(self):
+        # v200: default destination is the catalog home; mail posts pass
+        # to='/setup/people/#mail' so the outcome lands on their tab.
+        sig = self.SRC.split("def _post_done(")[1].split(")")[0]
+        assert "to='/setup/'" in sig
         body = self.SRC.split("def _post_done(")[1].split("\ndef ")[0]
-        assert "'/setup/?m='" in body and "code=303" in body
+        assert "'?m='" in body and "code=303" in body
+        assert "_post_done(to='/setup/people/#mail'" in self.SRC
 
     def test_render_picks_up_redirect_message(self):
         body = self.SRC.split("def render(")[1].split("\ndef ")[0]

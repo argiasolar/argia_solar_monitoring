@@ -36,6 +36,7 @@ try:
     from argia_logo import LOGO_URI
 except ImportError:
     LOGO_URI = ''
+import setup_catalog as cat          # v200: the admin catalog (pure helpers)
 
 AUTH_DIR = os.environ.get('ARGIA_AUTH_DIR', '/opt/argia/auth')
 DB_PATH = os.path.join(AUTH_DIR, 'users.db')
@@ -467,7 +468,7 @@ def sync():
             pass
 
 
-def page(body, msg='', once=None):
+def page(body, msg='', once=None, title=None, sub=None):
     once_html = ''
     if once:
         once_html = (f'<div class="card" style="border-color:#137333">'
@@ -505,6 +506,11 @@ def page(body, msg='', once=None):
         '<button onclick="argiaLogout()" data-en="Log out"'
         ' data-es="Cerrar sesión">Log out</button>'
         '</div></div>') if _me else ''
+    t_en, t_es = title or ('Setup', 'Configuración')
+    s_en, s_es = sub or ('Users, plants, finance, CFE and system — one drawer each. '
+                         'Changes apply immediately.',
+                         'Usuarios, plantas, finanzas, CFE y sistema — un cajón cada uno. '
+                         'Los cambios aplican de inmediato.')
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Setup — ARGIA</title>
@@ -551,14 +557,14 @@ label{{font-size:13.5px;}}
 .umenu .umrow button.active{{border-color:#2a78d6;box-shadow:inset 0 0 0 1px #2a78d6;}}
 .umenu .umlabel{{font-size:11px;color:#80868b;padding:6px 10px 0;
  text-transform:uppercase;letter-spacing:.08em;}}
+{cat.CATALOG_CSS}
 </style></head><body><div class="wrap">
-<div class="top"><div><h1 data-en="Report access setup" data-es="Gestión de accesos">Report access setup</h1>
-<div class="sub" data-en="Users, passwords and per-report access. Changes apply immediately."
- data-es="Usuarios, contraseñas y acceso por reporte. Los cambios aplican de inmediato.">
-Users, passwords and per-report access. Changes apply immediately.</div></div>
+<div class="top"><div><h1 data-en="{html.escape(t_en)}" data-es="{html.escape(t_es)}">{html.escape(t_en)}</h1>
+<div class="sub" data-en="{html.escape(s_en)}" data-es="{html.escape(s_es)}">{html.escape(s_en)}</div></div>
 <img src="{LOGO_URI}" alt="ARGIA SOLAR" style="height:26px;width:auto;margin-top:2px"></div>
 <div class="controls"><a class="btn" href="/" data-en="← Reports"
- data-es="← Reportes">← Reports</a>{who_html}</div>
+ data-es="← Reportes">← Reports</a><a class="btn" href="/setup/" data-en="Catalog"
+ data-es="Catálogo">Catalog</a>{who_html}</div>
 {once_html}{msg_html}{body}
 <script>
 // /logout deletes the session row, then redirects. Plain navigation:
@@ -622,13 +628,13 @@ def users_table(org=None):
         out.append(f'''<tr><td><b>{ue}</b></td><td>{who_cell}</td><td>{acc}</td>
 <td>{html.escape(created[:16])}</td><td style="white-space:nowrap">
 <a class="btn" href="?edit={ue}" data-en="Edit access" data-es="Editar acceso">Edit access</a>
-<form method="post" action="suspend" style="display:inline">
+<form method="post" action="/setup/suspend" style="display:inline">
  <input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="username" value="{ue}">
  <button class="btn{'' if dis else ' danger'}" data-en="{sus_label}" data-es="{sus_es}">{sus_label}</button></form>
-<form method="post" action="password" style="display:inline">
+<form method="post" action="/setup/password" style="display:inline">
  <input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="username" value="{ue}">
  <button class="btn" data-en="New password" data-es="Nueva contraseña">New password</button></form>
-<form method="post" action="delete" style="display:inline"
+<form method="post" action="/setup/delete" style="display:inline"
  onsubmit="return confirm('Delete {ue}?')">
  <input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="username" value="{ue}">
  <button class="btn danger" data-en="Delete" data-es="Eliminar">Delete</button></form>
@@ -653,7 +659,7 @@ def add_form(org=None):
 Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed.</p>'''
     if org:
         return f'''<div class="card"><h2 data-en="Add user — your company" data-es="Agregar usuario — su empresa">Add user — your company</h2>
-<form method="post" action="add">{common}
+<form method="post" action="/setup/add">{common}
 <p class="note" data-en="The user will see only the {org.upper()} plant page."
  data-es="El usuario verá solo la página de la planta {org.upper()}.">The user will see only the {org.upper()} plant page.</p>
 <p><label><input type="checkbox" name="plant_admin" value="1">
@@ -667,7 +673,7 @@ Usernames are stored lowercase and the login is case-sensitive — the user must
     orgopts = '<option value="">—</option>' + ''.join(
         f'<option value="{p}">{p.upper()}</option>' for p in PLANTS)
     return f'''<div class="card"><h2 data-en="Add user" data-es="Agregar usuario">Add user</h2>
-<form method="post" action="add">{common}
+<form method="post" action="/setup/add">{common}
 <p><label><input type="radio" name="level" value="argia">
  <b>argia</b> <span data-en="— employee, access to everything"
   data-es="— empleado, acceso a todo">— employee, access to everything</span></label><br>
@@ -725,7 +731,7 @@ def settings_card(org, is_global):
  <select name="plant" class="btn" onchange="this.form.submit()">{sel_p}</select>
  <select name="year" class="btn" onchange="this.form.submit()">{sel_y}</select>
 </form>
-<form method="post" action="settings">
+<form method="post" action="/setup/settings">
 <input type="hidden" name="csrf" value="{CSRF}">
 <input type="hidden" name="plant" value="{plant}">
 <input type="hidden" name="year" value="{year}">
@@ -763,7 +769,7 @@ def edit_form(u):
     if not is_global:
         return f'''<div class="card" style="border-color:var(--s1,#2a78d6)">
 <h2><span data-en="Edit" data-es="Editar">Edit</span> — {html.escape(u)}</h2>
-<form method="post" action="update">
+<form method="post" action="/setup/update">
 <input type="hidden" name="csrf" value="{CSRF}">
 <input type="hidden" name="username" value="{html.escape(u)}">{who}
 <p><label><input type="checkbox" name="plant_admin" value="1"{' checked' if upadm else ''}>
@@ -779,7 +785,7 @@ def edit_form(u):
         for a in AREAS)
     return f'''<div class="card" style="border-color:var(--s1,#2a78d6)">
 <h2><span data-en="Edit access" data-es="Editar acceso">Edit access</span> — {html.escape(u)}</h2>
-<form method="post" action="update">
+<form method="post" action="/setup/update">
 <input type="hidden" name="csrf" value="{CSRF}">
 <input type="hidden" name="username" value="{html.escape(u)}">{who}
 <p><label><input type="radio" name="level" value="argia"{' checked' if level == 'argia' else ''}>
@@ -910,7 +916,7 @@ def _maint_guard():
     return me if (is_global and check_csrf()) else None
 
 
-def _post_done(msg):
+def _post_done(msg, to='/setup/'):
     """Post/Redirect/Get: send the browser back to the main setup page
     with the outcome in ?m=. Returning render() directly leaves the
     browser parked on the POST URL (/setup/mail/add), where every
@@ -918,7 +924,8 @@ def _post_done(msg):
     and 404s — exactly what bit Tomasz subscribing to a second channel
     (2026-09-02)."""
     from urllib.parse import quote
-    return redirect('/setup/?m=' + quote(msg or ''), code=303)
+    return redirect(to.split('#')[0] + '?m=' + quote(msg or '')
+                    + ('#' + to.split('#')[1] if '#' in to else ''), code=303)
 
 
 @app.post('/maint/add')
@@ -935,11 +942,11 @@ def maint_add():
     note = (request.form.get('note') or '').strip()[:200]
     if plant not in PLANTS or cat not in MAINT_CATEGORIES \
             or not _TS_RE.match(start) or (end and not _TS_RE.match(end)):
-        return _post_done('maintenance: invalid plant/category/time — nothing saved')
+        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: invalid plant/category/time — nothing saved')
     try:
         cost_sql = f'{float(cost):.2f}' if cost else 'NULL'
     except ValueError:
-        return _post_done('maintenance: cost must be a number — nothing saved')
+        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: cost must be a number — nothing saved')
     mx = "AT TIME ZONE 'America/Mexico_City'"
     end_sql = f"timestamp '{end.replace('T', ' ')}' {mx}" if end else 'NULL'
     ct_sql = _sqlq(ct) if ct in MAINT_COST_TYPES else 'NULL'
@@ -949,7 +956,7 @@ def maint_add():
          f" ({_sqlq(plant.upper())}, timestamp '{start.replace('T', ' ')}' {mx},"
          f" {end_sql}, {_sqlq(cat)}, {ct_sql}, {cost_sql}, {_sqlq(note)},"
          f" {_sqlq(me)});")
-    return _post_done('maintenance event logged as DRAFT — approve it to make it billable')
+    return _post_done(to='/setup/plants/#maintenance', msg='maintenance event logged as DRAFT — approve it to make it billable')
 
 
 @app.post('/maint/close')
@@ -962,7 +969,7 @@ def maint_close():
     except ValueError:
         mid = 0
     psql(f'UPDATE maintenance_event SET end_ts = now() WHERE id = {mid} AND end_ts IS NULL;')
-    return _post_done(f'maintenance event #{mid} ended now')
+    return _post_done(to='/setup/plants/#maintenance', msg=f'maintenance event #{mid} ended now')
 
 
 @app.post('/maint/approve')
@@ -976,7 +983,7 @@ def maint_approve():
         mid = 0
     psql(f'UPDATE maintenance_event SET approved_by = {_sqlq(me)} '
          f'WHERE id = {mid} AND approved_by IS NULL;')
-    return _post_done(f'maintenance event #{mid} approved — billable if category=customer')
+    return _post_done(to='/setup/plants/#maintenance', msg=f'maintenance event #{mid} approved — billable if category=customer')
 
 
 @app.post('/maint/delete')
@@ -989,7 +996,7 @@ def maint_delete():
     except ValueError:
         mid = 0
     psql(f'DELETE FROM maintenance_event WHERE id = {mid} AND approved_by IS NULL;')
-    return _post_done(f'draft maintenance event #{mid} deleted')
+    return _post_done(to='/setup/plants/#maintenance', msg=f'draft maintenance event #{mid} deleted')
 
 
 
@@ -1146,10 +1153,10 @@ def mail_add():
     uname = (request.form.get('username') or '').strip()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return _post_done('subscriptions: unknown channel — nothing saved')
+        return _post_done(to='/setup/people/#mail', msg='subscriptions: unknown channel — nothing saved')
     match = [(u, n, em) for u, n, em in _mail_users() if u == uname]
     if not match:
-        return _post_done('subscriptions: not a portal user with an email'
+        return _post_done(to='/setup/people/#mail', msg='subscriptions: not a portal user with an email'
                       ' on file — nothing saved')
     email = match[0][2]
     plants = ''
@@ -1164,7 +1171,7 @@ def mail_add():
          f" ON CONFLICT (email, channel) DO UPDATE SET enabled = true,"
          f" plants = EXCLUDED.plants, username = EXCLUDED.username;")
     scope = plants or 'all plants'
-    return _post_done(f'{email} subscribed to {chan} ({scope})')
+    return _post_done(to='/setup/people/#mail', msg=f'{email} subscribed to {chan} ({scope})')
 
 
 @app.post('/mail/toggle')
@@ -1175,10 +1182,10 @@ def mail_toggle():
     email = (request.form.get('email') or '').strip().lower()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return _post_done('subscriptions: unknown channel')
+        return _post_done(to='/setup/people/#mail', msg='subscriptions: unknown channel')
     psql(f'UPDATE mail_subscription SET enabled = NOT enabled'
          f' WHERE email = {_sqlq(email)} AND channel = {_sqlq(chan)};')
-    return _post_done(f'{email} / {chan} toggled')
+    return _post_done(to='/setup/people/#mail', msg=f'{email} / {chan} toggled')
 
 
 @app.post('/mail/delete')
@@ -1189,10 +1196,10 @@ def mail_delete():
     email = (request.form.get('email') or '').strip().lower()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return _post_done('subscriptions: unknown channel')
+        return _post_done(to='/setup/people/#mail', msg='subscriptions: unknown channel')
     psql(f'DELETE FROM mail_subscription WHERE email = {_sqlq(email)}'
          f' AND channel = {_sqlq(chan)};')
-    return _post_done(f'{email} unsubscribed from {chan}')
+    return _post_done(to='/setup/people/#mail', msg=f'{email} unsubscribed from {chan}')
 
 
 
@@ -1259,19 +1266,17 @@ def _fin_fmt(v, dec=2):
         return '—'
 
 
-def finance_page(msg=''):
-    me, is_global, org = actor()
-    if not is_global:
-        return page('<div class="card"><p data-en="Admins only." '
-                    'data-es="Solo administradores.">Admins only.</p>'
-                    '</div>', msg=msg)
+def finance_sections():
+    """The Finance drawer's tabs, each a list of cards (v200 split of the
+    old single finance page — same forms, same POST routes)."""
     psql(fin.ENSURE_AUDIT_SQL)
     m0 = _fin_month_now()
     csrf = f'<input type="hidden" name="csrf" value="{CSRF}">'
     mono = 'font-variant-numeric:tabular-nums'
+    sect = {k: [] for k, _, _ in cat.drawer('finance')['tabs']}
 
     # ---- loans ----
-    cards = [f'''<div class="card"><h2 data-en="How this works"
+    sect['loans'] = [f'''<div class="card"><h2 data-en="How this works"
  data-es="Cómo funciona">How this works</h2>
 <p class="note" data-en="Paid history is immutable — every edit applies from the chosen month FORWARD (earliest: {m0}). USD loans: the currency amount and FX are authoritative, MXN is recomputed. Every change is logged below and the financial report regenerates immediately."
  data-es="El historial pagado es inmutable — cada cambio aplica desde el mes elegido EN ADELANTE (mínimo: {m0}). Créditos USD: el monto en divisa y el tipo de cambio mandan, el MXN se recalcula. Todo cambio queda registrado abajo y el reporte financiero se regenera de inmediato.">
@@ -1326,7 +1331,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <label data-en="End loan at" data-es="Terminar crédito en">End loan at</label>
 <input type="month" name="from_month" min="{m0}">
 <button class="btn danger" data-en="Truncate" data-es="Truncar">Truncate</button></form>''')
-        cards.append(f'''<div class="card"><h2>{e(pk)} · {e(lid)} — {e(name)}</h2>
+        sect['loans'].append(f'''<div class="card"><h2>{e(pk)} · {e(lid)} — {e(name)}</h2>
 <p class="note" style="{mono}">{e(bank)} · {ccy} ·
 <span data-en="principal" data-es="principal">principal</span> {_fin_fmt(principal)} MXN ·
 <span data-en="position" data-es="posición">position</span> {paid}/{total} · {first} → {last} ·
@@ -1349,7 +1354,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <input type="hidden" name="plant" value="{html.escape(pk)}">
 <input type="text" name="amount" size="9">
 <button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
-    cards.append('<div class="card"><h2 data-en="O&amp;M — monthly cost (MXN)"'
+    sect['om'].append('<div class="card"><h2 data-en="O&amp;M — monthly cost (MXN)"'
                  ' data-es="O&amp;M — costo mensual (MXN)">O&amp;M — monthly'
                  ' cost (MXN)</h2><table><tr><th>Plant</th><th>Customer</th>'
                  '<th data-en="Current" data-es="Actual">Current</th>'
@@ -1383,7 +1388,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <label data-en="from" data-es="desde">from</label>
 <input type="month" name="from_month" min="{m0}" value="{m0}">
 <button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
-    cards.append('<div class="card"><h2 data-en="LaaS monthly fees (native'
+    sect['fees'].append('<div class="card"><h2 data-en="LaaS monthly fees (native'
                  ' currency)" data-es="Cuotas LaaS (moneda nativa)">LaaS'
                  ' monthly fees (native currency)</h2><table><tr><th>Asset'
                  '</th><th data-en="Current month" data-es="Mes actual">'
@@ -1391,7 +1396,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
                  ' data-es="Nuevo valor (fijo, desde mes)">New value (flat,'
                  ' from month)</th></tr>' + ''.join(fee_rows) +
                  '</table></div>')
-    cards.append('<div class="card"><h2 data-en="PPA tariffs (MXN/kWh)"'
+    sect['tariffs'].append('<div class="card"><h2 data-en="PPA tariffs (MXN/kWh)"'
                  ' data-es="Tarifas PPA (MXN/kWh)">PPA tariffs (MXN/kWh)</h2>'
                  '<p class="note" data-en="Sets a FLAT tariff from the chosen'
                  ' month onward — contract escalations after that month are'
@@ -1429,7 +1434,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <input type="hidden" name="plant" value="{html.escape(pk)}">
 <input type="text" name="value" size="6" placeholder="0.98">
 <button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
-    cards.append('<div class="card"><h2 data-en="Performance — PR baseline'
+    sect['baselines'].append('<div class="card"><h2 data-en="Performance — PR baseline'
                  ' &amp; availability SLA per plant" data-es="Desempeño —'
                  ' línea base de PR y SLA de disponibilidad por planta">'
                  'Performance — PR baseline &amp; availability SLA per'
@@ -1465,7 +1470,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
         f'<td>{html.escape(a[1])}</td><td>{html.escape(a[2] or a[3])}</td>'
         f'<td>{html.escape(a[4])}</td></tr>'
         for a in audit if len(a) >= 5)
-    cards.append('<div class="card"><h2 data-en="Change log (last 15)"'
+    sect['changelog'].append('<div class="card"><h2 data-en="Change log (last 15)"'
                  ' data-es="Registro de cambios (últimos 15)">Change log'
                  ' (last 15)</h2><table><tr><th data-en="When (MX)"'
                  ' data-es="Cuándo (MX)">When (MX)</th><th data-en="Who"'
@@ -1475,10 +1480,55 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
                      ' data-en="No changes yet." data-es="Sin cambios aún.">'
                      'No changes yet.</td></tr>') + '</table></div>')
 
-    back = ('<div class="controls"><a class="btn" href="/setup/"'
-            ' data-en="← Access setup" data-es="← Gestión de accesos">'
-            '← Access setup</a></div>')
-    return page(back + ''.join(cards), msg=msg)
+    sect['invoicing'].append(invoicing_card())
+    return sect
+
+
+def invoicing_card():
+    """Read-only: the invoicing register (what was actually billed).
+    Where new invoiced months get entered is an open decision (v192)."""
+    mono = 'font-variant-numeric:tabular-nums'
+    rows = _fin_rows(
+        "SELECT to_char(ref_month,'YYYY-MM'), plant_key,"
+        " coalesce(produced_kwh::text,''), coalesce(penalty_kwh::text,''),"
+        " coalesce(billable_kwh::text,''), coalesce(amount_mxn::text,''),"
+        " check_status, coalesce(source,'')"
+        " FROM invoicing WHERE produced_kwh IS NOT NULL"
+        " ORDER BY ref_month DESC, plant_key LIMIT 36;")
+    trs = ''.join(
+        f'<tr><td style="{mono}">{html.escape(r[0])}</td><td>{html.escape(r[1])}</td>'
+        f'<td style="{mono}">{_fin_fmt(r[2], 1)}</td><td style="{mono}">{_fin_fmt(r[3], 1)}</td>'
+        f'<td style="{mono}">{_fin_fmt(r[4], 1)}</td><td style="{mono}">{_fin_fmt(r[5])}</td>'
+        f'<td>{html.escape(r[6])}</td><td class="note">{html.escape(r[7])}</td></tr>'
+        for r in rows if len(r) >= 8)
+    return ('<div class="card"><h2 data-en="Invoicing register (last 36 plant-months)"'
+            ' data-es="Registro de facturación (últimos 36 planta-mes)">'
+            'Invoicing register (last 36 plant-months)</h2>'
+            '<p class="note" data-en="What was actually invoiced per plant-month — the annex'
+            ' renders invoiced months from here. Read-only: the entry form for new months is'
+            ' pending a decision (admin card vs. the reconciliation close)."'
+            ' data-es="Lo facturado por planta-mes — el anexo muestra los meses facturados'
+            ' desde aquí. Solo lectura: el formulario para meses nuevos espera una decisión.">'
+            'What was actually invoiced per plant-month.</p>'
+            '<table><tr><th>Month</th><th>Plant</th><th>Produced kWh</th><th>Penalty kWh</th>'
+            '<th>Billable kWh</th><th>Amount MXN</th><th>Check</th><th>Source</th></tr>'
+            + (trs or '<tr><td colspan="8" class="note">No invoiced months yet.</td></tr>')
+            + '</table></div>')
+
+
+def finance_page(msg=''):
+    """The Finance drawer (v200). Kept as the name every finance POST
+    handler returns, so the edit outcome lands on the drawer."""
+    me, is_global, org = actor()
+    if not is_global:
+        return page('<div class="card"><p data-en="Admins only." '
+                    'data-es="Solo administradores.">Admins only.</p>'
+                    '</div>', msg=msg)
+    d = cat.drawer('finance')
+    sect = finance_sections()
+    body = cat.drawer_page(d, [(k, ''.join(v)) for k, v in sect.items()])
+    return page(body, msg=msg, title=('Finance', 'Finanzas'),
+                sub=(d['sub_en'], d['sub_es']))
 
 
 def _fin_loan(loan_id):
@@ -1696,8 +1746,215 @@ def finance_tariff():
         [fin.sql_set_tariff(plant, from_ym, amount)]))
 
 
-def render(msg='', once=None):
-    """Role-aware main page."""
+# =============================================================== v200: the catalog
+# One colour-coded drawer per domain, tabs inside, one card per subject.
+# The pure parts (model, nav, parsers) live in setup_catalog.py; the
+# cards below are the existing ones moved under drawers plus read-only
+# views over PostgreSQL / systemd. Company admins (org users) keep the
+# old single page: their world is their users only.
+
+def _env_switches():
+    try:
+        with open(ENV_FILE, encoding='utf-8') as fh:
+            return cat.parse_env_switches(fh.read())
+    except OSError:
+        return {}
+
+
+ENV_FILE = os.environ.get('ARGIA_ENV_FILE', '/root/.argia_env')
+BACKUP_DIR = os.environ.get('ARGIA_BACKUP_DIR', '/root/argia_backups')
+ASK_ALLOW = os.path.join(AUTH_DIR, 'ask_allow.txt')
+
+
+def _rows(sql):
+    try:
+        return _fin_rows(sql)
+    except RuntimeError as e:
+        return [['__error__', str(e)[:160]]]
+
+
+def _table(headers, rows, empty='—'):
+    if rows and rows[0] and rows[0][0] == '__error__':
+        return f'<p class="note">unavailable: {html.escape(rows[0][1])}</p>'
+    th = ''.join(f'<th>{html.escape(h)}</th>' for h in headers)
+    trs = ''.join('<tr>' + ''.join(f'<td>{html.escape(str(c))}</td>' for c in r) + '</tr>'
+                  for r in rows)
+    return (f'<table><tr>{th}</tr>{trs or f"<tr><td colspan={len(headers)} class=note>{empty}</td></tr>"}'
+            '</table>')
+
+
+def plants_list_card():
+    rows = _rows("SELECT plant_key, customer, brand, coalesce(kwp_dc::text,''),"
+                 " coalesce(kwp_ac::text,''), coalesce(portfolio,''),"
+                 " CASE WHEN active THEN 'yes' ELSE 'no' END,"
+                 " coalesce(pr_baseline::text,''), coalesce(installation_date::text,''),"
+                 " coalesce(client_channel,'') FROM plant ORDER BY portfolio, plant_key;")
+    return ('<div class="card"><h2 data-en="Plants (PostgreSQL plant table)"'
+            ' data-es="Plantas (tabla plant)">Plants</h2>'
+            '<p class="note" data-en="The configuration every job runs on since v198. Read-only'
+            ' here; the per-plant edit card (all 42 fields, add / deactivate) is the next step of'
+            ' the catalog. Expectations and tariffs: the tab below; PR baseline and O&amp;M: Finance."'
+            ' data-es="La configuración con la que corren todos los trabajos desde v198. Solo lectura;'
+            ' la ficha editable por planta es el siguiente paso.">'
+            'The configuration every job runs on.</p>'
+            + _table(['Plant', 'Customer', 'Brand', 'kWp DC', 'kW AC', 'Portfolio', 'Active',
+                      'PR baseline', 'Installed', 'Client channel'], rows) + '</div>')
+
+
+def inverters_list_card():
+    rows = _rows("SELECT plant_key, inverter_sn, coalesce(inverter_label,''),"
+                 " coalesce(rated_kw::text,''), coalesce(rated_kw_dc,''), coalesce(phase,''),"
+                 " coalesce(date_producing::text,''), coalesce(date_decommissioned::text,''),"
+                 " CASE WHEN active THEN 'yes' ELSE 'no' END FROM inverter"
+                 " ORDER BY plant_key, inverter_label, inverter_sn;")
+    return ('<div class="card"><h2 data-en="Inverters (PostgreSQL inverter table)"'
+            ' data-es="Inversores (tabla inverter)">Inverters</h2>'
+            + _table(['Plant', 'Serial', 'Label', 'kW AC', 'kW DC', 'Phase', 'Producing since',
+                      'Decommissioned', 'Active'], rows) + '</div>')
+
+
+def ask_allow_card():
+    try:
+        with open(ASK_ALLOW, encoding='utf-8') as fh:
+            names = [ln.strip() for ln in fh if ln.strip() and not ln.startswith('#')]
+    except OSError:
+        names = None
+    body = ('<p class="note">allow-list file not found</p>' if names is None else
+            ('<ul>' + ''.join(f'<li>{html.escape(n)}</li>' for n in names) + '</ul>'
+             if names else '<p class="note">empty — nobody can use Ask ARGIA</p>'))
+    return ('<div class="card"><h2 data-en="Ask ARGIA — who may ask" data-es="Ask ARGIA — quién puede preguntar">'
+            'Ask ARGIA — who may ask</h2><p class="note">'
+            f'<code>{html.escape(ASK_ALLOW)}</code>, read live by the assistant (v187.5). '
+            'Edit the file to change it; a table-backed editor comes with the People drawer.</p>'
+            + body + '</div>')
+
+
+def cfe_status_card():
+    st = _rows("SELECT coalesce(heartbeat_ts::text,''), coalesce(probe_status,''),"
+               " coalesce(probe_rows::text,''), coalesce(sent_month,''), coalesce(last_csv,''),"
+               " coalesce(last_csv_result,''), updated_at::text FROM cfe_pipeline_status WHERE id=1;")
+    kv = ''
+    if st and st[0][0] != '__error__' and len(st[0]) >= 7:
+        h, ps, pr, sm, lc, lr, up = st[0]
+        kv = ('<table class="kv">'
+              f'<tr><td>Heartbeat (Pi probe)</td><td>{html.escape(h) or "—"}</td></tr>'
+              f'<tr><td>Probe status</td><td>{html.escape(ps) or "—"} ({html.escape(pr) or "0"} rows)</td></tr>'
+              f'<tr><td>Sent month</td><td>{html.escape(sm) or "—"}</td></tr>'
+              f'<tr><td>Last CSV</td><td>{html.escape(lc) or "—"} — {html.escape(lr) or "—"}</td></tr>'
+              f'<tr><td>Updated</td><td>{html.escape(up)}</td></tr></table>')
+    else:
+        kv = '<p class="note">no pipeline status row yet</p>'
+    latest = _rows("SELECT tariff_code, region, max(month)::text, count(*) FROM cfe_tariff"
+                   " GROUP BY 1,2 ORDER BY 1,2;")
+    return ('<div class="card"><h2 data-en="CFE tariff status" data-es="Estado de tarifas CFE">CFE tariff status</h2>'
+            + kv + '<h2 style="margin-top:12px">Loaded tariffs (cfe_tariff)</h2>'
+            + _table(['Tariff', 'Region', 'Latest month', 'Rows'], latest) + '</div>')
+
+
+def cfe_push_card():
+    rows = _rows("SELECT script, status, started_at::text, coalesce(left(error,100),'')"
+                 " FROM sync_run WHERE script LIKE 'cfe%' ORDER BY id DESC LIMIT 8;")
+    return ('<div class="card"><h2 data-en="Engine push — last runs" data-es="Envío al Engine — últimas ejecuciones">'
+            'Engine push — last runs</h2><p class="note">cfe_ingest / cfe_push as recorded in sync_run.</p>'
+            + _table(['Job', 'Status', 'Started', 'Error'], rows) + '</div>')
+
+
+def jobs_card():
+    try:
+        out = subprocess.run(['systemctl', 'list-timers', '--all', '--no-pager', 'argia-*'],
+                             capture_output=True, text=True, timeout=20).stdout
+        failed = subprocess.run(['systemctl', '--failed', '--no-legend', '--plain'],
+                                capture_output=True, text=True, timeout=20).stdout
+    except Exception as e:
+        return f'<div class="card"><h2>Jobs &amp; timers</h2><p class="note">systemctl unavailable: {html.escape(str(e)[:120])}</p></div>'
+    timers = cat.parse_timers(out)
+    bad = cat.parse_failed_units(failed)
+    head = ('<p class="ok" data-en="No failed ARGIA units." data-es="Ningún servicio ARGIA fallido.">No failed ARGIA units.</p>'
+            if not bad else '<p class="bad">FAILED: ' + html.escape(', '.join(bad)) + '</p>')
+    rows = [[t['unit'].replace('.timer', ''), t['next'] or '—', t['left'], t['last'] or '—', t['passed']]
+            for t in timers]
+    return ('<div class="card"><h2 data-en="Jobs &amp; timers" data-es="Tareas y temporizadores">Jobs &amp; timers</h2>'
+            + head + _table(['Unit', 'Next', 'In', 'Last', 'Ago'], rows) + '</div>')
+
+
+def runs_card():
+    rows = _rows("SELECT DISTINCT ON (script) script, status, started_at::text,"
+                 " coalesce(left(error,90),'') FROM sync_run ORDER BY script, id DESC;")
+    trs = [[r[0], r[1], r[2], r[3]] for r in rows if len(r) >= 4]
+    return ('<div class="card"><h2 data-en="Last run of every job (sync_run)" data-es="Última ejecución de cada trabajo">'
+            'Last run of every job (sync_run)</h2>' + _table(['Job', 'Status', 'Started', 'Error'], trs) + '</div>')
+
+
+def backups_card():
+    try:
+        files = sorted(glob.glob(os.path.join(BACKUP_DIR, '*')), key=os.path.getmtime, reverse=True)[:8]
+        rows = [[os.path.basename(f), f'{os.path.getsize(f) / 1e6:.1f} MB',
+                 _time.strftime('%Y-%m-%d %H:%M', _time.localtime(os.path.getmtime(f)))] for f in files]
+        err = ''
+    except OSError as e:
+        rows, err = [], f'<p class="note">{html.escape(str(e)[:120])}</p>'
+    return ('<div class="card"><h2 data-en="Backups" data-es="Respaldos">Backups</h2>'
+            f'<p class="note">Nightly pg_dump + auth DB in <code>{html.escape(BACKUP_DIR)}</code>; the Pi pulls them '
+            '(daily 14 kept, weekly 8 kept).</p>' + err + _table(['File', 'Size', 'Written'], rows) + '</div>')
+
+
+def exports_card():
+    rows = _rows("SELECT script, status, started_at::text, coalesce(left(error,90),'') FROM sync_run"
+                 " WHERE script IN ('telemetry_archive','archive_month_pg','invoice_publish',"
+                 "'report_daily','financial_report_publish') ORDER BY id DESC LIMIT 12;")
+    return ('<div class="card"><h2 data-en="Drive exports" data-es="Exportaciones a Drive">Drive exports</h2>'
+            '<p class="note">Telemetry CSVs (nightly), monthly archive (2nd of month), invoice annexes, '
+            'daily and financial reports — the last runs.</p>'
+            + _table(['Job', 'Status', 'Started', 'Error'], rows) + '</div>')
+
+
+def people_drawer(msg='', once=None):
+    d = cat.drawer('people')
+    edit_u = (request.args.get('edit') or '').strip()
+    ef = edit_form(edit_u) if (edit_u and can_manage(edit_u)) else ''
+    sections = [('users', ef + users_table() + add_form()),
+                ('access', '<div class="card"><p class="note" data-en="Per-report access is edited '
+                           'per user: pick a user above and use Edit access." data-es="El acceso por '
+                           'reporte se edita por usuario: elija uno arriba y use Editar acceso.">'
+                           'Per-report access is edited per user — pick a user above.</p></div>'),
+                ('mail', subscriptions_card()),
+                ('ask', ask_allow_card())]
+    return page(cat.drawer_page(d, sections), msg=msg, once=once,
+                title=('People', 'Personas'), sub=(d['sub_en'], d['sub_es']))
+
+
+def plants_drawer(msg=''):
+    d = cat.drawer('plants')
+    sections = [('plants', plants_list_card()), ('inverters', inverters_list_card()),
+                ('settings', settings_card(None, True)), ('maintenance', maintenance_card())]
+    return page(cat.drawer_page(d, sections), msg=msg, title=('Plants', 'Plantas'),
+                sub=(d['sub_en'], d['sub_es']))
+
+
+def cfe_drawer(msg=''):
+    d = cat.drawer('cfe')
+    sections = [('status', cfe_status_card()), ('push', cfe_push_card())]
+    return page(cat.drawer_page(d, sections), msg=msg, title=('CFE & tariffs', 'CFE y tarifas'),
+                sub=(d['sub_en'], d['sub_es']))
+
+
+def system_drawer(msg=''):
+    d = cat.drawer('system')
+    sections = [('jobs', jobs_card()), ('runs', runs_card()), ('backups', backups_card()),
+                ('exports', exports_card()), ('usage', stats_table()),
+                ('sources', cat.sources_card_html(_env_switches()))]
+    return page(cat.drawer_page(d, sections), msg=msg, title=('System', 'Sistema'),
+                sub=(d['sub_en'], d['sub_es']))
+
+
+DRAWER_PAGES = {'people': people_drawer, 'plants': plants_drawer, 'finance': None,
+                'cfe': cfe_drawer, 'system': system_drawer}
+
+
+def render(msg='', once=None, drawer='people'):
+    """Role-aware main page. Global admins land in the catalog (a drawer,
+    People by default — where every user action reports back); company
+    admins keep the single page over their own users."""
     if not msg:
         msg = (request.args.get('m') or '')[:300]
     me, is_global, org = actor()
@@ -1705,26 +1962,23 @@ def render(msg='', once=None):
         return page('<div class="card"><p data-en="Your account has no management rights."'
                     ' data-es="Su cuenta no tiene permisos de gestión.">'
                     'Your account has no management rights.</p></div>')
+    if is_global:
+        if drawer == 'finance':
+            return finance_page(msg=msg)
+        fn = DRAWER_PAGES.get(drawer) or people_drawer
+        return fn(msg=msg, once=once) if fn is people_drawer else fn(msg=msg)
     edit_u = (request.args.get('edit') or '').strip()
     ef = edit_form(edit_u) if (edit_u and can_manage(edit_u)) else ''
-    if is_global:
-        body = ef + users_table() + settings_card(None, True) + stats_table() + add_form()
-        body += ('<div class="card"><h2 data-en="Finance setup"'
-                 ' data-es="Configuración financiera">Finance setup</h2>'
-                 '<p class="note" data-en="Loans, payments, FX rates, O&amp;M,'
-                 ' fees and tariffs — the inputs behind the financial report."'
-                 ' data-es="Créditos, cuotas, tipo de cambio, O&amp;M, cuotas y'
-                 ' tarifas — los insumos del reporte financiero.">Loans, payments,'
-                 ' FX rates, O&amp;M, fees and tariffs.</p>'
-                 '<a class="btn" href="/setup/finance" data-en="Open finance'
-                 ' setup →" data-es="Abrir configuración financiera →">'
-                 'Open finance setup →</a></div>')
-        body += maintenance_card()
-        body += subscriptions_card()
-    else:
-        body = (ef + users_table(org=org) + settings_card(org, False)
-                + stats_table(org=org) + add_form(org=org))
-    return page(body, msg=msg, once=once)
+    body = (ef + users_table(org=org) + settings_card(org, False)
+            + stats_table(org=org) + add_form(org=org))
+    return page(body, msg=msg, once=once, title=('Report access setup', 'Gestión de accesos'),
+                sub=('Users, passwords and per-report access. Changes apply immediately.',
+                     'Usuarios, contraseñas y acceso por reporte. Los cambios aplican de inmediato.'))
+
+
+def catalog_page(msg=''):
+    """The card file itself (global admins)."""
+    return page(cat.catalog_home(), msg=msg, title=('Setup catalog', 'Catálogo de configuración'))
 
 
 def can_manage(target):
@@ -1742,7 +1996,35 @@ def can_manage(target):
 
 @app.get('/')
 def index():
+    me, is_global, org = actor()
+    if is_global:
+        return catalog_page(msg=(request.args.get('m') or '')[:300])
     return render()
+
+
+@app.get('/people/')
+def people_index():
+    return render(drawer='people')
+
+
+@app.get('/plants/')
+def plants_index():
+    return render(drawer='plants')
+
+
+@app.get('/finance/')
+def finance_index():
+    return render(drawer='finance')
+
+
+@app.get('/cfe/')
+def cfe_index():
+    return render(drawer='cfe')
+
+
+@app.get('/system/')
+def system_index():
+    return render(drawer='system')
 
 
 @app.post('/update')
@@ -1869,12 +2151,12 @@ def settings():
     me, is_global, org = actor()
     plant = (request.form.get('plant') or '').strip().lower()
     if plant not in PLANTS or (not is_global and plant != org):
-        return render(msg='Not allowed for that plant.')
+        return render(drawer='plants', msg='Not allowed for that plant.')
     try:
         year = int(request.form.get('year') or 0)
         assert 2024 <= year <= 2040
     except (ValueError, AssertionError):
-        return render(msg='Invalid year.')
+        return render(drawer='plants', msg='Invalid year.')
     ups = []
     for m in range(1, 13):
         def num(name):
@@ -1906,7 +2188,7 @@ def settings():
         subprocess.Popen(['systemctl', 'start', 'argia-dashboard.service'])
     except OSError:
         pass
-    return render(msg=f'Settings saved for {pk} ({len(ups)} months). '
+    return render(drawer='plants', msg=f'Settings saved for {pk} ({len(ups)} months). '
                       'Reports are regenerating — refresh them in a minute.')
 
 

@@ -148,10 +148,13 @@ class TestSetupAppWiring:
         assert "sql_audit" in m.group(1)
         assert "_fin_regen()" in m.group(1)
 
-    def test_finance_link_is_admin_gated_on_the_main_page(self):
-        i = SETUP_SRC.index('href="/setup/finance"')
-        j = SETUP_SRC.rindex("if is_global:", 0, i)
-        assert "else:" not in SETUP_SRC[j:i]
+    def test_finance_drawer_is_admin_gated(self):
+        # v200: the Finance drawer (and the whole catalog) is global-admin
+        # only; company admins get the old single page over their users.
+        body = SETUP_SRC.split("def finance_page(")[1].split("\ndef ")[0]
+        assert "if not is_global:" in body and "Admins only." in body
+        body = SETUP_SRC.split("def render(")[1].split("\ndef ")[0]
+        assert "if is_global:" in body and "drawer == 'finance'" in body
 
 
 class TestPgLoans:

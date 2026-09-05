@@ -76,6 +76,26 @@ for _p in PLANTS:
 for _p in ('gto2', 'qro1', 'nl2', 'mex3', 'tam1'):
     PREFIX_AREA[f'/monitoring/{_p}/'] = _p
 
+# portal.argia.com.mx (v208): the same grants behind the new paths.
+# Slugs come from portal_chrome (static, customer-name based); the
+# plant areas keep their code names — grants do not change.
+try:
+    from portal_chrome import SLUGS as _SLUGS
+except ImportError:                       # tests importing auth_core alone
+    _SLUGS = {}
+PREFIX_AREA.update({
+    '/report/': ALL, '/assets/': ALL,
+    '/report/financial/': 'financial', '/report/invoices/': 'financial',
+    '/map/': 'financial',
+    '/report/capex/': 'capex', '/monitoring/capex/': 'capex',
+})
+for _code, _slug in _SLUGS.items():
+    _p = _code.lower()
+    if _p in PLANTS:
+        PREFIX_AREA[f'/report/{_slug}/'] = _p
+        if _p in ('gto2', 'qro1', 'nl2', 'mex3', 'tam1'):
+            PREFIX_AREA[f'/monitoring/{_slug}/'] = _p
+
 
 def normalise(uri):
     """Path part of a request URI, query string and fragment removed.

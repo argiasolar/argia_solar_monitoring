@@ -1687,17 +1687,22 @@ def write_root(rel, content):
     os.chmod(p, 0o644)
 
 
-n = 0
-write('index.html', fleet_page()); n += 1
-write_root('portfolio/index.html', portfolio_page()); n += 1
-write('ppa/index.html', ppa_page()); n += 1
-write('capex/index.html', capex_page()); n += 1
-write('performance/index.html', performance_page()); n += 1
-write('recon/index.html', recon_page()); n += 1
-for pk in PLANTS:
-    write(f'{pk.lower()}/index.html', plant_page(pk, TODAY)); n += 1
-    for d in DATES:
-        if d != TODAY:
-            write(f'{pk.lower()}/d/{d}.html', plant_page(pk, d)); n += 1
-print(f'monitoring_gen: wrote {n} pages under {OUTROOT}/monitoring '
-      f'({len(DATES)} day(s) of 5-min data since {FIRST_DATE})')
+def main():
+    n = 0
+    write('index.html', fleet_page()); n += 1
+    write_root('portfolio/index.html', portfolio_page()); n += 1
+    write('ppa/index.html', ppa_page()); n += 1
+    write('capex/index.html', capex_page()); n += 1
+    write('performance/index.html', performance_page()); n += 1
+    write('recon/index.html', recon_page()); n += 1
+    for pk in PLANTS:
+        write(f'{pk.lower()}/index.html', plant_page(pk, TODAY)); n += 1
+        for d in DATES:
+            if d != TODAY:
+                write(f'{pk.lower()}/d/{d}.html', plant_page(pk, d)); n += 1
+    print(f'monitoring_gen: wrote {n} pages under {OUTROOT}/monitoring '
+          f'({len(DATES)} day(s) of 5-min data since {FIRST_DATE})')
+
+
+if __name__ == '__main__':      # v208: portal_gen imports the data + helpers
+    main()

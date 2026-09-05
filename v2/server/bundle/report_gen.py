@@ -1736,11 +1736,16 @@ def no_access_page():
             'reports / Volver a reportes</a></p></div></body></html>')
 
 
-write('index.html', landing_page())
-write('logged-out.html', logged_out_page())
-write('no-access.html', no_access_page())
-write('financial/index.html', financial_page())
-write('capex/index.html', capex_index())
-for k in PPA + CAPEX:
-    write(f'{k.lower()}/index.html', plant_page(k))
-print('DONE')
+def main():
+    write('index.html', landing_page())
+    write('logged-out.html', logged_out_page())
+    write('no-access.html', no_access_page())
+    write('financial/index.html', financial_page())
+    write('capex/index.html', capex_index())
+    for k in PPA + CAPEX:
+        write(f'{k.lower()}/index.html', plant_page(k))
+    print('DONE')
+
+
+if __name__ == '__main__':      # v208: portal_gen imports the data + helpers
+    main()

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from typing import Any, List, Optional, Sequence
 
 from argia.store import pg_mirror
@@ -158,19 +157,14 @@ def mirror_plant_rows(plant_key: str, plant_rows: Sequence[Sequence[Any]],
     if dry_run:
         lg.info("[PG] DRY RUN: would upsert %d detail rows for %s", n, plant_key)
         return n
-    db = os.environ.get("ARGIA_PG_DB", "argia_mont")
+    from argia.store import pgq                      # v207.3: one wrapper
     try:
-        r = subprocess.run(["runuser", "-u", "postgres", "--", "psql", "-d", db,
-                            "-v", "ON_ERROR_STOP=1", "-q"],
-                           input=ENSURE_SQL + sql, capture_output=True, text=True, timeout=60)
+        pgq.psql_exec(ENSURE_SQL + sql, timeout=60)
     except Exception as e:  # noqa: BLE001
-        lg.warning("[PG] detail mirror failed for %s: %s", plant_key, str(e)[:200])
+        lg.warning("[PG] detail write failed for %s (telemetry rows unaffected): %s",
+                   plant_key, str(e)[-300:])
         return 0
-    if r.returncode != 0:
-        lg.warning("[PG] detail mirror failed for %s (telemetry unaffected): %s",
-                   plant_key, r.stderr[-300:])
-        return 0
-    lg.info("[PG] mirrored %d detail rows for %s", n, plant_key)
+    lg.info("[PG] wrote %d detail rows for %s", n, plant_key)
     return n
 
 

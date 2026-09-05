@@ -48,6 +48,6 @@ def psql_rows(sql: str) -> List[List[str]]:
     return [ln.split("\t") for ln in out.splitlines() if ln.strip()]
 
 
-def psql_exec(sql: str) -> None:
-    """Execute DML/DDL; raises on any error."""
-    _run(sql, [])
+def psql_exec(sql: str, timeout: int = _TIMEOUT) -> None:
+    """Execute DML/DDL (stdin); raises on any error."""
+    _run(sql, [], timeout=timeout)

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from typing import List, Optional, Sequence
 
 LOG = logging.getLogger("argia.store.pg_mirror")
@@ -109,13 +108,9 @@ def mirror_common_rows(common_rows: Sequence[Sequence], dry_run: bool = False,
     if dry_run:
         lg.info('[PG] DRY RUN: would upsert %d telemetry rows', n)
         return n
-    db = os.environ.get('ARGIA_PG_DB', 'argia_mont')
-    r = subprocess.run(['runuser', '-u', 'postgres', '--', 'psql', '-d', db,
-                        '-v', 'ON_ERROR_STOP=1', '-q'],
-                       input=sql, capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        lg.warning('[PG] mirror upsert failed (sheets unaffected): %s',
-                   r.stderr[-300:])
-        return 0
-    lg.info('[PG] mirrored %d telemetry rows to %s', n, db)
+    from argia.store import pgq                      # v207.3: one wrapper
+    # PostgreSQL is the record (v189): a failed write raises, and the
+    # collector counts the run as failed - no more "sheets unaffected"
+    pgq.psql_exec(sql, timeout=60)
+    lg.info('[PG] wrote %d telemetry rows to %s', n, pgq.db_name())
     return n

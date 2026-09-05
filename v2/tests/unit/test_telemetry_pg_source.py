@@ -130,7 +130,7 @@ class TestWiring:
     def test_telemetry_5m_sheet_write_is_gated_and_pg_failure_is_fatal(self):
         s = (V2 / "scripts" / "telemetry_5m.py").read_text(encoding="utf-8")
         assert "if all_common and sheet_on:" in s
-        assert "PostgreSQL telemetry write FAILED and the sheet" in s
+        assert "PostgreSQL telemetry write FAILED" in s and "total_errors += 1" in s
         assert "no telemetry sink" in s
 
     def test_archive_pg_mode_never_deletes(self):

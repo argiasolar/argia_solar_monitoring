@@ -17,16 +17,14 @@ DOORS = ["argia/core/alerts_pg.py", "argia/core/config_pg.py",
          "argia/telemetry/pg_source.py", "scripts/archive_month_pg.py"]
 
 
-def test_only_pgq_and_the_bulk_writers_spawn_psql():
+def test_only_pgq_spawns_psql():
     hits = []
     for p in list((V2 / "argia").rglob("*.py")) + list((V2 / "scripts").glob("*.py")):
         src = p.read_text(encoding="utf-8")
         if '"runuser"' in src or "'runuser'" in src:
             hits.append(str(p.relative_to(V2)).replace("\\", "/"))
-    # pgq (the wrapper) and the two bulk upsert writers (stdin, own
-    # timeouts) - v207.3 folds those onto pgq too
-    assert sorted(hits) == ["argia/store/pg_detail.py", "argia/store/pg_mirror.py",
-                            "argia/store/pgq.py"]
+    # v207.3: pgq is the only module that spawns psql
+    assert hits == ["argia/store/pgq.py"]
 
 
 @pytest.mark.parametrize("rel", DOORS)

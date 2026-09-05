@@ -85,6 +85,7 @@ class TestWiring:
 
     def test_mirror_is_fail_soft(self, monkeypatch):
         monkeypatch.setenv("ARGIA_PG_MIRROR", "1")
-        monkeypatch.setattr(D.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("no psql")))
+        import argia.store.pgq as pgq
+        monkeypatch.setattr(pgq, "psql_exec", lambda *a, **k: (_ for _ in ()).throw(OSError("no psql")))
         assert D.mirror_plant_rows("SLP2", [_row()]) == 0
         assert D.mirror_plant_rows("SLP2", [_row()], dry_run=True) == 1

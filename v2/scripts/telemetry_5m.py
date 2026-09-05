@@ -1072,11 +1072,10 @@ def main(argv=None) -> int:
                                          log=log)
         except Exception as e:  # noqa: BLE001
             if sheet_on:
-                log.warning("PG mirror failed (sheets unaffected): %s", e)
+                log.warning("PG write failed (sheet copy still on): %s", e)
             else:
-                log.error("PostgreSQL telemetry write FAILED and the sheet "
-                          "is off — %d rows not stored: %s",
-                          len(all_common), e)
+                log.error("PostgreSQL telemetry write FAILED — %d rows not "
+                          "stored this tick: %s", len(all_common), e)
                 total_errors += 1
         if not sheet_on and pg_rows == 0 and not args.dry_run:
             log.error("no telemetry sink: sheet off and PG mirror not "

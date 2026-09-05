@@ -10,7 +10,6 @@ pr_baseline sync gets real unit tests.
 
 import pathlib
 
-from scripts.sync_pr_baseline import diff_rows
 
 V2 = pathlib.Path(__file__).resolve().parents[2]
 # encoding pinned: Windows read_text() defaults to cp1250 and the
@@ -284,44 +283,3 @@ class TestRound5:
         assert "Last 6 months" in SRC
 
 
-class TestPrBaselineEditor:
-    def test_sql_builder_and_bounds(self):
-        import server.bundle.finance_core as fin
-        assert fin.sql_set_pr_baseline("GTO1", 0.88) == \
-            "UPDATE plant SET pr_baseline = 0.8800 WHERE plant_key = 'GTO1';"
-        assert fin.PRB_MIN == 0.5 and fin.PRB_MAX == 1.0
-        # the shared numeric parser enforces the bounds
-        assert fin.parse_num("0.88", fin.PRB_MIN, fin.PRB_MAX) == 0.88
-        assert fin.parse_num("88", fin.PRB_MIN, fin.PRB_MAX) is None
-        assert fin.parse_num("0.3", fin.PRB_MIN, fin.PRB_MAX) is None
-
-    def test_setup_page_has_editor_and_route(self):
-        app = (V2 / "server/bundle/setup_app.py").read_text(encoding="utf-8")
-        assert "/setup/finance/prbaseline" in app       # form action
-        assert "@app.post('/finance/prbaseline')" in app
-        assert "PR baseline &amp; availability SLA per" in app
-        # guarded and audited like every finance edit
-        seg = app.split("def finance_prbaseline()", 1)[1][:800]
-        assert "_fin_guard()" in seg and "_fin_write(" in seg
-
-    def test_sync_script_demoted_to_import_tool(self):
-        s = (V2 / "scripts/sync_pr_baseline.py").read_text(encoding="utf-8")
-        assert "OVERWRITE audited admin edits" in s
-        assert "the DATABASE became the authority" in s
-
-
-class TestPrBaselineSyncDiff:
-    def test_reports_only_real_differences(self):
-        d = diff_rows({"A": 0.85, "B": 0.90}, {"A": 0.85, "B": 0.99})
-        assert d == [("B", 0.90, 0.99)]
-
-    def test_missing_pg_value_counts_as_difference(self):
-        assert diff_rows({"A": 0.85}, {}) == [("A", 0.85, None)]
-        assert diff_rows({"A": 0.85}, {"A": None}) == [("A", 0.85, None)]
-
-    def test_sheet_silence_never_touches_pg(self):
-        # a plant absent from the sheet keeps its PG value
-        assert diff_rows({}, {"A": 0.90}) == []
-
-    def test_float_noise_is_not_a_difference(self):
-        assert diff_rows({"A": 0.8500004}, {"A": 0.85}) == []

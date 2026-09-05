@@ -19,8 +19,7 @@ SCRIPTS = [
     "scripts.kpi_eod",
     "scripts.alerts_daily",
     "scripts.alerts_snapshot",
-    "scripts.archive_month",
-    "scripts.archive_preflight",
+    "scripts.archive_month_pg",
     "scripts.report_daily",
 ]
 

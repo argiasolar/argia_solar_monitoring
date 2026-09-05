@@ -115,38 +115,6 @@ class TestSql:
             "ORDER BY ts_utc, plant_key, inverter_sn;")
 
 
-class TestParityComparator:
-    def _row(self, ts="2026-09-03T19:00:10+00:00", pk="NL1", sn="A", pw=100.0):
-        return reader.parse_rows([list(ARGIA_SCHEMA.columns),
-            [ts, "", "GROWATT", pk, sn, "Inv", 1, pw, 1, 25, 0, 900, 0.07, 10, 30, 40]])[0]
-
-    def test_identical_is_ok(self):
-        from scripts.telemetry_parity import compare
-        rep = compare([self._row()], [self._row()])
-        assert rep["ok"] and rep["field_diffs"] == []
-
-    def test_missing_row_is_reported_by_side(self):
-        from scripts.telemetry_parity import compare
-        rep = compare([self._row(), self._row(sn="B")], [self._row()])
-        assert not rep["ok"] and len(rep["only_sheet"]) == 1
-
-    def test_field_difference_names_the_field(self):
-        from scripts.telemetry_parity import compare
-        rep = compare([self._row(pw=100.0)], [self._row(pw=101.0)])
-        assert not rep["ok"]
-        assert rep["field_diffs"][0][1] == "power_w"
-
-    def test_float_noise_is_not_a_difference(self):
-        from scripts.telemetry_parity import compare
-        rep = compare([self._row(pw=100.0)], [self._row(pw=100.0000001)])
-        assert rep["ok"]
-
-    def test_render_shows_the_verdict(self):
-        from scripts.telemetry_parity import compare, render
-        out = render(compare([self._row()], [self._row()]), "2026-09-03")
-        assert "VERDICT: IDENTICAL" in out
-
-
 class TestWiring:
     def test_kpi_reader_takes_the_pg_path_only_when_told(self):
         src = (V2 / "argia" / "kpi" / "reader.py").read_text(encoding="utf-8")
@@ -211,45 +179,3 @@ class TestMirrorNeverOverwritesWithNull:
         assert vals.count("NULL") >= 5
 
 
-class TestEnvBackfill:
-    def test_updates_only_where_pg_is_null_and_sheet_has_a_value(self):
-        from scripts.telemetry_env_backfill_pg import build_updates
-        rows = reader.parse_rows([list(ARGIA_SCHEMA.columns),
-            ["2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "A", "Inv", 1,
-             0, 0, 17.2, "", 0.0, 0.0, 80.6, 15.0, 13.6],
-            ["2026-09-03T12:06:01+00:00", "", "SOLAREDGE", "GTO2", "A", "Inv", 1,
-             0, 0, 17.2, "", "", "", "", "", ""]])          # nothing to give
-        ups = build_updates(rows)
-        assert len(ups) == 1
-        u = ups[0]
-        assert "cloud_cover_pct=COALESCE(cloud_cover_pct, 80.6)" in u
-        assert "WHERE plant_key='GTO2' AND inverter_sn='A'" in u
-        assert "IS NULL" in u                                 # idempotent guard
-
-
-class TestParityTolerance:
-    def test_storage_rounding_is_not_a_difference(self):
-        from scripts.telemetry_parity import compare
-        mk = lambda t: reader.parse_rows([list(ARGIA_SCHEMA.columns),
-            ["2026-09-04T10:55:18+00:00", "", "GROWATT", "SLP1", "X", "I", 1,
-             100, 1, t, 0, 900, 0.07, 10, 30, 40]])[0]
-        assert compare([mk(37.100002)], [mk(37.1)])["ok"]
-        assert compare([mk(17.240479)], [mk(17.24)])["ok"]
-
-    def test_a_real_difference_still_fails(self):
-        from scripts.telemetry_parity import compare
-        mk = lambda t: reader.parse_rows([list(ARGIA_SCHEMA.columns),
-            ["2026-09-04T10:55:18+00:00", "", "GROWATT", "SLP1", "X", "I", 1,
-             100, 1, t, 0, 900, 0.07, 10, 30, 40]])[0]
-        assert not compare([mk(37.1)], [mk(37.2)])["ok"]
-
-    def test_value_vs_none_is_a_difference(self):
-        from scripts.telemetry_parity import compare
-        a = reader.parse_rows([list(ARGIA_SCHEMA.columns),
-            ["2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "A", "I", 1,
-             0, 0, 17, "", 0.0, 0.0, 80.6, 15.0, 13.6]])[0]
-        b = reader.parse_rows([list(ARGIA_SCHEMA.columns),
-            ["2026-09-03T12:01:01+00:00", "", "SOLAREDGE", "GTO2", "A", "I", 1,
-             0, 0, 17, "", "", "", "", "", ""]])[0]
-        rep = compare([a], [b])
-        assert not rep["ok"] and len(rep["field_diffs"]) == 5

@@ -149,9 +149,9 @@ class TestNoSheetCopyBehindTheWriter:
     """v193.1: once daily_production is written on the server, no scheduled
     sheet -> PG copy may run behind it (a later copy is a stale copy)."""
 
-    def test_kpi_export_action_has_no_schedule(self):
+    def test_no_kpi_export_action_and_no_sync_unit_exist(self):
         import pathlib
-        wf = (pathlib.Path(__file__).resolve().parents[3] / ".github" / "workflows"
-              / "v2-kpi-export.yml").read_text(encoding="utf-8")
-        assert "workflow_dispatch:" in wf
-        assert "schedule:" not in wf and "cron:" not in wf
+        root = pathlib.Path(__file__).resolve().parents[3]
+        assert not (root / ".github" / "workflows" / "v2-kpi-export.yml").exists()
+        assert not (root / "v2" / "server" / "bundle" / "argia-sync.timer").exists()
+        assert not (root / "v2" / "server" / "bundle" / "sync_kpi.py").exists()

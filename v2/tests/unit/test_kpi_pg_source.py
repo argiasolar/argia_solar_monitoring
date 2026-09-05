@@ -109,105 +109,10 @@ class TestSwitch:
         src = (V2 / "argia/archive/kpi_daily.py").read_text(encoding="utf-8")
         assert 'kpi_records(sheets, "A1:O")' in src
 
-    def test_the_mirror_itself_still_reads_the_sheet(self):
-        # kpi_pg_mirror is the sheet->PG bridge until phase 2b; it must not
-        # read PG and write PG
-        src = (V2 / "scripts/kpi_pg_mirror.py").read_text(encoding="utf-8")
-        assert 'read_table("KPI_Daily"' in src
-        assert "ENSURE_SQL" in src
-
-
-class TestParity:
-    def _g(self, rows):
-        return [list(K.HEADER)] + rows
-
-    def _row(self, d="2026-09-03", pk="GTO2", energy=1716.47, note="x"):
-        r = [""] * len(K.HEADER)
-        r[0], r[1], r[2] = d, pk, energy
-        r[K.HEADER.index("status_note")] = note
-        return r
-
-    def test_identical(self):
-        from scripts.kpi_parity import compare
-        assert compare(self._g([self._row()]), self._g([self._row()]), "2026-01-01")["ok"]
-
-    def test_serial_date_on_the_sheet_side_matches_iso_on_pg(self):
-        from scripts.kpi_parity import compare
-        s = self._row(d=46268)            # 2026-09-03 as a sheet serial
-        assert compare(self._g([s]), self._g([self._row()]), "2026-01-01")["ok"]
-
-    def test_numeric_rounding_ok_real_change_not(self):
-        from scripts.kpi_parity import compare
-        assert compare(self._g([self._row(energy=1716.47)]),
-                       self._g([self._row(energy=1716.472)]), "2026-01-01")["ok"]
-        rep = compare(self._g([self._row(energy=1716.47)]),
-                      self._g([self._row(energy=1717.0)]), "2026-01-01")
-        assert not rep["ok"] and rep["diffs"][0][1] == "energy_kwh"
-
-    def test_written_at_is_ignored_but_status_note_is_not(self):
-        from scripts.kpi_parity import compare
-        a, b = self._row(note="A"), self._row(note="B")
-        assert not compare(self._g([a]), self._g([b]), "2026-01-01")["ok"]
-        a2, b2 = self._row(), self._row()
-        a2[K.HEADER.index("written_at_utc")] = "t1"
-        b2[K.HEADER.index("written_at_utc")] = "t2"
-        assert compare(self._g([a2]), self._g([b2]), "2026-01-01")["ok"]
-
-    def test_missing_on_one_side_is_reported(self):
-        from scripts.kpi_parity import compare
-        rep = compare(self._g([self._row(), self._row(pk="NL1")]),
-                      self._g([self._row()]), "2026-01-01")
-        assert rep["only_sheet"] == [("2026-09-03", "NL1")]
-
-
-class TestParityKnowsWherePgWins:
-    """The gate's first live run: every difference fell into a class where
-    PostgreSQL is the designed authority. The gate must say so, and must
-    still fail on anything else."""
-
-    def _g(self, rows):
-        return [list(K.HEADER)] + rows
-
-    def _row(self, d="2026-08-02", pk="GTO1", **over):
-        r = [""] * len(K.HEADER)
-        r[0], r[1] = d, pk
-        for c, v in over.items():
-            r[K.HEADER.index(c)] = v
-        return r
-
-    def test_pr_on_a_vendor_row_is_expected_not_a_failure(self):
-        from scripts.kpi_parity import compare
-        rep = compare(self._g([self._row(pr=0.3429)]),
-                      self._g([self._row(pr=0.4505)]), "2026-01-01",
-                      frozenset(), frozenset({("2026-08-02", "GTO1")}))
-        assert rep["ok"] and len(rep["expected"]) == 1 and not rep["unexpected"]
-
-    def test_status_note_on_a_frozen_month_is_expected(self):
-        from scripts.kpi_parity import compare
-        rep = compare(self._g([self._row(status_note="Above plan")]),
-                      self._g([self._row(status_note="Above plan | billable raised")]),
-                      "2026-01-01", frozenset({("GTO1", "2026-08")}), frozenset())
-        assert rep["ok"]
-
-    def test_the_same_diff_on_an_open_non_vendor_row_fails(self):
-        from scripts.kpi_parity import compare
-        rep = compare(self._g([self._row(pr=0.3429)]),
-                      self._g([self._row(pr=0.4505)]), "2026-01-01")
-        assert not rep["ok"] and rep["unexpected"][0][1] == "pr"
-
-    def test_a_non_protected_column_differing_always_fails(self):
-        from scripts.kpi_parity import compare
-        rep = compare(self._g([self._row(specific_yield=4.45)]),
-                      self._g([self._row(specific_yield="")]), "2026-01-01",
-                      frozenset({("GTO1", "2026-08")}), frozenset({("2026-08-02", "GTO1")}))
-        assert not rep["ok"]                      # new column NULL is NOT ok
-
-    def test_more_history_in_pg_is_fine_missing_in_pg_is_not(self):
-        from scripts.kpi_parity import compare
-        a = self._row(d="2026-08-02")
-        old = self._row(d="2024-03-01")
-        assert compare(self._g([a]), self._g([a, old]), "2024-01-01")["ok"]
-        assert not compare(self._g([a, old]), self._g([a]), "2024-01-01")["ok"]
+    def test_the_sheet_to_pg_mirror_is_gone(self):
+        # v207.1: daily_production is written by kpi_eod alone; no copy job exists
+        assert not (V2 / "scripts/kpi_pg_mirror.py").exists()
+        assert not (V2 / "server/bundle/argia-kpimirror.timer").exists()
 
 
 class TestFillNullsOnly:

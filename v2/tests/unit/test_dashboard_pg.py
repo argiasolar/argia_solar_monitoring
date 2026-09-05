@@ -126,30 +126,3 @@ class TestDoors:
         assert "DP.rewrite(DP.INVERTER_TABLE, D.INVERTER_COLUMNS, inv_matrix)" in src
 
 
-class TestParity:
-    @pytest.fixture
-    def cmp(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "dashboard_parity", V2 / "scripts" / "dashboard_parity.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-
-    def test_serial_dates_and_float_noise_are_equal(self, cmp):
-        a = [{"date_mx": 46269, "plant_key": "GTO1", "bucket_ts": "2026-09-04 13:00:00", "total_kwh": "412.3"}]
-        b = [{"date_mx": "2026-09-04", "plant_key": "GTO1", "bucket_ts": "2026-09-04 13:00:00", "total_kwh": 412.30000001}]
-        rep = cmp.compare(a, b, ["date_mx", "plant_key", "bucket_ts", "total_kwh"],
-                          ["date_mx", "plant_key", "bucket_ts"], {"total_kwh"})
-        assert rep["ok"]
-
-    def test_missing_and_different_rows_fail(self, cmp):
-        a = [{"date_mx": "2026-09-04", "plant_key": "GTO1", "bucket_ts": "13", "total_kwh": 1}]
-        b = [{"date_mx": "2026-09-04", "plant_key": "GTO1", "bucket_ts": "13", "total_kwh": 2}]
-        rep = cmp.compare(a, b, ["date_mx", "plant_key", "bucket_ts", "total_kwh"],
-                          ["date_mx", "plant_key", "bucket_ts"], {"total_kwh"})
-        assert rep["diffs"] and not rep["ok"]
-        rep = cmp.compare(a, [], ["date_mx", "plant_key", "bucket_ts", "total_kwh"],
-                          ["date_mx", "plant_key", "bucket_ts"], {"total_kwh"})
-        assert rep["only_sheet"] and not rep["ok"]
-        assert "VERDICT" in cmp.render("x", rep)

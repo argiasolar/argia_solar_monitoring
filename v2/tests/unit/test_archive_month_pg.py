@@ -72,11 +72,10 @@ class TestExport:
 
 
 class TestSchedules:
-    def test_sheet_reading_actions_are_manual_only(self):
-        for wf in ("v2-watchdog.yml", "v2-archive-month.yml", "v2-kpi-export.yml"):
-            src = (ROOT / ".github" / "workflows" / wf).read_text(encoding="utf-8")
-            assert "workflow_dispatch:" in src, wf
-            assert "\n  schedule:" not in src and "- cron:" not in src, wf
+    def test_only_the_unit_test_workflow_remains(self):
+        # v207.1: every sheet-era Action is gone; nothing but pytest runs on GitHub
+        names = sorted(p.name for p in (ROOT / ".github" / "workflows").glob("*.yml"))
+        assert names == ["v2-tests.yml"]
 
     def test_server_unit_runs_the_pg_archive(self):
         svc = (V2 / "server" / "bundle" / "argia-archive-month.service").read_text(encoding="utf-8")

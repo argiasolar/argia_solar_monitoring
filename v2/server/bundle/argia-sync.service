@@ -1,8 +1,0 @@
-[Unit]
-Description=ARGIA daily KPI sync (data branch -> PostgreSQL) + report regeneration
-After=network-online.target postgresql.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /opt/argia/bundle/sync_kpi.py
-ExecStart=/usr/bin/python3 /opt/argia/bundle/report_gen.py /www/hosting/monitoring.argia.com.mx/www

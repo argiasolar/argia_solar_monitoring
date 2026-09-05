@@ -117,26 +117,3 @@ class TestDoors:
             assert 'write_values("Alerts"' not in src and "write_values(\n" not in src
 
 
-class TestParity:
-    @pytest.fixture
-    def cmp(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "alerts_backfill_pg", V2 / "scripts" / "alerts_backfill_pg.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-
-    def test_clean_and_diff(self, cmp):
-        a = S.AlertsLedger(records=(REC,))
-        assert cmp.compare(a, a)["ok"]
-        b = S.AlertsLedger(records=(S.AlertRecord(**{**REC.__dict__, "state": S.AlertState.RESOLVED}),))
-        rep = cmp.compare(a, b)
-        assert rep["diffs"] == [("ALT-20260904-386", "state", S.AlertState.OPEN, S.AlertState.RESOLVED)]
-        assert rep["open_sheet"] == 1 and rep["open_pg"] == 0 and not rep["ok"]
-
-    def test_only_in_sheet_fails_only_in_pg_allowed(self, cmp):
-        a = S.AlertsLedger(records=(REC,))
-        assert not cmp.compare(a, S.AlertsLedger())["ok"]
-        assert cmp.compare(S.AlertsLedger(), a)["ok"]
-        assert "VERDICT: CLEAN" in cmp.render(cmp.compare(a, a))

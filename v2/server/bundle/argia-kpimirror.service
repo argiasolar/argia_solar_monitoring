@@ -1,6 +1,0 @@
-[Unit]
-Description=ARGIA KPI sheet -> PostgreSQL mirror (minutes after argia-kpi)
-[Service]
-Type=oneshot
-Environment=HOME=/root
-ExecStart=/root/argia_v2/v2/pi/run_job.sh kpimirror kpi_pg_mirror.py

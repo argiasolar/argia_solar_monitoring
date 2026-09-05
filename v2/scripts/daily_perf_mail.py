@@ -370,7 +370,6 @@ _UNIT_ROLE = {
     "argia-telemetry": "Telemetry collector (Growatt + Huawei)",
     "argia-telemetry-se": "Telemetry collector (SolarEdge)",
     "argia-kpi": "Nightly KPI close",
-    "argia-kpimirror": "KPI mirror to Postgres",
     "argia-recon": "Meter reconciliation",
     "argia-report-am": "Morning report build",
     "argia-report-pm": "Evening report build",
@@ -388,7 +387,6 @@ _UNIT_ROLE = {
     "argia-strings": "String-level collector",
     "argia-satcheck": "Satellite irradiance check",
     "argia-dbdump": "Database backup",
-    "argia-sync": "Sheet sync",
 }
 
 

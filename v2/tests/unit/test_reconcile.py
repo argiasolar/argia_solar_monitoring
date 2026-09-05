@@ -1,8 +1,6 @@
-"""Tests for argia.kpi.reconcile and scripts/reconcile_daily.py.
-
-The bulk exercises the PURE logic (no I/O). The final class is a read-only
-smoke test of the CLI that proves it NEVER writes to either sheet.
-"""
+"""Tests for argia.kpi.reconcile (date keys, plant-key normalisation,
+pct diff, PR derivation, bucket classification, the v1-vs-v2 comparator).
+The reconcile_daily CLI went with v207.1."""
 
 from __future__ import annotations
 
@@ -309,80 +307,3 @@ class TestBuildReconcile:
         v2 = [self._v2("SLP1", "2026-06-30", 565.0, 4.86, 0.6144, data_class="full")]
         r = build_reconcile(v1, v2, self.ACTIVE, tolerance_pct=2.0)[0]
         assert r.bucket == BUCKET_OK
-
-
-# --------------------------------------------------------------------------
-# Read-only CLI smoke test — proves the script never writes.
-_MOD_PATH = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "reconcile_daily.py"
-_spec = importlib.util.spec_from_file_location("reconcile_daily", _MOD_PATH)
-recon = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(recon)
-
-_WRITE_METHODS = [
-    "append_rows", "write_row", "write_cell", "delete_row",
-    "upsert_rows", "write_values", "write_header_row", "ensure_header",
-    "ensure_tab",
-]
-
-
-class TestCliReadOnly:
-    def _run(self, v1_rows, v2_rows, argv):
-        client = MagicMock(spec=SheetsClient)
-
-        def _read_table(tab, a1="A1:Z"):
-            return v2_rows if tab == recon.V2_TAB else v1_rows
-
-        client.read_table.side_effect = _read_table
-
-        portfolio = SimpleNamespace(
-            active_plants=lambda: [SimpleNamespace(plant_key=p) for p in
-                                   ["SLP1", "SLP2", "GTO1", "MEX1", "NL1", "MEX2"]]
-        )
-        fixed_now = dt.datetime(2026, 7, 1, 10, 0, tzinfo=dt.timezone.utc)
-
-        with patch.object(recon, "SheetsClient", return_value=client), \
-             patch.object(recon, "load_portfolio", return_value=portfolio), \
-             patch.object(recon, "now_mx", return_value=fixed_now), \
-             patch.dict("os.environ", {"GOOGLE_SHEET_ID_V2": "v2id",
-                                       "GOOGLE_CREDENTIALS": "{}"}, clear=False):
-            code = recon.main(argv)
-        return code, client
-
-    def _v1(self, p, d, kwh, irr, kwp):
-        return {"Plant_Key": p, "Date": d, "Real_kWh": kwh,
-                "Irradiance_kWh_m2": irr, "Size_kWp_DC": kwp}
-
-    def _v2(self, p, d, kwh, irr, pr, data_class=""):
-        return {"plant_key": p, "date_iso": d, "energy_kwh": kwh,
-                "irradiance_kwh_m2": irr, "pr": pr, "data_class": data_class}
-
-    def test_never_writes_and_exit_zero_on_match(self):
-        v1 = [self._v1("SLP1", "2026-06-30", 565.0, 4.86, 189.2)]
-        v2 = [self._v2("SLP1", "2026-06-30", 565.0, 4.86, 0.61)]
-        code, client = self._run(v1, v2, ["--start", "2026-06-30", "--end", "2026-06-30"])
-        assert code == 0
-        for m in _WRITE_METHODS:
-            getattr(client, m).assert_not_called()
-
-    def test_exit_one_on_energy_mismatch(self):
-        v1 = [self._v1("SLP1", "2026-06-30", 1000.0, 4.86, 189.2)]
-        v2 = [self._v2("SLP1", "2026-06-30", 1100.0, 4.86, 0.61)]  # +10%
-        code, client = self._run(v1, v2, ["--start", "2026-06-30", "--end", "2026-06-30"])
-        assert code == 1
-        for m in _WRITE_METHODS:
-            getattr(client, m).assert_not_called()
-
-    def test_exit_two_when_no_overlap(self):
-        v1 = [self._v1("SLP1", "2026-06-30", 565.0, 4.86, 189.2)]
-        v2 = []  # v2 has nothing for the window
-        code, _ = self._run(v1, v2, ["--start", "2026-06-30", "--end", "2026-06-30"])
-        assert code == 2
-
-    def test_partial_v2_day_does_not_fail_exit(self):
-        # Big energy shortfall but v2 flagged the day partial -> exit 0, no writes.
-        v1 = [self._v1("SLP1", "2026-06-30", 900.0, 4.86, 189.2)]
-        v2 = [self._v2("SLP1", "2026-06-30", 565.0, 4.86, 0.61, data_class="partial")]
-        code, client = self._run(v1, v2, ["--start", "2026-06-30", "--end", "2026-06-30"])
-        assert code == 0
-        for m in _WRITE_METHODS:
-            getattr(client, m).assert_not_called()

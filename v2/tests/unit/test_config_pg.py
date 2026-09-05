@@ -153,39 +153,3 @@ class TestDoors:
             assert "plants_records(" in src, rel
 
 
-class TestParity:
-    @pytest.fixture
-    def cmp(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "config_backfill_pg", V2 / "scripts" / "config_backfill_pg.py")
-        m = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(m)
-        return m
-
-    def _plants(self, monkeypatch, **pg_over):
-        monkeypatch.setenv("ARGIA_CONFIG_SOURCE", "sheet")
-        sh = load_portfolio(FakeSheets([sheet_plant_row()])).plants
-        pg = load_portfolio(FakeSheets([sheet_plant_row(installation_date="2024-10-24", **pg_over)])).plants
-        return sh, pg
-
-    def test_dates_and_audited_fields(self, cmp, monkeypatch):
-        sh, pg = self._plants(monkeypatch, pr_baseline=0.88, lat=21.104201)
-        rep = cmp.compare_plants(sh, pg, frozenset({("GTO1", "pr_baseline")}))
-        assert rep["ok"] and rep["diffs"] == []
-        assert rep["expected"] == [("GTO1", "pr_baseline", 0.9, 0.88)]
-        rep = cmp.compare_plants(sh, pg, frozenset())
-        assert not rep["ok"] and rep["diffs"] == [("GTO1", "pr_baseline", 0.9, 0.88)]
-
-    def test_unaudited_change_fails(self, cmp, monkeypatch):
-        sh, pg = self._plants(monkeypatch, kwp_ac=700)
-        rep = cmp.compare_plants(sh, pg, frozenset({("GTO1", "pr_baseline")}))
-        assert rep["diffs"] == [("GTO1", "kwp_ac", 680.0, 700.0)] and not rep["ok"]
-
-    def test_missing_plant_fails(self, cmp, monkeypatch):
-        sh, pg = self._plants(monkeypatch)
-        assert not cmp.compare_plants(sh, {}, frozenset())["ok"]
-        assert "VERDICT: CLEAN" in cmp.render("x", cmp.compare_plants(sh, pg, frozenset()))
-
-    def test_site_id_fix_is_narrow(self, cmp):
-        assert "WHERE site_id ~ '\\.0$'" in cmp.SITE_ID_FIX_SQL

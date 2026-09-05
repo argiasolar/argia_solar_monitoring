@@ -182,8 +182,11 @@ def evaluate_acute(
     # --- plant-level: dark plant (only mid-daylight, only on fresh data) ---
     if DARK_CHECK_START_HOUR <= now_mx.hour < DARK_CHECK_END_HOUR:
         for plant, rows in sorted(fresh_by_plant.items()):
-            powers = [r[3] for r in rows]
-            if powers and all((p or 0) <= 0 for p in powers):
+            # v205: an empty vendor reply (power None — MEX1 2026-09-05,
+            # FusionSolar returned no values for hours) is a data gap, not
+            # 0 W; only measured zeros make a dark plant
+            powers = [r[3] for r in rows if r[3] is not None]
+            if powers and all(p <= 0 for p in powers):
                 breaches.append(AcuteBreach(
                     metric="plant_offline", plant_key=plant, inverter_sn="",
                     severity=Severity.CRITICAL, value=0.0,

@@ -67,7 +67,7 @@ ENSURE_SQL = _ddl(PLANT_TABLE, PLANT_COLUMNS) + _ddl(INVERTER_TABLE, INVERTER_CO
 
 def mode(env=None) -> str:
     env = os.environ if env is None else env
-    v = str(env.get(SOURCE_ENV, "sheet")).strip().lower()
+    v = str(env.get(SOURCE_ENV, "pg")).strip().lower()
     return v if v in MODES else "sheet"
 
 

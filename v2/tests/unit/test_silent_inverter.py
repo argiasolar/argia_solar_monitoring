@@ -167,3 +167,22 @@ class TestGrowattCatalog:
         assert b, "fault breach expected"
         c = candidate_from_fault_breach(b[0])
         assert "FT=302" in c.message and "no AC connection" in c.message
+
+
+
+class TestV205Fixes:
+    def test_empty_vendor_reply_is_a_gap_not_a_dark_plant(self):
+        """MEX1 2026-09-05: FusionSolar answered with no values (power None)
+        for hours -> plant_offline CRITICAL was mailed. None is not 0 W."""
+        now = mx(10, 33)
+        rows = [(now - dt.timedelta(minutes=5 * k), "MEX1", sn, None, None, 1, "0")
+                for k in range(6) for sn in ("A", "B", "C")]
+        assert [b for b in evaluate_acute(rows, ["MEX1"], now) if b.metric == "plant_offline"] == []
+        zeros = [(t, p, sn, 0.0, tc, st, f) for t, p, sn, _pw, tc, st, f in rows]
+        assert [b.metric for b in evaluate_acute(zeros, ["MEX1"], now)] == ["plant_offline"]
+
+    def test_kpi_eod_does_not_fail_the_unit_on_a_dark_plant(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "kpi_eod.py").read_text(encoding="utf-8")
+        tail = src[src.index("if plants_with_data == 0:"):]
+        assert "return 2" in tail and "return 1" not in tail and tail.count("return 0") == 1

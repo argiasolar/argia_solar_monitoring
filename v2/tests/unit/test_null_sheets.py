@@ -17,14 +17,17 @@ ALL_PG = {"ARGIA_TELEMETRY_SOURCE": "pg", "ARGIA_KPI_SOURCE": "pg",
 
 
 class TestStillNeeded:
-    def test_fresh_env_needs_the_sheet_for_everything(self):
-        r = S.sheet_still_needed({})
+    def test_fresh_env_needs_nothing(self):
+        """v205: the code defaults are pg; a bare env has no reason."""
+        assert S.sheet_still_needed({}) == []
+        r = S.sheet_still_needed({"ARGIA_CONFIG_SOURCE": "sheet", "ARGIA_KPI_WRITE": "sheet",
+                                  "ARGIA_SHEET_TELEMETRY": "1", "ARGIA_SHEET_OUTBOX": "1"})
         assert "ARGIA_CONFIG_SOURCE=sheet" in r and "ARGIA_KPI_WRITE=sheet" in r
         assert "ARGIA_SHEET_TELEMETRY=on" in r and "ARGIA_SHEET_OUTBOX=on" in r
         assert "ARGIA_SHEET_JOBLOG=on" not in r          # joblog default is off
 
-    def test_todays_server_env_still_needs_two_writes(self):
-        env = dict(ALL_PG); env.pop("ARGIA_SHEET_TELEMETRY"); env["ARGIA_KPI_WRITE"] = "both"
+    def test_a_shadow_env_still_needs_the_sheet(self):
+        env = dict(ALL_PG); env["ARGIA_SHEET_TELEMETRY"] = "1"; env["ARGIA_KPI_WRITE"] = "both"
         assert S.sheet_still_needed(env) == ["ARGIA_KPI_WRITE=both", "ARGIA_SHEET_TELEMETRY=on"]
 
     def test_all_pg_needs_nothing(self):

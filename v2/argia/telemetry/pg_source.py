@@ -48,7 +48,7 @@ def sheet_write_enabled(env=None) -> bool:
     once ARGIA_TELEMETRY_SOURCE=pg has proven itself; the follow-up
     release flips the default."""
     env = os.environ if env is None else env
-    return str(env.get(SHEET_WRITE_ENV, "1")).strip().lower() in (
+    return str(env.get(SHEET_WRITE_ENV, "0")).strip().lower() in (
         "1", "true", "yes", "on")
 
 
@@ -56,7 +56,7 @@ def source(env=None) -> str:
     """'sheet' or 'pg'. Anything unrecognised is 'sheet' — never guess
     towards the new path."""
     env = os.environ if env is None else env
-    v = str(env.get(SOURCE_ENV, "sheet")).strip().lower()
+    v = str(env.get(SOURCE_ENV, "pg")).strip().lower()
     return "pg" if v == "pg" else "sheet"
 
 

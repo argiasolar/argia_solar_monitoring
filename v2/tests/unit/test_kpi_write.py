@@ -42,13 +42,14 @@ def _row(date_iso="2026-09-03", pk="GTO1", energy=3252.4):
 
 
 class TestMode:
-    def test_default_sheet(self):
-        assert W.mode({}) == "sheet" and W.writes_sheet({}) and not W.writes_pg({})
+    def test_default_pg(self):
+        assert W.mode({}) == "pg" and W.writes_pg({}) and not W.writes_sheet({})      # v205
 
     def test_both_and_pg(self):
         assert W.mode({"ARGIA_KPI_WRITE": "BOTH"}) == "both"
         assert W.writes_pg({"ARGIA_KPI_WRITE": "pg"}) and not W.writes_sheet({"ARGIA_KPI_WRITE": "pg"})
-        assert W.mode({"ARGIA_KPI_WRITE": "nonsense"}) == "sheet"
+        assert W.mode({"ARGIA_KPI_WRITE": "nonsense"}) == "pg"
+        assert W.mode({"ARGIA_KPI_WRITE": "sheet"}) == "sheet"
 
 
 class TestPure:
@@ -94,7 +95,7 @@ class TestPure:
 
 class TestDoors:
     def test_sheet_mode_never_touches_pg(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_KPI_WRITE", raising=False)
+        monkeypatch.setenv("ARGIA_KPI_WRITE", "sheet")
         monkeypatch.setattr(W, "_run", lambda sql: (_ for _ in ()).throw(AssertionError("PG touched")))
         fs = FakeSheets()
         KD.upsert_kpi_rows(fs, [_row()], dry_run=True)

@@ -90,9 +90,9 @@ class TestGridShape:
 
 
 class TestSwitch:
-    def test_defaults_to_sheet(self):
-        assert K.source({}) == "sheet"
-        assert K.source({"ARGIA_KPI_SOURCE": "pg"}) == "pg"
+    def test_defaults_to_pg(self):
+        assert K.source({}) == "pg"                                            # v205
+        assert K.source({"ARGIA_KPI_SOURCE": "sheet"}) == "sheet"
 
     def test_one_door_for_every_reader(self):
         """No live reader may call the sheet for KPI_Daily directly any more

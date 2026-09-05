@@ -57,7 +57,7 @@ class FakeSheets:
 
 class TestShape:
     def test_switch_default(self):
-        assert C.source({}) == "sheet" and C.source({"ARGIA_CONFIG_SOURCE": "pg"}) == "pg"
+        assert C.source({}) == "pg" and C.source({"ARGIA_CONFIG_SOURCE": "sheet"}) == "sheet"     # v205: pg by default
 
     def test_ddl_adds_only_the_missing_columns(self):
         assert C.ENSURE_SQL.count("ALTER TABLE plant ADD COLUMN IF NOT EXISTS") == len(C.PLANTS_HEADER) - len(C.PLANT_EXISTING)
@@ -126,7 +126,7 @@ class TestFill:
 
 class TestDoors:
     def test_sheet_mode_issues_the_old_calls(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_CONFIG_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_CONFIG_SOURCE", "sheet")
         fs = FakeSheets()
         load_portfolio(fs)
         assert fs.calls == [("Plants", "A1:AZ"), ("Inverters", "A1:Z")]

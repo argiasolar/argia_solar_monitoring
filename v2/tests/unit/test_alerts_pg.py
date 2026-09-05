@@ -83,7 +83,7 @@ class TestShape:
 
 class TestDoors:
     def test_sheet_mode_unchanged(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_ALERTS_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_ALERTS_SOURCE", "sheet")
         fs = FakeSheets([dict(zip(S.ALERTS_HEADER, S.record_to_row(REC)))])
         assert S.load_alerts_ledger(fs).records == (REC,)
         assert S.write_ledger(fs, [REC]) == 1

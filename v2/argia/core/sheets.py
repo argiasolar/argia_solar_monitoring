@@ -133,17 +133,17 @@ _SHEET_SWITCHES = (
 
 def sheet_still_needed(env=None) -> List[str]:
     """Which switches (by name) still route to the workbook. Pure over
-    ``env``. A switch left unset counts as its code default — 'sheet'
-    until v200 flips the defaults — so an unset switch is a reason."""
+    ``env``. v205: the code default of every switch is 'pg' — only a
+    switch explicitly set to something else is a reason."""
     env = os.environ if env is None else env
     reasons: List[str] = []
     for name in _SHEET_SWITCHES:
-        v = str(env.get(name, "sheet")).strip().lower() or "sheet"
+        v = str(env.get(name, "pg")).strip().lower() or "pg"
         if v != "pg":
             reasons.append(f"{name}={v}")
-    if str(env.get("ARGIA_SHEET_TELEMETRY", "1")).strip() not in ("0", "false", "no"):
+    if str(env.get("ARGIA_SHEET_TELEMETRY", "0")).strip() not in ("0", "false", "no"):
         reasons.append("ARGIA_SHEET_TELEMETRY=on")
-    if str(env.get("ARGIA_SHEET_OUTBOX", "1")).strip() not in ("0", "false", "no"):
+    if str(env.get("ARGIA_SHEET_OUTBOX", "0")).strip() not in ("0", "false", "no"):
         reasons.append("ARGIA_SHEET_OUTBOX=on")
     if str(env.get("ARGIA_SHEET_JOBLOG", "0")).strip() in ("1", "true", "yes"):
         reasons.append("ARGIA_SHEET_JOBLOG=on")

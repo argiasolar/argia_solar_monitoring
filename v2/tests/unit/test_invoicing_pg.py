@@ -26,9 +26,9 @@ PG_CSV = ("Year,Month,Month_No,Plant_Key,Total_kWh,Penalty_kWh,Total_Income,Expe
 
 
 class TestSwitch:
-    def test_default_sheet(self):
-        assert I.source({}) == "sheet"
-        assert I.source({"ARGIA_INVOICING_SOURCE": "pg"}) == "pg"
+    def test_default_pg(self):
+        assert I.source({}) == "pg"                                            # v205
+        assert I.source({"ARGIA_INVOICING_SOURCE": "sheet"}) == "sheet"
 
 
 class TestGrid:
@@ -116,7 +116,7 @@ class TestDoor:
         assert A.load_invoicing_overview(2026) == {}
 
     def test_sheet_mode_without_id_is_unchanged(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_INVOICING_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_INVOICING_SOURCE", "sheet")
         monkeypatch.delenv("ARGIA_SOLAR_SHEET_ID", raising=False)
         assert A.load_invoicing_overview(2026) == {}
 

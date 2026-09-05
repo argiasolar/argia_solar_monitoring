@@ -82,15 +82,15 @@ class TestExistingParsersAcceptTheGrid:
 
 
 class TestSwitches:
-    def test_source_defaults_to_sheet_and_never_guesses(self):
-        assert P.source({}) == "sheet"
-        assert P.source({"ARGIA_TELEMETRY_SOURCE": "pg"}) == "pg"
+    def test_source_defaults_to_pg_and_never_guesses(self):
+        assert P.source({}) == "pg"                                            # v205
+        assert P.source({"ARGIA_TELEMETRY_SOURCE": "sheet"}) == "sheet"
         assert P.source({"ARGIA_TELEMETRY_SOURCE": "PG "}) == "pg"
-        assert P.source({"ARGIA_TELEMETRY_SOURCE": "postgres"}) == "sheet"
+        assert P.source({"ARGIA_TELEMETRY_SOURCE": "postgres"}) == "sheet"     # explicit garbage never guesses pg
 
-    def test_sheet_write_defaults_on_in_this_release(self):
-        assert P.sheet_write_enabled({}) is True
-        assert P.sheet_write_enabled({"ARGIA_SHEET_TELEMETRY": "0"}) is False
+    def test_sheet_write_defaults_off(self):
+        assert P.sheet_write_enabled({}) is False                              # v205
+        assert P.sheet_write_enabled({"ARGIA_SHEET_TELEMETRY": "1"}) is True
 
 
 class TestSql:

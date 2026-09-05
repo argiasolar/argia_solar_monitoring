@@ -77,7 +77,7 @@ SCHEDULE_SQL = (
 
 def source(env=None) -> str:
     env = os.environ if env is None else env
-    v = str(env.get(SOURCE_ENV, "sheet")).strip().lower()
+    v = str(env.get(SOURCE_ENV, "pg")).strip().lower()
     return "pg" if v == "pg" else "sheet"
 
 

@@ -115,9 +115,9 @@ class TestSources:
     def test_still_needed_matches_the_package_rule(self):
         sw = cat.parse_env_switches(self.ENV)
         need = cat.sheet_still_needed(sw)
-        assert "ARGIA_KPI_WRITE=both" in need and "ARGIA_SHEET_TELEMETRY=on" in need
-        assert "ARGIA_CONFIG_SOURCE" not in " ".join(need) and "ARGIA_SHEET_OUTBOX" not in " ".join(need)
-        assert "ARGIA_TELEMETRY_SOURCE=sheet" in need          # unset = code default
+        assert need == ["ARGIA_KPI_WRITE=both"]                # v205: unset = pg, only the explicit 'both' remains
+        need2 = cat.sheet_still_needed(dict(cat.parse_env_switches(self.ENV), ARGIA_SHEET_TELEMETRY="1"))
+        assert "ARGIA_SHEET_TELEMETRY=on" in need2
         allpg = {k: "pg" for k, _, _ in cat.SWITCH_META if not k.startswith("ARGIA_SHEET_")}
         allpg.update({"ARGIA_SHEET_TELEMETRY": "0", "ARGIA_SHEET_OUTBOX": "0"})
         assert cat.sheet_still_needed(allpg) == []
@@ -128,7 +128,7 @@ class TestSources:
         assert "1abcSECRET" not in h and "hunter2" not in h and "sk-xyz" not in h
         assert "still needed by" in h
         rows = {n: v for n, v, _, _ in cat.switch_rows(cat.parse_env_switches(self.ENV))}
-        assert rows["ARGIA_SHEET_TELEMETRY"] == "1 (default)" and rows["ARGIA_TELEMETRY_SOURCE"] == "sheet (default)"
+        assert rows["ARGIA_SHEET_TELEMETRY"] == "0 (default)" and rows["ARGIA_TELEMETRY_SOURCE"] == "pg (default)"
         assert rows["ARGIA_SHEET_OUTBOX"] == "0" and rows["ARGIA_KPI_WRITE"] == "both"      # set = shown bare
         done = {k: "pg" for k, _, _ in cat.SWITCH_META}
         done.update({"ARGIA_SHEET_TELEMETRY": "0", "ARGIA_SHEET_OUTBOX": "0", "ARGIA_SHEET_JOBLOG": "0"})

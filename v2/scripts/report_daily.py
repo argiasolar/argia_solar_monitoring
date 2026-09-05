@@ -158,7 +158,7 @@ def main(argv=None) -> int:
             send_report(pdf_path, date_iso, kind)
         except Exception as e:  # noqa: BLE001
             log.error("report mail failed (report IS uploaded): %s", e)
-    if os.environ.get("ARGIA_SHEET_OUTBOX", "1").strip() not in ("0", "false", "no"):
+    if os.environ.get("ARGIA_SHEET_OUTBOX", "0").strip() not in ("0", "false", "no"):
         try:
             append_outbox(sheets, date_iso=date_iso, kind=kind,
                           pdf_file_id=pdf_id, html_file_id=html_id,

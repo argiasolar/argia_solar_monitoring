@@ -85,5 +85,5 @@ class TestWiring:
     def test_report_daily_mails_then_optionally_queues(self):
         src = (V2 / "scripts" / "report_daily.py").read_text(encoding="utf-8")
         assert "send_report(pdf_path, date_iso, kind)" in src
-        assert 'os.environ.get("ARGIA_SHEET_OUTBOX", "1")' in src
+        assert 'os.environ.get("ARGIA_SHEET_OUTBOX", "0")' in src        # v205: outbox off by default
         assert src.index("send_report(") < src.index("append_outbox(sheets")

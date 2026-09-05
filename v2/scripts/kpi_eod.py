@@ -507,7 +507,10 @@ def main(argv=None) -> int:
     if plants_with_data == 0:
         return 2
     if plants_without > 0:
-        return 1
+        # v205: a dark plant (QRO1 for months, TAM1 since Sep 1) is the
+        # data_stale alert's business; it must not fail the unit every
+        # morning and page "job failed: argia-kpi"
+        log.warning("%d plant(s) without telemetry — see data_stale alerts", plants_without)
     return 0
 
 

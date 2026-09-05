@@ -29,9 +29,10 @@ def _plant_matrix():
 
 
 class TestMode:
-    def test_default_sheet(self):
-        assert DP.mode({}) == "sheet" and DP.writes_sheet({}) and not DP.writes_pg({})
-        assert not DP.reads_pg({})
+    def test_default_pg(self):
+        assert DP.mode({}) == "pg" and DP.writes_pg({}) and not DP.writes_sheet({})   # v205
+        assert DP.reads_pg({})
+        assert DP.mode({"ARGIA_DASHBOARD_SOURCE": "sheet"}) == "sheet"
 
     def test_both_and_pg(self):
         e = {"ARGIA_DASHBOARD_SOURCE": "both"}
@@ -102,7 +103,7 @@ class TestDoors:
             assert "plant_records(" in src, rel
 
     def test_sheet_mode_door_reads_the_tab(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_DASHBOARD_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_DASHBOARD_SOURCE", "sheet")
         calls = []
         class FS:
             def read_table(self, tab, a1):

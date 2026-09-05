@@ -38,8 +38,8 @@ MODES = ("sheet", "both", "pg")
 
 def mode(env=None) -> str:
     env = os.environ if env is None else env
-    v = str(env.get(MODE_ENV, "sheet")).strip().lower()
-    return v if v in MODES else "sheet"
+    v = str(env.get(MODE_ENV, "pg")).strip().lower()
+    return v if v in MODES else "pg"
 
 
 def writes_pg(env=None) -> bool:

@@ -49,9 +49,10 @@ class FakeSheets:
 
 
 class TestSwitch:
-    def test_default_is_sheet(self):
-        assert P.source({}) == "sheet"
-        assert P.source({"ARGIA_FINANCE_SOURCE": "nonsense"}) == "sheet"
+    def test_default_is_pg(self):
+        assert P.source({}) == "pg"                                            # v205
+        assert P.source({"ARGIA_FINANCE_SOURCE": "nonsense"}) == "sheet"       # explicit garbage never guesses pg
+        assert P.source({"ARGIA_FINANCE_SOURCE": "sheet"}) == "sheet"
 
     def test_pg(self):
         assert P.source({"ARGIA_FINANCE_SOURCE": "PG "}) == "pg"
@@ -123,7 +124,7 @@ class TestSameParserSameResult:
 
 class TestDoors:
     def test_sheet_mode_issues_the_exact_old_calls(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_FINANCE_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_FINANCE_SOURCE", "sheet")
         fs = FakeSheets({"Contract_Monthly": [P.CONTRACT_HEADER],
                          "Loans": [P.LOANS_HEADER], "Loan_Schedule": [P.SCHEDULE_HEADER]})
         load_contract_monthly(fs); load_design_monthly(fs); load_loans(fs); load_loan_schedule(fs)
@@ -133,7 +134,7 @@ class TestDoors:
         assert ("read_table", "Loan_Schedule", "A1:Z") in fs.calls
 
     def test_design_sheet_mode_falls_back_through_the_candidates(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_FINANCE_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_FINANCE_SOURCE", "sheet")
         fs = FakeSheets({"Design_Monthly": [P.DESIGN_HEADER, ["GTO1", 2026, 1, 5]]})
         assert load_design_monthly(fs) == {("GTO1", 2026, 1): 5.0}
         assert ("read_range", "Contract_Monthly", "A1:D") in fs.calls
@@ -176,7 +177,7 @@ class TestMaintenanceDoor:
         assert fs.calls == []
 
     def test_sheet_mode_reads_the_tab(self, monkeypatch):
-        monkeypatch.delenv("ARGIA_FINANCE_SOURCE", raising=False)
+        monkeypatch.setenv("ARGIA_FINANCE_SOURCE", "sheet")
         fs = FakeSheets({"Maintenance_Events": [["plant_key", "start_ts"]]})
         assert EV.load_maintenance_events(fs) == []
         assert ("read_table", "Maintenance_Events", "A1:ZZ") in fs.calls

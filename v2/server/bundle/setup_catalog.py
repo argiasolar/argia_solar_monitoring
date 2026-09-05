@@ -224,7 +224,7 @@ SWITCH_META: List[Tuple[str, str, str]] = [
     ("ARGIA_SHEET_OUTBOX", "Report_Outbox sheet write (1 = on)", "0"),
     ("ARGIA_SHEET_JOBLOG", "SyncRuns sheet write (1 = on)", "0"),
 ]
-SWITCH_DEFAULTS = {"ARGIA_SHEET_TELEMETRY": "1", "ARGIA_SHEET_OUTBOX": "1",
+SWITCH_DEFAULTS = {"ARGIA_SHEET_TELEMETRY": "0", "ARGIA_SHEET_OUTBOX": "0",
                    "ARGIA_SHEET_JOBLOG": "0"}
 ID_KEYS = ("GOOGLE_SHEET_ID_V2", "ARGIA_SOLAR_SHEET_ID")
 
@@ -257,7 +257,7 @@ def switch_rows(sw: Dict[str, str]) -> List[Tuple[str, str, str, bool]]:
         if name in sw and sw[name] != "":
             eff = sw[name]
         else:
-            eff = SWITCH_DEFAULTS.get(name, "sheet") + " (default)"
+            eff = SWITCH_DEFAULTS.get(name, "pg") + " (default)"
         rows.append((name, eff, what, eff.split(" ")[0] == done))
     return rows
 
@@ -267,8 +267,8 @@ def sheet_still_needed(sw: Dict[str, str]) -> List[str]:
     switches (the bundle cannot import the package). Pure."""
     reasons = []
     for name, _, done in SWITCH_META:
-        v = sw.get(name, SWITCH_DEFAULTS.get(name, "sheet"))
-        eff = v.split(" ")[0] if v else SWITCH_DEFAULTS.get(name, "sheet")
+        v = sw.get(name, SWITCH_DEFAULTS.get(name, "pg"))
+        eff = v.split(" ")[0] if v else SWITCH_DEFAULTS.get(name, "pg")
         if name.startswith("ARGIA_SHEET_"):
             on = eff not in ("0", "false", "no")
             if on:

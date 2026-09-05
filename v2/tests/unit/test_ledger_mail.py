@@ -138,6 +138,7 @@ class TestGroupedByPlant:
         assert LM.short_customer("PLASTIC OMNIUM PPA land (Monterrey, NL)") == "Plastic Omnium"
         assert LM.short_customer("HOLIDAY INN EXPRESS, Turistica Arizona PPA roof (SLP, SLP)") == "Holiday Inn Express"
         assert LM.short_customer("TAIGENE PPA roof (Leon, GTO)") == "Taigene"
+        assert LM.short_customer("SAG PPA roof (CDMX, MEX)") == "SAG"      # acronyms stay upper
         assert LM.short_customer("") == ""
 
     def test_mailer_sends_html_and_filters_portfolios(self):

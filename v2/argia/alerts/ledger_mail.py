@@ -191,7 +191,8 @@ def short_customer(name: str) -> str:
     """'PLASTIC OMNIUM PPA land (Monterrey, NL)' -> 'Plastic Omnium'. Pure."""
     import re
     head = re.split(r",|\(|\s+(?:PPA|CAPEX|LaaS|roof|land)\b", name or "", 1)[0].strip(" ,·")
-    return head.title() if head.isupper() else head
+    # acronym customers (SAG, SMS) stay upper; long all-caps names get title case
+    return head.title() if head.isupper() and len(head) > 4 else head
 
 
 def recipients():

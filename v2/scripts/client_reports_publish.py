@@ -43,7 +43,7 @@ from argia.core.config import load_portfolio            # noqa: E402
 from argia.core.job_log import (                        # noqa: E402
     apply_flag_write_if, instrument,
 )
-from argia.core.sheets import SheetsClient              # noqa: E402
+from argia.core.sheets import open_sheets               # noqa: E402
 from argia.report.daily import (                        # noqa: E402
     build_report_data, render_html,
 )
@@ -78,12 +78,17 @@ def main(argv=None) -> int:
 
     date_iso = args.date or dt.datetime.now(MX_TZ).date().isoformat()
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    if not sheet_id:
-        print("GOOGLE_SHEET_ID_V2 not set")
+    # v206.6: the last job still demanding the workbook id by hand. It
+    # failed at every tick from the moment v205 removed the id from the
+    # server env (argia-client-pages.service exit 3, CAPEX client pages
+    # frozen) - the report data has read PostgreSQL through the doors
+    # since v190/v195, so bootstrap like every other job.
+    try:
+        client = open_sheets()          # v199: NullSheets once retired
+        portfolio = load_portfolio(client)
+    except Exception as e:  # noqa: BLE001
+        print("bootstrap failed: %s" % e)
         return 3
-    client = SheetsClient(sheet_id=sheet_id)
-    portfolio = load_portfolio(client)
 
     channels = ([args.channel] if args.channel
                 else portfolio.client_channels())

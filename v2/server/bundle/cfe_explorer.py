@@ -198,9 +198,9 @@ EXPLORER_CSS = '''
 .cfex .tile .up{color:#c2554e}.cfex .tile .down{color:#05847d}
 .cfex table td,.cfex table th{white-space:nowrap;text-align:right;padding:6px 8px}
 .cfex table td:first-child,.cfex table th:first-child{text-align:left}
-.cfex .charge td:nth-child(2),.cfex .charge th:nth-child(2){text-align:left;color:#6b7480}
-.cfex .charge{font-size:12px}.cfex .charge td,.cfex .charge th{padding:5px 5px}.cfex .charge td:first-child{white-space:normal;max-width:190px}
-.cfex #cfe_tbl{overflow-x:auto}
+.cfex .charge{font-size:12px;table-layout:auto}.cfex .charge td,.cfex .charge th{padding:5px 4px}
+.cfex .charge td:first-child{white-space:normal;min-width:120px;line-height:1.25}.cfex .charge td .unit{display:block;color:#6b7480;font-size:10.5px;letter-spacing:.02em}
+.cfex .note{white-space:normal}
 .cfex tr.on td{background:#e6f7f5}
 .cfex th.seed{color:#b26a00}
 .cfex .schemes tbody tr{cursor:pointer}
@@ -284,11 +284,11 @@ function table(q){{
  const d=(DATA[t]||{{}})[r]||{{}};
  let keys=ORDER.filter(k=>d[k]).concat(Object.keys(d).filter(k=>!ORDER.includes(k)).sort());
  if(q)keys=keys.filter(k=>k.toLowerCase().includes(q));
- let h='<table class="charge"><tr><th>'+L('Charge','Cargo')+'</th><th>'+L('Unit','Unidad')+'</th>';
+ let h='<table class="charge"><tr><th>'+L('Charge','Cargo')+'</th>';
  MONTHS.forEach(m=>h+=(THROUGH&&m>THROUGH)?'<th class="seed" title="'+L('not CFE-verified yet — Master DB seed','aún no verificado por CFE — semilla Master DB')+'">'+m+' *</th>':'<th>'+m+'</th>');h+='</tr>';
- keys.forEach(ch=>{{h+='<tr><td>'+ch+'</td><td>'+(UNITS[ch]||'')+'</td>';
+ keys.forEach(ch=>{{h+='<tr><td>'+ch+'<span class="unit">'+(UNITS[ch]||'')+'</span></td>';
   MONTHS.forEach(m=>{{const v=d[ch]?d[ch][m]:null;h+='<td>'+(v==null?'—':v.toLocaleString('en-US',{{maximumFractionDigits:4}}))+'</td>';}});h+='</tr>';}});
- if(!keys.length)h+='<tr><td colspan="'+(MONTHS.length+2)+'" class="note">'+L('no charge matches','ningún cargo coincide')+'</td></tr>';
+ if(!keys.length)h+='<tr><td colspan="'+(MONTHS.length+1)+'" class="note">'+L('no charge matches','ningún cargo coincide')+'</td></tr>';
  $('cfe_tbl').innerHTML=h+'</table>';
 }}
 function render(){{

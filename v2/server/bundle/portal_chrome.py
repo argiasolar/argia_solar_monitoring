@@ -48,7 +48,8 @@ SECTIONS = {
         ('plants', 'Plant performance', 'Desempeño por planta'),
         ('financial', 'Financial', 'Financiero'), ('invoices', 'Invoices', 'Facturas')]),
     'monitoring': ('Monitoring', 'Monitoreo', [
-        ('', 'Overview', 'Resumen'), ('ppa', 'PPA', 'PPA'), ('capex', 'CAPEX', 'CAPEX')]),
+        ('', 'Overview', 'Resumen'), ('ppa', 'PPA', 'PPA'), ('capex', 'CAPEX', 'CAPEX'),
+        ('performance', 'Performance', 'Desempeño'), ('recon', 'Reconciliation', 'Conciliación')]),
     'map': ('Map', 'Mapa', []),
     'engine': ('Engine', 'Engine', []),
     'ags': ('ARGIA Golden Standard', 'ARGIA Golden Standard', []),
@@ -241,6 +242,8 @@ tr.total td{border-top:2px solid var(--line2);background:#fafbfd}
 .tile.flip .face.front{position:relative}.tile.flip.good .face{background:#e6f7f5;border-color:#b8e6e1}.tile.flip.warn .face{background:#fff4e0;border-color:#f3dcae}.tile.flip.bad .face{background:#fdeaea;border-color:#f3b9b9}
 .tile .thero{font-size:27px;font-weight:800}
 .card h2{font-size:15px;font-weight:700;margin:0 0 6px}.card>h2,.card>.note,.card>.legend,.card>table,.card>svg,.card>div#dchart{margin-left:20px;margin-right:20px}.card>h2{padding-top:16px}.card>table{width:calc(100% - 40px);margin-bottom:16px}.card>svg,.card>#dchart{margin-bottom:16px;max-width:calc(100% - 40px)}
+.card td .pill{font-size:inherit;padding:1px 9px}
+.card>details{margin:16px 20px}.card>details summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--ink)}.card>details[open] summary{margin-bottom:6px}.card.audit p{margin:6px 0;line-height:1.55;font-size:13px;color:var(--ink2)}
 .note{font-size:12.5px;color:var(--muted);margin:0 0 8px}.legend{display:flex;gap:14px;font-size:12.5px;color:var(--ink2);margin:0 0 6px;flex-wrap:wrap}
 .key{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}

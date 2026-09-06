@@ -106,7 +106,9 @@ class TestPageWiring:
             assert f"cdnjs.cloudflare.com/ajax/libs/{asset}" in GEN_SRC
 
     def test_click_opens_performance_report(self):
-        assert "window.location='/'+p.key.toLowerCase()+'/';" in GEN_SRC
+        # v213: /<code>/ on the old host, /report/<code>/ on the portal
+        assert "window.location=REPORT_BASE+p.key.toLowerCase()+'/';" in GEN_SRC
+        assert "var REPORT_BASE={'/report/' if skin == 'portal' else '/'!r}" in GEN_SRC
 
     def test_marker_size_comes_from_circle_px(self):
         assert "'px': circle_px(meta['kwp'])," in GEN_SRC
@@ -182,7 +184,33 @@ class TestV177_1Feedback:
         assert "p.key+' — '" not in seg                 # code header gone
         assert '"pwrap"' in seg and "'+p.label+'" in seg  # name label
         # the code survives ONLY inside the click URL
-        assert "window.location='/'+p.key.toLowerCase()+'/';" in seg
+        assert "window.location=REPORT_BASE+p.key.toLowerCase()+'/';" in seg
+
+
+class TestV213Selection:
+    """Tomasz 2026-09-06: "start map with only PPA as a default view -
+    and make the tiles showing only the totals for whatever is selected
+    in legend"."""
+
+    def test_ppa_only_until_the_browser_remembers_a_choice(self):
+        seg = GEN_SRC.split("def portfolio_page(")[1]
+        assert "HID=s?JSON.parse(s):null" in seg
+        assert "if(!HID){{HID={{}};P.forEach(function(p){{if(!p.ppa)HID[p.key]=1;}});}}" in seg
+
+    def test_tiles_total_the_ticked_plants(self):
+        seg = GEN_SRC.split("def portfolio_page(")[1]
+        for tid in ("mt_kwp", "mt_n", "mt_live", "mt_nlive", "mt_today", "mt_mxn", "mt_co2"):
+            assert f'id="{tid}"' in seg, tid
+        assert "var sel=P.filter(function(p){{return !HID[p.key];}});" in seg
+        assert "function mapTiles()" in seg and "mapTiles();\n</script>" in seg
+        # CO2 per plant so the total follows the selection (SAG's own factor)
+        assert "'co2_t': round(life_kwh / 1000.0 * co2_factor(None, pk), 1)," in GEN_SRC
+
+    def test_group_toggles_and_refit(self):
+        seg = GEN_SRC.split("def portfolio_page(")[1]
+        assert seg.count('class="gtog"') == 2
+        assert "g.indeterminate=on>0&&on<grp.length" in seg
+        assert "if(b.length)map.fitBounds(b,{{padding:[60,60]}});" in seg
 
     def test_marker_label_is_display_name(self):
         assert "'label': display_name(meta['customer'])," in GEN_SRC

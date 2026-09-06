@@ -35,7 +35,8 @@ class TestHeader:
         assert [u for on, u in tabs if on] == ["/report/financial/"]
         h = C.header("monitoring")
         assert [u for _on, u in re.findall(r'class="tab( on)?" href="([^"]+)"', h)] == [
-            "/monitoring/", "/monitoring/ppa/", "/monitoring/capex/"]
+            "/monitoring/", "/monitoring/ppa/", "/monitoring/capex/",
+            "/monitoring/performance/", "/monitoring/recon/"]      # v213: nothing dropped
         h = C.header("setup", "people")
         assert [u for _on, u in re.findall(r'class="tab( on)?" href="([^"]+)"', h)] == [
             "/setup/people/", "/setup/plants/", "/setup/finance/", "/setup/cfe/", "/setup/system/"]
@@ -325,3 +326,40 @@ class TestV212:
         assert ".setupbody .dnav{display:none}" in sa
         # the anchor chips inside a drawer survive, restyled — not hidden
         assert ".setupbody .tabbar{position:static" in sa
+
+
+# ------------------------------------------------------------- v213 rules
+class TestV213:
+    """Tomasz 2026-09-06: same-size percentages, CFE table that fits and
+    wraps its note, PPA-only map default with tiles following the
+    legend, the audit block spaced like a card — and the decommission
+    audit's findings: performance + reconciliation pages and the
+    signed-out / no-access pages on the portal."""
+
+    def test_table_pills_take_the_table_font_size(self):
+        assert ".card td .pill{font-size:inherit;padding:1px 9px}" in C.CSS
+
+    def test_audit_details_block_is_spaced_like_a_card(self):
+        assert ".card>details{margin:16px 20px}" in C.CSS
+        assert ".card.audit p{margin:6px 0;line-height:1.55" in C.CSS
+
+    def test_cfe_charge_table_has_no_unit_column_and_wraps_its_note(self):
+        cx = (BUNDLE / "cfe_explorer.py").read_text(encoding="utf-8")
+        assert "'<span class=\"unit\">'+(UNITS[ch]||'')+'</span></td>'" in cx
+        assert "overflow-x:auto" not in cx
+        assert ".cfex .note{white-space:normal}" in cx
+
+    def test_performance_and_recon_pages_on_the_portal(self):
+        pg = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "write('monitoring/performance/index.html', monitoring_performance())" in pg
+        assert "write('monitoring/recon/index.html', monitoring_recon())" in pg
+        assert "MG.performance_page(skin='portal')" in pg and "MG.recon_page(skin='portal')" in pg
+        mg = (V2 / "server/monitoring_gen.py").read_text(encoding="utf-8")
+        assert "def performance_page(skin='old'):" in mg and "def recon_page(skin='old'):" in mg
+        assert "inv = '/report/invoices/' if skin == 'portal' else '/invoices/'" in mg
+
+    def test_signed_out_and_no_access_wear_the_portal_chrome(self):
+        pg = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "write('logged-out.html', signed_out_page())" in pg
+        assert "write('no-access.html', no_access_page())" in pg
+        assert "RG.logged_out_page()" not in pg and "RG.no_access_page()" not in pg

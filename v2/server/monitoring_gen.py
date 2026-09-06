@@ -1185,7 +1185,8 @@ def pr_sparkline(pk, w=140, h=30):
             'stroke="#1e8e3e" stroke-width="1.6"/></svg>')
 
 
-def performance_page():
+def performance_page(skin='old'):
+    """skin='portal' (v213) returns the body without the controls row."""
     rows = []
     # fleet summary: production/expected are straight sums; PR, PR_STC
     # and availability are kWp-weighted means (a 155 kWp plant must not
@@ -1252,7 +1253,7 @@ def performance_page():
         f'<td>{"—" if not kwp_av else f"{100*w_av/kwp_av:,.1f}%"}</td>'
         f'<td>{t_prod:,.0f}</td><td>{t_exp:,.0f}</td>'
         f'<td>{t_ratio}</td></tr>')
-    body = controls() + f'''
+    body = ('' if skin == 'portal' else controls()) + f'''
 <div class="card"><h2 data-en="Performance — last 30 days" data-es="Desempeño — últimos 30 días">Performance — last 30 days</h2>
 <table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>
 <th data-en="Avg PR" data-es="PR prom.">Avg PR</th>
@@ -1266,11 +1267,15 @@ def performance_page():
 <p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature — only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. Next: degradation vs the ≤0.4%/yr warranty."
  data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia — solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Sigue: degradación vs garantía ≤0.4%/año.">
 PR and availability come from the daily KPI pipeline.</p></div>'''
+    if skin == 'portal':
+        return body
     return page('Performance', body,
                 '30-day PR · availability · production vs expected')
 
 
-def recon_page():
+def recon_page(skin='old'):
+    """skin='portal' (v213) returns the body without the controls row;
+    the annex link then points at /report/invoices/."""
     d_rows = []
     for pk in sorted(RECON_D):
         for r in RECON_D[pk][:5]:
@@ -1289,9 +1294,10 @@ def recon_page():
         f'<td>{"<span class=pill>invoice unlocked</span>" if closed else "<span class=pill off>locked until close</span>"}</td>'
         f'<td class="note">{esc(note[:60])}</td></tr>'
         for pk, m, bill, basis, st, closed, note in RECON_M)
-    body = controls(
-        '<a class="btn" href="/invoices/" data-en="Invoice annexes"'
-        ' data-es="Anexos de facturación">Invoice annexes</a>') + f'''
+    inv = '/report/invoices/' if skin == 'portal' else '/invoices/'
+    body = ('' if skin == 'portal' else controls(
+        f'<a class="btn" href="{inv}" data-en="Invoice annexes"'
+        ' data-es="Anexos de facturación">Invoice annexes</a>')) + f'''
 <div class="card"><h2 data-en="Monthly close — the invoice gate" data-es="Cierre mensual — la puerta de facturación">Monthly close — the invoice gate</h2>
 <table><tr><th data-en="Month" data-es="Mes">Month</th><th data-en="Plant" data-es="Planta">Plant</th><th data-en="Billing kWh" data-es="kWh facturables">Billing kWh</th><th data-en="Basis" data-es="Base">Basis</th><th>Status</th><th data-en="Closed by" data-es="Cerrado por">Closed by</th><th data-en="Invoice annex" data-es="Anexo de factura">Invoice annex</th><th data-en="Note" data-es="Nota">Note</th></tr>
 {m_rows or '<tr><td colspan="8" class="note" data-en="No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX; each plant-month then appears here with its billing kWh, and the invoice annex unlocks for closed months." data-es="Aún no hay cierre mensual. El primero (agosto) corre el 1 de septiembre a las 06:10 MX; cada planta-mes aparecerá aquí con sus kWh facturables, y el anexo de factura se desbloquea para meses cerrados.">No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX.</td></tr>'}</table>
@@ -1301,6 +1307,8 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p></div
 <div class="card"><h2 data-en="Daily reconciliation — last days, all plants" data-es="Conciliación diaria — últimos días, todas las plantas">Daily reconciliation — last days, all plants</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Plant" data-es="Planta">Plant</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th>Compl.</th><th>Δ%</th><th>Status</th><th data-en="Note" data-es="Nota">Note</th></tr>
 {''.join(d_rows)}</table></div>'''
+    if skin == 'portal':
+        return body
     return page('Reconciliation', body,
                 'Four-check energy reconciliation · vendor counters are the billing control')
 
@@ -1436,6 +1444,9 @@ def portfolio_rows():
             'life_mxn': round(life_mxn, 0) if is_ppa else None,
             'status': status, 'pill': pill,
             'photo': photo_uri(pk, thumb=True),
+            # per-plant CO2 (SAG's contracted factor differs, v186) so
+            # the tiles can follow the legend selection (v213)
+            'co2_t': round(life_kwh / 1000.0 * co2_factor(None, pk), 1),
         })
     return rows
 
@@ -1495,12 +1506,15 @@ def portfolio_page(skin='old'):
     # v177.1 (Tomasz): NO lifetime tiles up top — they crowded the row
     # (lifetime figures stay on each plant's hover card); values must
     # fit their tile, so .tval scales down instead of overflowing.
+    # v213 (Tomasz): the tiles total whatever the legend has ticked —
+    # the server renders the all-plants figures, map_tiles() in the
+    # browser recomputes them from P on every toggle.
     tiles = f'''<div class="tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin:8px 0 12px">
-<div class="tile"><div class="tlab" data-en="Installed capacity" data-es="Capacidad instalada">Installed capacity</div><div class="tval">{tot_kwp:,.0f} kWp</div><div class="tsub">{len(rows)} <span data-en="plants" data-es="plantas">plants</span></div></div>
-<div class="tile {'good' if n_live else 'off'}"><div class="tlab" data-en="Generating now" data-es="Generando ahora">Generating now</div><div class="tval">{tot_live:,.0f} kW</div><div class="tsub">{n_live}/{len(rows)} <span data-en="plants live" data-es="plantas en vivo">plants live</span></div></div>
-<div class="tile"><div class="tlab" data-en="Energy today" data-es="Energía hoy">Energy today</div><div class="tval">{tot_today:,.0f} kWh</div><div class="tsub" data-en="live, preliminary" data-es="en vivo, preliminar">live, preliminary</div></div>
-<div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval">≈{tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
-<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval">≈{co2:,.0f} t</div><div class="tsub" data-en="lifetime · SEMARNAT/CRE grid factor" data-es="histórico · factor de red SEMARNAT/CRE">lifetime · SEMARNAT/CRE grid factor</div></div>
+<div class="tile"><div class="tlab" data-en="Installed capacity" data-es="Capacidad instalada">Installed capacity</div><div class="tval" id="mt_kwp">{tot_kwp:,.0f} kWp</div><div class="tsub"><span id="mt_n">{len(rows)}</span> <span data-en="plants selected" data-es="plantas seleccionadas">plants selected</span></div></div>
+<div class="tile {'good' if n_live else 'off'}" id="mt_live_tile"><div class="tlab" data-en="Generating now" data-es="Generando ahora">Generating now</div><div class="tval" id="mt_live">{tot_live:,.0f} kW</div><div class="tsub"><span id="mt_nlive">{n_live}/{len(rows)}</span> <span data-en="plants live" data-es="plantas en vivo">plants live</span></div></div>
+<div class="tile"><div class="tlab" data-en="Energy today" data-es="Energía hoy">Energy today</div><div class="tval" id="mt_today">{tot_today:,.0f} kWh</div><div class="tsub" data-en="live, preliminary" data-es="en vivo, preliminar">live, preliminary</div></div>
+<div class="tile"><div class="tlab" data-en="PPA revenue today" data-es="Ingreso PPA hoy">PPA revenue today</div><div class="tval" id="mt_mxn">≈{tot_today_mxn:,.0f} MXN</div><div class="tsub" data-en="accrual est., sin IVA" data-es="estimado, sin IVA">accrual est., sin IVA</div></div>
+<div class="tile"><div class="tlab">CO₂ <span data-en="avoided" data-es="evitado">avoided</span></div><div class="tval" id="mt_co2">≈{co2:,.0f} t</div><div class="tsub" data-en="lifetime · SEMARNAT/CRE grid factor" data-es="histórico · factor de red SEMARNAT/CRE">lifetime · SEMARNAT/CRE grid factor</div></div>
 </div>'''
     # plant legend under the map (v183, Tomasz): every plant with
     # name, code, city, kWp and an include/exclude checkbox, split
@@ -1527,18 +1541,16 @@ def portfolio_page(skin='old'):
 
     ppa_rows = [r for r in rows if r['ppa']]
     cap_rows = [r for r in rows if not r['ppa']]
-    legend_card = f"""<div class="card" style="margin-top:10px">
+    legend_card = f"""<div class="card" style="margin-top:10px;padding:14px 18px">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px 26px">
-<div><h2 style="font-size:13px;margin:0 0 6px;color:#2563eb"
- data-en="PPA plants" data-es="Plantas PPA">PPA plants</h2>
+<div><h2 style="font-size:13px;margin:0 0 6px;color:#2563eb"><label class="lrow" style="padding:0"><input type="checkbox" class="gtog" data-g="ppa" checked> <span data-en="PPA plants" data-es="Plantas PPA">PPA plants</span></label></h2>
 {_leg_rows(ppa_rows)}</div>
-<div><h2 style="font-size:13px;margin:0 0 6px;color:#0d9488"
- data-en="CAPEX plants" data-es="Plantas CAPEX">CAPEX plants</h2>
+<div><h2 style="font-size:13px;margin:0 0 6px;color:#0d9488"><label class="lrow" style="padding:0"><input type="checkbox" class="gtog" data-g="capex" checked> <span data-en="CAPEX plants" data-es="Plantas CAPEX">CAPEX plants</span></label></h2>
 {_leg_rows(cap_rows)}</div>
 </div>
-<p class="note" style="margin:8px 0 0" data-en="Untick a plant to hide it on the map; the choice is remembered in this browser."
- data-es="Desmarque una planta para ocultarla en el mapa; la selección se recuerda en este navegador.">
-Untick a plant to hide it on the map; the choice is remembered in this browser.</p>
+<p class="note" style="margin:8px 0 0" data-en="The map opens with the PPA plants; tick or untick plants or a whole group — the tiles above total the selection, and the choice is remembered in this browser."
+ data-es="El mapa abre con las plantas PPA; marque o desmarque plantas o un grupo completo — los mosaicos de arriba suman la selección y se recuerda en este navegador.">
+The map opens with the PPA plants; tick or untick plants or a whole group — the tiles above total the selection, and the choice is remembered in this browser.</p>
 </div>"""
 
     body = f'''__CONTROLS__
@@ -1642,11 +1654,9 @@ P.forEach(function(p){{
   +'</table><div class="go">Open performance report →</div></div>';
  m.bindTooltip(tip,{{sticky:false,direction:'top',
   offset:[0,-p.px/2-4],opacity:1}});
- m.on('click',function(){{window.location='/'+p.key.toLowerCase()+'/';}});
- bounds.push([p.lat,p.lon]);
+ m.on('click',function(){{window.location=REPORT_BASE+p.key.toLowerCase()+'/';}});
  MK[p.key]=m;
 }});
-if(bounds.length)map.fitBounds(bounds,{{padding:[60,60]}});
 // ARGIA head office — the company mark, not a plant: it is deliberately
 // left out of `bounds` so the fleet framing is unchanged, and clicking
 // it leaves the portal for argia.com.mx.
@@ -1663,17 +1673,50 @@ office.bindTooltip('<div class="ptip"><h3>'+OF.name+'</h3>'
  +'<div class="go">argia.com.mx &rarr;</div></div>',
  {{direction:'top',offset:[0,-12],opacity:1}});
 office.on('click',function(){{window.open(OF.url,'_blank','noopener');}});
-var HID={{}};try{{HID=JSON.parse(localStorage.getItem('argia_map_hide')||'{{}}');}}catch(e){{}}
+// v213: PPA plants by default (Tomasz); a stored choice wins. The
+// tiles total the ticked plants; a group box ticks its whole column.
+var HID=null;try{{var s=localStorage.getItem('argia_map_hide');HID=s?JSON.parse(s):null;}}catch(e){{HID=null;}}
+if(!HID){{HID={{}};P.forEach(function(p){{if(!p.ppa)HID[p.key]=1;}});}}
+var BY={{}};P.forEach(function(p){{BY[p.key]=p;}});
+function mapTiles(){{
+ var sel=P.filter(function(p){{return !HID[p.key];}});
+ var sum=function(f){{return sel.reduce(function(a,p){{return a+(f(p)||0);}},0);}};
+ var nl=sel.filter(function(p){{return p.status==='live';}}).length;
+ var set=function(id,v){{var e=document.getElementById(id);if(e)e.textContent=v;}};
+ set('mt_kwp',nf(sum(function(p){{return p.kwp;}}))+' kWp');set('mt_n',sel.length);
+ set('mt_live',nf(sum(function(p){{return p.live_kw;}}))+' kW');set('mt_nlive',nl+'/'+sel.length);
+ set('mt_today',nf(sum(function(p){{return p.today_kwh;}}))+' kWh');
+ set('mt_mxn','≈'+nf(sum(function(p){{return p.today_mxn;}}))+' MXN');
+ set('mt_co2','≈'+nf(sum(function(p){{return p.co2_t;}}))+' t');
+ var lt=document.getElementById('mt_live_tile');if(lt){{lt.classList.toggle('good',nl>0);lt.classList.toggle('off',nl===0);}}
+ var b=sel.map(function(p){{return [p.lat,p.lon];}});
+ if(b.length)map.fitBounds(b,{{padding:[60,60]}});
+ document.querySelectorAll('.gtog').forEach(function(g){{
+  var grp=P.filter(function(p){{return (g.dataset.g==='ppa')===!!p.ppa;}});
+  var on=grp.filter(function(p){{return !HID[p.key];}}).length;
+  g.checked=on===grp.length&&grp.length>0;g.indeterminate=on>0&&on<grp.length;
+ }});
+}}
+function applyHide(k,hide){{
+ var cb=document.querySelector('.ptog[data-k="'+k+'"]');if(cb)cb.checked=!hide;
+ if(MK[k]){{if(hide)map.removeLayer(MK[k]);else map.addLayer(MK[k]);}}
+ if(hide)HID[k]=1;else delete HID[k];
+}}
+function saveHide(){{try{{localStorage.setItem('argia_map_hide',JSON.stringify(HID));}}catch(e){{}}mapTiles();}}
+P.forEach(function(p){{applyHide(p.key,!!HID[p.key]);}});
 document.querySelectorAll('.ptog').forEach(function(cb){{
- var k=cb.dataset.k;
- if(HID[k]){{cb.checked=false;if(MK[k])map.removeLayer(MK[k]);}}
- cb.addEventListener('change',function(){{
-  if(cb.checked){{if(MK[k])map.addLayer(MK[k]);delete HID[k];}}
-  else{{if(MK[k])map.removeLayer(MK[k]);HID[k]=1;}}
-  try{{localStorage.setItem('argia_map_hide',JSON.stringify(HID));}}catch(e){{}}
+ cb.addEventListener('change',function(){{applyHide(cb.dataset.k,!cb.checked);saveHide();}});
+}});
+document.querySelectorAll('.gtog').forEach(function(g){{
+ g.addEventListener('change',function(){{
+  P.forEach(function(p){{if((g.dataset.g==='ppa')===!!p.ppa)applyHide(p.key,!g.checked);}});saveHide();
  }});
 }});
+mapTiles();
 </script>'''
+    # plant clicks open the performance report: /<code>/ on the old
+    # host, /report/<code>/ (→ the slug page) on the portal
+    body = body.replace('var P=', f"var REPORT_BASE={'/report/' if skin == 'portal' else '/'!r};\nvar P=", 1)
     if skin == 'portal':
         return body.replace('__CONTROLS__', '')
     return page('Portfolio map', body.replace('__CONTROLS__', controls()),

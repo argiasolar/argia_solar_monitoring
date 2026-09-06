@@ -31,8 +31,10 @@ class TestTheButtonExists:
         MON = (ROOT / "server" / "monitoring_gen.py").read_text(
             encoding="utf-8")
         i = MON.index("def recon_page")
-        block = MON[i:i + 2000]
-        assert 'href="/invoices/"' in block
+        block = MON[i:i + 2400]
+        # v213: /invoices/ on the old host, /report/invoices/ on the portal
+        assert "inv = '/report/invoices/' if skin == 'portal' else '/invoices/'" in block
+        assert 'href="{inv}"' in block
 
     def test_it_is_not_admin_gated_in_the_markup(self):
         """financial users are not all admins; nginx+auth_core gate it

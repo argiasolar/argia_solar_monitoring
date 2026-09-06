@@ -330,6 +330,47 @@ def monitoring_plant(k, d):
                   refresh=(300 if live else 0), extra_head=extra)
 
 
+def mon_wrap(title_en, title_es, kicker_en, kicker_es, body, on):
+    """A monitoring_gen page body (skin='portal') under the portal chrome."""
+    head = (f'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px"><div class="kicker">{t(kicker_en, kicker_es)}</div>'
+            f'<h1 class="pt">{t(title_en, title_es)}</h1></div>')
+    extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES + '</style>'
+    return C.page(title_en, head + f'<div class="monbody">{body}</div>', 'monitoring', on,
+                  refresh=300, extra_head=extra)
+
+
+def monitoring_performance():
+    """/monitoring/performance/ — 30-day PR, PR_STC, availability,
+    production vs expected, fleet totals (v213: was only on the old site)."""
+    return mon_wrap('Performance', 'Desempeño',
+                    '30-day PR · availability · production vs expected',
+                    'PR 30 días · disponibilidad · producción vs esperado',
+                    MG.performance_page(skin='portal'), 'performance')
+
+
+def monitoring_recon():
+    """/monitoring/recon/ — monthly close (the invoice gate) and the
+    daily reconciliation of every plant (v213: was only on the old site)."""
+    return mon_wrap('Reconciliation', 'Conciliación',
+                    'Four-check energy reconciliation · vendor counters are the billing control',
+                    'Conciliación de energía en cuatro pasos · los contadores del fabricante son el control de facturación',
+                    MG.recon_page(skin='portal'), 'recon')
+
+
+def signed_out_page():
+    body = (f'<div style="max-width:520px;margin:60px auto;text-align:center"><h1 class="pt">{t("You are signed out", "Sesión cerrada")}</h1>'
+            f'<p class="muted" style="margin:10px 0 22px">{t("Your session has ended on the server. Nobody can continue as you from this browser.", "Su sesión ha terminado en el servidor. Nadie puede continuar con su cuenta desde este navegador.")}</p>'
+            f'<a class="btn" href="/login">{t("Sign in again", "Volver a entrar")}</a></div>')
+    return C.page('Signed out', body)
+
+
+def no_access_page():
+    body = (f'<div style="max-width:520px;margin:60px auto;text-align:center"><h1 class="pt">{t("No access", "Sin acceso")}</h1>'
+            f'<p class="muted" style="margin:10px 0 22px">{t("This part of the portal is not open to your account. Taking you back to the front door…", "Esta sección no está disponible para su cuenta. Volviendo a la portada…")}</p>'
+            f'<a class="btn" href="/">{t("Back to the portal", "Volver al portal")}</a></div>')
+    return C.page('No access', body, extra_head='<meta http-equiv="refresh" content="6;url=/">')
+
+
 MON_OVERRIDES = '''
 .monbody .pill.good{background:#e6f7f5;color:#05847d}.monbody .pill.warn{background:#fff4e0;color:#b26a00}.monbody .pill.bad{background:#fdeaea;color:#c2554e}
 .monbody .card{border-radius:12px;border-color:#e3e6ea}.monbody .kpi .v{color:#1a1d23}.monbody a{color:#05847d}
@@ -417,8 +458,8 @@ def write(rel, content):
 def main():
     n = 0
     write('index.html', landing()); n += 1
-    write('logged-out.html', RG.logged_out_page()); n += 1
-    write('no-access.html', RG.no_access_page()); n += 1
+    write('logged-out.html', signed_out_page()); n += 1
+    write('no-access.html', no_access_page()); n += 1
     write('report/index.html', report_overview()); n += 1
     write('report/ppa/index.html', report_overview(PPA, 'ppa', 'PPA plants', 'Plantas PPA')); n += 1
     write('report/capex/index.html', report_overview(CAPEX, 'capex', 'CAPEX plants', 'Plantas CAPEX')); n += 1
@@ -426,6 +467,8 @@ def main():
     write('monitoring/index.html', monitoring_overview()); n += 1
     write('monitoring/ppa/index.html', monitoring_overview('ppa')); n += 1
     write('monitoring/capex/index.html', monitoring_overview('capex')); n += 1
+    write('monitoring/performance/index.html', monitoring_performance()); n += 1
+    write('monitoring/recon/index.html', monitoring_recon()); n += 1
     # parity phase: not-yet-rebuilt destinations land on the old site
     write('report/financial/index.html', financial_report()); n += 1
     write('report/invoices/index.html', invoices_page()); n += 1

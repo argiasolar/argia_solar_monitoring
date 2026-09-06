@@ -46,14 +46,17 @@ PERIODS = [('ENERGIA BASE', 'Base', 'Base'),
 DEFAULT_TARIFF = 'GDMTH'
 EXCLUDED_TARIFFS = ('DB1', 'DB2')      # domestic — out of scope (2026-08-27)
 VERIFIED_MIN_TARIFFS = 10             # a month counts only when all scrapeable tariffs are in
-MONTHS_SHOWN = 13
+MONTHS_SHOWN = 12            # verified months in the table (+ seeded ones after)
 
 
 # ------------------------------------------------------------- dataset
-def build_dataset(rows: Iterable[Sequence], months_shown: int = MONTHS_SHOWN) -> Dict:
+def build_dataset(rows: Iterable[Sequence], months_shown: int = MONTHS_SHOWN,
+                  upto: str = '') -> Dict:
     """rows = (tariff_code, region, month 'YYYY-MM[-DD]', charge_type,
     unit, value) → {'data': tariff→region→charge→{YYYY-MM: value},
-    'units': charge→unit, 'months': last N months ascending}."""
+    'units': charge→unit, 'months': last N months ascending}. With
+    ``upto`` (the CFE-verified month) the N-month window counts verified
+    months only; seeded months after it ride along at the end."""
     data: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {}
     units: Dict[str, str] = {}
     months = set()
@@ -72,7 +75,11 @@ def build_dataset(rows: Iterable[Sequence], months_shown: int = MONTHS_SHOWN) ->
         data.setdefault(tc, {}).setdefault(reg, {}).setdefault(ch, {})[ym] = v
         if un:
             units[ch] = un
-    keep = sorted(months)[-months_shown:]
+    if upto:
+        keep = (sorted(m for m in months if m <= upto)[-months_shown:]
+                + sorted(m for m in months if m > upto))
+    else:
+        keep = sorted(months)[-months_shown:]
     kept = set(keep)
     for tc in data:
         for reg in data[tc]:
@@ -96,17 +103,21 @@ def period_average(data: Dict, tariff: str, charge: str, month: str
             'n': len(vals)}
 
 
-def scheme_averages(data: Dict, months: Sequence[str]) -> Dict[str, Dict]:
+def scheme_averages(data: Dict, months: Sequence[str], upto: str = ''
+                    ) -> Dict[str, Dict]:
     """{tariff: {'month': latest month with any period price,
     'prev': month before it or None, charge: {'avg','min','max','n',
     'prev_avg'}}} — one entry per tariff, periods as in PERIODS. A
     tariff without period prices (flat schemes) keeps the entry with no
-    period keys so the table still lists it."""
+    period keys so the table still lists it. ``upto`` (the CFE-verified
+    month) keeps seeded future months out of the averages."""
     out: Dict[str, Dict] = {}
+    months = list(months)
+    cands = [m for m in months if not upto or m <= upto] or months
     for tc in sorted(data):
         entry: Dict = {'month': None, 'prev': None}
         latest = None
-        for m in reversed(list(months)):
+        for m in reversed(cands):
             if any(period_average(data, tc, ch, m) for ch, _, _ in PERIODS):
                 latest = m
                 break
@@ -188,7 +199,10 @@ EXPLORER_CSS = '''
 .cfex table td,.cfex table th{white-space:nowrap;text-align:right;padding:6px 8px}
 .cfex table td:first-child,.cfex table th:first-child{text-align:left}
 .cfex .charge td:nth-child(2),.cfex .charge th:nth-child(2){text-align:left;color:#6b7480}
+.cfex .charge{font-size:12px}.cfex .charge td,.cfex .charge th{padding:5px 5px}.cfex .charge td:first-child{white-space:normal;max-width:190px}
+.cfex #cfe_tbl{overflow-x:auto}
 .cfex tr.on td{background:#e6f7f5}
+.cfex th.seed{color:#b26a00}
 .cfex .schemes tbody tr{cursor:pointer}
 .cfex .pill.good{background:#e6f7f5;color:#05847d}.cfex .pill.warn{background:#fff4e0;color:#b26a00}.cfex .pill.bad{background:#fdeaea;color:#c2554e}
 @media(max-width:800px){.cfex .tiles{grid-template-columns:1fr}}
@@ -197,14 +211,16 @@ EXPLORER_CSS = '''
 
 
 def explorer_html(dataset: Dict, tone: str, fresh_en: str, fresh_es: str,
-                  sources_note: str = '', default_tariff: str = DEFAULT_TARIFF) -> str:
+                  sources_note: str = '', default_tariff: str = DEFAULT_TARIFF,
+                  through: str = '') -> str:
     """The whole card. Everything the browser needs is embedded; the
     selection (tariff|region) is remembered in localStorage.argia_cfe as
-    on the old /cfe/ page. Pure."""
+    on the old /cfe/ page. ``through`` = the CFE-verified month: the
+    averages stop there and later (seeded) months are marked. Pure."""
     data, units, months = dataset['data'], dataset['units'], dataset['months']
     tariffs = sorted(data)
     regions = sorted({r for t in data.values() for r in t})
-    avgs = scheme_averages(data, months)
+    avgs = scheme_averages(data, months, upto=through)
     default = default_tariff if default_tariff in data else (tariffs[0] if tariffs else '')
     if not tariffs:
         return ('<div class="card cfex"><h2 data-en="CFE tariff explorer" data-es="Explorador de tarifas CFE">'
@@ -228,8 +244,8 @@ Average energy prices across CFE regions for the selected scheme (MXN/kWh, witho
 <div style="overflow:visible"><table class="schemes" id="cfe_schemes"><thead><tr><th data-en="Scheme" data-es="Esquema">Scheme</th><th data-en="Month" data-es="Mes">Month</th>{period_cols}<th data-en="Regions" data-es="Regiones">Regions</th></tr></thead><tbody></tbody></table></div>
 <h2 style="margin-top:14px" id="cfe_ttl"></h2>
 <div id="cfe_tbl"></div>
-<p class="note">{_e(sources_note)}{' · ' if sources_note else ''}<span data-en="Values exclude IVA. Region = CFE distribution division; hints show typical states."
- data-es="Valores sin IVA. Región = división de distribución CFE; las pistas muestran estados típicos.">Values exclude IVA. Region = CFE distribution division; hints show typical states.</span></p>
+<p class="note">{_e(sources_note)}{' · ' if sources_note else ''}<span data-en="Values exclude IVA. Region = CFE distribution division; hints show typical states. Months marked * are not CFE-verified yet (Master DB seed)."
+ data-es="Valores sin IVA. Región = división de distribución CFE; las pistas muestran estados típicos. Los meses con * aún no están verificados por CFE (semilla Master DB).">Values exclude IVA. Region = CFE distribution division; hints show typical states. Months marked * are not CFE-verified yet.</span></p>
 <script>
 (function(){{
 const DATA={json.dumps(data, separators=(',', ':'))};
@@ -242,6 +258,7 @@ const PERIODS={json.dumps([[c, en, es] for c, en, es in PERIODS])};
 const TARIFFS={json.dumps(tariffs)};
 const REGIONS={json.dumps(regions)};
 const DEFAULT={json.dumps(default)};
+const THROUGH={json.dumps(through)};
 const $=id=>document.getElementById(id);
 const lang=()=>{{try{{return localStorage.getItem('argia_lang')||'en'}}catch(e){{return 'en'}}}};
 const L=(en,es)=>lang()==='es'?es:en;
@@ -268,7 +285,7 @@ function table(q){{
  let keys=ORDER.filter(k=>d[k]).concat(Object.keys(d).filter(k=>!ORDER.includes(k)).sort());
  if(q)keys=keys.filter(k=>k.toLowerCase().includes(q));
  let h='<table class="charge"><tr><th>'+L('Charge','Cargo')+'</th><th>'+L('Unit','Unidad')+'</th>';
- MONTHS.forEach(m=>h+='<th>'+m+'</th>');h+='</tr>';
+ MONTHS.forEach(m=>h+=(THROUGH&&m>THROUGH)?'<th class="seed" title="'+L('not CFE-verified yet — Master DB seed','aún no verificado por CFE — semilla Master DB')+'">'+m+' *</th>':'<th>'+m+'</th>');h+='</tr>';
  keys.forEach(ch=>{{h+='<tr><td>'+ch+'</td><td>'+(UNITS[ch]||'')+'</td>';
   MONTHS.forEach(m=>{{const v=d[ch]?d[ch][m]:null;h+='<td>'+(v==null?'—':v.toLocaleString('en-US',{{maximumFractionDigits:4}}))+'</td>';}});h+='</tr>';}});
  if(!keys.length)h+='<tr><td colspan="'+(MONTHS.length+2)+'" class="note">'+L('no charge matches','ningún cargo coincide')+'</td></tr>';

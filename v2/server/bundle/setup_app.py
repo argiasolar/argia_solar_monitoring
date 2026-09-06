@@ -2008,14 +2008,14 @@ def cfe_explorer_card():
         return _CFE_CACHE['html']
     rows = _rows("SELECT tariff_code, region, to_char(month,'YYYY-MM'), charge_type,"
                  " coalesce(unit,''), value_mxn FROM cfe_tariff"
-                 " WHERE month >= (date_trunc('month', now()) - interval '13 months')::date"
+                 " WHERE month >= (date_trunc('month', now()) - interval '14 months')::date"
                  " ORDER BY month;")
     if rows and rows[0] and rows[0][0] == '__error__':
         return f'<div class="card"><h2>CFE tariff explorer</h2><p class="note">unavailable: {html.escape(rows[0][1])}</p></div>'
-    ds = CX.build_dataset(rows)
     cov = _rows("SELECT to_char(month,'YYYY-MM'), source, tariff_code FROM cfe_tariff"
                 " WHERE source='cfe_scrape';")
     through = CX.verified_through(cov if cov and cov[0][0] != '__error__' else [])
+    ds = CX.build_dataset(rows, upto=through)
     healthy = None
     st = _rows("SELECT (now() - heartbeat_ts) < interval '48 hours', coalesce(probe_status,''),"
                " coalesce(last_csv_result,'') FROM cfe_pipeline_status WHERE id = 1;")
@@ -2026,7 +2026,7 @@ def cfe_explorer_card():
                 " FROM cfe_tariff GROUP BY source ORDER BY source;")
     note = ' · '.join(f'{r[0]}: through {r[1]} (loaded {r[2]})' for r in src
                       if len(r) == 3 and r[0] != '__error__')
-    out = CX.explorer_html(ds, tone, en, es, sources_note=note)
+    out = CX.explorer_html(ds, tone, en, es, sources_note=note, through=through)
     _CFE_CACHE.update(at=now, html=out)
     return out
 

@@ -75,6 +75,22 @@ class TestAverages:
         # a flat scheme lists with no period prices — never an error
         assert s["GDMTO"] == {"month": None, "prev": None}
 
+    def test_seeded_future_months_stay_out_of_the_averages(self):
+        # pio06 2026-09-06: cfe_scrape through 2026-09, master_db seeds to 2026-12
+        r = rows() + [("GDMTH", "BAJIO", "2026-12", "ENERGIA BASE", "MXN/KWH", 9.9),
+                      ("GDMTH", "BAJIO", "2026-10", "ENERGIA BASE", "MXN/KWH", 8.8)]
+        ds = CX.build_dataset(r)
+        assert ds["months"][-1] == "2026-12"
+        # the window counts verified months; seeded ones ride along at the end
+        ds2 = CX.build_dataset(r, months_shown=1, upto="2026-09")
+        assert ds2["months"] == ["2026-09", "2026-10", "2026-12"]
+        s = CX.scheme_averages(ds["data"], ds["months"], upto="2026-09")
+        assert s["GDMTH"]["month"] == "2026-09" and s["GDMTH"]["ENERGIA BASE"]["avg"] == pytest.approx(1.1)
+        # without a verified month the latest available wins (old behaviour)
+        assert CX.scheme_averages(ds["data"], ds["months"])["GDMTH"]["month"] == "2026-12"
+        h = CX.explorer_html(ds, "good", "x", "x", through="2026-09")
+        assert 'const THROUGH="2026-09"' in h and 'class="seed"' in h
+
 
 class TestFreshness:
     def test_verified_through_needs_all_scrapeable_tariffs(self):
@@ -140,7 +156,8 @@ class TestWiring:
         sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
         assert "def cfe_explorer_card():" in sa
         assert "sections = [('explorer', cfe_explorer_card())," in sa
-        assert "CX.explorer_html(ds, tone, en, es, sources_note=note)" in sa
+        assert "CX.explorer_html(ds, tone, en, es, sources_note=note, through=through)" in sa
+        assert "ds = CX.build_dataset(rows, upto=through)" in sa
         # read-only on cfe_tariff: no INSERT/UPDATE/DELETE anywhere near it
         body = sa[sa.index("def cfe_explorer_card():"):sa.index("def cfe_drawer(")]
         assert not re.search(r"\b(INSERT|UPDATE|DELETE|ALTER)\b", body)

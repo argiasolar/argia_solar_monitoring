@@ -8,18 +8,20 @@
 # pushed a false "DOWN" every hour.
 #
 # Pi system timezone: America/Mexico_City (check: timedatectl).
+# Scripts are called through `bash`: Git for Windows does not record the
+# executable bit, so the mode in the checkout cannot be relied on.
 
 # deploy: follow origin/main (every 10 min; does nothing unless main moved)
-*/10 * * * * /home/zemel/argia_v2/v2/pi/deploy.sh
+*/10 * * * * bash /home/zemel/argia_v2/v2/pi/deploy.sh >> /home/zemel/argia_logs/deploy_cron.log 2>&1
 
 # portal watchdog — is https://portal.argia.com.mx/login answering? ntfy on DOWN/UP
-*/5 * * * * /home/zemel/argia_v2/v2/pi/report_watch/report_watch.sh >> /home/zemel/argia_logs/report_watch.log 2>&1
+*/5 * * * * bash /home/zemel/argia_v2/v2/pi/report_watch/report_watch.sh >> /home/zemel/argia_logs/report_watch.log 2>&1
 
 # outage-mode PPA watch — only acts while the server is down (daylight)
-*/30 8-19 * * * /home/zemel/argia_v2/v2/pi/report_watch/ppa_watch.sh >> /home/zemel/argia_logs/ppa_watch.log 2>&1
+*/30 8-19 * * * bash /home/zemel/argia_v2/v2/pi/report_watch/ppa_watch.sh >> /home/zemel/argia_logs/ppa_watch.log 2>&1
 
 # off-site backups — nightly pull of the DB dump, auth DB, portfolio snapshot, report PDFs
-0 22 * * * /home/zemel/argia_v2/v2/pi/db_backups/pull_backup.sh >> /home/zemel/argia_logs/db_backup_pull.log 2>&1
+0 22 * * * bash /home/zemel/argia_v2/v2/pi/db_backups/pull_backup.sh >> /home/zemel/argia_logs/db_backup_pull.log 2>&1
 
 # CFE tariff fetcher (its own tree in ~/cfe — see pi/cfe/README.md)
 10 8 * * * /home/zemel/cfe/cfe_daily.sh

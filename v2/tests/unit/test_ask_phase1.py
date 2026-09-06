@@ -138,7 +138,8 @@ class TestNewTools:
     def test_query_database_returns_rows_by_column(self):
         db = FakeDB(dict(BASE, query_database=[['{"plant_key":"GTO1","kwh":1843.5}'], ['{"plant_key":"MEX2","kwh":1200}']]))
         out = T.run_tool(db, "query_database", {"sql": "SELECT plant_key, sum(energy_kwh) kwh FROM daily_production GROUP BY 1"})
-        assert out["rows"][0] == {"plant_key": "GTO1", "kwh": 1843.5} and out["totals"] == {"rows": 2, "capped": False}
+        assert out["rows"][0] == {"plant_key": "GTO1", "kwh": 1843.5}
+        assert out["totals"] == {"rows": 2, "capped": False, "column_sums": {"kwh": 3043.5}}
         assert db.sql[-1].startswith("BEGIN READ ONLY")
         bad = T.run_tool(db, "query_database", {"sql": "DELETE FROM plant"})
         assert "query rejected" in bad["error"]

@@ -816,7 +816,14 @@ def query_database(rows: Rows, sql: Any) -> dict:
         msg = str(e)
         return {"error": "query failed: " + msg[msg.find("ERROR:"):][:400] if "ERROR:" in msg else msg[:400]}
     data = S.parse_rows(raw)
-    return {"rows": data, "totals": {"rows": len(data), "capped": len(data) >= S.MAX_ROWS},
+    # column sums so the answer's TOTAL row comes from here, not from the model
+    sums: Dict[str, float] = {}
+    for row in data:
+        for col, v in row.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                sums[col] = sums.get(col, 0) + v
+    return {"rows": data, "totals": {"rows": len(data), "capped": len(data) >= S.MAX_ROWS,
+                                     "column_sums": {c: _r(v, 3) for c, v in sums.items()}},
             "note": "read-only query; rows capped at %d — aggregate in SQL rather than paging" % S.MAX_ROWS,
             "source": {"tables": ["(query)"]}}
 

@@ -44,26 +44,41 @@ def unmailed(records: Sequence[AlertRecord]) -> List[AlertRecord]:
     return out
 
 
-def subject_for(r: AlertRecord) -> str:
-    return f"{SUBJECT_PREFIX} {r.severity or 'ALERT'} — {r.plant_key} {r.metric}".strip()
+def _names(labels):
+    """v217: ``labels`` may be the old {plant_key: name} dict or a
+    naming.Names; either way a Names comes out (codes-only for None)."""
+    from argia.alerts import naming
+    if isinstance(labels, naming.Names):
+        return labels
+    return naming.Names(labels or {})
 
 
-def body_for(r: AlertRecord) -> str:
-    inv = f"  inverter {r.inverter_sn}" if r.inverter_sn else ""
+def subject_for(r: AlertRecord, labels=None) -> str:
+    """'[ARGIA] WARNING — Budenheim: new string diagnostic flag' (v217:
+    the plant by name, the metric as a phrase; codes live in the body)."""
+    from argia.alerts import naming
+    n = _names(labels)
+    return (f"{SUBJECT_PREFIX} {r.severity or 'ALERT'} — {n.plant(r.plant_key)}: "
+            f"{naming.phrase(r.metric)}").strip()
+
+
+def body_for(r: AlertRecord, labels=None) -> str:
+    from argia.alerts import naming
+    n = _names(labels)
+    inv = f"\nInverter:   {n.inverter_full(r.plant_key, r.inverter_sn)}" if r.inverter_sn else ""
     val = "" if r.value is None else r.value
     thr = "" if r.threshold is None else r.threshold
     return (f"Alert:      {r.alert_id}\n"
-            f"Plant:      {r.plant_key}{inv}\n"
-            f"Metric:     {r.metric}\n"
+            f"Plant:      {n.plant_full(r.plant_key)}{inv}\n"
+            f"Issue:      {naming.phrase(r.metric)} ({r.metric})\n"
             f"Severity:   {r.severity}\n"
             f"Opened UTC: {r.opened_utc}\n"
             f"Value:      {val} (threshold {thr})\n\n"
-            f"{r.message}\n\n{r.explanation}".rstrip() + "\n")
+            f"{n.text(r.message, r.plant_key, r.inverter_sn)}\n\n{r.explanation}".rstrip() + "\n")
 
 
-def _plant_title(plant_key: str, labels: Optional[Dict[str, str]]) -> str:
-    name = (labels or {}).get(plant_key)
-    return f"{plant_key} · {name}" if name else plant_key
+def _plant_title(plant_key: str, labels) -> str:
+    return _names(labels).plant_full(plant_key)
 
 
 def by_plant(alerts: Sequence[AlertRecord]) -> List[Tuple[str, List[AlertRecord]]]:
@@ -90,11 +105,12 @@ def digest_body(alerts: Sequence[AlertRecord],
     """Several alerts for one recipient view -> one mail (subject, text
     body). v204: grouped by plant with a header per plant (Tomasz: "divided
     by plants visually easier to recognize")."""
+    n = _names(labels)
     if len(alerts) == 1:
-        return subject_for(alerts[0]), body_for(alerts[0])
+        return subject_for(alerts[0], n), body_for(alerts[0], n)
     worst = "CRITICAL" if any(a.severity == "CRITICAL" for a in alerts) else \
             "WARNING" if any(a.severity == "WARNING" for a in alerts) else "INFO"
-    plants = sorted({a.plant_key for a in alerts})
+    plants = sorted({n.plant(a.plant_key) for a in alerts})
     subject = f"{SUBJECT_PREFIX} {worst} — {len(alerts)} new alerts ({', '.join(plants)})"
     blocks = []
     for pk, items in by_plant(alerts):
@@ -103,7 +119,7 @@ def digest_body(alerts: Sequence[AlertRecord],
                (f", {n_crit} critical" if n_crit else "")
         bar = "=" * max(len(head), 40)
         blocks.append(f"{bar}\n{head}\n{bar}\n\n"
-                      + "\n\n- - - - -\n\n".join(body_for(a) for a in items))
+                      + "\n\n- - - - -\n\n".join(body_for(a, n) for a in items))
     return subject, "\n\n\n".join(blocks) + "\n"
 
 
@@ -115,6 +131,8 @@ def digest_html(alerts: Sequence[AlertRecord],
     """HTML alternative of digest_body: one section per plant with a
     coloured header bar, one card per alert. Pure, no external assets."""
     import html as _h
+    from argia.alerts import naming
+    n = _names(labels)
 
     def e(x):
         return _h.escape(str(x))
@@ -129,7 +147,7 @@ def digest_html(alerts: Sequence[AlertRecord],
                    f'{", " + str(n_crit) + " critical" if n_crit else ""}</span></div>')
         for a in items:
             sfg, sbg = _SEV_COLOR.get(a.severity, ("#5f6368", "#eceef0"))
-            inv = f" · inverter {e(a.inverter_sn)}" if a.inverter_sn else ""
+            inv = f" · {e(n.inverter_full(a.plant_key, a.inverter_sn))}" if a.inverter_sn else ""
             val = "" if a.value is None else f" · value {e(a.value)}" + \
                   ("" if a.threshold is None else f" (threshold {e(a.threshold)})")
             out.append(
@@ -137,8 +155,8 @@ def digest_html(alerts: Sequence[AlertRecord],
                 f'border-radius:6px;background:#fff">'
                 f'<span style="display:inline-block;padding:1px 8px;border-radius:10px;'
                 f'font-size:11px;font-weight:700;color:{sfg};background:{sbg}">{e(a.severity)}</span> '
-                f'<b>{e(a.metric)}</b>{inv}{val}'
-                f'<div style="margin-top:4px">{e(a.message)}</div>'
+                f'<b>{e(naming.phrase(a.metric))}</b>{inv}{val}'
+                f'<div style="margin-top:4px">{e(n.text(a.message, a.plant_key, a.inverter_sn))}</div>'
                 + (f'<div style="margin-top:4px;color:#5f6368;font-size:13px">{e(a.explanation)}</div>'
                    if a.explanation else "")
                 + f'<div style="margin-top:4px;color:#9aa0a6;font-size:11px">{e(a.alert_id)} · opened {e(a.opened_utc)} UTC</div>'
@@ -174,25 +192,17 @@ def mark_mailed(records: Sequence[AlertRecord], mailed_ids: set,
 
 # ---------------------------------------------------------------- I/O
 
-def plant_labels() -> Dict[str, str]:
-    """{plant_key: short customer name} for the plant headers; {} on error."""
-    try:
-        from argia.store.pgq import psql_rows
-        out = {}
-        for r in psql_rows("SELECT plant_key, coalesce(customer,'') FROM plant;"):
-            if len(r) >= 2 and r[0]:
-                out[r[0]] = short_customer(r[1])
-        return out
-    except Exception:  # noqa: BLE001
-        return {}
+def plant_labels():
+    """v217: the naming layer (plants by customer name, inverters by
+    label) for the headers and the text; codes-only on error."""
+    from argia.alerts import naming
+    return naming.load_names()
 
 
 def short_customer(name: str) -> str:
     """'PLASTIC OMNIUM PPA land (Monterrey, NL)' -> 'Plastic Omnium'. Pure."""
-    import re
-    head = re.split(r",|\(|\s+(?:PPA|CAPEX|LaaS|roof|land)\b", name or "", 1)[0].strip(" ,·")
-    # acronym customers (SAG, SMS) stay upper; long all-caps names get title case
-    return head.title() if head.isupper() and len(head) > 4 else head
+    from argia.alerts import naming
+    return naming.short_customer(name)
 
 
 def recipients():

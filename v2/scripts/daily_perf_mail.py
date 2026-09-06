@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from argia.alerts import emailer, subscriptions
+from argia.alerts import emailer, naming, subscriptions
 from argia.core.time_utils import MX_TZ, parse_pg_ts
 from argia.store import pg_mirror
 
@@ -293,25 +293,8 @@ def ledger_issues(labels=None):
 
 # ------------------------------------------------------------------ pure
 
-_ISSUE_PHRASE = {
-    "inverter_temp_high": "inverter running hot",
-    "inverter_fault": "inverter reports a fault code",
-    "inverter_relative": "inverter below its peers",
-    "inverter_silent": "inverter silent while the plant produces",
-    "string_fault": "new string diagnostic flag",
-    "energy_daily_pct": "production far below expected",
-    "plant_offline": "plant produced nothing",
-    "plant_twin_yield": "below its twin plant",
-    "data_stale": "telemetry gap",
-    "plant-dark": "no telemetry today",
-    "plant-stale": "telemetry stale",
-    "inverter-silent": "inverter silent",
-    "recon-fail": "reconciliation FAIL",
-    "satellite-drift": "irradiance sensor drift suspected",
-    "unit-failed": "scheduled job failed",
-    "cfe-probe": "CFE tariff probe warning",
-    "cfe-coverage": "CFE tariff coverage gap",
-}
+_ISSUE_PHRASE = dict(naming.METRIC_PHRASE)
+"""v217: one phrase table for every mail (argia.alerts.naming)."""
 
 # What the alert MEANS and what to do about it. "[CRITICAL] server:
 # unit-failed" told Tomasz nothing on 2026-09-03 (v185) — an alert has
@@ -342,6 +325,15 @@ _ISSUE_WHY = {
                   "The inverters may still be producing — it is the data "
                   "path (datalogger, site internet, vendor portal) that "
                   "is down. Today's kWh for this plant cannot be trusted.",
+    "daily_digest": "The engine's fleet digest row — a mail vehicle, not "
+                    "an issue.",
+    "disk-full": "The server disk is nearly full: collection and backups "
+                 "stop when it fills.",
+    "postgres-down": "PostgreSQL is unreachable — collection, reconciliation "
+                     "and the portal are degraded.",
+    "cfe-heartbeat": "The CFE fetcher Pi has not reported: tariffs stop "
+                     "updating.",
+    "cfe-reject": "The last CFE tariff CSV failed validation on the server.",
     "plant-stale": "The newest reading is older than %d minutes during "
                    "daylight. Usually a datalogger or vendor-API hiccup "
                    "that clears itself; if it persists past sunset, treat "
@@ -458,12 +450,14 @@ def issue_detail(key: str, extra=None) -> str:
     bits = []
     if (extra or {}).get("message"):
         # ledger issue: the engine's own sentence (value, threshold, what
-        # the counter said) is the detail
+        # the counter said) is the detail — without its "NL2 SN:" prefix
+        # (v217: the row already names the plant and the unit)
         sn = rest.split(":", 1)[1] if ":" in rest else ""
         lab = (extra or {}).get("label")
         if sn:
             bits.append(f"{lab} \u00b7 SN {sn}" if lab else f"SN {sn}")
-        bits.append(extra["message"])
+        bits.append(naming.Names().text(extra["message"],
+                                        subscriptions.alert_plant(key), sn or None))
         return " \u00b7 ".join(b for b in bits if b)
     if head == "inverter-silent" and ":" in rest:
         sn = rest.split(":", 1)[1]
@@ -553,7 +547,10 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
                            labels=labels, now=now)
               for a in alerts
               if subscriptions.alert_plant(a[0]) in ppa_keys
-              or subscriptions.alert_plant(a[0]) is None]
+              and not subscriptions.is_internal(a[0])]
+    # v217: infrastructure and monitoring-internal issues (failed jobs,
+    # reconciliation, sensor drift) are the administrator's, not the
+    # daily readers' — they go out through the alert mailer, admin-only
     tot_kwp = sum(r["kwp"] for r in rows)
     inv_seen = sum(today_map.get(r["key"], (0, None, 0))[2] for r in rows)
     inv_all = sum(inv_counts.get(r["key"], 0) for r in rows)

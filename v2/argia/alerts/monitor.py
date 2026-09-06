@@ -266,12 +266,50 @@ def recoveries_to_mail(recovered: List[str],
     return out
 
 
+def describe_key(key: str, names=None) -> str:
+    """A recovered key for people (v217): 'plant-stale:GTO1' ->
+    'Taigene (GTO1): telemetry stale'; 'unit-failed:x.service' ->
+    'scheduled job failed: x.service'. Pure; codes when ``names`` is
+    None."""
+    from argia.alerts import naming, subscriptions
+    head, _, rest = key.partition(":")
+    what = naming.phrase(head)
+    plant = subscriptions.alert_plant(key)
+    if plant:
+        who = names.plant_full(plant) if names else plant
+        tail = rest.split(":", 1)[1] if ":" in rest else ""
+        if head == "inverter-silent" and tail:
+            return f"{who}: {what} ({names.inverter_full(plant, tail) if names else tail})"
+        if tail:
+            return f"{who}: {what} {tail}"
+        return f"{who}: {what}"
+    return f"{what}: {rest}" if rest else what
+
+
+def humanize(a: Alert, names) -> Alert:
+    """The same alert with the plant named first and the code kept as the
+    detail: 'GTO1: no telemetry today' -> 'Taigene (GTO1): no telemetry
+    today'; other code mentions in the text become names. Pure."""
+    from argia.alerts import subscriptions
+    if names is None:
+        return a
+    plant = subscriptions.alert_plant(a.key)
+    title, detail = a.title, a.detail
+    if plant and title.startswith(f"{plant}: "):
+        title = f"{names.plant_full(plant)}: " + names.text(title[len(plant) + 2:], strip_prefix=False)
+    else:
+        title = names.text(title, strip_prefix=False)
+    return Alert(a.key, a.severity, title, names.text(detail, strip_prefix=False))
+
+
 def render_body(to_send: List[Alert], recovered: List[str],
-                now_mx_str: str) -> str:
-    """The email body. Pure, plain text, no fluff."""
+                now_mx_str: str, names=None) -> str:
+    """The email body. Pure, plain text, no fluff. ``names`` (v217:
+    argia.alerts.naming.Names) renders plants by name, code as detail."""
     lines = [f"ARGIA monitoring — {now_mx_str} MX", ""]
-    crit = [a for a in to_send if a.severity == SEV_CRIT]
-    warn = [a for a in to_send if a.severity != SEV_CRIT]
+    shown = [humanize(a, names) for a in to_send]
+    crit = [a for a in shown if a.severity == SEV_CRIT]
+    warn = [a for a in shown if a.severity != SEV_CRIT]
     for label, items in (("CRITICAL", crit), ("WARNING", warn)):
         if items:
             lines.append(f"{label}:")
@@ -281,7 +319,7 @@ def render_body(to_send: List[Alert], recovered: List[str],
             lines.append("")
     if recovered:
         lines.append("RECOVERED:")
-        lines.extend(f"  • {k}" for k in recovered)
+        lines.extend(f"  • {describe_key(k, names)}" for k in recovered)
         lines.append("")
     lines.append("Portal: https://portal.argia.com.mx/monitoring/")
     return "\n".join(lines)

@@ -6,8 +6,10 @@ and emails the 'maintenance' channel of mail_subscription (managed in
 /setup/, portal users only) as service@argia.com.mx. New alerts mail
 immediately, active ones re-mail every 6 h, recoveries mail once.
 Since v176 each subscriber can be scoped to specific plants: he then
-receives only alerts about those plants — and no infrastructure noise
-(disk, failed jobs), which goes to all-plants subscribers only.
+receives only alerts about those plants. Infrastructure and
+monitoring-internal alerts (disk, failed jobs, reconciliation, sensor
+drift) go to the administrator only (v217, ARGIA_MAIL_ADMIN); CAPEX
+plants are never mailed; plants are named, codes are detail.
 Recipients with identical views share one message. Without
 /root/.argia_mail the run still tracks state and logs — it never
 crashes and never spams.
@@ -23,7 +25,7 @@ import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
 
-from argia.alerts import emailer, monitor, subscriptions
+from argia.alerts import emailer, monitor, naming, subscriptions
 from argia.core.time_utils import MX_TZ
 from argia.store import pg_mirror
 from argia.store.pgq import psql_exec, psql_rows
@@ -280,26 +282,31 @@ def main(argv=None) -> int:
               + monitor.cfe_alerts(gather_cfe_status(),
                                    today=now_mx.date()))
     # v204: only the mailed portfolios (ARGIA_MAIL_PORTFOLIOS, default PPA)
-    # page anyone — CAPEX plants stay on the portal and in the ledger
+    # page anyone — CAPEX plants stay on the portal and in the ledger.
+    # v217: the filter sits on what is SENT, not on what is tracked, so
+    # the state stays true and a held alert is simply sent next tick;
+    # when the plant table is unreachable every plant alert is held.
     excluded = subscriptions.load_excluded_plants()
-    dropped = [a for a in active
-               if not subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)]
-    if dropped:
-        LOG.info("portfolio filter: %d alert(s) not mailed (%s)", len(dropped),
-                 ", ".join(sorted({subscriptions.alert_plant(a.key) for a in dropped})))
-    active = [a for a in active if a not in dropped]
     # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest —
     # the 07:07 MX tick, after the whole morning chain has run.
     digest = now_mx.hour == 7 and now_mx.minute < 30
     state, sev_by_key = load_state()
     to_send, recovered = monitor.plan_sends(active, state, now,
                                             warn_digest=digest)
+    dropped = [a for a in to_send
+               if not subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)]
+    if dropped:
+        LOG.info("portfolio filter: %d alert(s) not mailed (%s)", len(dropped),
+                 ", ".join(sorted({subscriptions.alert_plant(a.key) for a in dropped})))
+    to_send = [a for a in to_send if a not in dropped]
     mailed_keys = {k for k, st in state.items() if len(st) > 2 and st[2]}
     active_hours = {k: (now - st[3]).total_seconds() / 3600.0
                     for k, st in state.items() if len(st) > 3}
-    mail_recovered = monitor.recoveries_to_mail(
-        recovered, sev_by_key, mailed_keys=mailed_keys,
-        active_hours=active_hours, with_alerts=bool(to_send))
+    mail_recovered = [
+        k for k in monitor.recoveries_to_mail(
+            recovered, sev_by_key, mailed_keys=mailed_keys,
+            active_hours=active_hours, with_alerts=bool(to_send))
+        if subscriptions.is_mailable(subscriptions.alert_plant(k), excluded)]
     LOG.info("active=%d to_send=%d recovered=%d (mailable=%d) digest=%s"
              " recipients=%d mail_cfg=%s",
              len(active), len(to_send), len(recovered),
@@ -312,6 +319,7 @@ def main(argv=None) -> int:
             # one message per distinct filtered view — a plant-scoped
             # subscriber sees only his plants, never infra noise
             sent_keys: List[str] = []
+            names = naming.load_names()      # v217: names first, codes as detail
             for emails, g_alerts, g_recovered in \
                     subscriptions.group_recipients(to_send, mail_recovered,
                                                    rcpt):
@@ -325,7 +333,7 @@ def main(argv=None) -> int:
                               else ""))
                 body = monitor.render_body(
                     g_alerts, g_recovered,
-                    now_mx.strftime("%Y-%m-%d %H:%M"))
+                    now_mx.strftime("%Y-%m-%d %H:%M"), names=names)
                 ok = emailer.send(emailer.build_email(
                     subject, body, cfg["SMTP_USER"], emails), cfg)
                 LOG.info("mail %s to %d recipient(s) (%d alert(s))",

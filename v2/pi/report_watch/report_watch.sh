@@ -1,5 +1,5 @@
 #!/bin/bash
-# ARGIA report site watchdog (runs on the Pi, cron */5).
+# portal.argia.com.mx watchdog (runs on the Pi, cron */5).
 #
 # Probes https://portal.argia.com.mx/login (public page, no auth) and
 # alerts when the site stops answering. The Pi is the right vantage
@@ -32,9 +32,15 @@ now=$(date +%s)
 stamp() { date '+%Y-%m-%d %H:%M:%S'; }
 
 # ---- probe ----
-body=$(curl -sS -m 20 --retry 1 "$URL" 2>/tmp/report_watch_err)
+# v217: the HTTP status travels with the alert ("portal.argia.com.mx is
+# DOWN — HTTP 502" tells a different story than "curl rc=28 timeout")
+body=$(curl -sS -m 20 --retry 1 -w '\n__HTTP__%{http_code}' "$URL" 2>/tmp/report_watch_err)
 rc=$?
+http=$(printf '%s' "$body" | sed -n 's/^__HTTP__//p' | tail -1)
+body=$(printf '%s' "$body" | sed '/^__HTTP__/d')
+[ "$http" = 000 ] && http="no response"
 ok=0
+# the portal answers the public /login page with 401 + the login body
 if [ $rc -eq 0 ] && echo "$body" | grep -q "$MARKER"; then
   ok=1
 fi
@@ -57,21 +63,21 @@ alert() {  # $1 = title, $2 = message
 
 if [ $ok -eq 1 ]; then
   if [ "$status" = DOWN ]; then
-    alert "ARGIA report site is BACK UP" \
-          "portal.argia.com.mx answers again at $(stamp) (office view from the Pi)."
+    alert "portal.argia.com.mx is BACK UP" \
+          "portal.argia.com.mx answers again (HTTP ${http:-?}) at $(stamp) — probe from the office Pi."
   fi
-  echo "$(stamp) OK"
+  echo "$(stamp) OK (HTTP ${http:-?})"
   printf 'fails=0\nstatus=OK\nlast_alert=0\n' > "$STATE"
 else
   fails=$((fails + 1))
   err=$(head -c 160 /tmp/report_watch_err 2>/dev/null)
-  echo "$(stamp) FAIL #$fails (curl rc=$rc) $err"
+  echo "$(stamp) FAIL #$fails (HTTP ${http:-none}, curl rc=$rc) $err"
   new_status=$status
   if [ $fails -ge 2 ]; then
     new_status=DOWN
     if [ $((now - last_alert)) -ge $REALERT_SEC ]; then
-      alert "ARGIA report site is DOWN" \
-            "portal.argia.com.mx not loading since >= $((fails * 5)) min (probe from the office Pi, curl rc=$rc $err). Check pio06 / hosting."
+      alert "portal.argia.com.mx is DOWN" \
+            "portal.argia.com.mx not loading since >= $((fails * 5)) min — HTTP ${http:-none}, curl rc=$rc $err (probe from the office Pi). Check the server / hosting."
       last_alert=$now
     fi
   fi

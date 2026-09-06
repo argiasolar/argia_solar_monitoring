@@ -119,5 +119,5 @@ def test_render_body_sections():
         ["plant-stale:MEX1"], "2026-08-27 07:00")
     assert "CRITICAL:" in body and "GTO1 stale" in body
     assert "WARNING:" in body and "disk 90%" in body
-    assert "RECOVERED:" in body and "plant-stale:MEX1" in body
+    assert "RECOVERED:" in body and "MEX1: telemetry stale" in body     # v217: key rendered for people
     assert "portal.argia.com.mx/monitoring/" in body        # v214: the portal

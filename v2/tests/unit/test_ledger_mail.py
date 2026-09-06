@@ -9,6 +9,8 @@ scripts persist the marks; dry-run sends nothing.
 """
 import pathlib
 
+import pytest
+
 from argia.alerts import ledger_mail as LM
 from argia.core.alerts_state import AlertRecord, AlertState
 
@@ -32,9 +34,10 @@ class TestPure:
 
     def test_subject_and_body_like_the_notifier(self):
         r = rec(1)
-        assert LM.subject_for(r) == "[ARGIA] WARNING — GTO1 inverter_fault"
+        # v217: metric as a phrase; without a names table the code stays
+        assert LM.subject_for(r) == "[ARGIA] WARNING — GTO1: inverter reports a fault code"
         b = LM.body_for(r)
-        assert "Alert:      ALT-20260904-001" in b and "Plant:      GTO1  inverter X1" in b
+        assert "Alert:      ALT-20260904-001" in b and "Plant:      GTO1\nInverter:   inverter X1" in b
         assert "Value:      1.0 (threshold 0.0)" in b and b.endswith("fault 1\n\ncheck it\n")
 
     def test_several_alerts_one_mail(self):
@@ -54,6 +57,13 @@ class TestPure:
 
 
 class TestIO:
+    @pytest.fixture(autouse=True)
+    def _filter_available(self, monkeypatch):
+        # v217: no PG here -> the filter would hold everything (fail closed);
+        # these tests are about the mailing, so give it a loaded filter
+        from argia.alerts import subscriptions
+        monkeypatch.setattr(subscriptions, "load_excluded_plants", lambda: frozenset({"QRO1"}))
+
     def test_no_smtp_marks_nothing(self, monkeypatch):
         monkeypatch.setattr(LM, "recipients", lambda: [("a@x", None)])
         from argia.alerts import emailer
@@ -120,10 +130,11 @@ class TestGroupedByPlant:
     def test_text_body_has_a_header_bar_per_plant(self):
         labels = {"NL1": "Plastic Omnium", "SLP2": "Holiday Inn Express"}
         subj, body = LM.digest_body(self._alerts(), labels)
-        assert subj == "[ARGIA] CRITICAL — 5 new alerts (GTO1, NL1, PORTFOLIO, SLP2)"
-        assert "NL1 · Plastic Omnium  —  2 alert(s), 1 critical" in body
-        assert "SLP2 · Holiday Inn Express  —  1 alert(s)" in body
-        assert body.count("=====") >= 8 and body.index("GTO1") < body.index("NL1 ·") < body.index("SLP2 ·")
+        # v217: names in the subject, code as the detail in the header
+        assert subj == "[ARGIA] CRITICAL — 5 new alerts (GTO1, Holiday Inn Express, Plastic Omnium, Portfolio)"
+        assert "Plastic Omnium (NL1)  —  2 alert(s), 1 critical" in body
+        assert "Holiday Inn Express (SLP2)  —  1 alert(s)" in body
+        assert body.count("=====") >= 8 and body.index("GTO1") < body.index("(NL1)") < body.index("(SLP2)")
         assert body.count("Alert:      ") == 5
 
     def test_html_has_one_section_per_plant_and_escapes(self):
@@ -131,7 +142,7 @@ class TestGroupedByPlant:
         alerts[0] = alerts[0].__class__(**{**alerts[0].__dict__, "message": "<b>x</b> & y"})
         html = LM.digest_html(alerts, {"NL1": "Plastic Omnium"})
         assert html.count("border-left:6px solid") == 4                     # 4 plant headers
-        assert "NL1 · Plastic Omnium" in html and "&lt;b&gt;x&lt;/b&gt; &amp; y" in html
+        assert "Plastic Omnium (NL1)" in html and "&lt;b&gt;x&lt;/b&gt; &amp; y" in html
         assert html.count(">CRITICAL<") == 3 and html.count(">WARNING<") == 2
 
     def test_short_customer(self):

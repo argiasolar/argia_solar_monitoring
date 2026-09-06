@@ -135,6 +135,10 @@ def main() -> int:
         snap.get("plants", []), snap.get("inverters", [])).active_plants()
               if p.portfolio == "PPA"]
     log("outage mode: checking %d PPA plant(s)" % len(plants))
+    # v217: name first, code as the detail — never "NL2" alone
+    from argia.alerts.naming import short_customer
+    name = {p.plant_key: "%s (%s)" % (short_customer(p.customer), p.plant_key)
+            if short_customer(p.customer) else p.plant_key for p in plants}
 
     now = time.time()
     values = fetch_etoday(plants)
@@ -146,19 +150,19 @@ def main() -> int:
         moved = (val is not None and (prev is None or val > prev + 0.05))
         if moved:
             if rec.get("alerted"):
-                push("Plant %s producing again" % pk,
+                push("%s producing again" % name.get(pk, pk),
                      "%s today-energy counter moves again (%.1f kWh)."
-                     % (pk, val))
+                     % (name.get(pk, pk), val))
             st[pk] = {"etoday": val, "ts": now}
             log("%s OK etoday=%.1f" % (pk, val))
             continue
         stalled = now - prev_ts
         log("%s STALLED %.0f min (etoday=%s)" % (pk, stalled / 60, val))
         if stalled >= STALL_SEC and now - last_alert >= REALERT_SEC:
-            push("PPA plant %s NOT producing" % pk,
+            push("%s NOT producing" % name.get(pk, pk),
                  "%s today-energy frozen for %.0f min during daylight "
                  "(checked directly at the vendor - server outage mode)."
-                 % (pk, stalled / 60))
+                 % (name.get(pk, pk), stalled / 60))
             rec.update(last_alert=now, alerted=True)
         rec.setdefault("etoday", prev)
         rec.setdefault("ts", prev_ts)

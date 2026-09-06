@@ -64,9 +64,10 @@ class TestScope:
                     "cfe-coverage"):
             assert subs.alert_plant(key) is None, key
 
-    def test_all_scope_covers_everything(self):
+    def test_all_scope_covers_every_plant_but_infra_is_admin_only(self):
         assert subs.covers(None, "GTO1")
-        assert subs.covers(None, None)          # infra included
+        assert not subs.covers(None, None)          # v217: infra -> admin only
+        assert subs.covers(None, None, admin=True)
 
     def test_limited_scope_excludes_other_plants_and_infra(self):
         scope = frozenset({"GTO1"})
@@ -86,7 +87,7 @@ class TestGrouping:
     def test_identical_views_share_one_mail(self):
         alerts = [A("plant-dark:GTO1")]
         rcpt = [("a@x.mx", None), ("b@x.mx", None)]
-        groups = subs.group_recipients(alerts, [], rcpt)
+        groups = subs.group_recipients(alerts, [], rcpt, admins=frozenset())
         assert len(groups) == 1
         emails, g_alerts, _ = groups[0]
         assert emails == ["a@x.mx", "b@x.mx"]
@@ -97,7 +98,7 @@ class TestGrouping:
                   A("disk-full")]
         rcpt = [("admin@x.mx", None),
                 ("client@x.mx", frozenset({"MEX1"}))]
-        groups = subs.group_recipients(alerts, [], rcpt)
+        groups = subs.group_recipients(alerts, [], rcpt, admins=frozenset({"admin@x.mx"}))
         assert len(groups) == 2
         views = {tuple(g[0]): [a.key for a in g[1]] for g in groups}
         assert views[("admin@x.mx",)] == [
@@ -107,13 +108,13 @@ class TestGrouping:
     def test_empty_view_sends_nothing(self):
         alerts = [A("disk-full")]
         rcpt = [("client@x.mx", frozenset({"MEX1"}))]
-        assert subs.group_recipients(alerts, [], rcpt) == []
+        assert subs.group_recipients(alerts, [], rcpt, admins=frozenset()) == []
 
     def test_recovered_keys_are_scoped_too(self):
         rcpt = [("client@x.mx", frozenset({"GTO1"})),
                 ("admin@x.mx", None)]
         groups = subs.group_recipients(
-            [], ["plant-dark:GTO1", "postgres-down"], rcpt)
+            [], ["plant-dark:GTO1", "postgres-down"], rcpt, admins=frozenset({"admin@x.mx"}))
         views = {tuple(g[0]): g[2] for g in groups}
         assert views[("client@x.mx",)] == ["plant-dark:GTO1"]
         assert views[("admin@x.mx",)] == ["plant-dark:GTO1",
@@ -256,13 +257,15 @@ class TestDailySummary:
         gto = [r for r in d["rows"] if r["key"] == "GTO1"][0]
         assert gto["status"] == "issues" and gto["cls"] == "bad"
 
-    def test_issues_keep_ppa_and_infra_only(self):
+    def test_issues_keep_ppa_plants_only(self):
+        # v217: infrastructure is the administrator's (alert mailer), not
+        # the daily readers'
         d = _mkdata(alerts=[("plant-dark:QRO1", "CRITICAL"),   # CAPEX
                             ("plant-stale:GTO1", "CRITICAL"),
                             ("disk-full", "WARNING")])
         texts = [i["who"] + " " + i["what"] for i in d["issues"]]
         assert any("GTO1" in t for t in texts)
-        assert any("disk" in t for t in texts)
+        assert not any("disk" in t for t in texts)
         assert not any("QRO1" in t for t in texts)
 
     def test_no_expected_yet_shows_dash_not_zero(self):
@@ -276,7 +279,7 @@ class TestDailySummary:
             "GTO1: telemetry stale"
         assert dpm.describe_issue("inverter-silent:GTO1:SN9") == \
             "GTO1: inverter silent (SN9)"
-        assert "disk-full" in dpm.describe_issue("disk-full")
+        assert dpm.describe_issue("disk-full") == "server: server disk nearly full"
 
     def test_subject_flags_attention(self):
         ok = dpm.mail_subject(_mkdata())
@@ -542,12 +545,15 @@ class TestLastErrorLine:
 
 class TestIssueRendering:
     def _data(self):
-        return _mkdata(alerts=[
-            ("unit-failed:argia-telemetry.service", "CRITICAL", None,
-             {"error": "sheet write failed: above the limit of "
-                       "10000000 cells"}),
-            ("plant-stale:GTO1", "CRITICAL"),
-        ])
+        # v217: summarize() no longer admits infrastructure issues into the
+        # daily mail (admin-only via the alert mailer); the renderer still
+        # knows how to show one, so inject the record directly
+        d = _mkdata(alerts=[("plant-stale:GTO1", "CRITICAL")])
+        d["issues"].insert(0, dpm.issue_record(
+            "unit-failed:argia-telemetry.service", "CRITICAL",
+            extra={"error": "sheet write failed: above the limit of "
+                            "10000000 cells"}))
+        return d
 
     def test_html_shows_job_name_reason_and_explanation(self):
         html = dpm.render_html(self._data())
@@ -667,10 +673,15 @@ class TestLedgerIssuesInTheDailyMail:
 class TestPortfolioFilter:
     """v204 (Tomasz): 'exclude the CAPEX plants from the mailing lists'."""
 
+    def test_capex_never_mailed_whatever_the_env_says(self):
+        from argia.alerts import subscriptions as S
+        assert S.mail_portfolios({S.PORTFOLIOS_ENV: "ppa, capex"}) == frozenset({"PPA"})
+        assert S.mail_portfolios({S.PORTFOLIOS_ENV: "capex"}) == frozenset()
+
     def test_default_is_ppa_only(self):
         from argia.alerts import subscriptions as S
         assert S.mail_portfolios({}) == frozenset({"PPA"})
-        assert S.mail_portfolios({S.PORTFOLIOS_ENV: "ppa, capex"}) == frozenset({"PPA", "CAPEX"})
+        assert S.mail_portfolios({S.PORTFOLIOS_ENV: "ppa, laas"}) == frozenset({"PPA", "LAAS"})
         assert S.mail_portfolios({S.PORTFOLIOS_ENV: ""}) == frozenset()
 
     def test_excluded_and_mailable(self):
@@ -680,9 +691,11 @@ class TestPortfolioFilter:
         assert ex == frozenset({"GTO2", "QRO1", "TAM1"})
         assert S.is_mailable("GTO1", ex) and not S.is_mailable("gto2", ex)
         assert S.is_mailable(None, ex) and S.is_mailable("PORTFOLIO", ex)     # infra / digest pass
-        assert S.excluded_plants(pf, frozenset({"PPA", "CAPEX"})) == frozenset({"TAM1"})
+        # v217: CAPEX cannot be allowed in
+        assert S.excluded_plants(pf, frozenset({"PPA", "CAPEX"})) == frozenset({"GTO2", "QRO1", "TAM1"})
 
-    def test_alert_mailer_applies_it_before_planning(self):
+    def test_alert_mailer_applies_it_to_what_is_sent(self):
         src = (V2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
         assert src.index("excluded = subscriptions.load_excluded_plants()") < src.index("monitor.plan_sends(")
+        assert src.index("monitor.plan_sends(") < src.index("dropped = [a for a in to_send")
         assert "subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)" in src

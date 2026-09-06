@@ -57,6 +57,7 @@ class TestKnowledge:
         assert "MPPT window at −10 °C" in by[("en", 2)]["body"]     # entities decoded, image gone
         assert "base64" not in by[("en", 1)]["body"] and "Voc check" in by[("en", 2)]["body"]
         assert by[("en", 4)]["body"].startswith("AGS-701")
+        assert by[("en", 4)]["title"] == "AGS-701 · PR_STC"          # clause code leads the title
         assert {r["lang"] for r in rows} == {"en", "es", "cz"}
         assert all(r["doc"] == "AGS" for r in rows)
 
@@ -71,7 +72,9 @@ class TestKnowledge:
         assert "('AGS','en',2,'String sizing'," in sqls[0]
         assert K.build_prune_sql("AGS", "en", 364) == "DELETE FROM knowledge WHERE doc='AGS' AND lang='en' AND n > 364;"
         q = K.search_sql("string sizing; -10 'C", "es", 3)
-        assert "websearch_to_tsquery('simple', 'string sizing; -10 ''C')" in q and "lang='es'" in q and "LIMIT 3" in q
+        assert "to_tsquery('simple', 'string:* | sizing:* | 10:*')" in q and "lang='es'" in q and "LIMIT 3" in q
+        assert K.tsquery("What does AGS-104 say about PR_STC?") == "what:* | does:* | ags:* | 104:* | say:* | about:* | pr:* | stc:*"
+        assert K.tsquery("") == ""
         assert "/*tag:knowledge_search*/" in q
         assert "LIMIT 10" in K.search_sql("x", "xx", 99)          # clamped, unknown lang -> en
 
@@ -158,14 +161,15 @@ class TestNewTools:
         db = FakeDB(dict(BASE, recon_daily=[
             ["GTO1", "2026-09-02", "1800", "1843", "1843", "61.1", "-2.33", "REVIEW", "completeness 61.1% < 95%", "1843", "vendor_plant_daily"],
             ["MEX2", "2026-09-02", "1200", "1200", "1200", "100", "0.00", "PASS", "ok", "1200", "inverter_counters"]],
-            recon_monthly=[["GTO1", "2026-08", "52000", "inverter_counter_daily_sum", "PASS", "2026-09-01 06:10", "auto", ""],
-                           ["GTO2", "2026-08", "", "", "REVIEW", "", "", "vendor gap"]]))
+            recon_monthly=[["GTO1", "2026-08", "52000", "inverter_counter_daily_sum", "PASS", "2026-09-01 06:10", "auto", "", "51900", "52000", "52010", "52005", "99.1"],
+                           ["GTO2", "2026-08", "", "", "REVIEW", "", "", "vendor gap", "", "", "", "", ""]]))
         r = T.run_tool(db, "get_reconciliation", {"date_from": "2026-09-02", "date_to": "2026-09-02"})
         assert r["totals"] == {"plant_days": 2, "by_status": {"REVIEW": 1, "PASS": 1}, "kpi_kwh": 3043.0}
         assert r["days"][0]["name"] == "Taigene" and r["days"][0]["reference_basis"] == "vendor_plant_daily"
         m = T.run_tool(db, "get_monthly_close", {"month": "2026-08"})
         assert m["totals"] == {"plant_months": 2, "closed": 1, "open": 1, "billing_kwh": 52000.0}
         assert m["months"][0]["closed"] is True and m["months"][1]["closed"] is False
+        assert m["months"][0]["interval_sum_kwh"] == 51900.0 and "billing_basis" in db.sql[-2]
         assert "YYYY-MM" in T.run_tool(db, "get_monthly_close", {"month": "August"})["error"]
 
     def test_cfe_tariffs_average_and_region(self):

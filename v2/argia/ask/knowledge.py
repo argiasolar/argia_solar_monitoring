@@ -24,6 +24,8 @@ AGS_URL = ("https://sprinkler.agency/argiagoldenstandard/"
            "ARGIA_Golden_Standard_Designer_Training_WHITE.html")
 AGS_DOC = "AGS"
 LANGS = ("en", "es", "cz")
+_LANG_KEYS = {"en": ("en",), "es": ("es",), "cz": ("cz", "cs")}   # the page's key for Czech
+_CODE = re.compile(r"\bAGS-\d{3}[A-Z]?\b")
 MAX_TEXT = 6000          # per slide, after stripping — a slide is never longer
 
 ENSURE_SQL = """CREATE TABLE IF NOT EXISTS knowledge (
@@ -87,12 +89,21 @@ def parse_ags(page_html: str, langs: Sequence[str] = LANGS) -> List[Dict]:
     data = extract_data(page_html)
     out: List[Dict] = []
     for lang in langs:
-        slides = (data.get(lang) or {}).get("slides") or []
+        slides = []
+        for key in _LANG_KEYS.get(lang, (lang,)):
+            slides = (data.get(key) or {}).get("slides") or []
+            if slides:
+                break
         for i, h in enumerate(slides, 1):
             title, body = slide_text(h or "")
             if not body:
                 continue
-            out.append({"doc": AGS_DOC, "lang": lang, "n": i, "title": title, "body": body})
+            # the standard's own clause codes (AGS-104) lead the slide —
+            # keep them in the title so a citation can name the clause
+            m = _CODE.search(body[:300])
+            if m and m.group(0) not in title:
+                title = f"{m.group(0)} · {title}" if title else m.group(0)
+            out.append({"doc": AGS_DOC, "lang": lang, "n": i, "title": title[:200], "body": body})
     return out
 
 
@@ -121,20 +132,36 @@ def build_prune_sql(doc: str, lang: str, keep_n: int) -> str:
     return f"DELETE FROM knowledge WHERE doc={_txt(doc)} AND lang={_txt(lang)} AND n > {int(keep_n)};"
 
 
+def tsquery(query: str) -> str:
+    """The query words as prefix terms OR-ed together ('string:* |
+    sizing:* | mppt:*'): a slide matching more of them ranks higher, a
+    slide matching one still shows. Words split on anything that is not
+    a letter or digit (PR_STC -> pr, stc; AGS-104 -> ags, 104), the
+    same way PostgreSQL's parser tokenises the slides. Empty when
+    nothing usable was typed."""
+    words = [w for w in re.findall(r"[a-z0-9À-ÿ]+", query.lower()) if len(w) >= 2]
+    seen = []
+    for w in words:
+        if w not in seen:
+            seen.append(w)
+    return " | ".join(f"{w}:*" for w in seen[:12])
+
+
 def search_sql(query: str, lang: str = "en", limit: int = 5, doc: str = AGS_DOC) -> str:
-    """Ranked full-text search; falls back to a substring match when the
-    parsed query has no lexemes (very short or all-stopword input).
+    """Ranked full-text search (prefix terms OR-ed, ts_rank_cd so slides
+    matching more words win), with the whole phrase as ILIKE fallback.
     Returns n, title, body, rank."""
     q = _txt(query[:300])
+    tq = _txt(tsquery(query) or query[:60].lower())
     lang = lang if lang in LANGS else "en"
     limit = max(1, min(int(limit), 10))
     return (
         "/*tag:knowledge_search*/ "
-        "SELECT n, title, body, round(ts_rank(tsv, q)::numeric, 4) AS rank"
-        f" FROM knowledge, websearch_to_tsquery('simple', {q}) q"
+        "SELECT n, title, body, round(ts_rank_cd(tsv, q, 32)::numeric, 4) AS rank"
+        f" FROM knowledge, to_tsquery('simple', {tq}) q"
         f" WHERE doc={_txt(doc)} AND lang={_txt(lang)}"
         f" AND (tsv @@ q OR body ILIKE '%' || {q} || '%' OR title ILIKE '%' || {q} || '%')"
-        f" ORDER BY (tsv @@ q) DESC, rank DESC, n LIMIT {limit};")
+        f" ORDER BY (body ILIKE '%' || {q} || '%' OR title ILIKE '%' || {q} || '%') DESC, rank DESC, n LIMIT {limit};")
 
 
 def excerpt(body: str, query: str, width: int = 700) -> str:

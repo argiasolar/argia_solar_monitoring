@@ -698,15 +698,22 @@ def get_monthly_close(rows: Rows, month: Any = None) -> dict:
     ps = plants(rows)
     where = f" WHERE to_char(ref_month,'YYYY-MM') = {_q(ym)}" if ym else ""
     out = []
-    for r in rows("SELECT plant_key, to_char(ref_month,'YYYY-MM'), billing_kwh, coalesce(basis,''),"
-                  " status, coalesce(closed_at::text,''), coalesce(closed_by,''), coalesce(note,'')"
+    for r in rows("SELECT plant_key, to_char(ref_month,'YYYY-MM'), billing_kwh, coalesce(billing_basis,''),"
+                  " status, coalesce(closed_at::text,''), coalesce(closed_by,''), coalesce(note,''),"
+                  " interval_sum_kwh, vendor_daily_sum_kwh, vendor_monthly_kwh, lifetime_delta_kwh,"
+                  " completeness_pct"
                   f" FROM reconciliation_monthly{where} ORDER BY ref_month DESC, plant_key"
                   " /*tag:recon_monthly*/ LIMIT 120;"):
         if len(r) >= 8:
             out.append({"plant_key": r[0], "name": ps.get(r[0], {}).get("name"), "month": r[1],
                         "billing_kwh": _r(_f(r[2])), "basis": r[3] or None, "status": r[4],
                         "closed": bool(r[5]), "closed_at": r[5] or None, "closed_by": r[6] or None,
-                        "note": r[7] or None})
+                        "note": r[7] or None,
+                        "interval_sum_kwh": _r(_f(r[8])) if len(r) > 8 else None,
+                        "vendor_daily_sum_kwh": _r(_f(r[9])) if len(r) > 9 else None,
+                        "vendor_monthly_kwh": _r(_f(r[10])) if len(r) > 10 else None,
+                        "lifetime_delta_kwh": _r(_f(r[11])) if len(r) > 11 else None,
+                        "completeness_pct": _r(_f(r[12])) if len(r) > 12 else None})
     return {"month": ym, "months": out,
             "totals": {"plant_months": len(out), "closed": sum(1 for x in out if x["closed"]),
                        "open": sum(1 for x in out if not x["closed"]),

@@ -183,7 +183,10 @@ def summarise_day(evals: Sequence[IntervalEval], rated_kw: Dict[str, float]) -> 
         d.dt_ambient_peak_c = round(max(das), 1) if das else None
         d.derating_minutes = sum(INTERVAL_MIN for e in lst if e.derating)
         d.lost_kwh = round(sum(e.lost_kw * h for e in lst if e.derating), 2)
-        cool = [e.ratio for e in lst if e.ratio is not None and e.temp_c < T_HOT - 5]
+        # the unit's own standing against cooler peers while NOT hot (< 65 C):
+        # a unit with more DC than its peers sits above 1 here, and the
+        # nightly baseline (median of these over 30 days) divides it out
+        cool = [e.ratio for e in lst if e.ratio is not None and e.temp_c < T_HOT]
         d.cool_ratio = round(_median(cool), 3) if cool else None
         # events: contiguous runs at/above T_HOT (one missing tick tolerated)
         events, prev_hot_ts = 0, None
@@ -223,7 +226,13 @@ def derating_curve(bins: Dict[float, Tuple[int, float]]) -> Dict:
     >= KNEE_MIN_N samples whose mean ratio is below 1 - LOSS_MIN_PCT and
     whose following populated bins stay below it too."""
     pts = [{"bin_c": b, "n": n, "ratio": round(s / n, 3)} for b, (n, s) in sorted(bins.items()) if n > 0]
-    limit = 1 - LOSS_MIN_PCT / 100.0
+    # the curve's own cool level (bins below T_HOT with enough samples):
+    # a knee is a drop from THAT, not from 1.0 — a unit carrying more DC
+    # than its peers runs above 1 when cool and still derates
+    cool = [p for p in pts if p["bin_c"] < T_HOT and p["n"] >= KNEE_MIN_N // 2]
+    n_cool = sum(p["n"] for p in cool)
+    cool_level = round(sum(p["ratio"] * p["n"] for p in cool) / n_cool, 3) if n_cool else 1.0
+    limit = cool_level * (1 - LOSS_MIN_PCT / 100.0)
     knee = None
     for i, p in enumerate(pts):
         if p["n"] < KNEE_MIN_N or p["ratio"] >= limit:
@@ -235,8 +244,8 @@ def derating_curve(bins: Dict[float, Tuple[int, float]]) -> Dict:
     hot = [p for p in pts if p["bin_c"] >= T_HOT and p["n"] >= KNEE_MIN_N // 2]
     n_hot = sum(p["n"] for p in hot)
     ratio_hot = round(sum(p["ratio"] * p["n"] for p in hot) / n_hot, 3) if n_hot else None
-    return {"points": pts, "knee_c": knee, "ratio_above_65": ratio_hot,
-            "loss_above_65_pct": round((1 - ratio_hot) * 100, 1) if ratio_hot is not None else None}
+    return {"points": pts, "cool_level": cool_level, "knee_c": knee, "ratio_above_65": ratio_hot,
+            "loss_above_65_pct": round((1 - ratio_hot / cool_level) * 100, 1) if ratio_hot is not None else None}
 
 
 def merge_bins(rows: Iterable[Tuple[float, int, float]]) -> Dict[float, Tuple[int, float]]:

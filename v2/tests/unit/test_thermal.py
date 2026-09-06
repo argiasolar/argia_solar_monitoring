@@ -125,6 +125,15 @@ class TestCurve:
     def test_thin_bins_cannot_be_the_knee(self):
         assert TH.derating_curve({70.0: (3, 2.4)})["knee_c"] is None
 
+    def test_knee_is_relative_to_the_units_own_cool_level(self):
+        # NL1 2026-09: a unit with more DC than its peers runs at 1.09 when cool
+        # and falls to 0.97 at 80 C — a 11 % drop, a knee, although 0.97 > 0.97*1
+        bins = {60.0: (65, 65 * 1.09), 62.5: (81, 81 * 1.09), 65.0: (97, 97 * 1.11), 70.0: (100, 100 * 1.06),
+                75.0: (172, 172 * 1.05), 77.5: (303, 303 * 1.02), 80.0: (458, 458 * 0.966)}
+        c = TH.derating_curve(bins)
+        assert c["cool_level"] == pytest.approx(1.09, abs=0.01)
+        assert c["knee_c"] == 75.0 and c["loss_above_65_pct"] == pytest.approx(7.0, abs=1.5)   # 1.05 < 1.09*0.97
+
     def test_baseline_from_history_is_clamped_median(self):
         b = TH.baseline_from_history([("A", 0.9), ("A", 0.92), ("A", 0.88), ("B", 3.0), ("C", None)])
         assert b == {"A": 0.9, "B": 1.3}

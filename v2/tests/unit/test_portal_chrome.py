@@ -192,6 +192,9 @@ class TestV209:
     def test_charts_paint_in_the_portal_palette(self):
         # report_gen's SVG fragments fill with var(--s1) / var(--s2): black without these
         assert "--s1:#05b1a9" in C.CSS and "--s2:#eb6834" in C.CSS and "--surface:#fff" in C.CSS
+        # the bars carry class="bar" / "bar exp" (report_gen.columns_svg): teal actual, grey expected
+        assert ".bar{fill:var(--s1)}" in C.CSS and ".bar.exp{fill:#c9ced4}" in C.CSS
+        assert ".line.wx{" in C.CSS and ".tick{fill:var(--muted)" in C.CSS
 
     def test_folder_tabs(self):
         assert "border-radius:9px 9px 0 0" in C.CSS and ".tab.on{" in C.CSS

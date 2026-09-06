@@ -215,6 +215,16 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 table{border-collapse:collapse;width:100%}th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
 td{padding:10px 12px;border-bottom:1px solid #f0f2f4;font-size:13.5px;vertical-align:middle}td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .chead{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+/* SVG classes the report_gen charts paint with (columns_svg, monthly_svg, PLANT_JS) */
+svg{max-width:100%;height:auto;display:block}
+.grid{stroke:var(--grid);stroke-width:1}.axis{stroke:var(--axis);stroke-width:1}
+.tick{fill:var(--muted);font-size:12px}.lab{fill:var(--ink2);font-size:12.5px}
+.bar{fill:var(--s1)}.bar:hover{opacity:.85}.bar.exp{fill:#c9ced4}
+.line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.line.s1{stroke:var(--s1)}.line.s2{stroke:var(--s2)}.line.rev{stroke:#1e8e3e}
+.line.wx{stroke:#eab308;stroke-dasharray:5 4;stroke-width:2.5}
+.dot{stroke:var(--surface);stroke-width:2}.dot.s1{fill:var(--s1)}.dot.s2{fill:var(--s2)}
+.hit{fill:transparent}
 /* legacy fragment classes (plant page from report_gen.plant_parts) */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0}
 .tile.flip .face.front{position:relative}.tile.flip.good .face{background:#e6f7f5;border-color:#b8e6e1}.tile.flip.warn .face{background:#fff4e0;border-color:#f3dcae}.tile.flip.bad .face{background:#fdeaea;border-color:#f3b9b9}

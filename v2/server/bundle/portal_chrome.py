@@ -26,7 +26,6 @@ except ImportError:                          # never in production; keeps the mo
     LOGO_URI = ''
 
 PORTAL_HOST = 'portal.argia.com.mx'
-LEGACY = 'https://report.argia.com.mx'
 ENGINE_URL = 'https://engine.sprinkler.agency/engine'
 AGS_URL = 'https://sprinkler.agency/argiagoldenstandard/ARGIA_Golden_Standard_Designer_Training_WHITE.html'
 
@@ -289,6 +288,8 @@ window.addEventListener('DOMContentLoaded',()=>{
    const s=who.querySelector('.mono');s.textContent=d.user;
    if(d.admin){const a=document.createElement('span');a.className='wa';a.textContent='admin';s.appendChild(document.createTextNode(' '));s.appendChild(a);
     document.querySelectorAll('.adminonly').forEach(x=>x.style.display='');}}
+  if(!d.admin){const ts=document.getElementById('tile-setup');if(ts){ts.href='/setup/cfe/';const m=ts.querySelector('.mono');if(m)m.textContent='/setup/cfe';
+   const b=ts.querySelector('.tblurb');if(b){b.dataset.en='CFE tariffs and your account.';b.dataset.es='Tarifas CFE y tu cuenta.';b.textContent=b.dataset[localStorage.getItem('argia_lang')||'en']||b.dataset.en;}}}
  }).catch(()=>{});
  fetch('/ask/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   if(d&&d.allowed)document.querySelectorAll('.askonly').forEach(x=>x.style.display='');}).catch(()=>{});
@@ -316,13 +317,17 @@ def user_menu():
 </div>'''
 
 
-def header(section=None, on=''):
+def header(section=None, on='', tabs_override=None):
     """The one header. section: key of SECTIONS or None (landing);
-    on: sub-tab slug that is active ('' = the section's overview)."""
+    on: sub-tab slug that is active ('' = the section's overview);
+    tabs_override: a shorter sub-tab list (v214: a non-admin in Setup
+    sees only CFE & tariffs)."""
     sec = ''
     tabs = ''
     if section:
         en, es, subs = SECTIONS[section]
+        if tabs_override is not None:
+            subs = tabs_override
         sec = (f'<div class="psec"><span class="sep"></span><span class="pn">{t(en, es)}</span>'
                f'<span class="mono muted">{PORTAL_HOST}/{section}</span></div>')
         if subs:
@@ -344,14 +349,14 @@ def header(section=None, on=''):
 </header>'''
 
 
-def page(title, body, section=None, on='', refresh=0, extra_head=''):
+def page(title, body, section=None, on='', refresh=0, extra_head='', tabs=None):
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ''
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<meta name="robots" content="noindex,nofollow">{meta}'
             f'<title>{html.escape(title)} — ARGIA</title><link rel="icon" href="/favicon.png">'
             f'<style>{CSS}</style>{extra_head}</head><body>'
-            f'{header(section, on)}<div class="wrap">{body}</div>{JS}</body></html>')
+            f'{header(section, on, tabs)}<div class="wrap">{body}</div>{JS}</body></html>')
 
 
 def skin_reset(scope):
@@ -422,12 +427,6 @@ def tile(label_en, label_es, value, sub_en='', sub_es='', tip=None, tone='',
 
 def pill(cls, en, es=None):
     return f'<span class="pill {cls}">{t(en, es)}</span>'
-
-
-def legacy_link(path, en, es=None):
-    """Until a page is rebuilt here, the sub-tab lands on the old site."""
-    return (f'<a class="legacy" href="{LEGACY}{path}" target="_blank" rel="noopener">'
-            f'{ico("ext", 13)} {t(en, es)}</a>')
 
 
 def redirect_page(to, en, es=None):

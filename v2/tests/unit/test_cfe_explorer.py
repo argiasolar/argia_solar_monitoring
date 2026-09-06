@@ -144,9 +144,7 @@ class TestHtml:
         h = CX.explorer_html(CX.build_dataset([]), "bad", "x", "x")
         assert "No tariff rows loaded yet" in h and "<script>" not in h
 
-    def test_charge_order_matches_the_old_page(self):
-        old = (BUNDLE / "cfe_page_gen.py").read_text(encoding="utf-8")
-        assert repr(CX.CHARGE_ORDER[0]) in old and "'ENERGIA SEMIPUNTA'" in old
+    def test_charge_order_base_semi_peak(self):
         i, j, k = (CX.CHARGE_ORDER.index(c) for c in ("ENERGIA BASE", "ENERGIA SEMIPUNTA", "ENERGIA PUNTA"))
         assert i < j < k
 
@@ -155,7 +153,14 @@ class TestWiring:
     def test_setup_cfe_drawer_leads_with_the_explorer(self):
         sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
         assert "def cfe_explorer_card():" in sa
-        assert "sections = [('explorer', cfe_explorer_card())," in sa
+        assert "sections = [('explorer', cfe_explorer_card())]" in sa
+        # v214: everyone signed in gets the explorer; status/push stay with admins
+        assert "if drawer == 'cfe':                       # v214: open to everyone signed in" in sa
+        assert "if is_global:\n        sections += [('status', cfe_status_card()), ('push', cfe_push_card())]" in sa
+        import auth_core as ac
+        assert ac.area_for_path("/setup/cfe/") == ac.ALL
+        assert ac.area_for_path("/setup/cfe/x") == ac.ALL
+        assert ac.area_for_path("/setup/") == ac.ADMIN and ac.area_for_path("/setup/people/") == ac.ADMIN
         assert "CX.explorer_html(ds, tone, en, es, sources_note=note, through=through)" in sa
         assert "ds = CX.build_dataset(rows, upto=through)" in sa
         # read-only on cfe_tariff: no INSERT/UPDATE/DELETE anywhere near it

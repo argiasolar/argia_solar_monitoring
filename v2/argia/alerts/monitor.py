@@ -283,5 +283,5 @@ def render_body(to_send: List[Alert], recovered: List[str],
         lines.append("RECOVERED:")
         lines.extend(f"  • {k}" for k in recovered)
         lines.append("")
-    lines.append("Portal: https://monitoring.argia.com.mx")
+    lines.append("Portal: https://portal.argia.com.mx/monitoring/")
     return "\n".join(lines)

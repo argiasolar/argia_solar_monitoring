@@ -34,7 +34,7 @@ UNITS = ("argia-telemetry", "argia-telemetry-se", "argia-kpi",
          "argia-alerts-daily", "argia-alerts-snap", "argia-finreport",
          "argia-report-am", "argia-report-pm", "argia-dash-update",
          "argia-client-pages", "argia-archive", "argia-recon",
-         "argia-monitoring-gen", "argia-satcheck", "argia-strings",
+         "argia-portal-gen", "argia-satcheck", "argia-strings",
          "argia-cfe-push", "argia-archive-month",
          "argia-dailyperf", "argia-invoice", "argia-recon-close")
 
@@ -240,7 +240,7 @@ def main(argv=None) -> int:
             "[ARGIA] test — alert mailer is live",
             "This is a test from the ARGIA alert mailer on pio06.\n"
             "You receive plant/server/infrastructure alerts here.\n"
-            "Manage recipients: https://report.argia.com.mx/setup/",
+            "Manage recipients: https://portal.argia.com.mx/setup/",
             cfg["SMTP_USER"], emails)
         ok = emailer.send(msg, cfg)
         LOG.info("test mail to %s: %s", emails, "SENT" if ok else "FAILED")

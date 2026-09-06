@@ -108,7 +108,7 @@ class TestCarriedOver:
         assert "@media print" in C.CSS and ".face.back" in C.CSS.split("@media print")[1]
 
     def test_legacy_redirect_names_the_old_site(self):
-        r = C.redirect_page(C.LEGACY + "/financial/", "Financial — old site", "Financiero — sitio anterior")
+        r = C.redirect_page("https://report.argia.com.mx/financial/", "Financial — old site", "Financiero — sitio anterior")
         assert 'url=https://report.argia.com.mx/financial/' in r
 
 

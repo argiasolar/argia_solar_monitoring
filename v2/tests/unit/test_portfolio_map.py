@@ -93,8 +93,7 @@ class TestPageWiring:
 
     def test_subdomain_is_redirect_only(self):
         # one host = one login (2026-08-28); the pretty name 301s in
-        assert "return 301 https://report.argia.com.mx/portfolio/;" \
-            in VHOST_SRC
+        assert "return 301 https://portal.argia.com.mx/map/;" in VHOST_SRC   # v214
         assert "auth_request" not in VHOST_SRC
         # no root/try_files directive — this vhost must serve no files
         assert not re.search(r"^\s*root\s", VHOST_SRC, re.M)
@@ -316,7 +315,7 @@ class TestPvoutLayer:
 
     def test_image_overlay_with_attribution(self):
         seg = GEN_SRC.split("def portfolio_page(")[1]
-        assert "L.imageOverlay('assets/pvout_mexico.png'" in seg
+        assert "L.imageOverlay('/portfolio/assets/pvout_mexico.png'" in seg   # v214: absolute, works under /map/ too
         assert "Global Solar Atlas 2.0 / Solargis" in seg
         assert "CC BY 4.0" in seg
         assert "opacity:.55" in seg

@@ -131,12 +131,13 @@ class TestOldHostnameKeepsWorking:
         assert OLD.count("return 301") >= 3
 
     def test_pages_land_under_the_new_prefix(self):
-        assert ("return 301 https://report.argia.com.mx/monitoring"
+        # v214: the portal is the one host now
+        assert ("return 301 https://portal.argia.com.mx/monitoring"
                 "$request_uri" in OLD)
 
     def test_account_page_is_not_pushed_under_monitoring(self):
         i = OLD.index("location /account/")
-        assert "report.argia.com.mx$request_uri" in OLD[i:i + 120]
+        assert "portal.argia.com.mx$request_uri" in OLD[i:i + 120]
         assert "/monitoring$request_uri" not in OLD[i:i + 120]
 
     def test_acme_still_reachable_for_cert_renewal(self):

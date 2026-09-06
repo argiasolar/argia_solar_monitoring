@@ -61,7 +61,7 @@ class TestMailShape:
         body = mail_body("August 2026 — month close",
                          "2026-08-01", "2026-08-31")
         assert "2026-08-01 .. 2026-08-31" in body
-        assert "report.argia.com.mx/financial/" in body
+        assert "portal.argia.com.mx/report/financial/" in body   # v214: the portal
         assert "sin IVA" in body
         # v204 (Tomasz): no boilerplate in the mail
         for gone in ("re-derived", "DSCR =", "Manage recipients", "/setup/"):

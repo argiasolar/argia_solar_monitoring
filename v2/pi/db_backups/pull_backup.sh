@@ -51,6 +51,13 @@ fi
 mv "$tmp_dump" "$BASE/daily/argia_mont_$stamp.dump"
 mv "$tmp_users" "$BASE/daily/users_$stamp.db"
 
+# portfolio snapshot for ppa_watch.py (v214; best-effort)
+mkdir -p "$HOME/report_watch"
+sftp -q -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
+  -o ConnectTimeout=25 "$SRV" >/dev/null 2>&1 <<EOF || true
+get portfolio_latest.json $HOME/report_watch/portfolio.json
+EOF
+
 # financial report PDFs (small; best-effort)
 sftp -q -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
   -o ConnectTimeout=25 "$SRV" >/dev/null 2>&1 <<EOF || true

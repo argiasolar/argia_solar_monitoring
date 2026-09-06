@@ -120,4 +120,4 @@ def test_render_body_sections():
     assert "CRITICAL:" in body and "GTO1 stale" in body
     assert "WARNING:" in body and "disk 90%" in body
     assert "RECOVERED:" in body and "plant-stale:MEX1" in body
-    assert "monitoring.argia.com.mx" in body
+    assert "portal.argia.com.mx/monitoring/" in body        # v214: the portal

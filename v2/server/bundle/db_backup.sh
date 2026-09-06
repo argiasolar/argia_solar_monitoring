@@ -30,6 +30,9 @@ dst.close(); src.close()
 EOF
 cp -f "$OUT/users_$stamp.db" "$OUT/users_latest.db"
 
+# portfolio snapshot for the Pi's outage watch (v214) — best-effort
+/root/argia_v2/v2/pi/run_job.sh portfolio-export portfolio_export.py --out "$OUT/portfolio_latest.json" || echo "$(date -Is) portfolio export FAILED (backup unaffected)"
+
 # local retention: newest 3 dated copies of each
 ls -1t "$OUT"/argia_mont_2*.dump 2>/dev/null | tail -n +4 | xargs -r rm -f
 ls -1t "$OUT"/users_2*.db 2>/dev/null | tail -n +4 | xargs -r rm -f

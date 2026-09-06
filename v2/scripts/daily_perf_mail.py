@@ -376,13 +376,12 @@ _UNIT_ROLE = {
     "argia-alerts-snap": "Alert snapshot",
     "argia-alerts-daily": "Daily alert digest",
     "argia-mailer": "Alert mailer",
-    "argia-dashboard": "Dashboard build",
     "argia-dash-update": "Dashboard refresh",
     "argia-client-pages": "Client report pages",
     "argia-finreport": "Financial report build",
     "argia-cfe-ingest": "CFE tariff ingest",
     "argia-cfe-push": "CFE tariff push to the Engine app",
-    "argia-monitoring-gen": "Portal page generator",
+    "argia-portal-gen": "Portal page generator",
     "argia-archive": "Telemetry archive to Drive",
     "argia-strings": "String-level collector",
     "argia-satcheck": "Satellite irradiance check",
@@ -622,8 +621,8 @@ def render_text(data: dict) -> str:
           "Today's figures are live telemetry, not yet reconciled — the"
           " nightly close finalizes them. Weather-expected for today"
           " lands with the close as well.",
-          "", "Portal: https://monitoring.argia.com.mx",
-          "Manage subscriptions: https://report.argia.com.mx/setup/"]
+          "", "Portal: https://portal.argia.com.mx/monitoring/",
+          "Manage subscriptions: https://portal.argia.com.mx/setup/"]
     return "\n".join(L)
 
 
@@ -783,9 +782,9 @@ reconciled</b> — the nightly close finalizes them and adds today's
 weather expectation. This mail goes out at 19:00 so there is still
 time to act on anything red.</p>
 <p style="margin:14px 0 0;font-size:12px;color:#8a94a1">
-<a href="https://monitoring.argia.com.mx" style="color:#2b6cb0">
+<a href="https://portal.argia.com.mx/monitoring/" style="color:#2b6cb0">
 Open the portal</a> ·
-<a href="https://report.argia.com.mx/setup/" style="color:#2b6cb0">
+<a href="https://portal.argia.com.mx/setup/" style="color:#2b6cb0">
 Manage subscriptions</a></p>
 </td></tr></table></td></tr></table></body></html>'''
 

@@ -78,6 +78,7 @@ CSRF = _csrf_token()
 # ---------------- usage statistics (from nginx access logs) ----------------
 LOG_GLOBS = os.environ.get(
     'ARGIA_LOG_GLOBS',
+    '/var/log/nginx/portal.argia.com.mx-access.log*;'
     '/var/log/nginx/report.argia.com.mx-access.log*;'
     '/var/log/nginx/monitoring.argia.com.mx/monitoring.argia.com.mx-access.log*'
 ).split(';')
@@ -568,8 +569,10 @@ def page(body, msg='', once=None, title=None, sub=None):
         # inside one drawer) stay, restyled as quiet portal chips.
         extra = ('<style>' + PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody')
                  + PC.skin_reset('.setupbody') + SETUP_PORTAL_CSS + _cfe_css() + '</style>')
+        me_, is_global_, org_ = actor()
+        tabs = None if (is_global_ or org_) else [('cfe', 'CFE & tariffs', 'CFE y tarifas')]
         return PC.page(t_en, head + f'<div class="setupbody">{once_html}{msg_html}{body}</div>',
-                       'setup', _portal_drawer(), extra_head=extra)
+                       'setup', _portal_drawer(), extra_head=extra, tabs=tabs)
     cfe_css = _cfe_css()
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1273,7 +1276,7 @@ def mail_delete():
 import finance_core as fin
 
 WEBROOT = os.environ.get('ARGIA_WEBROOT',
-                         '/www/hosting/monitoring.argia.com.mx/www')
+                         '/www/hosting/portal.argia.com.mx/www')
 REPORT_GEN = os.path.join(sys_dir, 'report_gen.py')
 
 
@@ -2032,9 +2035,17 @@ def cfe_explorer_card():
 
 
 def cfe_drawer(msg=''):
-    d = cat.drawer('cfe')
-    sections = [('explorer', cfe_explorer_card()),
-                ('status', cfe_status_card()), ('push', cfe_push_card())]
+    """v214: every signed-in user gets the explorer; the pipeline status
+    and Engine-push cards stay with global admins."""
+    d = dict(cat.drawer('cfe'))
+    me, is_global, org = actor()
+    sections = [('explorer', cfe_explorer_card())]
+    if is_global:
+        sections += [('status', cfe_status_card()), ('push', cfe_push_card())]
+    else:
+        d['tabs'] = [tb for tb in d['tabs'] if tb[0] == 'explorer']
+        d['sub_en'], d['sub_es'] = ('CFE industrial tariffs — every scheme, region and charge, as CFE publishes them.',
+                                    'Tarifas industriales CFE — cada esquema, región y cargo, como las publica CFE.')
     return page(cat.drawer_page(d, sections), msg=msg, title=('CFE & tariffs', 'CFE y tarifas'),
                 sub=(d['sub_en'], d['sub_es']))
 
@@ -2059,6 +2070,8 @@ def render(msg='', once=None, drawer='people'):
     if not msg:
         msg = (request.args.get('m') or '')[:300]
     me, is_global, org = actor()
+    if drawer == 'cfe':                       # v214: open to everyone signed in
+        return cfe_drawer(msg=msg)
     if not is_global and not org:
         return page('<div class="card"><p data-en="Your account has no management rights."'
                     ' data-es="Su cuenta no tiene permisos de gestión.">'

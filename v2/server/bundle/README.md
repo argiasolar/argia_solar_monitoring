@@ -2,7 +2,7 @@
 
 These files run report.argia.com.mx (report_gen, dashboard_gen, landing),
 the /setup/ admin app (setup_app), client pages (argia_client_logos),
-CFE tariffs (cfe_load, cfe_page_gen), the PG loaders, the KPI->PG sync
+CFE tariffs (cfe_load; the explorer lives in Setup since v214), the PG loaders, the KPI->PG sync
 (sync_kpi, argia-sync.timer), nginx access control, and their systemd
 units. They were previously patched in place on the server ONLY — the
 2026-08-27 due diligence flagged that as the single uncontrolled

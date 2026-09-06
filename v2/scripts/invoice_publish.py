@@ -37,7 +37,7 @@ import sys
 
 LOG = logging.getLogger("argia.invoice_publish")
 
-WEBROOT = "/www/hosting/monitoring.argia.com.mx/www"
+WEBROOT = "/www/hosting/portal.argia.com.mx/www"      # v214: the portal serves /invoices/
 CHROMIUM = ("chromium", "chromium-browser", "google-chrome")
 
 # factura_name -> (plant_key, display). The factura name is the file

@@ -48,7 +48,7 @@ from argia.store import pg_mirror
 
 LOG = logging.getLogger("argia.financial_mail")
 
-WEBROOT = "/www/hosting/monitoring.argia.com.mx/www"
+WEBROOT = "/www/hosting/portal.argia.com.mx/www"      # v214: the portal
 CHROMIUM = ("chromium", "chromium-browser", "google-chrome")
 MIN_PDF_BYTES = 20_000
 BACKUP_REPORTS_DIR = os.environ.get(
@@ -93,7 +93,7 @@ def mail_body(label: str, d0: str, d1: str) -> str:
         "Attached: the ARGIA financial report for %s\n"
         "(window %s .. %s, MXN, sin IVA).\n\n"
         "Live version with date picker:\n"
-        "  https://report.argia.com.mx/financial/\n"
+        "  https://portal.argia.com.mx/report/financial/\n"
         % (label, d0, d1))
 
 
@@ -184,7 +184,7 @@ def main(argv=None) -> int:
     name = pdf_name(args.mode, d0, d1)
     LOG.info("mode=%s window=%s..%s -> %s", args.mode, d0, d1, name)
 
-    html = os.path.join(WEBROOT, "financial", "index.html")
+    html = os.path.join(WEBROOT, "report", "financial", "index.html")
     if not os.path.exists(html):
         LOG.error("financial page not found at %s", html)
         return 1

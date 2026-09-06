@@ -144,7 +144,7 @@ def digest_html(alerts: Sequence[AlertRecord],
                 + f'<div style="margin-top:4px;color:#9aa0a6;font-size:11px">{e(a.alert_id)} · opened {e(a.opened_utc)} UTC</div>'
                 '</div>')
     out.append('<p style="color:#9aa0a6;font-size:11px;margin-top:16px">ARGIA Monitoring · '
-               'portal: https://report.argia.com.mx/monitoring/</p></div>')
+               'portal: https://portal.argia.com.mx/monitoring/</p></div>')
     return "".join(out)
 
 

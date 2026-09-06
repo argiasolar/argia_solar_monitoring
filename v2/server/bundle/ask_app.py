@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ask ARGIA — the /ask/ page of report.argia.com.mx (phase 0).
+"""Ask ARGIA — the /ask/ page of portal.argia.com.mx (phase 0).
 
 Runs on 127.0.0.1:8513; nginx proxies /ask/ to it behind the session
 login and passes the signed-in username in X-Remote-User. This app

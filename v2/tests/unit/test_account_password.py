@@ -188,7 +188,7 @@ class TestNginxExposure:
         block = self.MON[self.MON.index("location /account/"):]
         block = block[:block.index("}")]
         assert "return 301" in block
-        assert "report.argia.com.mx$request_uri" in block
+        assert "portal.argia.com.mx$request_uri" in block      # v214
 
     def test_account_open_to_every_signed_in_user(self):
         """No admin htpasswd on the /account/ location — otherwise

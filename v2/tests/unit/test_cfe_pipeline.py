@@ -219,16 +219,15 @@ class TestSemipuntaAndGlow:
         assert "ENERGIA SEMIPUNTA" in cfe_ingest.ALLOWED
 
     def test_semipunta_in_page_charge_order(self):
-        src = (self.ROOT / "cfe_page_gen.py").read_text(encoding="utf-8")
+        # v214: the explorer (Setup › CFE) replaced cfe_page_gen
+        src = (self.ROOT / "cfe_explorer.py").read_text(encoding="utf-8")
         i = src.index("'ENERGIA INTERMEDIA'")
         j = src.index("'ENERGIA SEMIPUNTA'")
         k = src.index("'ENERGIA PUNTA'")
         assert i < j < k          # natural base→semi→peak order
 
-    def test_json_export_written_next_to_the_page(self):
-        src = (self.ROOT / "cfe_page_gen.py").read_text(encoding="utf-8")
-        assert "'cfe', 'tariffs.json'" in src
-        assert "'generated_utc'" in src and "'sources'" in src
+    def test_old_page_generator_is_gone(self):
+        assert not (self.ROOT / "cfe_page_gen.py").exists()
 
     def test_lightning_glows_only_when_healthy(self):
         src = (self.ROOT / "report_gen.py").read_text(encoding="utf-8")

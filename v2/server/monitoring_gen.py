@@ -54,7 +54,7 @@ except Exception:                                     # noqa: BLE001
         lo, hi = min(_CO2_BY_YEAR), max(_CO2_BY_YEAR)
         return _CO2_BY_YEAR[min(max(int(year), lo), hi)]
 
-OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/monitoring.argia.com.mx/www'
+OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/portal.argia.com.mx/www'   # v214: the portal root
 MX = ZoneInfo('America/Mexico_City')
 STALE_MIN = 30
 WINDOW = (6, 20)
@@ -1472,7 +1472,7 @@ def portfolio_page(skin='old'):
         pv_bounds = None
     if pv_bounds:
         pv_js = (
-            "var pv=L.imageOverlay('assets/pvout_mexico.png',"
+            "var pv=L.imageOverlay('/portfolio/assets/pvout_mexico.png',"
             + json.dumps(pv_bounds) + ",{opacity:.55,attribution:"
             "'PVOUT &copy; Global Solar Atlas 2.0 / Solargis "
             "(World Bank), CC BY 4.0'});"

@@ -301,7 +301,14 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
     from argia.core.config_pg import inverters_records, plants_records
     plants_raw = plants_records(sheets, "A1:AZ")
     inverters_raw = inverters_records(sheets, "A1:Z")
+    return portfolio_from_records(plants_raw, inverters_raw)
 
+
+def portfolio_from_records(plants_raw, inverters_raw) -> Portfolio:
+    """The record lists (dicts keyed by column name — what the config
+    door returns, or the JSON snapshot the Pi keeps) -> Portfolio.
+    v214: split out so the Pi's outage watch can run without any
+    database or sheet."""
     plants: Dict[str, PlantConfig] = {}
     for row in plants_raw:
         plant_key = normalize_text(row.get("plant_key"))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ARGIA reporting site generator — reads PostgreSQL argia_mont, writes static pages.
 
-Pages (paths map 1:1 to the future report.argia.com.mx subdomains):
+Pages (served on portal.argia.com.mx since v214; report_gen is a library there):
   /index.html            landing: fleet + sustainability overview, links (EN/ES, print-PDF)
   /financial/index.html  PPA + LaaS financial report (interactive range, EN/ES, print-PDF)
   /<key>/index.html      per-plant performance, all 10 plants, lowercase key (EN/ES, print-PDF)
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argia_logo import LOGO_URI  # official wordmark, transparent PNG data URI
 from argia_client_logos import CLIENT_LOGOS  # plant_key -> (display name, grayscale data URI)
 
-OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/monitoring.argia.com.mx/www'
+OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/portal.argia.com.mx/www'   # v214: the portal root
 DB = 'argia_mont'
 PPA = ['GTO1', 'MEX1', 'MEX2', 'NL1', 'SLP1', 'SLP2']
 CAPEX = ['GTO2', 'QRO1', 'NL2', 'MEX3', 'TAM1']

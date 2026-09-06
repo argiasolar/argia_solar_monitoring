@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.expanduser("~/argia_v2/v2"))
 
 NTFY_TOPIC = "argia-reportwatch-x9k24fq7"
 STATE_FILE = os.path.expanduser("~/report_watch/ppa_state.json")
+PORTFOLIO_JSON = os.path.expanduser("~/report_watch/portfolio.json")   # v214
 WATCH_STATE = os.path.expanduser("~/report_watch/state")
 STALL_SEC = 55 * 60          # counter frozen this long => alert
 REALERT_SEC = 2 * 3600
@@ -125,11 +126,13 @@ def main() -> int:
     if not (DAY_START <= hour <= DAY_END):
         return 0                    # night: zero production is normal
 
-    from argia.core.config import load_portfolio
-    from argia.core.sheets import SheetsClient
-    sheets = SheetsClient(
-        sheet_id=os.environ.get("GOOGLE_SHEET_ID_V2", "").strip())
-    plants = [p for p in load_portfolio(sheets).active_plants()
+    # v214: the workbook is retired — the plant list comes from the
+    # portfolio snapshot pulled nightly with the backups (pull_backup.sh)
+    from argia.core.config import portfolio_from_records
+    with open(PORTFOLIO_JSON, encoding="utf-8") as fh:
+        snap = json.load(fh)
+    plants = [p for p in portfolio_from_records(
+        snap.get("plants", []), snap.get("inverters", [])).active_plants()
               if p.portfolio == "PPA"]
     log("outage mode: checking %d PPA plant(s)" % len(plants))
 

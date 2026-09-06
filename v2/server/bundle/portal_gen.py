@@ -34,7 +34,6 @@ import monitoring_gen as MG                        # noqa: E402  (loads PG)
 
 t, ti, ico, tile, pill = C.t, C.ti, C.ico, C.tile, C.pill
 PPA, CAPEX = RG.PPA, RG.CAPEX
-LEGACY = C.LEGACY
 
 
 def name(k):
@@ -107,10 +106,10 @@ def landing():
          'Personas, plantas, finanzas, CFE y tarifas, sistema.', ''),
     ]
     cards = ''.join(f'''
-   <a href="{path}" class="card dest" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
+   <a href="{path}" id="tile-{key}" class="card dest" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
     <div style="display:flex;align-items:center;justify-content:space-between"><span style="width:44px;height:44px;border-radius:11px;background:#e6f7f5;display:flex;align-items:center;justify-content:center">{ico(key, 24, "#05847d", 1.9)}</span><span style="color:#b6bec8">{ico("arrow", 18)}</span></div>
     <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-weight:800;font-size:19px;color:var(--deep)">{t(en, es)}</span><span class="mono muted">{html.escape(ext) if ext else path.rstrip("/")}</span></div>
-    <div style="font-size:13.5px;color:var(--ink2)">{t(ben, bes)}</div>
+    <div class="tblurb" style="font-size:13.5px;color:var(--ink2)" data-en="{html.escape(ben, quote=True)}" data-es="{html.escape(bes, quote=True)}">{html.escape(ben)}</div>
    </a>''' for key, en, es, path, ben, bes, ext in dests)
     body = f'''
 <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
@@ -124,7 +123,7 @@ def landing():
  <span style="flex:1;font-size:14px">{t("Ask ARGIA anything about the fleet", "Pregunta a ARGIA lo que quieras sobre la flota")} — <b style="color:#fff">"{t("Why did Taigene produce less yesterday?", "¿Por qué Taigene produjo menos ayer?")}"</b></span>
  <span class="askin">{t("Ask a question…", "Haz una pregunta…")}<span style="flex:1"></span><span class="mono">Ctrl K</span></span>
 </a>
-<footer class="pf mono muted" style="padding:32px 0 0"><span>ARGIA · Zapopan, MX</span><a href="{LEGACY}/" class="legacy">{ico("ext", 12)} {t("old site (until the switch)", "sitio anterior (hasta el cambio)")}</a></footer>'''
+<footer class="pf mono muted" style="padding:32px 0 0"><span>ARGIA · Zapopan, MX</span></footer>'''
     return C.page('Portal', body, None)
 
 
@@ -191,8 +190,7 @@ def report_overview(keys=None, on='', title_en='Fleet overview', title_es='Resum
  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h2 class="ct">{t("Monthly production", "Producción mensual")} · {RG.asof[:4]}</h2><span class="muted" style="font-size:12px">MWh · {t("grey = expected (contract / prior year); current month: actual over expected · hover a bar", "gris = esperado (contrato / año anterior); mes en curso: real sobre esperado · pasa el cursor por una barra")}</span></div>
  <div style="overflow-x:auto">{RG.columns_svg(y12, "MWh", scale=1000.0, show_values=True, month_names=True, flags=yfl, cur_expected=cur_exp)}</div>
 </div>
-<div style="margin-top:16px">{plant_table(keys, RG.asof)}</div>
-<div style="margin-top:16px" class="muted">{C.legacy_link("/", "compare with the old landing page", "comparar con la página anterior")}</div>'''
+<div style="margin-top:16px">{plant_table(keys, RG.asof)}</div>'''
     return C.page('Report', body, 'report', on)
 
 
@@ -256,7 +254,7 @@ def financial_report():
 
 
 # -------------------------------------------------------------- invoices
-OLD_INVOICES_DIR = '/www/hosting/monitoring.argia.com.mx/www/invoices'
+OLD_INVOICES_DIR = '/www/hosting/portal.argia.com.mx/www/invoices'    # v214: a real directory in the portal root
 
 
 def invoice_records():
@@ -442,7 +440,7 @@ def monitoring_overview(which=''):
     body = f'''
 <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
  <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Live", "En vivo")} · {MG.NOW_MX.strftime("%H:%M")} MX · {t("refreshes every 5 min", "se actualiza cada 5 min")}</div><h1 class="pt">{t("Fleet now", "Flota ahora")} — {fmt(power)} kW</h1></div>
- <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill crit">{ico("bell", 14, "currentColor", 2.2)} {crit} {t("critical", "críticas")}</span><span class="pill warn">{warn} {t("warnings", "avisos")}</span>{C.legacy_link("/monitoring/", "old monitoring", "monitoreo anterior")}</div>
+ <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill crit">{ico("bell", 14, "currentColor", 2.2)} {crit} {t("critical", "críticas")}</span><span class="pill warn">{warn} {t("warnings", "avisos")}</span></div>
 </div>
 {secs}'''
     return C.page('Monitoring', body, 'monitoring', which, refresh=300)

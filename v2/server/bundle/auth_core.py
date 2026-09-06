@@ -85,6 +85,9 @@ except ImportError:                       # tests importing auth_core alone
     _SLUGS = {}
 PREFIX_AREA.update({
     '/report/': ALL, '/assets/': ALL,
+    # v214 (Tomasz): the CFE tariff explorer is open to every signed-in
+    # user, as the old /cfe/ page was — the rest of Setup stays ADMIN
+    '/setup/cfe/': ALL,
     '/report/financial/': 'financial', '/report/invoices/': 'financial',
     '/map/': 'financial',
     '/report/capex/': 'capex', '/monitoring/capex/': 'capex',

@@ -547,7 +547,9 @@ def page(body, msg='', once=None, title=None, sub=None):
                 f'<div class="kicker">{PC.t("Setup", "Configuración")}</div>'
                 f'<h1 class="pt">{PC.t(t_en, t_es)}</h1>'
                 f'<div class="muted">{PC.t(s_en, s_es)}</div></div>')
-        extra = ('<style>' + PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody') + '</style>')
+        # the drawer's own anchor-chip row duplicates the folder tabs here
+        extra = ('<style>' + PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody')
+                 + '.setupbody .tabbar{display:none}</style>')
         return PC.page(t_en, head + f'<div class="setupbody">{once_html}{msg_html}{body}</div>',
                        'setup', _portal_drawer(), extra_head=extra)
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">

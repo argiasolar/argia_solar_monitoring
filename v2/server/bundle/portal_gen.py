@@ -119,6 +119,11 @@ def landing():
  <div class="muted" style="font-size:15px">{t("Where would you like to go?", "¿A dónde quieres ir?")}</div>
 </div>
 <div class="grid g3" style="margin-top:28px;gap:16px">{cards}</div>
+<a class="askbar askonly" href="/ask/" style="margin-top:28px;color:#e6f7f5">
+ <span style="width:36px;height:36px;border-radius:9px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex:0 0 36px">{ico("ask", 20, "#053b38", 2.2)}</span>
+ <span style="flex:1;font-size:14px">{t("Ask ARGIA anything about the fleet", "Pregunta a ARGIA lo que quieras sobre la flota")} — <b style="color:#fff">"{t("Why did Taigene produce less yesterday?", "¿Por qué Taigene produjo menos ayer?")}"</b></span>
+ <span class="askin">{t("Ask a question…", "Haz una pregunta…")}<span style="flex:1"></span><span class="mono">Ctrl K</span></span>
+</a>
 <footer class="pf mono muted" style="padding:32px 0 0"><span>ARGIA · Zapopan, MX</span><a href="{LEGACY}/" class="legacy">{ico("ext", 12)} {t("old site (until the switch)", "sitio anterior (hasta el cambio)")}</a></footer>'''
     return C.page('Portal', body, None)
 
@@ -298,6 +303,41 @@ def map_page():
     return C.page('Map', head + MG.portfolio_page(skin='portal'), 'map', refresh=300)
 
 
+# ------------------------------------------------------ live plant page
+def monitoring_plant(k, d):
+    """monitoring_gen.plant_page(skin='portal') under the portal chrome:
+    photo, banners, KPIs, intraday chart, inverter table (vendor-portal
+    links), open alerts, last 7 days, daily reconciliation. Links inside
+    the body use the plant code; the portal speaks slugs."""
+    parts = MG.plant_page(k, d, skin='portal')
+    p = MG.PLANTS[k]
+    live = parts['live']
+    code_path, slug_path = f'/monitoring/{k.lower()}/', f'/monitoring/{C.slug(k)}/'
+    body = parts['body'].replace(code_path, slug_path)
+    picker = parts['picker'].replace(code_path, slug_path)
+    buttons = parts['buttons'].replace(code_path, slug_path)
+    head = f'''
+<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px">
+ <div style="display:flex;flex-direction:column;gap:2px">
+  <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h1 class="pt">{html.escape(name(k))}</h1><span class="pill {"ok" if p.get("portfolio") == "PPA" else "off"}">{html.escape(str(p.get("portfolio") or ""))}</span><span class="pill {"ok" if live else "off"}">{t("live", "en vivo") if live else t("archived day", "día archivado")}</span></div>
+  <div class="muted">{html.escape(C.location_of(p["customer"]))} · {p["kwp"]:,.1f} kWp · {html.escape(str(p.get("brand") or ""))} · {d} · <span class="mono">{k}</span></div>
+ </div>
+ <div style="flex:1"></div>
+ <div class="monctl" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">{picker}{buttons}<a class="btn" href="/report/{C.slug(k)}/">{ico("report", 15, "#053b38", 2)} {t("Open report", "Abrir reporte")}</a></div>
+</div>'''
+    extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + MON_OVERRIDES + '</style>'
+    return C.page(name(k), head + f'<div class="monbody">{body}</div>', 'monitoring', '',
+                  refresh=(300 if live else 0), extra_head=extra)
+
+
+MON_OVERRIDES = '''
+.monbody .pill.good{background:#e6f7f5;color:#05847d}.monbody .pill.warn{background:#fff4e0;color:#b26a00}.monbody .pill.bad{background:#fdeaea;color:#c2554e}
+.monbody .card{border-radius:12px;border-color:#e3e6ea}.monbody .kpi .v{color:#1a1d23}.monbody a{color:#05847d}
+.monctl input[type=date]{border:1px solid #d2d7dd;border-radius:8px;padding:8px 10px;font:600 13px inherit;font-family:inherit;background:#fff}
+.monctl .btn{background:#fff;color:#41474f;border:1px solid #d2d7dd;font-weight:600;padding:9px 14px}.monctl a.btn:last-child{background:#05b1a9;color:#053b38;border-color:#05b1a9;font-weight:800}
+'''
+
+
 # --------------------------------------------------------- monitoring pages
 def mon_tile(k):
     cls, en, es = MG.semaphore(k)
@@ -396,7 +436,11 @@ def main():
         write(f'report/{C.slug(k)}/index.html', plant_report(k)); n += 1
         # the code is an internal alias: /report/gto1/ -> /report/taigene/
         write(f'report/{k.lower()}/index.html', C.redirect_page(f'/report/{C.slug(k)}/', name(k), name(k))); n += 1
-        write(f'monitoring/{C.slug(k)}/index.html', C.redirect_page(f'{LEGACY}/monitoring/{k.lower()}/', f'{name(k)} — old site', f'{name(k)} — sitio anterior')); n += 1
+        write(f'monitoring/{C.slug(k)}/index.html', monitoring_plant(k, MG.TODAY)); n += 1
+        write(f'monitoring/{k.lower()}/index.html', C.redirect_page(f'/monitoring/{C.slug(k)}/', name(k), name(k))); n += 1
+        for d in MG.DATES:
+            if d != MG.TODAY:
+                write(f'monitoring/{C.slug(k)}/d/{d}.html', monitoring_plant(k, d)); n += 1
     write('engine/index.html', C.redirect_page(C.ENGINE_URL, 'Engine', 'Engine')); n += 1
     write('ags/index.html', C.redirect_page(C.AGS_URL, 'ARGIA Golden Standard', 'ARGIA Golden Standard')); n += 1
     print(f'portal_gen: wrote {n} pages under {OUTROOT}')

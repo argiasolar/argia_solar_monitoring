@@ -173,7 +173,7 @@ class TestV209:
         revenue, alerts or plant names on the front door."""
         src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         body = src[src.index("def landing():"):src.index("# ------------------------------------------------------------- report pages")]
-        for forbidden in ("fleet_now(", "open_alerts(", "RG.atoms", "RG.monthly_kwh", "semaphore(", "CLIENT_LOGOS", "logo(", "askbar"):
+        for forbidden in ("fleet_now(", "open_alerts(", "RG.atoms", "RG.monthly_kwh", "semaphore(", "CLIENT_LOGOS", "logo("):
             assert forbidden not in body, forbidden
         assert 'id="gname"' in body and "Good morning" in body and "Buenos días" in body
         for dest in ("/report/", "/monitoring/", "/map/", "/engine/", "/ags/", "/setup/"):
@@ -271,3 +271,26 @@ class TestV210:
         assert "def portfolio_page(skin='old'):" in mg and "if skin == 'portal':" in mg
         ip = (V2 / "scripts/invoice_publish.py").read_text(encoding="utf-8")
         assert "def index_body(months, blocked_now=None, records=None, zips=None, base=\"\"):" in ip
+
+
+# ------------------------------------------------------------- v211 rules
+class TestV211:
+    def test_live_plant_pages_and_archive_days_on_the_portal(self):
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "MG.plant_page(k, d, skin='portal')" in src
+        assert "write(f'monitoring/{C.slug(k)}/index.html', monitoring_plant(k, MG.TODAY))" in src
+        assert "write(f'monitoring/{C.slug(k)}/d/{d}.html', monitoring_plant(k, d))" in src
+        assert "write(f'monitoring/{k.lower()}/index.html', C.redirect_page(f'/monitoring/{C.slug(k)}/'" in src
+        # the body's code links become slug links; the old page is untouched
+        assert "parts['body'].replace(code_path, slug_path)" in src
+        mg = (V2 / "server/monitoring_gen.py").read_text(encoding="utf-8")
+        assert "def plant_page(pk, d, skin='old'):" in mg and "return page(meta['customer'], body, sub, refresh=live)" in mg
+
+    def test_ask_bar_is_back_on_the_landing_page(self):
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        body = src[src.index("def landing():"):src.index("# ------------------------------------------------------------- report pages")]
+        assert 'class="askbar askonly" href="/ask/"' in body
+
+    def test_setup_hides_the_duplicate_anchor_row_on_the_portal(self):
+        sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
+        assert ".setupbody .tabbar{display:none}" in sa

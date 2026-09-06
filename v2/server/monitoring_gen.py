@@ -889,8 +889,11 @@ def alerts_card(pk):
 
 
 # ----------------------------------------------------------- plant page
-def plant_page(pk, d):
-    """One plant, one day. d == TODAY -> live page with live KPIs."""
+def plant_page(pk, d, skin='old'):
+    """One plant, one day. d == TODAY -> live page with live KPIs.
+    skin='portal' (v211) returns the parts for portal.argia.com.mx:
+    {'picker', 'buttons', 'body', 'sub', 'live'} — same content, the
+    portal adds its own header and chrome."""
     meta = PLANTS[pk]
     live = d == TODAY
     invs = LATEST.get(d, {}).get(pk, [])
@@ -1010,12 +1013,15 @@ def plant_page(pk, d):
     ph = photo_uri(pk)
     photo = (f'<img class="pphoto" src="{ph}" alt="{esc(meta["customer"])}"'
              ' loading="lazy">') if ph and live else ''
+    live_btn = (f'<a class="btn" href="{BASE}/{pk.lower()}/" data-en="Live" data-es="En vivo">Live</a>' if not live else '')
     body = controls(
         date_picker(pk, d)
-        + (f'<a class="btn" href="{BASE}/{pk.lower()}/" data-en="Live" data-es="En vivo">Live</a>' if not live else '')
+        + live_btn
         + ref_btn
         + f'<a class="btn primary" href="{REPORT_BASE}/{pk.lower()}/" '
           'data-en="Open report ↗" data-es="Abrir reporte ↗">Open report ↗</a>')
+    if skin == 'portal':
+        body = ''
     body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
@@ -1030,6 +1036,9 @@ def plant_page(pk, d):
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th data-en="Compl." data-es="Compl.">Compl.</th><th>Δ%</th><th>Status</th></tr>{recon_rows}</table>
 <p class="note" data-en="The vendor cumulative counter is the billing control; interval data is analytics. A gap in our collection can never shrink an invoice."
  data-es="El contador acumulado del fabricante es el control de facturación; los intervalos son analítica.">The vendor cumulative counter is the billing control; interval data is analytics.</p></div>'''
+    if skin == 'portal':
+        return {'picker': date_picker(pk, d), 'buttons': live_btn + ref_btn,
+                'body': body, 'sub': sub, 'live': live}
     return page(meta['customer'], body, sub, refresh=live)
 
 

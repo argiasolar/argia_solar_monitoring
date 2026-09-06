@@ -76,6 +76,8 @@ class TestKnowledge:
         assert K.tsquery("What does AGS-104 say about PR_STC?") == "what:* | does:* | ags:* | 104:* | say:* | about:* | pr:* | stc:*"
         assert K.tsquery("") == ""
         assert "/*tag:knowledge_search*/" in q
+        # psql -A -t splits output on newlines: the body must come back on one line
+        assert "regexp_replace(body, E'[\\n\\t]+', ' ', 'g')" in q
         assert "LIMIT 10" in K.search_sql("x", "xx", 99)          # clamped, unknown lang -> en
 
     def test_excerpt_centres_on_the_query(self):

@@ -157,7 +157,9 @@ def search_sql(query: str, lang: str = "en", limit: int = 5, doc: str = AGS_DOC)
     limit = max(1, min(int(limit), 10))
     return (
         "/*tag:knowledge_search*/ "
-        "SELECT n, title, body, round(ts_rank_cd(tsv, q, 32)::numeric, 4) AS rank"
+        "SELECT n, regexp_replace(title, E'[\\n\\t]+', ' ', 'g'),"
+        " regexp_replace(body, E'[\\n\\t]+', ' ', 'g'),"        # psql rows are line-split: no newlines
+        " round(ts_rank_cd(tsv, q, 32)::numeric, 4) AS rank"
         f" FROM knowledge, to_tsquery('simple', {tq}) q"
         f" WHERE doc={_txt(doc)} AND lang={_txt(lang)}"
         f" AND (tsv @@ q OR body ILIKE '%' || {q} || '%' OR title ILIKE '%' || {q} || '%')"

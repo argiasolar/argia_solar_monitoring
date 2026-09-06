@@ -1,53 +1,28 @@
-# ARGIA v2 jobs — APPEND these lines with `crontab -e`.
-# NEVER run `crontab <file>`: it REPLACES the whole table and would
-# silently kill the v1 lines still living on this Pi.
+# ARGIA Pi crontab — the Pi is the OFF-SITE vantage point since the
+# 2026-08-26 decommission: it runs nothing that pio06 runs. Edit with
+# `crontab -e`; NEVER run `crontab <file>` (it replaces the whole table).
 #
-# Pi system timezone must be America/Mexico_City (check: timedatectl).
-# Times below are MX local, transcribed 1:1 from the Actions schedules.
+# v217.1 (2026-09-06 check-up): every job must run FROM THE REPO CHECKOUT
+# (~/argia_v2) so deploy.sh keeps it current. A copy in ~/report_watch
+# probed report.argia.com.mx for two days after the portal switch and
+# pushed a false "DOWN" every hour.
 #
-# Enable ONE JOB AT A TIME, disabling the matching GitHub Actions
-# schedule in the same hour (see docs/PI_MIGRATION.md).
+# Pi system timezone: America/Mexico_City (check: timedatectl).
 
-# deploy: follow origin/main (safe to enable first — changes nothing else)
+# deploy: follow origin/main (every 10 min; does nothing unless main moved)
 */10 * * * * /home/zemel/argia_v2/v2/pi/deploy.sh
 
-# telemetry — every 5 min, 05:00-21:55
-#*/5 5-21 * * * /home/zemel/argia_v2/v2/pi/run_job.sh telemetry telemetry_5m.py
+# portal watchdog — is https://portal.argia.com.mx/login answering? ntfy on DOWN/UP
+*/5 * * * * /home/zemel/argia_v2/v2/pi/report_watch/report_watch.sh >> /home/zemel/argia_logs/report_watch.log 2>&1
 
-# dashboard tabs + HTML publish — every 10 min (06:02-20:52), offset +2
-# so each build sees the poll that just landed. Was :05/:35 on Actions
-# purely for scheduler economics; on the Pi the constraint is Sheets
-# quota, which has ample headroom at this rate.
-#2,12,22,32,42,52 6-20 * * * /home/zemel/argia_v2/v2/pi/run_job.sh dashboard dashboard_update.py --apply && /home/zemel/argia_v2/v2/pi/run_job.sh dashpub dashboard_html_publish.py --apply
+# outage-mode PPA watch — only acts while the server is down (daylight)
+*/30 8-19 * * * /home/zemel/argia_v2/v2/pi/report_watch/ppa_watch.sh >> /home/zemel/argia_logs/ppa_watch.log 2>&1
 
-# acute alerts — every 30 min, 07:00-19:30
-#0,30 7-19 * * * /home/zemel/argia_v2/v2/pi/run_job.sh alerts-snap alerts_snapshot.py
+# off-site backups — nightly pull of the DB dump, auth DB, portfolio snapshot, report PDFs
+0 22 * * * /home/zemel/argia_v2/v2/pi/db_backups/pull_backup.sh >> /home/zemel/argia_logs/db_backup_pull.log 2>&1
 
-# KPI end-of-day (dense irradiance) — 06:00
-#0 6 * * * /home/zemel/argia_v2/v2/pi/run_job.sh kpi kpi_eod.py --dense-irradiance
+# CFE tariff fetcher (its own tree in ~/cfe — see pi/cfe/README.md)
+10 8 * * * /home/zemel/cfe/cfe_daily.sh
 
-# daily alert tier — 06:30
-#30 6 * * * /home/zemel/argia_v2/v2/pi/run_job.sh alerts-daily alerts_daily.py
-
-# morning report (yesterday, KPI-exact) — 07:05
-#5 7 * * * /home/zemel/argia_v2/v2/pi/run_job.sh report-am report_daily.py --when yesterday
-
-# evening report (today) — 20:45
-#45 20 * * * /home/zemel/argia_v2/v2/pi/run_job.sh report-pm report_daily.py --when today
-
-# monthly customer invoices — 1st of the month, 07:30 (AFTER kpi_eod at
-# 06:00 stamps the last day of the closed month). One invoice_<plant>_
-# <YYYY-MM>.html per PPA plant for the month that just ended, written to
-# the served directory. On-demand annual annex is separate (run by hand:
-# report_invoice_annex.py --plant MEX2 --year 2026).
-#30 7 1 * * /home/zemel/argia_v2/v2/pi/run_job.sh invoice report_invoice_annex.py --last-month --out-dir /home/zemel/argia_invoices
-
-# telemetry archive + retention — daily 03:00 (quiet: outside the
-# 05:00-21:55 polling window). Archives raw telemetry older than 10 days
-# to Drive as daily CSVs, then prunes it from the sheet. Keeps the
-# workbook well under the 10M-cell ceiling. Run once by hand WITHOUT
-# --apply first to read the plan, then enable this line.
-#0 3 * * * /home/zemel/argia_v2/v2/pi/run_job.sh telemetry-archive telemetry_archive.py --apply --include-argia
-
-# log hygiene — SD cards die of log diarrhea; keep 14 days
+# log hygiene — SD cards die of log diarrhea
 17 3 * * * find /home/zemel/argia_logs -name '*.log' -size +5M -exec truncate -s 1M {} \;

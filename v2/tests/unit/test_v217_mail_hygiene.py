@@ -329,3 +329,27 @@ class TestSourceInvariants:
         lm = (V2 / "argia/alerts/ledger_mail.py").read_text(encoding="utf-8")
         assert 'f"{plant_key} · {name}" if name else plant_key' not in lm
         assert "return _names(labels).plant_full(plant_key)" in lm
+
+
+class TestV217_1PiFollowUp:
+    """What the Pi check-up found (2026-09-06): the Pi does NOT self-update
+    (deploy cron off since the decommission) and its watchdog ran from a
+    copy still probing report.argia.com.mx (301 -> 47 false FAILs, hourly
+    "DOWN" pushes); portfolio_latest.json never existed because
+    argia-dbdump had no HOME for run_job.sh."""
+
+    def test_every_run_job_unit_sets_home(self):
+        import re
+        bundle = V2 / "server/bundle"
+        for f in sorted(bundle.glob("*.service")):
+            src = f.read_text(encoding="utf-8")
+            if re.search(r"ExecStart=.*(run_job\.sh|db_backup\.sh)", src):
+                assert "Environment=HOME=/root" in src, f"{f.name}: run_job.sh needs HOME under systemd"
+
+    def test_pi_cron_example_runs_the_watchdog_from_the_repo(self):
+        """The Pi's crontab must call the repo checkout, never a copy in
+        ~/report_watch — the copy is how v214/v217 never reached it."""
+        ex = (V2 / "pi/crontab.example").read_text(encoding="utf-8")
+        assert "argia_v2/v2/pi/report_watch/report_watch.sh" in ex
+        assert "argia_v2/v2/pi/report_watch/ppa_watch.sh" in ex
+        assert "argia_v2/v2/pi/deploy.sh" in ex

@@ -21,20 +21,19 @@ class TestPiKit:
             assert path.exists(), rel
             subprocess.run(["bash", "-n", str(path)], check=True)
 
-    def test_crontab_flags_match_real_script_interfaces(self):
+    def test_crontab_is_the_post_decommission_shape(self):
+        """v217.1: since 2026-08-26 the Pi runs no collection/report job —
+        pio06's systemd does. What remains must run from the repo checkout
+        (deploy.sh keeps it current); no ~/report_watch copies."""
         cron = _read("pi/crontab.example")
-        # apply-by-default scripts must get NO flag
-        for line_frag in ("telemetry telemetry_5m.py",
-                          "alerts-snap alerts_snapshot.py",
-                          "alerts-daily alerts_daily.py"):
-            line = next(l for l in cron.splitlines() if line_frag in l)
-            assert "--apply" not in line and "--dry-run" not in line
-        # opt-in scripts must get their real flags
-        assert "dashboard_update.py --apply" in cron
-        assert "dashboard_html_publish.py --apply" in cron
-        assert "kpi_eod.py --dense-irradiance" in cron
-        assert "report_daily.py --when yesterday" in cron
-        assert "report_daily.py --when today" in cron
+        active = [l for l in cron.splitlines() if l and not l.startswith("#")]
+        assert any("argia_v2/v2/pi/deploy.sh" in l for l in active)
+        assert any("argia_v2/v2/pi/report_watch/report_watch.sh" in l for l in active)
+        assert any("argia_v2/v2/pi/report_watch/ppa_watch.sh" in l for l in active)
+        assert any("argia_v2/v2/pi/db_backups/pull_backup.sh" in l for l in active)
+        assert not any("/home/zemel/report_watch/" in l for l in active)
+        for retired in ("telemetry_5m.py", "alerts_snapshot.py", "kpi_eod.py", "report_daily.py"):
+            assert retired not in cron, f"{retired} runs on pio06 now"
 
     def test_crontab_never_suggests_table_replacement(self):
         cron = _read("pi/crontab.example")

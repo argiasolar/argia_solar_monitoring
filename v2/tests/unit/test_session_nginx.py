@@ -118,7 +118,9 @@ class TestTheWayIn:
 
     def test_nothing_else_skips_the_check(self):
         """Every `auth_request off` is a hole in the login; count them."""
-        allowed = {"/login", "/logout", "/session/whoami",
+        # /session/lang (v209) checks the cookie inside auth_app itself,
+        # exactly like /session/whoami
+        allowed = {"/login", "/logout", "/session/whoami", "/session/lang",
                    "/logged-out.html", "/no-access.html",
                    "/favicon.ico", "/favicon.svg"}
         holes = set()

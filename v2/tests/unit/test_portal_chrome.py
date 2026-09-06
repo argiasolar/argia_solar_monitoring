@@ -43,7 +43,7 @@ class TestHeader:
 
     def test_language_and_logout_live_in_the_you_menu_only(self):
         h = C.header("report")
-        assert h.count("setLang('en')") == 1 and h.count("argiaLogout()") == 1
+        assert h.count("setLang('en',true)") == 1 and h.count("argiaLogout()") == 1
         assert "My account" in h
 
 
@@ -159,3 +159,53 @@ class TestWiring:
     ])
     def test_portal_paths_keep_the_same_grants(self, uri, area):
         assert ac.area_for_path(uri) == area
+
+
+# ------------------------------------------------------------- v209 rules
+class TestV209:
+    def test_landing_carries_no_fleet_data(self):
+        """Designers, sales and office staff land here: no production,
+        revenue, alerts or plant names on the front door."""
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        body = src[src.index("def landing():"):src.index("# ------------------------------------------------------------- report pages")]
+        for forbidden in ("fleet_now(", "open_alerts(", "RG.atoms", "RG.monthly_kwh", "semaphore(", "CLIENT_LOGOS", "logo(", "askbar"):
+            assert forbidden not in body, forbidden
+        assert 'id="gname"' in body and "Good morning" in body and "Buenos días" in body
+        for dest in ("/report/", "/monitoring/", "/map/", "/engine/", "/ags/", "/setup/"):
+            assert f'href="{dest}"' in body or f"'{dest}'" in body, dest
+
+    def test_engine_and_ags_destinations(self):
+        assert C.ENGINE_URL == "https://engine.sprinkler.agency/"
+        assert C.AGS_URL.startswith("https://sprinkler.agency/argiagoldenstandard/")
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "C.redirect_page(C.ENGINE_URL" in src and "C.redirect_page(C.AGS_URL" in src
+
+    def test_greeting_name_and_language_come_from_the_account(self):
+        assert "d.first" in C.JS and "getElementById('gname')" in C.JS
+        assert "if(!stored&&d.lang){setLang(d.lang);}" in C.JS
+        assert "fetch('/session/lang'" in C.JS and "setLang('en',true)" in C.user_menu()
+        auth = (BUNDLE / "auth_app.py").read_text(encoding="utf-8")
+        assert "@app.post('/session/lang')" in auth and "'lang': u.get('lang', 'en')" in auth
+        assert "ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'" in (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
+        assert "location = /session/lang" in (BUNDLE / "nginx-argia_session.conf").read_text(encoding="utf-8")
+
+    def test_charts_paint_in_the_portal_palette(self):
+        # report_gen's SVG fragments fill with var(--s1) / var(--s2): black without these
+        assert "--s1:#05b1a9" in C.CSS and "--s2:#eb6834" in C.CSS and "--surface:#fff" in C.CSS
+
+    def test_folder_tabs(self):
+        assert "border-radius:9px 9px 0 0" in C.CSS and ".tab.on{" in C.CSS
+
+    def test_table_logo_column_aligns_names(self):
+        assert ".lcell .lbox{width:84px" in C.CSS
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert 'class="lcell"><span class="lbox">{logo(k)}</span>' in src
+
+    def test_plant_page_is_one_implementation_two_skins(self):
+        rg = (V2 / "server/bundle/report_gen.py").read_text(encoding="utf-8")
+        assert "def plant_parts(k):" in rg and "def plant_page(k):" in rg
+        old = rg[rg.index("def plant_page(k):"):]
+        assert "plant_parts(k)" in old and "pdf_bottom()" in old       # old page still complete
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "RG.plant_parts(k)" in src and "write(f'report/{C.slug(k)}/index.html', plant_report(k))" in src
+        assert "write(f'report/{k.lower()}/index.html', C.redirect_page(f'/report/{C.slug(k)}/'" in src

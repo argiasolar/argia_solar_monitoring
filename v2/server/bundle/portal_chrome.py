@@ -22,6 +22,8 @@ import unicodedata
 
 PORTAL_HOST = 'portal.argia.com.mx'
 LEGACY = 'https://report.argia.com.mx'
+ENGINE_URL = 'https://engine.sprinkler.agency/'
+AGS_URL = 'https://sprinkler.agency/argiagoldenstandard/ARGIA_Golden_Standard_Designer_Training_WHITE.html'
 
 # plant code -> URL slug. Static on purpose: slugs are identifiers
 # (links, mails, the auth map) and must not move when a customer
@@ -44,7 +46,7 @@ SECTIONS = {
         ('', 'Overview', 'Resumen'), ('ppa', 'PPA', 'PPA'), ('capex', 'CAPEX', 'CAPEX')]),
     'map': ('Map', 'Mapa', []),
     'engine': ('Engine', 'Engine', []),
-    'ags': ('Golden Standard', 'Golden Standard', []),
+    'ags': ('ARGIA Golden Standard', 'ARGIA Golden Standard', []),
     'setup': ('Setup', 'Configuración', [
         ('', 'You', 'Tú'), ('users', 'Users', 'Usuarios'), ('plants', 'Plants', 'Plantas'),
         ('finance', 'Finance', 'Finanzas'), ('cfe', 'CFE & tariffs', 'CFE y tarifas'),
@@ -140,7 +142,10 @@ def ico(name, size=20, color='currentColor', sw=1.8):
 
 # ------------------------------------------------------------------- css
 CSS = '''
-:root{--teal:#05b1a9;--teal2:#05847d;--deep:#053b38;--bg:#eef0f3;--ink:#1a1d23;--ink2:#41474f;--muted:#6b7480;--line:#e3e6ea;--line2:#d2d7dd;}
+:root{--teal:#05b1a9;--teal2:#05847d;--deep:#053b38;--bg:#eef0f3;--ink:#1a1d23;--ink2:#41474f;--muted:#6b7480;--line:#e3e6ea;--line2:#d2d7dd;
+ /* tokens the report_gen fragments (charts, plant page) paint with */
+ --s1:#05b1a9;--s2:#eb6834;--surface:#fff;--border:#e3e6ea;--grid:#eceef0;--axis:#d5d9dd;--warn:#f0a83b;
+ --green-bg:#e6f7f5;--green-tx:#05847d;--amber-bg:#fff4e0;--amber-tx:#b26a00;--laas-bg:#efe6fb;--laas-tx:#6b3fb5;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--teal2);text-decoration:none}a:hover{color:var(--deep)}
@@ -167,9 +172,10 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .hbtns{display:flex;gap:8px;align-items:center;position:relative;margin-left:auto}
 .ib{width:40px;height:40px;border-radius:10px;border:1px solid var(--line2);background:#fff;display:flex;align-items:center;justify-content:center;color:var(--ink2);cursor:pointer;padding:0}
 .ib:hover{border-color:var(--teal)}.ib.ask{background:var(--teal);border-color:var(--teal);color:var(--deep)}
-.tabs{max-width:1280px;margin:0 auto;padding:0 28px;display:flex;gap:22px;overflow-x:auto}
-.tab{padding:10px 2px 12px;font-weight:600;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
-.tab.on{color:var(--deep);border-bottom-color:var(--teal)}.tab:hover{color:var(--deep)}
+/* folder tabs: the active one is the open folder, joined to the page */
+.tabs{max-width:1280px;margin:0 auto;padding:10px 28px 0;display:flex;gap:4px;overflow-x:auto;align-items:flex-end}
+.tab{padding:9px 16px;font-weight:600;font-size:13.5px;color:var(--muted);background:#f4f6f8;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;white-space:nowrap;position:relative;top:1px}
+.tab.on{color:var(--deep);background:var(--bg);border-color:var(--line2);box-shadow:inset 0 3px 0 var(--teal)}.tab:hover{color:var(--deep);background:#eef0f3}
 /* user menu */
 .umenu{display:none;position:absolute;right:0;top:48px;width:240px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(26,29,35,.14);padding:8px;z-index:50}
 .umenu.open{display:block}.umenu .uwho{padding:10px 12px 6px;display:flex;flex-direction:column}.umenu .uwho b{font-size:14px}
@@ -202,12 +208,29 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .bwhy{font-size:12px;color:var(--muted);font-weight:600}.twhy{font-size:13px;font-weight:600;color:#b26a00}.face.bad .twhy{color:#c2554e}
 /* logos & photos */
 .clogo{height:22px;width:auto;max-width:110px;object-fit:contain;display:block;filter:grayscale(1);opacity:.75;transition:filter .25s,opacity .25s}
+.lcell{display:flex;align-items:center;gap:12px;color:var(--ink)}.lcell .lbox{width:84px;flex:0 0 84px;display:flex;align-items:center}.lcell .lbox .clogo{height:18px;max-width:80px}
 .pcard:hover .clogo,.clogo.color,tr:hover .clogo{filter:none;opacity:1}
 .tphoto{width:100%;height:96px;object-fit:cover;border-radius:8px}
 /* tables */
 table{border-collapse:collapse;width:100%}th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
 td{padding:10px 12px;border-bottom:1px solid #f0f2f4;font-size:13.5px;vertical-align:middle}td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .chead{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+/* legacy fragment classes (plant page from report_gen.plant_parts) */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0}
+.tile.flip .face.front{position:relative}.tile.flip.good .face{background:#e6f7f5;border-color:#b8e6e1}.tile.flip.warn .face{background:#fff4e0;border-color:#f3dcae}.tile.flip.bad .face{background:#fdeaea;border-color:#f3b9b9}
+.tile .thero{font-size:27px;font-weight:800}
+.card h2{font-size:15px;font-weight:700;margin:0 0 6px}.card>h2,.card>.note,.card>.legend,.card>table,.card>svg,.card>div#dchart{margin-left:20px;margin-right:20px}.card>h2{padding-top:16px}.card>table{width:calc(100% - 40px);margin-bottom:16px}.card>svg,.card>#dchart{margin-bottom:16px;max-width:calc(100% - 40px)}
+.note{font-size:12.5px;color:var(--muted);margin:0 0 8px}.legend{display:flex;gap:14px;font-size:12.5px;color:var(--ink2);margin:0 0 6px;flex-wrap:wrap}
+.key{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0}.rangebar{gap:18px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px}
+.rgroup{display:flex;align-items:center;gap:6px}.rangebar .sub{font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px}
+.rangebar input.btn{background:#fff;color:var(--ink);border:1px solid var(--line2);font-weight:600;padding:7px 10px;font-size:13px}
+.rangebar .seg .btn{background:#fff;color:var(--muted);border:1px solid var(--line2);border-radius:0;margin-left:-1px;font-weight:600;padding:8px 12px}
+.rangebar .seg .btn:first-child{border-radius:8px 0 0 8px;margin-left:0}.rangebar .seg .btn:last-child{border-radius:0 8px 8px 0}.rangebar .seg .btn.active{background:#e6f7f5;color:var(--deep)}
+.rangebar .live{margin-left:auto}.rangebar .rdays{font-family:ui-monospace,monospace}
+.pdfrow{text-align:center;margin:22px 0 4px}footer{font-size:12px;color:var(--muted);margin-top:20px;line-height:1.6}
+.pill.PPA,.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
 /* ask bar */
 .askbar{padding:16px 20px;display:flex;align-items:center;gap:16px;background:var(--deep);border-color:var(--deep);color:#e6f7f5;border-radius:12px}
 .askbar .askin{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:9px;padding:10px 14px;width:420px;max-width:40%;color:#9fc9c5}
@@ -223,18 +246,21 @@ function argiaMenu(e){e.stopPropagation();const m=document.getElementById('umenu
  const o=!m.classList.contains('open');m.classList.toggle('open',o);b.setAttribute('aria-expanded',o?'true':'false');}
 document.addEventListener('click',()=>{const m=document.getElementById('umenu');if(m)m.classList.remove('open');});
 function argiaLogout(){fetch('/logout',{method:'POST',credentials:'same-origin'}).finally(()=>{location.href='/logged-out.html';});}
-function setLang(l){
+function setLang(l,save){
  document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.l===l));
  document.documentElement.lang=l==='es'?'es':'en';
  try{localStorage.setItem('argia_lang',l);}catch(e){}
+ if(save){fetch('/session/lang',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:l})}).catch(()=>{});}
 }
 window.addEventListener('DOMContentLoaded',()=>{
- let l='en';try{l=localStorage.getItem('argia_lang')||'en';}catch(e){}
- setLang(l);
+ let stored=null;try{stored=localStorage.getItem('argia_lang');}catch(e){}
+ setLang(stored||'en');
  const who=document.getElementById('uwho');
  fetch('/session/whoami',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   if(!d||!d.user){return;}
+  if(!stored&&d.lang){setLang(d.lang);}
+  const g=document.getElementById('gname');if(g){g.textContent=', '+(d.first||d.name||d.user);}
   if(who){who.querySelector('b').textContent=d.name||d.user;
    const s=who.querySelector('.mono');s.textContent=d.user;
    if(d.admin){const a=document.createElement('span');a.className='wa';a.textContent='admin';s.appendChild(document.createTextNode(' '));s.appendChild(a);
@@ -258,7 +284,7 @@ def user_menu():
  <div class="uwho"><b>…</b><span class="mono muted"></span></div>
  <a href="/setup/">{ico("user", 16)} {t("My account", "Mi cuenta")}</a>
  <div style="display:flex;align-items:center;gap:10px;padding:9px 12px">{ico("globe", 16)} {t("Language", "Idioma")}
-  <span class="seg"><button class="lang-btn" data-l="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-l="es" onclick="setLang('es')">ES</button></span></div>
+  <span class="seg"><button class="lang-btn" data-l="en" onclick="setLang('en',true)">EN</button><button class="lang-btn" data-l="es" onclick="setLang('es',true)">ES</button></span></div>
  <button class="uout" onclick="argiaLogout()">{ico("out", 16)} {t("Log out", "Cerrar sesión")}</button>
 </div>'''
 

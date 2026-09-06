@@ -83,78 +83,40 @@ def open_alerts():
 
 # ------------------------------------------------------------------ landing
 def landing():
-    keys = PPA + CAPEX
-    power, energy, online = fleet_now(keys)
-    crit, warn = open_alerts()
-    life = sum(RG.monthly_kwh.values())
-    co2 = sum(v / 1000.0 * RG.co2_factor(m2[:4], k2) for (k2, m2), v in RG.monthly_kwh.items())
-    rev = sum(a[2] for a in RG.atoms)
-    kwp = sum(RG.plants[k].get('kwp', 0) for k in keys)
+    """The portal front door (v209): who you are, where to go — and NO
+    fleet data. Designers, sales and office staff land here too."""
     now = MG.NOW_MX
-    hour = now.hour
-    greet = ('Buenos días' if hour < 12 else 'Buenas tardes' if hour < 19 else 'Buenas noches')
-    # what needs attention right now, by NAME
-    trouble = []
-    for k in keys:
-        cls, en, es = MG.semaphore(k)
-        if cls in ('bad', 'warn'):
-            trouble.append(f'<span class="pill {"crit" if cls == "bad" else "warn"}">{html.escape(name(k))} · {t(en, es)}</span>')
+    h = now.hour
+    g_en, g_es = (('Good morning', 'Buenos días') if h < 12 else
+                  ('Good afternoon', 'Buenas tardes') if h < 19 else ('Good evening', 'Buenas noches'))
     dests = [
-        ('report', 'Report', 'Reporte', '/report/', 'Overview, PPA, CAPEX, plant performance, financial, invoices.',
-         'Resumen, PPA, CAPEX, desempeño por planta, financiero, facturas.', f'{RG.asof} · {sum(v for (k2, d2), v in RG.daily.items() if d2 == RG.asof) / 1000:,.1f} MWh'),
+        ('report', 'Report', 'Reporte', '/report/', 'Fleet overview, PPA, CAPEX, plant performance, financial, invoices.',
+         'Resumen de flota, PPA, CAPEX, desempeño por planta, financiero, facturas.', ''),
         ('monitor', 'Monitoring', 'Monitoreo', '/monitoring/', 'Live inverters, alerts, temperatures, peers — every 5 minutes.',
-         'Inversores en vivo, alertas, temperaturas, pares — cada 5 minutos.', f'{online} of {len(keys)} plants online'),
+         'Inversores en vivo, alertas, temperaturas, pares — cada 5 minutos.', ''),
         ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers on hover.',
-         'La flota en un mapa, estado y cifras de hoy al pasar el cursor.', f'{len(keys)} sites'),
-        ('engine', 'Engine', 'Engine', '/engine/', 'Sizing and proposals.', 'Dimensionamiento y propuestas.', 'CFE tariffs inside'),
-        ('ags', 'Golden Standard', 'Golden Standard', '/ags/', 'The ARGIA build and O&M standard, one reference.',
-         'El estándar ARGIA de construcción y O&M, una referencia.', 'reference'),
+         'La flota en un mapa, estado y cifras de hoy al pasar el cursor.', ''),
+        ('engine', 'Engine', 'Engine', '/engine/', 'Sizing and proposals.', 'Dimensionamiento y propuestas.', 'engine.sprinkler.agency'),
+        ('ags', 'ARGIA Golden Standard', 'ARGIA Golden Standard', '/ags/', 'The ARGIA design, build and O&M standard — designer training.',
+         'El estándar ARGIA de diseño, construcción y O&M — capacitación para diseñadores.', 'sprinkler.agency'),
         ('setup', 'Setup', 'Configuración', '/setup/', 'You, users, plants, finance, CFE & tariffs, system.',
-         'Tú, usuarios, plantas, finanzas, CFE y tarifas, sistema.', 'admin'),
+         'Tú, usuarios, plantas, finanzas, CFE y tarifas, sistema.', ''),
     ]
     cards = ''.join(f'''
-   <a href="{path}" class="card{" adminonly" if key == "setup" else ""}" style="padding:20px 22px 16px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:150px">
-    <div style="display:flex;align-items:center;justify-content:space-between"><span style="width:40px;height:40px;border-radius:10px;background:#e6f7f5;display:flex;align-items:center;justify-content:center">{ico(key if key != "monitor" else "monitor", 22, "#05847d", 1.9)}</span><span style="color:#b6bec8">{ico("arrow", 18)}</span></div>
-    <div style="display:flex;align-items:baseline;gap:8px"><span style="font-weight:700;font-size:18px">{t(en, es)}</span><span class="mono muted">{path.rstrip("/")}</span></div>
-    <div style="font-size:13px;color:var(--ink2)">{t(ben, bes)}</div>
-    <div style="flex:1"></div><span class="pill ok" style="align-self:flex-start">{html.escape(fact)}</span>
-   </a>''' for key, en, es, path, ben, bes, fact in dests)
-    logos = ''.join(
-        f'<a href="/report/{C.slug(k)}/" class="card pcard" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;color:var(--ink);min-width:0" title="{html.escape(name(k))} · {RG.plants[k]["kwp"]:,.0f} kWp · {RG.plants[k]["portfolio"]}">'
-        f'{logo(k)}<span style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{html.escape(name(k))}</span>'
-        f'<span class="muted" style="font-size:11px">{RG.plants[k]["kwp"]:,.0f} kWp · {RG.plants[k]["portfolio"]}</span></a>'
-        for k in keys if k in RG.plants)
+   <a href="{path}" class="card dest" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
+    <div style="display:flex;align-items:center;justify-content:space-between"><span style="width:44px;height:44px;border-radius:11px;background:#e6f7f5;display:flex;align-items:center;justify-content:center">{ico(key, 24, "#05847d", 1.9)}</span><span style="color:#b6bec8">{ico("arrow", 18)}</span></div>
+    <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-weight:800;font-size:19px;color:var(--deep)">{t(en, es)}</span><span class="mono muted">{html.escape(ext) if ext else path.rstrip("/")}</span></div>
+    <div style="font-size:13.5px;color:var(--ink2)">{t(ben, bes)}</div>
+   </a>''' for key, en, es, path, ben, bes, ext in dests)
     body = f'''
-<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
- <div style="display:flex;flex-direction:column;gap:6px">
-  <div class="kicker">{now.strftime("%A, %d %B %Y · %H:%M")} MX</div>
-  <h1 class="pt" style="font-size:34px">{greet}.</h1>
-  <div class="muted" style="font-size:15px">{t("Fleet", "Flota")}: {fmt(power)} kW · {online}/{len(keys)} {t("plants online", "plantas en línea")}</div>
- </div>
- <div style="display:flex;gap:10px;flex-wrap:wrap">{"".join(trouble)}</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+ <div class="kicker">{now.strftime("%A, %d %B %Y")} · {now.strftime("%H:%M")} MX</div>
+ <h1 class="pt" style="font-size:34px">{t(g_en, g_es)}<span id="gname"></span>.</h1>
+ <div class="muted" style="font-size:15px">{t("Where would you like to go?", "¿A dónde quieres ir?")}</div>
 </div>
-<div class="grid g5" style="margin-top:26px">
- {tile("Fleet now", "Flota ahora", f"{fmt(power)} <span class=unit>kW</span>", f"of {kwp:,.0f} kWp · {now.strftime('%H:%M')} MX", f"de {kwp:,.0f} kWp · {now.strftime('%H:%M')} MX")}
- {tile("Today so far", "Hoy hasta ahora", f"{fmt(energy / 1000, 1)} <span class=unit>MWh</span>", "interval telemetry, all plants", "telemetría, todas las plantas")}
- {tile("Clean energy, lifetime", "Energía limpia, acumulada", f"{life / 1e6:,.2f} <span class=unit>GWh</span>", f"CO₂ avoided {co2:,.0f} t", f"CO₂ evitado {co2:,.0f} t")}
- {tile("Revenue generated", "Ingreso generado", f"$ {rev / 1e6:,.1f} <span class=unit>M MXN</span>", "PPA + LaaS · accrued", "PPA + LaaS · devengado")}
- {tile("Open alerts", "Alertas abiertas", f"{crit + warn}", f"{crit} critical · {warn} warnings", f"{crit} críticas · {warn} avisos", tone=("bad" if crit else "warn" if warn else ""))}
-</div>
-<div style="margin-top:26px;display:flex;flex-direction:column;gap:12px">
- <div class="kicker">{t("Where to", "A dónde")}</div>
- <div class="grid g3" style="gap:16px">{cards}</div>
-</div>
-<div style="margin-top:26px;display:flex;flex-direction:column;gap:12px">
- <div style="display:flex;align-items:baseline;gap:12px"><span class="kicker">{t("Your plants", "Tus plantas")}</span><span class="muted" style="font-size:12px">{t("logos are grey until you hover — each opens the plant report", "los logos están en gris hasta pasar el cursor — cada uno abre el reporte de la planta")}</span></div>
- <div class="grid" style="grid-template-columns:repeat(6,minmax(0,1fr));gap:10px">{logos}</div>
-</div>
-<div class="askbar askonly" style="margin-top:26px">
- <span style="width:36px;height:36px;border-radius:9px;background:var(--teal);display:flex;align-items:center;justify-content:center">{ico("ask", 20, "#053b38", 2.2)}</span>
- <span style="flex:1;font-size:14px">{t("Ask ARGIA anything about the fleet", "Pregunta a ARGIA lo que quieras sobre la flota")} — <b style="color:#fff">"{t("Why did Taigene produce less yesterday?", "¿Por qué Taigene produjo menos ayer?")}"</b></span>
- <a class="askin" href="/ask/">{t("Ask a question…", "Haz una pregunta…")}<span style="flex:1"></span><span class="mono">Ctrl K</span></a>
-</div>
-<footer class="pf mono muted" style="padding:24px 0 0"><span>ARGIA · Zapopan, MX · {RG.gen_at}</span><a href="{LEGACY}/" class="legacy">{ico("ext", 12)} {t("old site (until the switch)", "sitio anterior (hasta el cambio)")}</a></footer>'''
-    return C.page('Portal', body, None, refresh=300)
+<div class="grid g3" style="margin-top:28px;gap:16px">{cards}</div>
+<footer class="pf mono muted" style="padding:32px 0 0"><span>ARGIA · Zapopan, MX</span><a href="{LEGACY}/" class="legacy">{ico("ext", 12)} {t("old site (until the switch)", "sitio anterior (hasta el cambio)")}</a></footer>'''
+    return C.page('Portal', body, None)
 
 
 # ------------------------------------------------------------- report pages
@@ -174,7 +136,7 @@ def plant_table(keys, day):
     trs = ''
     for k, e, x, pct, pr, cls, en, es in plant_rows(keys, day):
         pf = RG.plants[k]['portfolio']
-        trs += (f'<tr><td><a href="/report/{C.slug(k)}/" style="display:flex;align-items:center;gap:12px;color:var(--ink)">{logo(k)}{pn(k, 13.5, True)}</a></td>'
+        trs += (f'<tr><td><a href="/report/{C.slug(k)}/" class="lcell"><span class="lbox">{logo(k)}</span>{pn(k, 13.5, True)}</a></td>'
                 f'<td><span class="pill {"ok" if pf == "PPA" else "off"}">{pf}</span></td><td class="muted">{html.escape(C.location_of(RG.plants[k]["customer"]))}</td>'
                 f'<td class="r">{fmt(e)}</td><td class="r muted">{fmt(x)}</td><td class="r">{fmt(pct) + "%" if pct is not None else "—"}</td>'
                 f'<td class="r">{fmt(pr, 2)}</td><td><span class="pill {"ok" if cls == "good" else "crit" if cls == "bad" else cls}">{t(en, es)}</span></td></tr>')
@@ -233,6 +195,30 @@ def plant_cards():
 <div style="margin-top:16px" class="muted">{t("Plant pages are still served by the old site in this phase — the link opens them there.", "Las páginas por planta todavía las sirve el sitio anterior en esta fase — el enlace las abre ahí.")}</div>'''
     return C.page('Plant performance', body, 'report', 'plants')
 
+
+
+# ------------------------------------------------------------ plant report
+def plant_report(k):
+    """The plant page on the new chrome — same data, same tiles, same
+    range engine as report_gen.plant_page (one implementation: plant_parts)."""
+    p = RG.plants[k]
+    parts = RG.plant_parts(k)
+    pf = p['portfolio']
+    head = f'''
+<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+ <div class="card" style="width:64px;height:64px;display:flex;align-items:center;justify-content:center;padding:8px">{logo(k, "clogo color")}</div>
+ <div style="display:flex;flex-direction:column;gap:2px">
+  <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h1 class="pt">{html.escape(name(k))}</h1><span class="pill {"ok" if pf == "PPA" else "off"}">{pf}</span></div>
+  <div class="muted">{html.escape(C.location_of(p["customer"]))} · {p["kwp"]:,.1f} kWp DC · {html.escape(str(p.get("brand") or ""))} · {t("data", "datos")} → {parts["last_seen"]} · <span class="mono">{k}</span></div>
+ </div>
+ <div style="flex:1"></div>
+ <a class="btn2" href="/monitoring/{C.slug(k)}/">{ico("monitor", 15)} {t("Live monitoring", "Monitoreo en vivo")}</a>
+ <button class="btn2 noprint" onclick="window.print()">{ico("print", 15)} {t("PDF · current selection", "PDF · selección actual")}</button>
+</div>'''
+    # the range bar's own "Live monitoring" button would duplicate the header's
+    controls = parts['controls'].replace(f'<a class="btn live" href="/monitoring/{k.lower()}/">', '<a class="btn live" style="display:none" href="#">')
+    body = head + controls + parts['tiles'] + parts['warn'] + ''.join(parts['body']) + parts['footer']
+    return C.page(name(k), body, 'report', 'plants')
 
 # --------------------------------------------------------- monitoring pages
 def mon_tile(k):
@@ -338,10 +324,12 @@ def main():
     for rel, (path, en, es) in legacy.items():
         write(rel, C.redirect_page(LEGACY + path, en, es)); n += 1
     for k in PPA + CAPEX:
-        write(f'report/{C.slug(k)}/index.html', C.redirect_page(f'{LEGACY}/{k.lower()}/', f'{name(k)} — old site', f'{name(k)} — sitio anterior')); n += 1
+        write(f'report/{C.slug(k)}/index.html', plant_report(k)); n += 1
+        # the code is an internal alias: /report/gto1/ -> /report/taigene/
+        write(f'report/{k.lower()}/index.html', C.redirect_page(f'/report/{C.slug(k)}/', name(k), name(k))); n += 1
         write(f'monitoring/{C.slug(k)}/index.html', C.redirect_page(f'{LEGACY}/monitoring/{k.lower()}/', f'{name(k)} — old site', f'{name(k)} — sitio anterior')); n += 1
-    write('engine/index.html', C.redirect_page('https://engine.sprinkler.agency/', 'Engine', 'Engine')); n += 1
-    write('ags/index.html', C.redirect_page('https://sprinkler.agency/', 'Golden Standard', 'Golden Standard')); n += 1
+    write('engine/index.html', C.redirect_page(C.ENGINE_URL, 'Engine', 'Engine')); n += 1
+    write('ags/index.html', C.redirect_page(C.AGS_URL, 'ARGIA Golden Standard', 'ARGIA Golden Standard')); n += 1
     print(f'portal_gen: wrote {n} pages under {OUTROOT}')
 
 

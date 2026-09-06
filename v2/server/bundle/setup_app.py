@@ -227,7 +227,10 @@ def db():
                 # every page so nobody has to guess who is signed in
                 "ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''",
-                "ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''"):
+                "ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''",
+                # v209: the person's language (portal greeting, default
+                # for every page; the You menu writes it)
+                "ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'"):
         try:
             c.execute(ddl)
         except sqlite3.OperationalError:

@@ -1006,7 +1006,10 @@ def inverter_card(k):
 
 
 # ================= page: plant performance (PPA + CAPEX) =================
-def plant_page(k):
+def plant_parts(k):
+    """Everything on a plant page, as parts (v209): the old page and the
+    portal assemble them with their own chrome. Data and wording are
+    identical on both — one implementation, two skins."""
     p = plants[k]
     is_ppa = p['portfolio'] == 'PPA'
     plant_sla = p.get('sla') or SLA_TARGET
@@ -1182,9 +1185,9 @@ def plant_page(k):
  <a class="btn live" href="/monitoring/{k.lower()}/">{t("Live monitoring","Monitoreo en vivo")}</a>
 </div>'''
 
-    body = [chrome_top(p['customer'], p['customer'],
-                       f'{k} · {p["portfolio"]} · {t("data","datos")} → {last_seen.get(k, asof)} · {gen_at}',
-                       home='..'), controls, ''.join(tiles), warn]
+    parts = {'controls': controls, 'tiles': ''.join(tiles), 'warn': warn,
+             'last_seen': last_seen.get(k, asof), 'is_ppa': is_ppa, 'pr': pr}
+    body = []
 
     rev_leg = ''
     if clist:
@@ -1198,11 +1201,12 @@ def plant_page(k):
         money_word = (t("revenue (right axis)", "ingreso (eje derecho)") if is_ppa
                       else t("savings (right axis)", "ahorro (eje derecho)"))
         rev_leg += f' · <span class="key" style="background:#1e8e3e"></span>{money_word}'
-    body.append(f'<div class="card"><h2>{t("Daily production — selected range","Producción diaria — rango elegido")}</h2>'
-                f'<p class="note"><span id="d_unit">kWh</span>{rev_leg}</p>'
-                '<div id="dchart"></div></div>')
-
-    body.append(inverter_card(k))
+    parts['daily'] = (f'<div class="card"><h2>{t("Daily production — selected range","Producción diaria — rango elegido")}</h2>'
+                      f'<p class="note"><span id="d_unit">kWh</span>{rev_leg}</p>'
+                      '<div id="dchart"></div></div>')
+    body.append(parts['daily'])
+    parts['inverters'] = inverter_card(k)
+    body.append(parts['inverters'])
 
     y12, yfl, cur_exp = year_months_with_flags([k])
     cml = [contract.get((k, m), {}).get('kwh', 0.0) / 1000.0 for m, _ in y12]
@@ -1224,12 +1228,13 @@ def plant_page(k):
                   else t("savings, k MXN (right axis)", "ahorro, k MXN (eje derecho)"))
         legend += f'<span><span class="key" style="background:#1e8e3e"></span>{m_word}</span>'
     legend += '</div>'
-    body.append(f'<div class="card"><h2>{t("Monthly production","Producción mensual")} · {asof[:4]}</h2>'
-                + legend + monthly_svg(y12, yfl, contract_mwh=cml, revenue_kmxn=rml,
-                                       cur_expected_kwh=cur_exp) + '</div>')
+    parts['monthly'] = (f'<div class="card"><h2>{t("Monthly production","Producción mensual")} · {asof[:4]}</h2>'
+                        + legend + monthly_svg(y12, yfl, contract_mwh=cml, revenue_kmxn=rml,
+                                               cur_expected_kwh=cur_exp) + '</div>')
+    body.append(parts['monthly'])
 
     vs_lab = 'vs contract' if is_ppa else 'vs expected'
-    body.append('<script>const D=' + json.dumps(dlist) + ';const E=' + json.dumps(elist)
+    parts['script'] = ('<script>const D=' + json.dumps(dlist) + ';const E=' + json.dumps(elist)
                 + ';const RV=' + (json.dumps(rlist) if rlist else 'null')
                 + ';const C=' + (json.dumps(clist) if clist else 'null')
                 + ';const X=' + (json.dumps(xlist) if xlist else 'null')
@@ -1239,7 +1244,9 @@ def plant_page(k):
                 + ';const CO2Y=' + json.dumps(co2_factors_js(k)) + ';'
                 + f'const SLA={plant_sla};const TARIFF={p["tariff"] if is_ppa else 0};'
                 + f'const ASOF="{asof}";</script>' + PLANT_JS)
+    body.append(parts['script'])
 
+    parts['months'] = ''
     if is_ppa or clist or rlist:
         # (the 13-month "Actual vs. contracted" line chart that used to
         # sit here was removed 2026-09-02 — it duplicated the monthly
@@ -1271,15 +1278,29 @@ def plant_page(k):
                     f'<td class="num"><b>{tav}</b></td><td class="num"><b>{trv:,.0f}</b></td></tr>')
         ctr_h = t("Contract kWh", "kWh contrato") if is_ppa else t("Expected kWh", "kWh esperado")
         mon_h = t("Revenue MXN", "Ingreso MXN") if is_ppa else t("Savings MXN", "Ahorro MXN")
-        body.append(f'<div class="card"><h2>{t("Last 6 months","Últimos 6 meses")}</h2><table>'
-                    f'<tr><th>{t("Month","Mes")}</th><th class="num">{t("Actual kWh","kWh real")}</th>'
-                    f'<th class="num">{ctr_h}</th><th class="num">%</th>'
-                    f'<th class="num">{t("Availability","Disponibilidad")}</th>'
-                    f'<th class="num">{mon_h}</th></tr>'
-                    + ''.join(rows) + '</table></div>')
+        parts['months'] = (f'<div class="card"><h2>{t("Last 6 months","Últimos 6 meses")}</h2><table>'
+                           f'<tr><th>{t("Month","Mes")}</th><th class="num">{t("Actual kWh","kWh real")}</th>'
+                           f'<th class="num">{ctr_h}</th><th class="num">%</th>'
+                           f'<th class="num">{t("Availability","Disponibilidad")}</th>'
+                           f'<th class="num">{mon_h}</th></tr>'
+                           + ''.join(rows) + '</table></div>')
+        body.append(parts['months'])
 
+    parts['footer'] = f'<footer>{t("Source: PostgreSQL argia_mont (v1 history + v2 KPI). Revenue is an estimate (energy × tariff), not invoiced amounts.","Fuente: PostgreSQL argia_mont (historia v1 + KPI v2). El ingreso es estimado (energía × tarifa), no facturado.")}</footer>'
+    parts['body'] = body
+    return parts
+
+
+def plant_page(k):
+    """The old site's plant page — unchanged output, built from plant_parts."""
+    p = plants[k]
+    parts = plant_parts(k)
+    body = [chrome_top(p['customer'], p['customer'],
+                       f'{k} · {p["portfolio"]} · {t("data","datos")} → {parts["last_seen"]} · {gen_at}',
+                       home='..'), parts['controls'], parts['tiles'], parts['warn']]
+    body += parts['body']
     body.append(pdf_bottom())
-    body.append(f'<footer>{t("Source: PostgreSQL argia_mont (v1 history + v2 KPI). Revenue is an estimate (energy × tariff), not invoiced amounts.","Fuente: PostgreSQL argia_mont (historia v1 + KPI v2). El ingreso es estimado (energía × tarifa), no facturado.")}</footer>')
+    body.append(parts['footer'])
     return page(''.join(body), f'{k} — ARGIA')
 
 

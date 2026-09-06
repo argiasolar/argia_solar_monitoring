@@ -52,14 +52,15 @@ def user_row(username):
         return None
     c = sa.db()
     r = c.execute('SELECT username,level,reports,is_admin,plant_admin,'
-                  'disabled,first_name,last_name FROM users WHERE username=?',
+                  'disabled,first_name,last_name,lang FROM users WHERE username=?',
                   (username,)).fetchone()
     c.close()
     if not r:
         return None
     return {'username': r[0], 'level': r[1], 'reports': r[2],
             'is_admin': r[3], 'plant_admin': r[4], 'disabled': r[5],
-            'first': r[6], 'last': r[7]}
+            'first': r[6], 'last': r[7],
+            'lang': (r[8] if len(r) > 8 and r[8] in ('en', 'es') else 'en')}
 
 
 def current_user():
@@ -120,9 +121,27 @@ def whoami():
     if not u:
         return ({'user': ''}, 200, {'Cache-Control': 'no-store'})
     name = sa.display_name(u['first'], u['last'], username)
-    return ({'user': username, 'name': name,
+    return ({'user': username, 'name': name, 'first': (u.get('first') or '').strip(),
+             'lang': u.get('lang', 'en'),
              'admin': bool(u['is_admin'] or u['plant_admin'])},
             200, {'Cache-Control': 'no-store'})
+
+
+@app.post('/session/lang')
+def set_lang():
+    """v209: the You menu's EN/ES choice is the account's language —
+    stored on the user, not only in one browser's localStorage."""
+    username, u = current_user()
+    if not u:
+        return ({'ok': False}, 401, {'Cache-Control': 'no-store'})
+    lang = (request.form.get('lang') or (request.get_json(silent=True) or {}).get('lang') or '').strip().lower()
+    if lang not in ('en', 'es'):
+        return ({'ok': False, 'error': 'lang must be en or es'}, 400, {'Cache-Control': 'no-store'})
+    c = sa.db()
+    c.execute('UPDATE users SET lang=? WHERE username=?', (lang, username))
+    c.commit()
+    c.close()
+    return ({'ok': True, 'lang': lang}, 200, {'Cache-Control': 'no-store'})
 
 
 # ------------------------------------------------------------------ login

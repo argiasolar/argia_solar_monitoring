@@ -91,6 +91,24 @@ class TestEvaluateAcute:
         assert "C" not in b
         assert TEMP_WARN_C < TEMP_CRIT_C
 
+    def test_v216_graded_by_peers(self):
+        # 71 C hotter than two cool peers by > 5 C -> CRITICAL (cooling problem);
+        # the message carries the deviation and the measured shortfall
+        samples = [_s(5, "A", temp=71.0, power=100000.0), _s(5, "B", temp=58.0, power=118000.0),
+                   _s(5, "C", temp=57.0, power=118000.0)]
+        rated = {("GTO1", "A"): 125.0, ("GTO1", "B"): 125.0, ("GTO1", "C"): 125.0}
+        b = {x.inverter_sn: x for x in evaluate_acute(samples, ["GTO1"], NOW, rated_kw=rated)}
+        assert b["A"].severity is Severity.CRITICAL
+        assert "+13.5 degC vs peers" in b["A"].message and "producing 15% below cooler peers" in b["A"].message
+        assert "B" not in b and "C" not in b
+        # the whole plant at 71-72 C: the site's heat, a WARNING each
+        hot = [_s(5, "A", temp=71.0), _s(5, "B", temp=72.0), _s(5, "C", temp=71.5)]
+        b = {x.inverter_sn: x for x in evaluate_acute(hot, ["GTO1"], NOW)}
+        assert all(x.severity is Severity.WARNING for x in b.values()) and "plant-wide heat" in b["A"].message
+        # alone at 71 C (no peers) -> CRITICAL; 76 C always CRITICAL
+        assert evaluate_acute([_s(5, "A", temp=71.0)], ["GTO1"], NOW)[0].severity is Severity.CRITICAL
+        assert evaluate_acute(hot + [_s(5, "D", temp=76.0)], ["GTO1"], NOW)[-1].severity is Severity.CRITICAL
+
     def test_whole_plant_dark_fires_critical(self):
         samples = [_s(10, "A", power=0.0), _s(10, "B", power=0.0),
                    _s(10, "C", plant="MEX1", power=40000.0)]

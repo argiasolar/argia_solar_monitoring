@@ -723,6 +723,53 @@ def get_monthly_close(rows: Rows, month: Any = None) -> dict:
             "source": {"tables": ["reconciliation_monthly"], **_freshness(rows)}}
 
 
+# ------------------------------------------------------------ thermal
+def get_thermal_health(rows: Rows, date_from: Any, date_to: Any, plant: Any = None) -> dict:
+    """Inverter thermal health over a range: peak temperature, hours
+    at/above 65 °C, hot events, deviation from the plant's peers and
+    from ambient, suspected thermal derating and the kWh it cost."""
+    from argia.analytics import thermal as TH
+    a, b = _range(date_from, date_to)
+    k = resolve_plant(rows, plant) if plant else None
+    ps = plants(rows)
+    where = f" AND plant_key = {_q(k)}" if k else ""
+    out = []
+    for r in rows("SELECT plant_key, inverter_sn, count(*), max(peak_c), sum(minutes_over_65),"
+                  " sum(minutes_over_70), sum(events), max(dt_peer_peak_c), max(dt_ambient_peak_c),"
+                  " sum(derating_minutes), sum(lost_kwh), count(*) FILTER (WHERE cooling_health='POOR'),"
+                  " count(*) FILTER (WHERE cooling_health='WATCH') FROM thermal_daily"
+                  f" WHERE prod_date BETWEEN DATE {_q(a)} AND DATE {_q(b)}{where}"
+                  " GROUP BY 1, 2 ORDER BY 11 DESC NULLS LAST, 1, 2 /*tag:thermal*/;"):
+        if len(r) >= 13:
+            out.append({"plant_key": r[0], "name": ps.get(r[0], {}).get("name"), "inverter_sn": r[1],
+                        "days": _i(r[2]), "peak_c": _f(r[3]), "hours_over_65": _r((_f(r[4]) or 0) / 60),
+                        "hours_over_70": _r((_f(r[5]) or 0) / 60), "events": _i(r[6]),
+                        "dt_peer_peak_c": _f(r[7]), "dt_ambient_peak_c": _f(r[8]),
+                        "derating_hours": _r((_f(r[9]) or 0) / 60), "lost_kwh": _r(_f(r[10])),
+                        "band": TH.band(_f(r[3])), "poor_days": _i(r[11]), "watch_days": _i(r[12])})
+    curve = None
+    if k:
+        bins = TH.merge_bins((float(x[1]), int(x[2]), float(x[3])) for x in rows(
+            "SELECT inverter_sn, bin_c, n, ratio_sum FROM thermal_bins"
+            f" WHERE plant_key = {_q(k)} AND prod_date BETWEEN DATE {_q(a)} AND DATE {_q(b)} /*tag:thermal_bins*/;")
+            if len(x) >= 4)
+        curve = TH.derating_curve(bins) if bins else None
+    return {"plant_key": k, "date_from": a, "date_to": b, "inverters": out,
+            "totals": {"inverters": len(out), "hours_over_65": _r(sum(x["hours_over_65"] or 0 for x in out)),
+                       "events": sum(x["events"] or 0 for x in out),
+                       "derating_hours": _r(sum(x["derating_hours"] or 0 for x in out)),
+                       "lost_kwh": _r(sum(x["lost_kwh"] or 0 for x in out))},
+            "derating_curve": curve,
+            "note": "ARGIA operational bands on internal inverter temperature (not warranty limits): "
+                    "normal <50, watch 50-60, warning 60-65, high 65-70, critical >=70 C. dt_peer = the "
+                    "unit minus the median of its plant peers (a cooling problem when >=5, POOR >=10). "
+                    "lost_kwh = suspected thermal derating: intervals >=65 C where the unit, >=5 C hotter "
+                    "than cooler peers, produced >=3% less per rated kW than they did. The derating curve "
+                    "(actual/expected by temperature bin, knee_c) is measured from the fleet's own data. "
+                    "Manufacturer manuals require ventilation and state derating on heat without quantifying it.",
+            "source": {"tables": ["thermal_daily", "thermal_bins"], **_freshness(rows)}}
+
+
 # --------------------------------------------------------------- CFE
 _PERIODS = ("ENERGIA BASE", "ENERGIA INTERMEDIA", "ENERGIA PUNTA")
 
@@ -897,6 +944,15 @@ TOOLS: List[dict] = [
                     "by whom) — the gate invoices wait for. Omit month for the latest months.",
      "input_schema": {"type": "object",
                       "properties": {"month": {"type": "string", "description": "YYYY-MM"}}}},
+    {"name": "get_thermal_health",
+     "description": "Inverter thermal health over a range: peak internal temperature, hours "
+                    ">= 65 C, hot events, deviation from plant peers and ambient, suspected "
+                    "thermal derating and the kWh it cost, plus the measured derating curve "
+                    "for one plant. Use for 'is the inverter too hot', 'does heat cost us "
+                    "energy', 'which inverter needs cooling', 'temperature alarm evidence'.",
+     "input_schema": {"type": "object",
+                      "properties": {"date_from": _D, "date_to": _D, "plant": _P},
+                      "required": ["date_from", "date_to"]}},
     {"name": "get_cfe_tariffs",
      "description": "CFE industrial tariff charges (BASE/INTERMEDIA/PUNTA energy, capacity, "
                     "distribution...) for a scheme such as GDMTH: one region, or the average "
@@ -950,6 +1006,7 @@ DISPATCH: Dict[str, Callable[..., dict]] = {
     "get_reconciliation": get_reconciliation,
     "get_monthly_close": get_monthly_close,
     "get_cfe_tariffs": get_cfe_tariffs,
+    "get_thermal_health": get_thermal_health,
     "search_standard": search_standard,
     "describe_tables": describe_tables,
     "query_database": query_database,

@@ -169,10 +169,14 @@ def main(argv=None) -> int:
     configured = {p.plant_key: [i.inverter_sn for i in portfolio.inverters_for(p.plant_key)
                                  if i.active]
                   for p in portfolio.active_plants()}
+    # v216: rated kW per inverter lets the thermal rule measure the
+    # shortfall of a hot unit against its cooler peers
+    rated = {(p.plant_key, str(i.inverter_sn).strip()): float(i.rated_kw or 0)
+             for p in portfolio.active_plants() for i in portfolio.inverters_for(p.plant_key)}
     breaches = evaluate_acute(
         samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
         absent_gap_hours=span_h if span_h >= 2.0 else None,
-        configured_inverters=configured)
+        configured_inverters=configured, rated_kw=rated)
     candidates = [candidate_from_acute_breach(b) for b in breaches]
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)

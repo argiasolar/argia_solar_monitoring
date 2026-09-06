@@ -25,7 +25,7 @@ ALLOWED_TABLES: Set[str] = {
     "alert_state", "maintenance_event", "reconciliation_daily", "reconciliation_monthly",
     "vendor_counter_snapshot", "contract_monthly", "loan", "loan_schedule",
     "invoicing", "cfe_tariff", "cfe_pipeline_status", "sync_run", "knowledge",
-    "finance_audit", "string_daily", "satellite_check",
+    "finance_audit", "string_daily", "satellite_check", "thermal_daily", "thermal_bins",
 }
 # never: users/sessions (auth), ask_log (other people's questions), usage_daily, _tele_stage
 # what the model may read about each table, in one line each
@@ -46,6 +46,8 @@ TABLE_NOTES: Dict[str, str] = {
     "cfe_tariff": "CFE tariffs: tariff_code (GDMTH...), region, month, charge_type, unit, value_mxn, source (cfe_scrape = CFE-verified)",
     "knowledge": "ARGIA Golden Standard slides (doc='AGS', lang en/es/cz, n, title, body) — prefer search_standard",
     "sync_run": "every job run: script, status, started_at, error",
+    "thermal_daily": "nightly inverter thermal health per inverter-day: peak_c, minutes_over_65/70, events, dt_peer_peak_c (vs plant peers), dt_ambient_peak_c, derating_minutes, lost_kwh (suspected thermal derating vs cooler peers), cooling_health GOOD/WATCH/POOR — prefer get_thermal_health",
+    "thermal_bins": "temperature-binned actual/expected ratios behind the derating curve (bin_c, n, ratio_sum)",
 }
 MAX_ROWS = 200
 TIMEOUT_MS = 10000

@@ -382,6 +382,7 @@ _UNIT_ROLE = {
     "argia-cfe-ingest": "CFE tariff ingest",
     "argia-cfe-push": "CFE tariff push to the Engine app",
     "argia-portal-gen": "Portal page generator",
+    "argia-thermal": "Inverter thermal health",
     "argia-archive": "Telemetry archive to Drive",
     "argia-strings": "String-level collector",
     "argia-satcheck": "Satellite irradiance check",

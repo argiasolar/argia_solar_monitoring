@@ -36,7 +36,8 @@ UNITS = ("argia-telemetry", "argia-telemetry-se", "argia-kpi",
          "argia-client-pages", "argia-archive", "argia-recon",
          "argia-portal-gen", "argia-satcheck", "argia-strings",
          "argia-cfe-push", "argia-archive-month",
-         "argia-dailyperf", "argia-invoice", "argia-recon-close")
+         "argia-dailyperf", "argia-invoice", "argia-recon-close",
+         "argia-thermal")
 
 
 def _txt(s: str) -> str:

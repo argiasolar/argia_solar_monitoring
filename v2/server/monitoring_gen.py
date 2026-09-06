@@ -353,6 +353,70 @@ for r in q("SELECT plant_key, prod_date::text, interval_kwh,"
         RECON_D.setdefault(r[0], []).append(r[1:])
         RECON_BY_PD[(r[0], r[1])] = (f(r[5]), r[7])
 
+# ---------------------------------------------- v216: inverter thermal health
+# thermal_daily rows of the last 31 days (scripts/thermal_daily.py): per
+# inverter-day peak, hours hot, events, dT vs peers / ambient, suspected
+# derating minutes, lost kWh, cooling health. Empty until the job ran.
+THERMAL = {}      # (plant, date) -> [row dict]
+THERMAL_DATES = {}  # plant -> [dates desc]
+try:
+    for r in q("SELECT plant_key, prod_date::text, inverter_sn, peak_c, minutes_over_65, events,"
+               " dt_peer_peak_c, dt_ambient_peak_c, derating_minutes, lost_kwh, band, cooling_health,"
+               " minutes_over_70 FROM thermal_daily"
+               f" WHERE prod_date >= DATE '{TODAY}' - 31 ORDER BY prod_date DESC, inverter_sn;"):
+        if len(r) >= 13:
+            THERMAL.setdefault((r[0], r[1]), []).append({
+                'sn': r[2], 'peak': f(r[3]), 'min65': int(f(r[4]) or 0), 'events': int(f(r[5]) or 0),
+                'dt_peer': f(r[6]), 'dt_amb': f(r[7]), 'derating_min': int(f(r[8]) or 0),
+                'lost': f(r[9]) or 0.0, 'band': r[10], 'health': r[11], 'min70': int(f(r[12]) or 0)})
+            if r[1] not in THERMAL_DATES.setdefault(r[0], []):
+                THERMAL_DATES[r[0]].append(r[1])
+except RuntimeError:
+    pass
+
+
+def thermal_card(pk, d):
+    """The day's thermal health per inverter — the evidence behind a
+    temperature alarm. On the live page the newest evaluated day (the
+    job runs at night for the day before)."""
+    dates = THERMAL_DATES.get(pk, [])
+    if not dates:
+        return ''
+    use = d if (pk, d) in THERMAL else (dates[0] if d >= dates[0] else None)
+    if use is None:
+        return ''
+    rows = THERMAL.get((pk, use), [])
+    labels = {sn: label for sn, label, _r in CONFIG_INV.get(pk, [])}
+    tone = {'normal': 'good', 'watch': 'good', 'warning': 'warn', 'high': 'warn', 'critical': 'bad'}
+    htone = {'GOOD': 'good', 'WATCH': 'warn', 'POOR': 'bad'}
+    trs = []
+    tot_lost = 0.0
+    def hm(minutes):
+        return '—' if not minutes else '%dh %02d' % (minutes // 60, minutes % 60)
+
+    def signed(v):
+        return '—' if v is None else '%+.1f' % v
+
+    for r in rows:
+        tot_lost += r['lost'] or 0
+        trs.append(
+            '<tr><td>%s</td><td><span class="pill %s">%s °C</span></td><td>%s</td><td>%d</td>'
+            '<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td><span class="pill %s">%s</span></td></tr>'
+            % (esc(labels.get(r['sn'], r['sn'])), tone.get(r['band'], 'off'), fmt1(r['peak']),
+               hm(r['min65']) if r['min65'] else '0h 00', r['events'], signed(r['dt_peer']),
+               signed(r['dt_amb']), hm(r['derating_min']), fmt1(r['lost']) if r['lost'] else '—',
+               htone.get(r['health'], 'off'), esc(r['health'])))
+    when = ('' if use == d else
+            f' <span class="note" data-en="(last evaluated day: {use})" data-es="(último día evaluado: {use})">(last evaluated day: {use})</span>')
+    return f'''
+<div class="card"><h2><span data-en="Thermal health — inverter temperature vs peers, suspected derating" data-es="Salud térmica — temperatura del inversor vs pares, derrateo sospechado">Thermal health — inverter temperature vs peers, suspected derating</span>{when}</h2>
+<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th data-en="Peak" data-es="Pico">Peak</th><th>≥65 °C</th><th data-en="Events" data-es="Eventos">Events</th><th data-en="ΔT peers" data-es="ΔT pares">ΔT peers</th><th data-en="ΔT ambient" data-es="ΔT ambiente">ΔT ambient</th><th data-en="Derating" data-es="Derrateo">Derating</th><th data-en="Lost kWh" data-es="kWh perdidos">Lost kWh</th><th data-en="Cooling" data-es="Enfriamiento">Cooling</th></tr>
+{''.join(trs)}<tr class="total"><td><b data-en="Plant" data-es="Planta">Plant</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td><b>{fmt1(tot_lost) if tot_lost else "—"}</b></td><td></td></tr></table>
+<p class="note" data-en="ARGIA operational bands on the inverter's internal temperature (not warranty limits): normal <50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the median of the plant's other inverters — the strongest sign of a cooling problem (heat sink, fan, clearance). ΔT ambient = internal minus site ambient. Derating = intervals ≥65 °C where the unit, hotter than its cooler peers by ≥5 °C, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed. Measured on ARGIA's own 5-minute data; manufacturer manuals require ventilation and derate on heat but never quantify it."
+ data-es="Bandas operativas ARGIA sobre la temperatura interna del inversor (no límites de garantía): normal <50, vigilancia 50–60, aviso 60–65, alta 65–70, crítica ≥70 °C. ΔT pares = esta unidad menos la mediana de los demás inversores de la planta — la señal más fuerte de un problema de enfriamiento. ΔT ambiente = interna menos ambiente del sitio. Derrateo = intervalos ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal que ellos; kWh perdidos = esa diferencia sumada. Medido con los datos de 5 minutos de ARGIA.">
+ARGIA operational bands (not warranty limits): normal &lt;50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the plant's other inverters. Derating = hot intervals where the unit produced ≥3% less per rated kW than its cooler peers; Lost kWh = that shortfall summed.</p></div>'''
+
+
 RECON_M = [r for r in q(
     "SELECT plant_key, to_char(ref_month,'YYYY-MM'), billing_kwh,"
     " billing_basis, status, coalesce(closed_by,''),"
@@ -1029,6 +1093,7 @@ def plant_page(pk, d, skin='old'):
 <table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
 <p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% — the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail."
  data-es="vs pares = kWh por kW nominal de este inversor contra la mediana de los demás inversores de la planta (ámbar < 85%, rojo < 70%). °C = temperatura interna, última muestra / pico del día (ámbar ≥ 65, rojo ≥ 75). El estado proviene de la bandera del propio inversor.">vs peers = kWh per rated kW against the median of the other inverters (amber &lt; 85%, red &lt; 70%). °C = internal temperature, latest / day peak (amber ≥ 65, red ≥ 75).</p></div>
+{thermal_card(pk, d)}
 {alerts_card(pk) if live else ''}
 <div class="card"><h2 data-en="Last 7 days — production (click a date)" data-es="Últimos 7 días — producción (clic en la fecha)">Last 7 days — production (click a date)</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th>kWh</th><th data-en="Expected" data-es="Esperado">Expected</th><th>%</th></tr>{daily_rows}</table></div>

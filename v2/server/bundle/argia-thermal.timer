@@ -1,0 +1,7 @@
+[Unit]
+Description=Nightly inverter thermal health, 01:10 MX (the day before is complete)
+[Timer]
+OnCalendar=*-*-* 01:10:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

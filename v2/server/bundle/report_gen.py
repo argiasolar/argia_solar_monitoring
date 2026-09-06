@@ -199,6 +199,61 @@ def _inverter_30d(rows):
 
 inv30 = _inverter_30d(_inv_rows)
 
+# v216: thermal health, rolling 30 days (thermal_daily, the nightly
+# scripts/thermal_daily.py) — hours hot, events, peer deviation,
+# suspected derating and its lost kWh per inverter; empty before the
+# first run (the table may not exist yet).
+thermal30 = {}   # key -> {sn: dict}
+try:
+    for r in q("SELECT plant_key, inverter_sn, sum(minutes_over_65), sum(events), max(peak_c),"
+               " max(dt_peer_peak_c), sum(derating_minutes), sum(lost_kwh), count(*),"
+               " count(*) FILTER (WHERE cooling_health = 'POOR')"
+               " FROM thermal_daily WHERE prod_date > CURRENT_DATE - 31 GROUP BY 1, 2 ORDER BY 1, 2;"):
+        if len(r) >= 10:
+            thermal30.setdefault(r[0], {})[r[1]] = {
+                'min65': int(f(r[2]) or 0), 'events': int(f(r[3]) or 0), 'peak': f(r[4]),
+                'dt_peer': f(r[5]), 'derating_min': int(f(r[6]) or 0), 'lost': f(r[7]) or 0.0,
+                'days': int(f(r[8]) or 0), 'poor_days': int(f(r[9]) or 0)}
+except RuntimeError:
+    thermal30 = {}
+
+
+def thermal_card(k):
+    """Rolling-30d thermal health per inverter, valued at the plant's
+    tariff (PPA) — the O&M case for cooling, in kWh and MXN."""
+    stats = thermal30.get(k) or {}
+    if not stats:
+        return ''
+    tariff = tariff_for(k, asof[:7]) if plants.get(k, {}).get('portfolio') == 'PPA' else 0.0
+    rows, t_lost, t_min65, t_der = [], 0.0, 0, 0
+    for sn in sorted(stats, key=lambda s: -(stats[s]['lost'] or 0)):
+        a = stats[sn]
+        label, _rated = inv_meta.get((k, sn)) or (sn, 0)
+        cls = ('bad' if (a['poor_days'] >= 3 or a['lost'] >= 50) else 'warn' if (a['poor_days'] or a['min65'] >= 300) else '')
+        health = (t('POOR', 'MALA') if cls == 'bad' else t('WATCH', 'VIGILAR') if cls == 'warn' else t('GOOD', 'BUENA'))
+        pill = f'<span class="pill {cls}">{health}</span>' if cls else f'<span class="pill">{health}</span>'
+        t_lost += a['lost']; t_min65 += a['min65']; t_der += a['derating_min']
+        rows.append(f'<tr><td>{html.escape(label or sn)}</td>'
+                    f'<td class="num">{a["peak"]:,.1f}</td>'
+                    f'<td class="num">{a["min65"] / 60:,.1f}</td>'
+                    f'<td class="num">{a["events"]}</td>'
+                    f'<td class="num">{"—" if a["dt_peer"] is None else "%+.1f" % a["dt_peer"]}</td>'
+                    f'<td class="num">{a["derating_min"] / 60:,.1f}</td>'
+                    f'<td class="num">{a["lost"]:,.1f}</td>'
+                    f'<td class="num">{(a["lost"] * tariff):,.0f}</td>'
+                    f'<td class="num">{pill}</td></tr>')
+    rows.append(f'<tr class="total"><td><b>TOTAL</b></td><td class="num"></td><td class="num"><b>{t_min65 / 60:,.1f}</b></td>'
+                f'<td class="num"></td><td class="num"></td><td class="num"><b>{t_der / 60:,.1f}</b></td>'
+                f'<td class="num"><b>{t_lost:,.1f}</b></td><td class="num"><b>{(t_lost * tariff):,.0f}</b></td><td></td></tr>')
+    tip = ti("Rolling 30 days from the nightly thermal evaluation of the 5-minute telemetry. Peak = highest internal inverter temperature in the window. h ≥65 °C = hours at or above the ARGIA 'high' band. Events = separate hot episodes. ΔT peers = the unit's worst deviation from the median of the plant's other inverters — the strongest sign of a cooling problem (dirty heat sink, fan, clearance). Derating h = hours ≥65 °C in which the unit, ≥5 °C hotter than its cooler peers, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed (corrected for each unit's usual standing, so a smaller DC field is not counted as loss); MXN = lost kWh × the month's PPA tariff (0 for CAPEX). Bands are ARGIA operational thresholds, not manufacturer warranty limits: manuals require ventilation and derate on heat but do not quantify it — this table does, from ARGIA's own data.",
+             "30 días móviles de la evaluación térmica nocturna de la telemetría de 5 minutos. Pico = temperatura interna máxima en la ventana. h ≥65 °C = horas en o sobre la banda 'alta' de ARGIA. Eventos = episodios calientes separados. ΔT pares = la peor desviación de la unidad respecto a la mediana de los demás inversores — la señal más fuerte de un problema de enfriamiento. Derrateo h = horas ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal; kWh perdidos = esa diferencia sumada (corregida por la posición habitual de cada unidad); MXN = kWh perdidos × tarifa PPA del mes (0 en CAPEX). Las bandas son umbrales operativos de ARGIA, no límites de garantía.")
+    return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Thermal health — last 30 days","Salud térmica — últimos 30 días")}{tip}</h2>'
+            f'<table><tr><th>{t("Inverter","Inversor")}</th><th class="num">{t("Peak °C","Pico °C")}</th>'
+            f'<th class="num">h ≥65 °C</th><th class="num">{t("Events","Eventos")}</th>'
+            f'<th class="num">ΔT {t("peers","pares")}</th><th class="num">{t("Derating h","Derrateo h")}</th>'
+            f'<th class="num">{t("Lost kWh","kWh perdidos")}</th><th class="num">MXN</th>'
+            f'<th class="num">{t("Cooling","Enfriamiento")}</th></tr>' + ''.join(rows) + '</table></div>')
+
 
 def expected_month_kwh(k, ym):
     """Expected production for a month without (complete) actuals.
@@ -1207,6 +1262,8 @@ def plant_parts(k):
     body.append(parts['daily'])
     parts['inverters'] = inverter_card(k)
     body.append(parts['inverters'])
+    parts['thermal'] = thermal_card(k)
+    body.append(parts['thermal'])
 
     y12, yfl, cur_exp = year_months_with_flags([k])
     cml = [contract.get((k, m), {}).get('kwh', 0.0) / 1000.0 for m, _ in y12]

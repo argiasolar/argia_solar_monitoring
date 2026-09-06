@@ -52,7 +52,16 @@ DARK_CHECK_START_HOUR = 9
 DARK_CHECK_END_HOUR = 17
 
 TEMP_WARN_C = 65.0
+TEMP_HIGH_C = 70.0
 TEMP_CRIT_C = 75.0
+TEMP_PEER_DT_C = 5.0
+"""v216 thermal rule (argia.analytics.thermal bands): >= 65 WARNING;
+>= 70 CRITICAL when the unit is hotter than its plant peers by
+TEMP_PEER_DT_C (a cooling problem — dirty heat sink, blocked fan, bad
+clearance) or has no peers; >= 70 with the whole plant equally hot is
+the site's heat, a WARNING; >= 75 always CRITICAL. The message carries
+the peer deviation and, when cooler peers produce more per rated kW,
+the measured shortfall — evidence, not a bare number."""
 
 ACUTE_STALE_MIN = 120
 """No sample for a plant in this many daylight minutes -> acute data gap.
@@ -108,6 +117,7 @@ def evaluate_acute(
     stale_min: int = ACUTE_STALE_MIN,
     absent_gap_hours: Optional[float] = None,
     configured_inverters: Optional[Dict[str, List[str]]] = None,
+    rated_kw: Optional[Dict] = None,
 ) -> List[AcuteBreach]:
     """Evaluate the acute conditions against the newest samples.
 
@@ -163,21 +173,53 @@ def evaluate_acute(
                      f"MX, last {FAULT_LOOKBACK_MIN} min) [CRITICAL]"),
         ))
 
-    # --- per-inverter: temperature (latest fresh sample) ---
+    # --- per-inverter: temperature (newest fresh sample), graded by peers ---
+    rated = rated_kw or {}
     for plant, rows in sorted(fresh_by_plant.items()):
-        for ts, _p, sn, _pw, temp, _st, fault in sorted(rows, key=lambda r: r[2]):
-            if temp is not None and temp >= TEMP_WARN_C:
-                crit = temp >= TEMP_CRIT_C
-                breaches.append(AcuteBreach(
-                    metric="inverter_temp_high", plant_key=plant,
-                    inverter_sn=sn,
-                    severity=Severity.CRITICAL if crit else Severity.WARNING,
-                    value=round(float(temp), 1),
-                    message=(f"{plant} {sn}: internal temperature "
-                             f"{temp:.1f} degC (>= "
-                             f"{TEMP_CRIT_C if crit else TEMP_WARN_C:.0f}) "
-                             f"[{'CRITICAL' if crit else 'WARNING'}]"),
-                ))
+        newest = {}
+        for r in rows:
+            sn = str(r[2]).strip()
+            if sn not in newest or r[0] > newest[sn][0]:
+                newest[sn] = r
+        for sn, (ts, _p, _sn, pw, temp, _st, fault) in sorted(newest.items()):
+            if temp is None or temp < TEMP_WARN_C:
+                continue
+            peers = [(float(v[4]), v[3]) for o, v in newest.items()
+                     if o != sn and v[4] is not None]
+            peer_t = sorted(t for t, _ in peers)
+            peer_med = (peer_t[len(peer_t) // 2] if len(peer_t) % 2
+                        else (peer_t[len(peer_t) // 2 - 1] + peer_t[len(peer_t) // 2]) / 2) if peer_t else None
+            dt_peer = (float(temp) - peer_med) if peer_med is not None else None
+            hotter = dt_peer is None or dt_peer >= TEMP_PEER_DT_C
+            if temp >= TEMP_CRIT_C:
+                sev, why = Severity.CRITICAL, f">= {TEMP_CRIT_C:.0f}"
+            elif temp >= TEMP_HIGH_C and hotter:
+                sev, why = Severity.CRITICAL, f">= {TEMP_HIGH_C:.0f} and hotter than its peers"
+            elif temp >= TEMP_HIGH_C:
+                sev, why = Severity.WARNING, f">= {TEMP_HIGH_C:.0f}, plant-wide heat"
+            else:
+                sev, why = Severity.WARNING, f">= {TEMP_WARN_C:.0f}"
+            detail = f", {dt_peer:+.1f} degC vs peers" if dt_peer is not None else ""
+            # measured shortfall against cooler peers (kW per rated kW)
+            rk = rated.get((plant, sn)) or rated.get(sn)
+            cooler = [v[3] / (rated.get((plant, o)) or rated.get(o) or 0)
+                      for o, v in newest.items()
+                      if o != sn and v[4] is not None and v[3] is not None
+                      and float(v[4]) <= float(temp) - TEMP_PEER_DT_C
+                      and (rated.get((plant, o)) or rated.get(o) or 0) > 0]
+            if rk and pw is not None and cooler:
+                cooler.sort()
+                ref = cooler[len(cooler) // 2]
+                if ref > 0:
+                    short = (1 - (pw / rk) / ref) * 100
+                    if short >= 3:
+                        detail += f", producing {short:.0f}% below cooler peers"
+            breaches.append(AcuteBreach(
+                metric="inverter_temp_high", plant_key=plant, inverter_sn=sn,
+                severity=sev, value=round(float(temp), 1),
+                message=(f"{plant} {sn}: internal temperature {temp:.1f} degC "
+                         f"({why}{detail}) [{sev.name}]"),
+            ))
 
     # --- plant-level: dark plant (only mid-daylight, only on fresh data) ---
     if DARK_CHECK_START_HOUR <= now_mx.hour < DARK_CHECK_END_HOUR:

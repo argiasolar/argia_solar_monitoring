@@ -357,6 +357,8 @@ class TestV213:
         mg = (V2 / "server/monitoring_gen.py").read_text(encoding="utf-8")
         assert "def performance_page(skin='old'):" in mg and "def recon_page(skin='old'):" in mg
         assert "inv = '/report/invoices/' if skin == 'portal' else '/invoices/'" in mg
+        # the old controls-row button survives as a header button
+        assert 'buttons=f\'<a class="btn" href="/report/invoices/">' in pg
 
     def test_signed_out_and_no_access_wear_the_portal_chrome(self):
         pg = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")

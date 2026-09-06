@@ -330,10 +330,11 @@ def monitoring_plant(k, d):
                   refresh=(300 if live else 0), extra_head=extra)
 
 
-def mon_wrap(title_en, title_es, kicker_en, kicker_es, body, on):
+def mon_wrap(title_en, title_es, kicker_en, kicker_es, body, on, buttons=''):
     """A monitoring_gen page body (skin='portal') under the portal chrome."""
-    head = (f'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px"><div class="kicker">{t(kicker_en, kicker_es)}</div>'
-            f'<h1 class="pt">{t(title_en, title_es)}</h1></div>')
+    head = (f'<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px">'
+            f'<div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t(kicker_en, kicker_es)}</div>'
+            f'<h1 class="pt">{t(title_en, title_es)}</h1></div>{buttons}</div>')
     extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES + '</style>'
     return C.page(title_en, head + f'<div class="monbody">{body}</div>', 'monitoring', on,
                   refresh=300, extra_head=extra)
@@ -354,7 +355,8 @@ def monitoring_recon():
     return mon_wrap('Reconciliation', 'Conciliación',
                     'Four-check energy reconciliation · vendor counters are the billing control',
                     'Conciliación de energía en cuatro pasos · los contadores del fabricante son el control de facturación',
-                    MG.recon_page(skin='portal'), 'recon')
+                    MG.recon_page(skin='portal'), 'recon',
+                    buttons=f'<a class="btn" href="/report/invoices/">{ico("report", 15, "#053b38", 2)} {t("Invoice annexes", "Anexos de facturación")}</a>')
 
 
 def signed_out_page():

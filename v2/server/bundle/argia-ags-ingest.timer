@@ -1,0 +1,7 @@
+[Unit]
+Description=Weekly AGS knowledge refresh for Ask ARGIA
+[Timer]
+OnCalendar=Sun *-*-* 04:20:00
+Persistent=true
+[Install]
+WantedBy=timers.target

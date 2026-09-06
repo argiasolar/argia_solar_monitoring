@@ -45,38 +45,58 @@ Rules:
 1. Every number in your answer must come from a tool result in this \
 conversation. Never estimate, extrapolate or recall figures. If a tool \
 returns an error or empty data, say exactly what is missing instead of guessing.
-2. Prefer one well-chosen tool call; add calls only when the question needs \
-them (e.g. "why" -> generation, then inverter performance and alarm history \
-for the bad days).
+2. Prefer the fixed tools (they carry the reports' own rules); add calls only \
+when the question needs them (e.g. "why" -> generation, then inverter \
+performance and alarm history for the bad days). When no fixed tool covers \
+the question, call describe_tables, then query_database with ONE read-only \
+SELECT that aggregates in SQL — never page through raw rows.
 3. Say which period and which data freshness the answer is based on when it \
 matters. daily_production is stamped once a day by the KPI job; telemetry is \
 5-minute live data.
 4. Money comes ONLY from get_revenue (earned) or get_lost_generation (missed). \
 Never multiply kWh by a tariff yourself, never add up plants yourself — if \
 a total is needed, call the tool without a plant. CAPEX plants earn nothing.
-5. Be short. Lead with the finding in one or two sentences, then only the \
-evidence that supports it. Under 120 words unless the user asks for detail. \
-At most one small pipe table when comparing several plants. No headings, no \
-emojis, no bullet lists of everything you saw.
+5. TABLES: whenever the answer carries numbers for more than one item (plants, \
+days, inverters, months, charges), present them as a pipe table, one row per \
+item, and END THE TABLE WITH A SUMMARY ROW (label it TOTAL, or AVERAGE for \
+ratios) taken from the tool's "totals" field — never computed by you. The \
+tool says whether a figure is a sum or a kWp-weighted mean; keep that. Then \
+one or two sentences with the finding. No headings, no emojis, no bullet \
+lists of everything you saw. Under 150 words of prose.
 6. LANGUAGE: answer in {language}, whatever language the question is in.
 7. Do not list sources yourself — the interface shows the tool results you used.
-8. This is phase 0: read-only. If asked to change, create or send anything, \
-say it is not available yet."""
+8. THE STANDARD: for anything about design rules, requirements, tolerances, \
+checklists, terminology or "what does the standard/AGS say", call \
+search_standard (in the answer language) and quote or paraphrase the slide, \
+citing it as "ARGIA Golden Standard, slide N — title". Never answer standard \
+questions from memory.
+9. Read-only: if asked to change, create or send anything, say it is not \
+available yet.{scope_note}"""
+
+SCOPE_NOTE = """
+10. This account sees only these plants: {plants}. Answer only about them; \
+say so if asked about others. Fleet totals and money are not available."""
 
 
 LANGUAGES = {"en": "English", "es": "Spanish"}
 
 
 def build_system(rows: Callable[[str], List[List[str]]],
-                 today: Optional[dt.date] = None, lang: str = "en") -> str:
+                 today: Optional[dt.date] = None, lang: str = "en",
+                 scope: Optional[set] = None) -> str:
     today = today or dt.datetime.now(MX).date()
     language = LANGUAGES.get((lang or "en").lower(), "English")
+    ps = plants(rows)
     vocab = "\n".join(
         f"  {p['name']} = {k} ({p['brand']}, {p['kwp_dc']:g} kWp, "
         f"{p['portfolio'] or 'n/a'}{'' if p['active'] else ', INACTIVE'})"
-        for k, p in plants(rows).items())
+        for k, p in ps.items() if scope is None or k in scope)
+    scope_note = ""
+    if scope is not None:
+        names = ", ".join(ps[k]["name"] for k in sorted(scope) if k in ps) or "none"
+        scope_note = SCOPE_NOTE.format(plants=names)
     return SYSTEM_TEMPLATE.format(today=today.isoformat(), vocab=vocab,
-                                  language=language)
+                                  language=language, scope_note=scope_note)
 
 
 # ------------------------------------------------------------------ client
@@ -168,7 +188,8 @@ class Answer:
 
 def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
         history: Optional[List[dict]] = None, max_turns: int = MAX_TURNS,
-        system: Optional[str] = None, lang: str = "en") -> Answer:
+        system: Optional[str] = None, lang: str = "en",
+        scope: Optional[set] = None) -> Answer:
     """Run the question to a final text answer.
 
     ``history`` is prior turns as ``[{"role": "user"|"assistant",
@@ -177,7 +198,7 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
     """
     t0 = time.monotonic()
     ans = Answer(question=question, model=getattr(llm, "model", ""))
-    system = system or build_system(rows, lang=lang)
+    system = system or build_system(rows, lang=lang, scope=scope)
     messages: List[dict] = [m for m in (history or [])
                             if m.get("role") in ("user", "assistant")
                             and isinstance(m.get("content"), str) and m["content"]]
@@ -203,7 +224,7 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
                 break
             results = []
             for b in uses:
-                result = run_tool(rows, b.get("name", ""), b.get("input") or {})
+                result = run_tool(rows, b.get("name", ""), b.get("input") or {}, scope=scope)
                 ans.tool_calls.append({"name": b.get("name"), "input": b.get("input") or {},
                                        "result": result})
                 results.append({"type": "tool_result", "tool_use_id": b.get("id"),

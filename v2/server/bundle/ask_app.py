@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ask ARGIA — the /ask/ page of portal.argia.com.mx (phase 0).
+"""Ask ARGIA — the /ask/ page of portal.argia.com.mx (phase 1: all data, the Golden Standard, tables with totals).
 
 Runs on 127.0.0.1:8513; nginx proxies /ask/ to it behind the session
 login and passes the signed-in username in X-Remote-User. This app
@@ -100,6 +100,34 @@ def actor():
     return (request.headers.get('X-Remote-User') or '').strip()
 
 
+def scope_of(username, row_lookup=None):
+    """v215: the plant keys a customer account may ask about, or None
+    for internal users (level 'argia', global admins). Mirrors
+    auth_core.may: a granted area named like a plant key is that plant;
+    'capex' grants every CAPEX plant. Unknown/disabled -> empty scope."""
+    try:
+        if row_lookup is None:
+            import auth_app
+            row_lookup = auth_app.user_row
+        u = row_lookup(username)
+    except Exception:                                # noqa: BLE001
+        u = None
+    if not u or u.get('disabled'):
+        return set()
+    if u.get('level') == 'argia' or u.get('is_admin'):
+        return None
+    granted = {x.strip().upper() for x in (u.get('reports') or '').split(',') if x.strip()}
+    rows = app.config.get('ROWS') or pgq.psql_rows
+    try:
+        ps = tools.plants(rows)
+    except Exception:                                # noqa: BLE001
+        ps = {}
+    keys = {k for k in ps if k in granted}
+    if 'CAPEX' in granted:
+        keys |= {k for k, p in ps.items() if (p.get('portfolio') or '').upper() == 'CAPEX'}
+    return keys
+
+
 # ----------------------------------------------------------------- page
 def _portal_host():
     return (request.headers.get('X-Forwarded-Host') or request.host or '').split(':')[0].startswith('portal.')
@@ -115,7 +143,7 @@ def _portal_page():
     css = re.sub(r'\nbody\{[^\n]*', '', css)
     body = PAGE_OLD[PAGE_OLD.index('<main'):PAGE_OLD.rindex('</body>')]
     head = ('<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
-            f'<h1 class="pt">Ask ARGIA</h1><span class="pill off">phase 0 · read-only</span></div>')
+            f'<h1 class="pt">Ask ARGIA</h1><span class="pill off">phase 1 · read-only</span></div>')
     extra = '<style>' + PC.scoped_css(css, '.askbody') + '.askbody main{padding-top:0}</style>'
     return PC.page('Ask ARGIA', head + '<div class="askbody">' + body + '</div>', None, extra_head=extra)
 
@@ -153,7 +181,7 @@ button:disabled{opacity:.5}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .chips span{background:#fff;border:1px solid #c9ced4;border-radius:14px;padding:4px 10px;font-size:13px;cursor:pointer}
 </style></head><body>
-<header>__LOGO__<span class="t">Ask ARGIA</span><span style="font-size:12px;color:#889;border:1px solid #c9ced4;border-radius:10px;padding:1px 7px">phase 0 · read-only</span>
+<header>__LOGO__<span class="t">Ask ARGIA</span><span style="font-size:12px;color:#889;border:1px solid #c9ced4;border-radius:10px;padding:1px 7px">phase 1 · read-only</span>
 <span class="who">__USER__</span><span class="lang"><button type="button" data-l="en" onclick="setLang('en')">EN</button><button type="button" data-l="es" onclick="setLang('es')">ES</button></span><a href="/monitoring/" data-en="Monitoring" data-es="Monitoreo">Monitoring</a><a href="/" data-en="Reports" data-es="Reportes">Reports</a></header>
 <main id="log">
 <div class="a msg"><span data-en="Ask about the fleet — production, expected, PR, availability, inverters, alarms, lost energy. Every figure comes from the monitoring database; the tool results are shown under each answer so you can check them. Follow-ups (&quot;why?&quot;, &quot;and in July?&quot;) keep the context." data-es="Pregunta sobre la flota — producción, esperado, PR, disponibilidad, inversores, alarmas, energía perdida. Cada cifra viene de la base de datos de monitoreo; los resultados de las herramientas se muestran bajo cada respuesta para que puedas verificarlos. Las preguntas de seguimiento (&quot;¿por qué?&quot;, &quot;¿y en julio?&quot;) mantienen el contexto.">Ask about the fleet.</span>
@@ -197,7 +225,7 @@ function table(rows){if(!rows.length||typeof rows[0]!=='object')return null;cons
 function render(call){const d=document.createElement('details');const args=Object.entries(call.input).map(([k,v])=>k+'='+v).join(', ');
  const s=document.createElement('summary');s.textContent=call.name+'('+args+')'+(call.result&&call.result.error?' — error':'');d.appendChild(s);
  const r=call.result||{};let shown=false;
- for(const k of ['plants','days','inverters','alarms','inverter_faults','worst_days','maintenance','open_maintenance','active_alarms']){if(Array.isArray(r[k])&&r[k].length){const h=document.createElement('div');h.textContent=k;h.style.cssText='font-weight:600;margin-top:6px';d.appendChild(h);const t=table(r[k]);if(t){d.appendChild(t);shown=true;}}}
+ for(const k of ['plants','days','months','inverters','alarms','inverter_faults','worst_days','maintenance','open_maintenance','active_alarms','charges','hits','rows','tables']){if(Array.isArray(r[k])&&r[k].length){const h=document.createElement('div');h.textContent=k;h.style.cssText='font-weight:600;margin-top:6px';d.appendChild(h);const t=table(r[k]);if(t){d.appendChild(t);shown=true;}}}
  const rest={};for(const k in r)if(!Array.isArray(r[k])||!r[k].length||typeof r[k][0]!=='object')rest[k]=r[k];
  const p=document.createElement('pre');p.textContent=JSON.stringify(rest,null,1);d.appendChild(p);return d;}
 f.onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text)return;el('q',text);q.value='';b.disabled=true;const wait=el('a','…');
@@ -229,7 +257,7 @@ def page(user):
 def forbidden():
     r = make_response('<!doctype html><meta charset="utf-8"><title>Ask ARGIA</title>'
                       '<p style="font-family:system-ui;margin:40px">Ask ARGIA is not '
-                      'enabled for this account (phase 0). <a href="/">Back</a></p>', 403)
+                      'enabled for this account. <a href="/">Back</a></p>', 403)
     return r
 
 
@@ -265,7 +293,8 @@ def api():
     rows = app.config.get('ROWS') or pgq.psql_rows
     lang = str(body.get('lang') or 'en').lower()
     lang = lang if lang in agent.LANGUAGES else 'en'
-    ans = agent.ask(question, rows, llm, history=history, lang=lang)
+    scope = scope_of(user, app.config.get('USER_ROW'))
+    ans = agent.ask(question, rows, llm, history=history, lang=lang, scope=scope)
     try:
         agent.log_answer(app.config.get('EXEC') or pgq.psql_exec, user, ans)
     except Exception as e:                           # noqa: BLE001

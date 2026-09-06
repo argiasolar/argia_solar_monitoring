@@ -167,7 +167,7 @@ def test_system_prompt_language_and_brevity_rules():
     from argia.ask import agent as A
     assert "answer in {language}" in A.SYSTEM_TEMPLATE
     assert "answer in Spanish" in A.build_system(FakeDB(dict(BASE)), lang="es")
-    assert "Under 120 words" in A.SYSTEM_TEMPLATE
+    assert "Under 150 words of prose" in A.SYSTEM_TEMPLATE      # v215: tables first, then brief prose
     assert "No headings, no" in A.SYSTEM_TEMPLATE
 
 

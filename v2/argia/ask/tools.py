@@ -377,7 +377,28 @@ def get_performance(rows: Rows, date_from: Any, date_to: Any,
                     if p.get("kwp_dc") else None, **v})
     out.sort(key=lambda x: (x["vs_expected_pct"] is None, x["vs_expected_pct"] or 0))
     return {"date_from": a, "date_to": b, "plants": out,
+            "totals": _fleet_totals(out),
             "source": {"tables": ["daily_production"], **_freshness(rows)}}
+
+
+def _fleet_totals(plant_rows: List[dict]) -> dict:
+    """The summary row for a plant table: sums for energy, kWp-weighted
+    means for PR and availability (a 155 kWp plant must not pull the
+    fleet number as hard as an 818 kWp one), count of plants."""
+    prod = sum(x.get("production_kwh") or 0 for x in plant_rows)
+    exp = sum(x.get("expected_kwh") or 0 for x in plant_rows)
+    kwp = sum(x.get("kwp_dc") or 0 for x in plant_rows)
+
+    def wmean(key):
+        pairs = [(x[key], x.get("kwp_dc") or 0) for x in plant_rows
+                 if x.get(key) is not None and (x.get("kwp_dc") or 0) > 0]
+        w = sum(k for _, k in pairs)
+        return _r(sum(v * k for v, k in pairs) / w, 3) if w else None
+    return {"plants": len(plant_rows), "kwp_dc": _r(kwp), "production_kwh": _r(prod),
+            "expected_kwh": _r(exp), "vs_expected_pct": _pct(prod, exp) if exp else None,
+            "specific_yield_kwh_per_kwp": _r(prod / kwp) if kwp else None,
+            "pr": wmean("pr"), "availability_pct": wmean("availability_pct"),
+            "basis": "sums; PR and availability kWp-weighted"}
 
 
 def get_inverter_performance(rows: Rows, plant: Any, date: Any = "today") -> dict:
@@ -630,6 +651,169 @@ def get_revenue(rows: Rows, date_from: Any, date_to: Any, plant: Any = None) -> 
                        **_freshness(rows)}}
 
 
+# ------------------------------------------------------- reconciliation
+def get_reconciliation(rows: Rows, date_from: Any, date_to: Any, plant: Any = None) -> dict:
+    """The nightly reconciliation per plant-day: our 5-minute interval
+    sum vs the vendor's own counter vs the KPI row, completeness, status
+    and the reference the day was healed from. Use for 'is the data
+    reliable', 'which days need review', 'was anything corrected'."""
+    a, b = _range(date_from, date_to)
+    k = resolve_plant(rows, plant) if plant else None
+    ps = plants(rows)
+    where = f" AND plant_key = {_q(k)}" if k else ""
+    days = []
+    for r in rows("SELECT plant_key, prod_date::text, interval_kwh, vendor_daily_kwh, kpi_kwh,"
+                  " completeness_pct, variance_pct, status, coalesce(note,''),"
+                  " reference_kwh, coalesce(reference_basis,'') FROM reconciliation_daily"
+                  f" WHERE prod_date BETWEEN DATE {_q(a)} AND DATE {_q(b)}{where}"
+                  " ORDER BY prod_date DESC, plant_key /*tag:recon_daily*/;"):
+        if len(r) >= 11:
+            days.append({"plant_key": r[0], "name": ps.get(r[0], {}).get("name"), "date": r[1],
+                         "interval_kwh": _r(_f(r[2])), "vendor_daily_kwh": _r(_f(r[3])),
+                         "kpi_kwh": _r(_f(r[4])), "completeness_pct": _r(_f(r[5])),
+                         "variance_pct": _r(_f(r[6]), 2), "status": r[7], "note": r[8] or None,
+                         "reference_kwh": _r(_f(r[9])), "reference_basis": r[10] or None})
+    by_status: Dict[str, int] = {}
+    for d in days:
+        by_status[d["status"]] = by_status.get(d["status"], 0) + 1
+    return {"plant_key": k, "date_from": a, "date_to": b, "days": days[:400],
+            "totals": {"plant_days": len(days), "by_status": by_status,
+                       "kpi_kwh": _r(sum(d["kpi_kwh"] or 0 for d in days))},
+            "note": "PASS = inverter counters and the vendor plant daily agree within 1%; "
+                    "REVIEW = a gap on one side (the note says whose); FAIL = >3% apart; "
+                    "the inverter counters are the reference, the vendor figure only "
+                    "raises, never lowers. Open days are retried nightly for 14 days.",
+            "source": {"tables": ["reconciliation_daily"], **_freshness(rows)}}
+
+
+def get_monthly_close(rows: Rows, month: Any = None) -> dict:
+    """The monthly close per plant — billing kWh, basis, status, closed
+    by whom — the gate the invoice annexes wait for."""
+    ym = None
+    if month:
+        m = str(month).strip()[:7]
+        if len(m) != 7 or m[4] != "-" or not (m[:4] + m[5:]).isdigit():
+            raise ToolError(f"month must be YYYY-MM, got {month!r}")
+        ym = m
+    ps = plants(rows)
+    where = f" WHERE to_char(ref_month,'YYYY-MM') = {_q(ym)}" if ym else ""
+    out = []
+    for r in rows("SELECT plant_key, to_char(ref_month,'YYYY-MM'), billing_kwh, coalesce(basis,''),"
+                  " status, coalesce(closed_at::text,''), coalesce(closed_by,''), coalesce(note,'')"
+                  f" FROM reconciliation_monthly{where} ORDER BY ref_month DESC, plant_key"
+                  " /*tag:recon_monthly*/ LIMIT 120;"):
+        if len(r) >= 8:
+            out.append({"plant_key": r[0], "name": ps.get(r[0], {}).get("name"), "month": r[1],
+                        "billing_kwh": _r(_f(r[2])), "basis": r[3] or None, "status": r[4],
+                        "closed": bool(r[5]), "closed_at": r[5] or None, "closed_by": r[6] or None,
+                        "note": r[7] or None})
+    return {"month": ym, "months": out,
+            "totals": {"plant_months": len(out), "closed": sum(1 for x in out if x["closed"]),
+                       "open": sum(1 for x in out if not x["closed"]),
+                       "billing_kwh": _r(sum(x["billing_kwh"] or 0 for x in out))},
+            "note": "a PASS month closes automatically; REVIEW/FAIL wait for a manual close; "
+                    "closed months are frozen — nothing changes their kWh afterwards.",
+            "source": {"tables": ["reconciliation_monthly"], **_freshness(rows)}}
+
+
+# --------------------------------------------------------------- CFE
+_PERIODS = ("ENERGIA BASE", "ENERGIA INTERMEDIA", "ENERGIA PUNTA")
+
+
+def get_cfe_tariffs(rows: Rows, tariff: Any = "GDMTH", region: Any = None,
+                    month: Any = None) -> dict:
+    """CFE industrial tariff charges for one scheme: every charge for a
+    region, or the average / min / max across the 17 regions when no
+    region is given. Latest CFE-verified month unless a month is given."""
+    tc = str(tariff or "GDMTH").strip().upper()[:12]
+    if not tc.replace("-", "").isalnum():
+        raise ToolError(f"bad tariff code {tariff!r}")
+    reg = str(region).strip().upper()[:40] if region else None
+    if month:
+        m = str(month).strip()[:7]
+        if len(m) != 7 or m[4] != "-":
+            raise ToolError(f"month must be YYYY-MM, got {month!r}")
+    else:
+        latest = rows("SELECT to_char(max(month),'YYYY-MM') FROM cfe_tariff"
+                      f" WHERE tariff_code = {_q(tc)} AND source = 'cfe_scrape' /*tag:cfe_latest*/;")
+        m = latest[0][0] if latest and latest[0] and latest[0][0] else None
+        if not m:
+            return {"tariff": tc, "error": f"no CFE-verified rows for tariff {tc}"}
+    where = f" AND region = {_q(reg)}" if reg else ""
+    charges = []
+    for r in rows("SELECT charge_type, coalesce(unit,''), round(avg(value_mxn),4), round(min(value_mxn),4),"
+                  " round(max(value_mxn),4), count(*), bool_or(source='cfe_scrape') FROM cfe_tariff"
+                  f" WHERE tariff_code = {_q(tc)} AND to_char(month,'YYYY-MM') = {_q(m)}{where}"
+                  " GROUP BY 1, 2 ORDER BY 1 /*tag:cfe_charges*/;"):
+        if len(r) >= 7:
+            charges.append({"charge": r[0], "unit": r[1], "avg": _f(r[2]), "min": _f(r[3]),
+                            "max": _f(r[4]), "regions": _i(r[5]), "cfe_verified": r[6] == "t"})
+    if not charges:
+        return {"tariff": tc, "region": reg, "month": m,
+                "error": f"no rows for {tc} {reg or '(all regions)'} in {m}"}
+    energy = [c for c in charges if c["charge"] in _PERIODS]
+    return {"tariff": tc, "region": reg or "average of all regions", "month": m,
+            "charges": charges,
+            "totals": {"energy_avg_mxn_per_kwh": _r(sum(c["avg"] for c in energy) / len(energy), 4)
+                       if energy else None, "charges": len(charges)},
+            "note": "MXN without IVA; region = CFE distribution division; source cfe_scrape = "
+                    "CFE-verified, other rows are Master-DB seeds.",
+            "source": {"tables": ["cfe_tariff"]}}
+
+
+# ------------------------------------------------------- knowledge (AGS)
+def search_standard(rows: Rows, query: Any, lang: Any = "en", limit: Any = 5) -> dict:
+    """Full-text search over the ARGIA Golden Standard slides."""
+    from argia.ask import knowledge as K
+    q = str(query or "").strip()
+    if len(q) < 2:
+        raise ToolError("query is required")
+    lang = str(lang or "en").lower()
+    lang = lang if lang in K.LANGS else "en"
+    try:
+        lim = max(1, min(int(limit or 5), 10))
+    except (TypeError, ValueError):
+        lim = 5
+    hits = []
+    for r in rows(K.search_sql(q, lang, lim)):
+        if len(r) >= 4:
+            hits.append({"slide": _i(r[0]), "title": r[1], "excerpt": K.excerpt(r[2], q),
+                         "rank": _f(r[3]), "ref": f"AGS slide {r[0]}" + (f" — {r[1]}" if r[1] else "")})
+    return {"query": q, "lang": lang, "hits": hits,
+            "totals": {"hits": len(hits)},
+            "note": ("cite the slide as 'ARGIA Golden Standard, slide N — title'; "
+                     "the deck is at https://portal.argia.com.mx/ags/" if hits else
+                     f"nothing in the standard matches {q!r} — try other words or the other language"),
+            "source": {"tables": ["knowledge"], "doc": "AGS"}}
+
+
+# ---------------------------------------------------------- free SQL
+def describe_tables(rows: Rows, tables: Any = None) -> dict:
+    from argia.ask import sqltool as S
+    lst = None
+    if tables:
+        lst = [str(t).strip().lower() for t in (tables if isinstance(tables, list) else str(tables).split(","))]
+    return S.describe(rows, lst)
+
+
+def query_database(rows: Rows, sql: Any) -> dict:
+    """Run one read-only SELECT (guarded) and return rows by column."""
+    from argia.ask import sqltool as S
+    try:
+        wrapped = S.wrap(str(sql or ""))
+    except S.SqlRejected as e:
+        raise ToolError(f"query rejected: {e}")
+    try:
+        raw = rows(wrapped)
+    except Exception as e:                       # noqa: BLE001 — SQL error text helps the model
+        msg = str(e)
+        return {"error": "query failed: " + msg[msg.find("ERROR:"):][:400] if "ERROR:" in msg else msg[:400]}
+    data = S.parse_rows(raw)
+    return {"rows": data, "totals": {"rows": len(data), "capped": len(data) >= S.MAX_ROWS},
+            "note": "read-only query; rows capped at %d — aggregate in SQL rather than paging" % S.MAX_ROWS,
+            "source": {"tables": ["(query)"]}}
+
+
 # --------------------------------------------------------------- registry
 _D = {"type": "string", "description": "YYYY-MM-DD, or 'today' / 'yesterday'"}
 _P = {"type": "string",
@@ -686,6 +870,50 @@ TOOLS: List[dict] = [
      "input_schema": {"type": "object",
                       "properties": {"date_from": _D, "date_to": _D, "plant": _P},
                       "required": ["date_from", "date_to"]}},
+    {"name": "get_reconciliation",
+     "description": "Nightly data reconciliation per plant-day: our interval sum vs "
+                    "the vendor counter vs the KPI row, completeness, PASS/REVIEW/FAIL "
+                    "status, what the day was healed from. Use for 'is the data "
+                    "reliable', 'which days need review', 'was anything corrected'.",
+     "input_schema": {"type": "object",
+                      "properties": {"date_from": _D, "date_to": _D, "plant": _P},
+                      "required": ["date_from", "date_to"]}},
+    {"name": "get_monthly_close",
+     "description": "Monthly close per plant (billing kWh, basis, PASS/REVIEW/FAIL, closed "
+                    "by whom) — the gate invoices wait for. Omit month for the latest months.",
+     "input_schema": {"type": "object",
+                      "properties": {"month": {"type": "string", "description": "YYYY-MM"}}}},
+    {"name": "get_cfe_tariffs",
+     "description": "CFE industrial tariff charges (BASE/INTERMEDIA/PUNTA energy, capacity, "
+                    "distribution...) for a scheme such as GDMTH: one region, or the average "
+                    "and min/max across all 17 CFE regions. Latest CFE-verified month by default.",
+     "input_schema": {"type": "object",
+                      "properties": {"tariff": {"type": "string", "description": "GDMTH (default), GDMTO, DIST, DIT, PDBT, GDBT, APBT, APMT, RABT, RAMT"},
+                                     "region": {"type": "string", "description": "CFE division, e.g. BAJIO, GOLFO NORTE, JALISCO"},
+                                     "month": {"type": "string", "description": "YYYY-MM"}}}},
+    {"name": "search_standard",
+     "description": "Search the ARGIA Golden Standard (the design, build and O&M standard, "
+                    "364 training slides) and get the matching slides with excerpts. Use for "
+                    "any 'what does the standard / AGS say', design rules, tolerances, "
+                    "requirements, checklists, terminology.",
+     "input_schema": {"type": "object",
+                      "properties": {"query": {"type": "string", "description": "key words (not a sentence)"},
+                                     "lang": {"type": "string", "description": "en (default), es or cz — the deck's language to search"},
+                                     "limit": {"type": "integer", "description": "1-10, default 5"}},
+                      "required": ["query"]}},
+    {"name": "describe_tables",
+     "description": "Columns and meaning of the database tables the assistant may query "
+                    "with query_database. Call before writing SQL for something no other "
+                    "tool covers.",
+     "input_schema": {"type": "object",
+                      "properties": {"tables": {"type": "string", "description": "comma-separated table names; omit for all"}}}},
+    {"name": "query_database",
+     "description": "Run ONE read-only SQL SELECT against the monitoring database when no "
+                    "other tool answers the question (rows capped at 200, 10 s). Aggregate "
+                    "in SQL. Internal users only. Always call describe_tables first.",
+     "input_schema": {"type": "object",
+                      "properties": {"sql": {"type": "string", "description": "a single SELECT statement"}},
+                      "required": ["sql"]}},
     {"name": "get_lost_generation",
      "description": "kWh below expectation for one plant over a range, valued at "
                     "its PPA tariff in MXN, with the worst days and overlapping "
@@ -705,24 +933,70 @@ DISPATCH: Dict[str, Callable[..., dict]] = {
     "get_alarm_history": get_alarm_history,
     "get_lost_generation": get_lost_generation,
     "get_revenue": get_revenue,
+    "get_reconciliation": get_reconciliation,
+    "get_monthly_close": get_monthly_close,
+    "get_cfe_tariffs": get_cfe_tariffs,
+    "search_standard": search_standard,
+    "describe_tables": describe_tables,
+    "query_database": query_database,
 }
 
+# v215: what a customer-scoped account (a plant owner) never gets —
+# fleet money and free SQL stay internal
+INTERNAL_ONLY = {"query_database", "describe_tables", "get_revenue", "get_lost_generation",
+                 "get_monthly_close", "get_reconciliation"}
+_PLANT_LISTS = ("plants", "days", "months", "inverters", "alarms", "maintenance",
+                "open_maintenance", "active_alarms", "worst_days", "inverter_faults")
 
-def run_tool(rows: Rows, name: str, params: Optional[dict]) -> dict:
+
+def run_tool(rows: Rows, name: str, params: Optional[dict],
+             scope: Optional[set] = None) -> dict:
     """Dispatch one call. Unknown tools and bad inputs come back as
-    ``{"error": ...}`` so the model can recover; anything else raises."""
+    ``{"error": ...}`` so the model can recover; anything else raises.
+
+    ``scope`` (v215) = the plant keys a customer-scoped account may see,
+    None for internal users: internal-only tools are refused, a plant
+    outside the scope is refused, and every list of plant rows in the
+    result is filtered (totals are dropped — they would leak the fleet).
+    """
     fn = DISPATCH.get(name)
     if fn is None:
         return {"error": f"unknown tool {name!r}"}
     allowed = set(next(t for t in TOOLS if t["name"] == name)
                   ["input_schema"]["properties"])
     params = {k: v for k, v in (params or {}).items() if k in allowed}
+    if scope is not None:
+        if name in INTERNAL_ONLY:
+            return {"error": f"{name} is not available for this account"}
+        if params.get("plant"):
+            try:
+                k = resolve_plant(rows, params["plant"])
+            except ToolError as e:
+                return {"error": str(e)}
+            if k not in scope:
+                return {"error": "that plant is not in your account's scope"}
     try:
-        return fn(rows, **params)
+        out = fn(rows, **params)
     except ToolError as e:
         return {"error": str(e)}
     except TypeError as e:                     # missing required argument
         return {"error": f"bad arguments for {name}: {e}"}
+    if scope is not None and isinstance(out, dict):
+        out = scope_result(out, scope)
+    return out
+
+
+def scope_result(out: dict, scope: set) -> dict:
+    """Keep only rows of plants in scope; totals go (fleet figures)."""
+    res = dict(out)
+    for key in _PLANT_LISTS:
+        v = res.get(key)
+        if isinstance(v, list) and v and isinstance(v[0], dict) and "plant_key" in v[0]:
+            res[key] = [x for x in v if x.get("plant_key") in scope]
+    if res.get("plant_key") and res["plant_key"] not in scope:
+        return {"error": "that plant is not in your account's scope"}
+    res.pop("totals", None)
+    return res
 
 
 def to_json(obj: Any) -> str:

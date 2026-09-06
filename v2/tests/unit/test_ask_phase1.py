@@ -244,7 +244,7 @@ class TestScope:
             assert aa.scope_of("boss", lambda u: {"level": "client", "reports": "", "is_admin": 1}) is None
             assert aa.scope_of("owner", lambda u: {"level": "client", "reports": "gto2,financial", "is_admin": 0}) == {"GTO2"}
             assert aa.scope_of("capexer", lambda u: {"level": "client", "reports": "capex", "is_admin": 0}) == {"GTO2"}
-            assert aa.scope_of("gone", lambda u: None) == set()
+            assert aa.scope_of("gone", lambda u: None) is None        # no row = internal (test/dev boxes)
             assert aa.scope_of("off", lambda u: {"level": "argia", "disabled": 1}) == set()
 
 

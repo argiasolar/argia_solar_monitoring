@@ -104,7 +104,10 @@ def scope_of(username, row_lookup=None):
     """v215: the plant keys a customer account may ask about, or None
     for internal users (level 'argia', global admins). Mirrors
     auth_core.may: a granted area named like a plant key is that plant;
-    'capex' grants every CAPEX plant. Unknown/disabled -> empty scope."""
+    'capex' grants every CAPEX plant. A disabled account gets nothing.
+    No account row at all (a name from the unit's ARGIA_ASK_USERS in a
+    test or dev box — nobody reaches the app without a users.db row
+    behind the nginx login) counts as internal."""
     try:
         if row_lookup is None:
             import auth_app
@@ -112,7 +115,9 @@ def scope_of(username, row_lookup=None):
         u = row_lookup(username)
     except Exception:                                # noqa: BLE001
         u = None
-    if not u or u.get('disabled'):
+    if u is None:
+        return None
+    if u.get('disabled'):
         return set()
     if u.get('level') == 'argia' or u.get('is_admin'):
         return None

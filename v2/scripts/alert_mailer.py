@@ -39,7 +39,7 @@ UNITS = ("argia-telemetry", "argia-telemetry-se", "argia-kpi",
          "argia-portal-gen", "argia-satcheck", "argia-strings",
          "argia-cfe-push", "argia-archive-month",
          "argia-dailyperf", "argia-invoice", "argia-recon-close",
-         "argia-thermal")
+         "argia-thermal", "argia-drift")
 
 
 def _txt(s: str) -> str:
@@ -206,6 +206,19 @@ def persist(active: List[monitor.Alert], sent_keys: List[str],
         psql_exec("\n".join(stmts))
 
 
+DRIFT_JSON = "/root/argia_logs/drift_latest.json"
+
+
+def gather_drift() -> Optional[dict]:
+    """The nightly drift_check report, or None when it does not exist."""
+    import json
+    try:
+        with open(DRIFT_JSON, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
 def recipients():
     """Enabled 'maintenance' subscribers as (email, scope) pairs, kept
     to portal accounts (the list in /setup/ only offers those, but the
@@ -280,7 +293,8 @@ def main(argv=None) -> int:
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
               + monitor.recon_alerts(gather_recon_fails())
               + monitor.cfe_alerts(gather_cfe_status(),
-                                   today=now_mx.date()))
+                                   today=now_mx.date())
+              + monitor.drift_alerts(gather_drift(), now=now))
     # v204: only the mailed portfolios (ARGIA_MAIL_PORTFOLIOS, default PPA)
     # page anyone — CAPEX plants stay on the portal and in the ledger.
     # v217: the filter sits on what is SENT, not on what is tracked, so

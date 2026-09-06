@@ -35,6 +35,10 @@ class TestNoOldHostLeft:
                     # the usage card still reads (history) — nothing served
                     if "access.log" in code:
                         continue
+                    # v218: the drift harness checks that the old hosts still
+                    # 301 to the portal and that their vhosts match git
+                    if f.name == "drift_check.py":
+                        continue
                     offenders.append(f"{f.relative_to(V2)}:{i}: {ln.strip()[:90]}")
         assert not offenders, "\n".join(offenders)
 

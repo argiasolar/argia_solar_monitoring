@@ -1,0 +1,6 @@
+[Unit]
+Description=ARGIA status-quo check (deployed files vs git, live smoke answers)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh drift drift_check.py

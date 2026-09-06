@@ -180,6 +180,48 @@ def cfe_alerts(status: Optional[dict],
     return sorted(out, key=lambda a: a.key)
 
 
+DRIFT_MAX_AGE_H = 30.0
+
+
+def drift_alerts(report: Optional[dict], now: Optional[dt.datetime] = None) -> List[Alert]:
+    """v218 status-quo harness: scripts/drift_check.py writes a JSON
+    report nightly; its findings become ONE admin-only WARNING per
+    section — files that differ from git ("config-drift"), smoke
+    answers that changed ("smoke-fail"), and a stale or missing report
+    ("drift-stale") so a dead harness cannot pass for a clean one. All
+    WARNING: they ride the daily digest, never the night."""
+    if not report:
+        return [Alert("drift-stale", SEV_WARN, "status-quo check has not run",
+                      "No drift_check report found — the argia-drift timer did not "
+                      "run or could not write /root/argia_logs/drift_latest.json.")]
+    now = now or dt.datetime.now(dt.timezone.utc)
+    try:
+        gen = dt.datetime.strptime(report.get("generated_utc", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        age_h = (now - gen).total_seconds() / 3600.0
+    except ValueError:
+        age_h = None
+    out: List[Alert] = []
+    if age_h is None or age_h > DRIFT_MAX_AGE_H:
+        out.append(Alert("drift-stale", SEV_WARN, "status-quo check is stale",
+                         f"Last drift_check report is {'unreadable' if age_h is None else f'{age_h:.0f} h old'} "
+                         f"(expected daily)."))
+    lines = list(report.get("findings") or [])
+    conf = [l for l in lines if not l.split(":")[0].strip().startswith(("portal-", "old-", "backup-", "portfolio-", "timers-"))]
+    smoke = [l for l in lines if l not in conf]
+    if conf:
+        out.append(Alert("config-drift", SEV_WARN,
+                         f"deployed files differ from git ({len(conf)} finding(s))",
+                         "What runs on the server is not what is in the repo: "
+                         + "; ".join(conf[:12]) + (" …" if len(conf) > 12 else "")
+                         + ". Deploy from git or commit the server's version — never leave the two apart."))
+    if smoke:
+        out.append(Alert("smoke-fail", SEV_WARN,
+                         f"live checks changed ({len(smoke)} finding(s))",
+                         "The portal or the backups no longer answer as the go-live checklist says: "
+                         + "; ".join(smoke[:12]) + (" …" if len(smoke) > 12 else "")))
+    return out
+
+
 # ----------------------------------------------------------- send logic
 def plan_sends(active: List[Alert],
                state: Dict[str, Tuple[dt.datetime, bool]],

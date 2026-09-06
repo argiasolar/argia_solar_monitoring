@@ -33,6 +33,7 @@ Routes:
 import html
 import json
 import os
+import re
 import sys
 
 from flask import Flask, request, jsonify, make_response
@@ -100,7 +101,26 @@ def actor():
 
 
 # ----------------------------------------------------------------- page
-PAGE = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
+def _portal_host():
+    return (request.headers.get('X-Forwarded-Host') or request.host or '').split(':')[0].startswith('portal.')
+
+
+def _portal_page():
+    """v210: the same chat under the portal chrome. The old page is
+    split at its <header>: styles above, the chat below."""
+    import portal_chrome as PC
+    css = PAGE_OLD[PAGE_OLD.index('<style>') + 7:PAGE_OLD.index('</style>')]
+    css = re.sub(r'\nheader[^\n]*', '', css)             # the old header rules
+    css = re.sub(r'\n\.lang[^\n]*', '', css)
+    css = re.sub(r'\nbody\{[^\n]*', '', css)
+    body = PAGE_OLD[PAGE_OLD.index('<main'):PAGE_OLD.rindex('</body>')]
+    head = ('<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+            f'<h1 class="pt">Ask ARGIA</h1><span class="pill off">phase 0 · read-only</span></div>')
+    extra = '<style>' + PC.scoped_css(css, '.askbody') + '.askbody main{padding-top:0}</style>'
+    return PC.page('Ask ARGIA', head + '<div class="askbody">' + body + '</div>', None, extra_head=extra)
+
+
+PAGE_OLD = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ask ARGIA</title>
 <style>
@@ -196,7 +216,7 @@ f.onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text)retur
 
 def page(user):
     logo = f'<img src="{LOGO_URI}" alt="ARGIA">' if LOGO_URI else ''
-    body = (PAGE.replace('__LOGO__', logo)
+    body = ((_portal_page() if _portal_host() else PAGE_OLD).replace('__LOGO__', logo)
             .replace('__USER__', html.escape(user))
             .replace('__MODEL__', html.escape(agent.DEFAULT_MODEL))
             .replace('__MAXQ__', str(MAX_QUESTION))

@@ -19,6 +19,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))          # monitoring_gen lives one up
+for _cand in (os.path.join(os.path.dirname(os.path.dirname(HERE)), 'scripts'),
+              '/root/argia_v2/v2/scripts'):               # invoice_publish (repo checkout on pio06)
+    if os.path.isdir(_cand):
+        sys.path.insert(0, _cand)
 
 OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/portal.argia.com.mx/www'
 sys.argv = sys.argv[:1]                            # the imports must not see our argv
@@ -90,17 +94,17 @@ def landing():
     g_en, g_es = (('Good morning', 'Buenos días') if h < 12 else
                   ('Good afternoon', 'Buenas tardes') if h < 19 else ('Good evening', 'Buenas noches'))
     dests = [
-        ('report', 'Report', 'Reporte', '/report/', 'Fleet overview, PPA, CAPEX, plant performance, financial, invoices.',
-         'Resumen de flota, PPA, CAPEX, desempeño por planta, financiero, facturas.', ''),
-        ('monitor', 'Monitoring', 'Monitoreo', '/monitoring/', 'Live inverters, alerts, temperatures, peers — every 5 minutes.',
-         'Inversores en vivo, alertas, temperaturas, pares — cada 5 minutos.', ''),
-        ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers on hover.',
-         'La flota en un mapa, estado y cifras de hoy al pasar el cursor.', ''),
+        ('report', 'Report', 'Reporte', '/report/', 'Fleet overview, PPA, CAPEX, plant performance, financial.',
+         'Resumen de flota, PPA, CAPEX, desempeño por planta, financiero.', ''),
+        ('monitor', 'Monitoring', 'Monitoreo', '/monitoring/', 'Live inverters, alerts, temperatures, peers.',
+         'Inversores en vivo, alertas, temperaturas, pares.', ''),
+        ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers.',
+         'La flota en un mapa, estado y cifras de hoy.', ''),
         ('engine', 'Engine', 'Engine', '/engine/', 'Sizing and proposals.', 'Dimensionamiento y propuestas.', 'engine.sprinkler.agency'),
-        ('ags', 'ARGIA Golden Standard', 'ARGIA Golden Standard', '/ags/', 'The ARGIA design, build and O&M standard — designer training.',
-         'El estándar ARGIA de diseño, construcción y O&M — capacitación para diseñadores.', 'sprinkler.agency'),
-        ('setup', 'Setup', 'Configuración', '/setup/', 'You, users, plants, finance, CFE & tariffs, system.',
-         'Tú, usuarios, plantas, finanzas, CFE y tarifas, sistema.', ''),
+        ('ags', 'ARGIA Golden Standard', 'ARGIA Golden Standard', '/ags/', 'The ARGIA design, build and O&M standard.',
+         'El estándar ARGIA de diseño, construcción y O&M.', 'sprinkler.agency'),
+        ('setup', 'Setup', 'Configuración', '/setup/', 'People, plants, finance, CFE & tariffs, system.',
+         'Personas, plantas, finanzas, CFE y tarifas, sistema.', ''),
     ]
     cards = ''.join(f'''
    <a href="{path}" class="card dest" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
@@ -134,12 +138,22 @@ def plant_rows(keys, day):
 
 def plant_table(keys, day):
     trs = ''
+    te = tx = 0.0
+    w_pr = kwp_pr = 0.0
     for k, e, x, pct, pr, cls, en, es in plant_rows(keys, day):
+        te += e or 0.0
+        tx += x or 0.0
+        if pr is not None:
+            w_pr += pr * RG.plants[k]['kwp']; kwp_pr += RG.plants[k]['kwp']
         pf = RG.plants[k]['portfolio']
         trs += (f'<tr><td><a href="/report/{C.slug(k)}/" class="lcell"><span class="lbox">{logo(k)}</span>{pn(k, 13.5, True)}</a></td>'
                 f'<td><span class="pill {"ok" if pf == "PPA" else "off"}">{pf}</span></td><td class="muted">{html.escape(C.location_of(RG.plants[k]["customer"]))}</td>'
                 f'<td class="r">{fmt(e)}</td><td class="r muted">{fmt(x)}</td><td class="r">{fmt(pct) + "%" if pct is not None else "—"}</td>'
                 f'<td class="r">{fmt(pr, 2)}</td><td><span class="pill {"ok" if cls == "good" else "crit" if cls == "bad" else cls}">{t(en, es)}</span></td></tr>')
+    tpct = (100 * te / tx) if tx else None
+    trs += (f'<tr class="total"><td><b>{t("TOTAL", "TOTAL")}</b></td><td></td><td class="muted">{len(keys)} {t("plants", "plantas")}</td>'
+            f'<td class="r"><b>{fmt(te)}</b></td><td class="r muted">{fmt(tx)}</td><td class="r"><b>{fmt(tpct) + "%" if tpct is not None else "—"}</b></td>'
+            f'<td class="r"><b>{fmt(w_pr / kwp_pr, 2) if kwp_pr else "—"}</b></td><td class="muted" style="font-size:12px">{t("PR kWp-weighted", "PR ponderado por kWp")}</td></tr>')
     return f'''<div class="card" style="overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Plant performance", "Desempeño por planta")} · {day}</h2><span class="muted" style="font-size:12.5px">{t("energy from inverter counters; vendor daily only where higher", "energía de contadores de inversor; diario del proveedor sólo si es mayor")}</span></div>
  <div style="overflow-x:auto"><table><thead><tr><th>{t("Plant", "Planta")}</th><th>{t("Portfolio", "Portafolio")}</th><th>{t("Location", "Ubicación")}</th><th class="r">kWh</th><th class="r">{t("Expected", "Esperado")}</th><th class="r">% plan</th><th class="r">PR 30 d</th><th>{t("Status", "Estado")}</th></tr></thead><tbody>{trs}</tbody></table></div>
@@ -219,6 +233,70 @@ def plant_report(k):
     controls = parts['controls'].replace(f'<a class="btn live" href="/monitoring/{k.lower()}/">', '<a class="btn live" style="display:none" href="#">')
     body = head + controls + parts['tiles'] + parts['warn'] + ''.join(parts['body']) + parts['footer']
     return C.page(name(k), body, 'report', 'plants')
+
+# ------------------------------------------------------------- financial
+def financial_report():
+    """report_gen.financial_body under the portal chrome — same tiles,
+    tables, range engine and one-A4 print rule."""
+    head = f'''
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
+ <div style="display:flex;flex-direction:column;gap:4px">
+  <div class="kicker">PPA + LaaS · {t("generated", "generado")} {RG.gen_at} · {t("actuals through", "reales hasta")} {RG.asof}</div>
+  <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><h1 class="pt">{t("Financial report", "Reporte financiero")}</h1><span class="rng mono muted" id="hdr_range"></span></div>
+ </div>
+ <button class="btn2 noprint" onclick="window.print()">{ico("print", 15)} {t("PDF · current selection", "PDF · selección actual")}</button>
+</div>'''
+    body = RG.financial_body().replace('href="/invoices/"', 'href="/report/invoices/"')
+    return C.page('Financial report', head + body, 'report', 'financial')
+
+
+# -------------------------------------------------------------- invoices
+OLD_INVOICES_DIR = '/www/hosting/monitoring.argia.com.mx/www/invoices'
+
+
+def invoice_records():
+    """{ym: {factura_name: (kwh, mxn, status)}} from the invoicing register
+    (same SQL as scripts/invoice_publish.all_records, through RG.q so it
+    does not depend on the job env)."""
+    from invoice_publish import FACTURA_CLIENT
+    by_pk = {v[0]: k for k, v in FACTURA_CLIENT.items()}
+    out = {}
+    for r in RG.q("SELECT plant_key, to_char(ref_month, 'YYYY-MM'), billable_kwh, amount_mxn,"
+                  " check_status FROM invoicing WHERE billable_kwh IS NOT NULL;"):
+        if len(r) < 5 or r[0] not in by_pk:
+            continue
+        out.setdefault(r[1], {})[by_pk[r[0]]] = (
+            float(r[2]) if r[2] else None, float(r[3]) if r[3] else None, r[4])
+    return out
+
+
+def invoices_page():
+    """The invoice annexes index on the portal chrome. The files stay
+    where the monthly job writes them; /invoices/ on the portal host is
+    a symlink to that folder (deploy step), so the links are absolute."""
+    import invoice_publish as IP
+    months = IP.scan_months(OLD_INVOICES_DIR)
+    body = IP.index_body(months, records=invoice_records(), zips=IP.month_zips(OLD_INVOICES_DIR),
+                         base='/invoices/')
+    head = f'''
+<div style="display:flex;flex-direction:column;gap:4px">
+ <div class="kicker">{t("One annex per plant and closed month · the PDF is always in Spanish · new months appear on the 1st after the reconciliation close", "Un anexo por planta y mes cerrado · el PDF siempre en español · cada mes nuevo aparece el día 1 tras el cierre de conciliación")}</div>
+ <h1 class="pt">{t("Invoice annexes", "Anexos de facturación")}</h1>
+</div>'''
+    return C.page('Invoice annexes', head + f'<div class="invbody">{body}</div>', 'report', 'invoices')
+
+
+# ------------------------------------------------------------------- map
+def map_page():
+    """monitoring_gen.portfolio_page(skin='portal'): tiles, Leaflet map,
+    PVOUT overlay, hover cards, per-plant checkboxes — under the portal
+    chrome at /map/. Assets (/portfolio/assets, /monitoring/assets) are
+    symlinked into the portal root by the deploy step."""
+    head = (f'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px"><div class="kicker">'
+            f'{t("Every plant, live · circle area = installed kWp · money is an accrual estimate, sin IVA", "Cada planta, en vivo · área del círculo = kWp instalados · el dinero es una estimación devengada, sin IVA")}'
+            f'</div><h1 class="pt">{t("Map", "Mapa")}</h1></div>')
+    return C.page('Map', head + MG.portfolio_page(skin='portal'), 'map', refresh=300)
+
 
 # --------------------------------------------------------- monitoring pages
 def mon_tile(k):
@@ -309,20 +387,11 @@ def main():
     write('monitoring/ppa/index.html', monitoring_overview('ppa')); n += 1
     write('monitoring/capex/index.html', monitoring_overview('capex')); n += 1
     # parity phase: not-yet-rebuilt destinations land on the old site
-    legacy = {
-        'report/financial/index.html': ('/financial/', 'Financial report — old site', 'Reporte financiero — sitio anterior'),
-        'report/invoices/index.html': ('/invoices/', 'Invoice annexes — old site', 'Anexos — sitio anterior'),
-        'map/index.html': ('/portfolio/', 'Portfolio map — old site', 'Mapa — sitio anterior'),
-        'setup/index.html': ('/account/', 'Your account — old site', 'Tu cuenta — sitio anterior'),
-        'setup/users/index.html': ('/setup/people/', 'Users — old site', 'Usuarios — sitio anterior'),
-        'setup/plants/index.html': ('/setup/plants/', 'Plants — old site', 'Plantas — sitio anterior'),
-        'setup/finance/index.html': ('/setup/finance/', 'Finance — old site', 'Finanzas — sitio anterior'),
-        'setup/cfe/index.html': ('/setup/cfe/', 'CFE & tariffs — old site', 'CFE y tarifas — sitio anterior'),
-        'setup/system/index.html': ('/setup/system/', 'System — old site', 'Sistema — sitio anterior'),
-        'ask/index.html': ('/ask/', 'Ask ARGIA — old site', 'Pregunta a ARGIA — sitio anterior'),
-    }
-    for rel, (path, en, es) in legacy.items():
-        write(rel, C.redirect_page(LEGACY + path, en, es)); n += 1
+    write('report/financial/index.html', financial_report()); n += 1
+    write('report/invoices/index.html', invoices_page()); n += 1
+    write('map/index.html', map_page()); n += 1
+    # /setup/ (people, plants, finance, cfe, system, account) and /ask/ are
+    # the live apps, proxied by nginx on this host too, with the portal skin
     for k in PPA + CAPEX:
         write(f'report/{C.slug(k)}/index.html', plant_report(k)); n += 1
         # the code is an internal alias: /report/gto1/ -> /report/taigene/

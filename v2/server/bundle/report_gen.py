@@ -1306,12 +1306,22 @@ def plant_page(k):
 
 # ================= page: financial (PPA + LaaS, interactive) =================
 def financial_page():
-    meta_js = json.dumps(assets_meta, ensure_ascii=False)
-    atoms_js = json.dumps(atoms, separators=(',', ':'))
+    """The old site's financial page (chrome + financial_body)."""
     body = [chrome_top('Financial Report', 'Reporte Financiero', '', home='..',
                        range_id='hdr_range',
                        right_sub=f'{t("generated","generado")} {gen_at} · '
-                                 f'{t("actuals through","reales hasta")} {asof}')]
+                                 f'{t("actuals through","reales hasta")} {asof}'),
+            financial_body()]
+    return page(''.join(body), 'Financial Report — ARGIA')
+
+
+def financial_body():
+    """Everything below the title: range bar, tiles, tables, the range
+    engine (v210: shared with the portal). Needs a #hdr_range element
+    somewhere on the page."""
+    meta_js = json.dumps(assets_meta, ensure_ascii=False)
+    atoms_js = json.dumps(atoms, separators=(',', ':'))
+    body = []
     body.append(f'''
 <div class="controls rangebar noprint">
  <div class="rgroup">
@@ -1457,7 +1467,7 @@ window.addEventListener('DOMContentLoaded',()=>{{
  compute();
 }});
 </script>''')
-    return page(''.join(body), 'Financial Report — ARGIA')
+    return ''.join(body)
 
 
 # ================= page: CAPEX overview =================

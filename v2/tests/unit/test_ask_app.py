@@ -144,7 +144,7 @@ def test_page_json_is_valid_javascript_strings():
     escapes survive: a '\\n' inside the JS must reach the browser as the
     two characters backslash-n, not as a newline inside a JS literal."""
     import ask_app as aa
-    assert "'\\n'" in aa.PAGE
+    assert "'\\n'" in aa.PAGE_OLD
     assert json.dumps(aa.MAX_HISTORY)   # numeric substitution, not a str
 
 

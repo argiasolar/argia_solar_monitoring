@@ -471,6 +471,33 @@ def sync():
             pass
 
 
+def _portal_host():
+    """v210: served through portal.argia.com.mx -> the portal chrome."""
+    return (request.headers.get('X-Forwarded-Host') or request.host or '').split(':')[0].startswith('portal.')
+
+
+def _portal_drawer():
+    seg = (request.path or '/').strip('/').split('/')[0]
+    return seg if seg in ('people', 'plants', 'finance', 'cfe', 'system') else 'people'
+
+
+SETUP_CONTENT_CSS = '''
+.card{background:#fff;border:1px solid #e4e7ea;border-radius:12px;padding:16px 18px;margin:14px 0;overflow-x:auto;}
+.card h2{font-size:14px;margin:0 0 8px;}
+table{border-collapse:collapse;width:100%;font-size:13.5px;}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #eceef0;}
+th{color:#5f6368;font-size:12px;}
+.btn{background:#fff;border:1px solid #dadce0;border-radius:8px;padding:6px 13px;font-size:13.5px;cursor:pointer;color:#1a1d23;font-weight:500;}
+.btn.danger{color:#b3261e;}
+input[type=text],input[type=password],input[type=number],input[type=email],select{border:1px solid #dadce0;border-radius:8px;padding:6px 10px;font-size:13.5px;}
+.pill{display:inline-block;padding:2px 9px;border-radius:11px;font-size:12px;background:#e6f7f5;color:#05847d;}
+.pill.adm{background:#ecebf6;color:#4f4a94;}
+.areas{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:4px;font-size:13px;}
+.note{font-size:13px;color:#80868b;}
+label{font-size:13.5px;}
+'''
+
+
 def page(body, msg='', once=None, title=None, sub=None):
     once_html = ''
     if once:
@@ -514,6 +541,15 @@ def page(body, msg='', once=None, title=None, sub=None):
                          'Changes apply immediately.',
                          'Usuarios, plantas, finanzas, CFE y sistema — un cajón cada uno. '
                          'Los cambios aplican de inmediato.')
+    if _portal_host():
+        import portal_chrome as PC
+        head = (f'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px">'
+                f'<div class="kicker">{PC.t("Setup", "Configuración")}</div>'
+                f'<h1 class="pt">{PC.t(t_en, t_es)}</h1>'
+                f'<div class="muted">{PC.t(s_en, s_es)}</div></div>')
+        extra = ('<style>' + PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody') + '</style>')
+        return PC.page(t_en, head + f'<div class="setupbody">{once_html}{msg_html}{body}</div>',
+                       'setup', _portal_drawer(), extra_head=extra)
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Setup — ARGIA</title>
@@ -2000,9 +2036,9 @@ def can_manage(target):
 @app.get('/')
 def index():
     me, is_global, org = actor()
-    if is_global:
+    if is_global and not _portal_host():
         return catalog_page(msg=(request.args.get('m') or '')[:300])
-    return render()
+    return render(drawer='people')           # the portal lands on People (v210)
 
 
 @app.get('/people/')

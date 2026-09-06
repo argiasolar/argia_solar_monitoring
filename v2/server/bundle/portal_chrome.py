@@ -20,9 +20,14 @@ import html
 import re
 import unicodedata
 
+try:
+    from argia_logo import LOGO_URI          # the official wordmark, PNG data URI
+except ImportError:                          # never in production; keeps the module pure in odd test paths
+    LOGO_URI = ''
+
 PORTAL_HOST = 'portal.argia.com.mx'
 LEGACY = 'https://report.argia.com.mx'
-ENGINE_URL = 'https://engine.sprinkler.agency/'
+ENGINE_URL = 'https://engine.sprinkler.agency/engine'
 AGS_URL = 'https://sprinkler.agency/argiagoldenstandard/ARGIA_Golden_Standard_Designer_Training_WHITE.html'
 
 # plant code -> URL slug. Static on purpose: slugs are identifiers
@@ -48,7 +53,7 @@ SECTIONS = {
     'engine': ('Engine', 'Engine', []),
     'ags': ('ARGIA Golden Standard', 'ARGIA Golden Standard', []),
     'setup': ('Setup', 'Configuración', [
-        ('', 'You', 'Tú'), ('users', 'Users', 'Usuarios'), ('plants', 'Plants', 'Plantas'),
+        ('people', 'People', 'Personas'), ('plants', 'Plants', 'Plantas'),
         ('finance', 'Finance', 'Finanzas'), ('cfe', 'CFE & tariffs', 'CFE y tarifas'),
         ('system', 'System', 'Sistema')]),
 }
@@ -167,14 +172,14 @@ h2.ct{font-size:15px;margin:0;font-weight:700}
 header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
 .phrow{max-width:1280px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:18px;height:60px}
 .wm{display:flex;align-items:center;gap:9px;color:var(--deep)}.wm .wmb{width:26px;height:26px;border-radius:7px;background:var(--teal);display:flex;align-items:center;justify-content:center}
-.wm .wmt{font-weight:800;font-size:17px;letter-spacing:.16em}
+.wm .wmt{font-weight:800;font-size:17px;letter-spacing:.16em}.wm .wmlogo{height:26px;width:auto;display:block}
 .psec{display:flex;align-items:center;gap:10px}.psec .sep{width:1px;height:22px;background:var(--line)}.psec .pn{font-weight:700;font-size:15px}
 .hbtns{display:flex;gap:8px;align-items:center;position:relative;margin-left:auto}
 .ib{width:40px;height:40px;border-radius:10px;border:1px solid var(--line2);background:#fff;display:flex;align-items:center;justify-content:center;color:var(--ink2);cursor:pointer;padding:0}
 .ib:hover{border-color:var(--teal)}.ib.ask{background:var(--teal);border-color:var(--teal);color:var(--deep)}
 /* folder tabs: the active one is the open folder, joined to the page */
-.tabs{max-width:1280px;margin:0 auto;padding:10px 28px 0;display:flex;gap:4px;overflow-x:auto;align-items:flex-end}
-.tab{padding:9px 16px;font-weight:600;font-size:13.5px;color:var(--muted);background:#f4f6f8;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;white-space:nowrap;position:relative;top:1px}
+.tabs{max-width:1280px;margin:0 auto;padding:10px 28px 0;display:flex;gap:4px;flex-wrap:wrap;align-items:flex-end;overflow:visible}
+.tab{padding:9px 16px;font-weight:600;font-size:13.5px;color:var(--muted);background:#f4f6f8;border:1px solid var(--line);border-bottom:0;border-radius:9px 9px 0 0;white-space:nowrap;margin-bottom:-1px}
 .tab.on{color:var(--deep);background:var(--bg);border-color:var(--line2);box-shadow:inset 0 3px 0 var(--teal)}.tab:hover{color:var(--deep);background:#eef0f3}
 /* user menu */
 .umenu{display:none;position:absolute;right:0;top:48px;width:240px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(26,29,35,.14);padding:8px;z-index:50}
@@ -225,6 +230,12 @@ svg{max-width:100%;height:auto;display:block}
 .line.wx{stroke:#eab308;stroke-dasharray:5 4;stroke-width:2.5}
 .dot{stroke:var(--surface);stroke-width:2}.dot.s1{fill:var(--s1)}.dot.s2{fill:var(--s2)}
 .hit{fill:transparent}
+/* invoices index (scripts/invoice_publish.index_body) */
+.invbody h2{font-size:16px;margin:26px 0 2px}.invbody .msum{color:var(--muted);font-size:13px;margin:2px 0 8px}
+.invbody table{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}.invbody th,.invbody td{padding:9px 12px}
+.invbody .btn{background:#fff;color:var(--ink);border:1px solid var(--line2);padding:5px 12px;font-weight:600;font-size:12.5px}.invbody .btn.zip{border-color:var(--teal);color:var(--deep)}
+.invbody .mut{color:#9aa0a6;font-size:13px}.invbody .blocked{color:#c2554e;font-size:13px}
+tr.total td{border-top:2px solid var(--line2);background:#fafbfd}
 /* legacy fragment classes (plant page from report_gen.plant_parts) */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0}
 .tile.flip .face.front{position:relative}.tile.flip.good .face{background:#e6f7f5;border-color:#b8e6e1}.tile.flip.warn .face{background:#fff4e0;border-color:#f3dcae}.tile.flip.bad .face{background:#fdeaea;border-color:#f3b9b9}
@@ -285,6 +296,9 @@ window.addEventListener('DOMContentLoaded',()=>{
 
 # ---------------------------------------------------------------- header
 def wordmark():
+    """The official ARGIA wordmark (v210) — on every page, linking home."""
+    if LOGO_URI:
+        return f'<a class="wm" href="/" title="Home"><img class="wmlogo" src="{LOGO_URI}" alt="ARGIA SOLAR"></a>'
     return (f'<a class="wm" href="/" title="Home">'
             f'<span class="wmb">{ico("sun", 16, "#053b38", 2.2)}</span><span class="wmt">ARGIA</span></a>')
 
@@ -292,7 +306,7 @@ def wordmark():
 def user_menu():
     return f'''<div class="umenu" id="umenu" role="menu">
  <div class="uwho"><b>…</b><span class="mono muted"></span></div>
- <a href="/setup/">{ico("user", 16)} {t("My account", "Mi cuenta")}</a>
+ <a href="/account/">{ico("user", 16)} {t("My account", "Mi cuenta")}</a>
  <div style="display:flex;align-items:center;gap:10px;padding:9px 12px">{ico("globe", 16)} {t("Language", "Idioma")}
   <span class="seg"><button class="lang-btn" data-l="en" onclick="setLang('en',true)">EN</button><button class="lang-btn" data-l="es" onclick="setLang('es',true)">ES</button></span></div>
  <button class="uout" onclick="argiaLogout()">{ico("out", 16)} {t("Log out", "Cerrar sesión")}</button>
@@ -335,6 +349,36 @@ def page(title, body, section=None, on='', refresh=0, extra_head=''):
             f'<title>{html.escape(title)} — ARGIA</title><link rel="icon" href="/favicon.png">'
             f'<style>{CSS}</style>{extra_head}</head><body>'
             f'{header(section, on)}<div class="wrap">{body}</div>{JS}</body></html>')
+
+
+def scoped_css(css, scope):
+    """Prefix every selector of a stylesheet with `scope` so an app's own
+    content rules (table, .btn, input …) cannot fight the portal chrome.
+    @media / @supports blocks are recursed into; other @-rules pass through."""
+    out, i, n = [], 0, len(css)
+    while i < n:
+        j = css.find('{', i)
+        if j < 0:
+            break
+        head = css[i:j].strip()
+        # matching close brace for this block
+        depth, k = 1, j + 1
+        while k < n and depth:
+            if css[k] == '{':
+                depth += 1
+            elif css[k] == '}':
+                depth -= 1
+            k += 1
+        inner = css[j + 1:k - 1]
+        if head.startswith('@media') or head.startswith('@supports'):
+            out.append(f'{head}{{{scoped_css(inner, scope)}}}')
+        elif head.startswith('@'):
+            out.append(f'{head}{{{inner}}}')
+        elif head:
+            sels = ','.join(f'{scope} {x.strip()}' for x in head.split(',') if x.strip())
+            out.append(f'{sels}{{{inner}}}')
+        i = k
+    return '\n'.join(out)
 
 
 # ------------------------------------------------------------ components

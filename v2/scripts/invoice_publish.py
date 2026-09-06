@@ -307,6 +307,13 @@ def render_index(months, blocked_now=None, records=None, zips=None,
     ES users); the PDFs themselves are always Spanish. Each month
     carries a summary line and one row per client with the RECORDED
     invoiced kWh and MXN (the 'invoicing' register). Pure."""
+    body = index_body(months, blocked_now, records, zips)
+    return _index_page(body, generated_at)
+
+
+def index_body(months, blocked_now=None, records=None, zips=None, base=""):
+    """The month blocks (v210: shared with the portal, which passes
+    base='/invoices/' so the links are absolute on its host). Pure."""
     blocked_now = blocked_now or {}
     records = records or {}
     zips = zips or {}
@@ -340,12 +347,12 @@ def render_index(months, blocked_now=None, records=None, zips=None,
             mxn_td = "&mdash;" if mxn is None else f"${mxn:,.2f}"
             flag = ('' if chk in (None, "OK", "XLSX") else
                     f' <span class="blocked">{_esc(chk)}</span>')
-            base = f"{ym}/factura_{name}_{ym.replace('-', '')}"
-            pdf = (f'<a class="btn" href="{base}.pdf" download>PDF</a>'
+            fbase = f"{base}{ym}/factura_{name}_{ym.replace('-', '')}"
+            pdf = (f'<a class="btn" href="{fbase}.pdf" download>PDF</a>'
                    if has_pdf else
                    f'<span class="mut">{t("PDF pending", "PDF pendiente")}'
                    "</span>")
-            web = (f'<a class="btn" href="{base}.html">'
+            web = (f'<a class="btn" href="{fbase}.html">'
                    f'{t("View", "Ver")}</a>' if has_html else "")
             rows.append(f"<tr><td>{_esc(client)}</td>"
                         f'<td class="num">{kwh_td}</td>'
@@ -359,7 +366,7 @@ def render_index(months, blocked_now=None, records=None, zips=None,
                         f"</td></tr>")
         dlall = ""
         if zips.get(ym):
-            dlall = (f' · <a class="btn zip" href="{ym}/facturas_'
+            dlall = (f' · <a class="btn zip" href="{base}{ym}/facturas_'
                      f'{ym.replace("-", "")}.zip" download>'
                      f'{t("Download all (ZIP)", "Descargar todo (ZIP)")}'
                      "</a>")
@@ -375,8 +382,15 @@ def render_index(months, blocked_now=None, records=None, zips=None,
             f"<th>kWh</th><th>MXN {t('excl. VAT', 'sin IVA')}</th>"
             f"<th></th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table>")
-    body = "".join(parts) or (
+    return "".join(parts) or (
         f"<p>{t('No annexes published yet.', 'Aún no hay anexos publicados.')}</p>")
+
+
+def _index_page(body, generated_at=""):
+    """The old site's chrome around index_body (unchanged output)."""
+    def t(en, es):
+        return (f'<span data-en="{_esc(en)}" data-es="{_esc(es)}">'
+                f"{_esc(en)}</span>")
     return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">

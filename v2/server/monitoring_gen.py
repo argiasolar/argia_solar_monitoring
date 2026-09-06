@@ -1431,7 +1431,9 @@ def portfolio_rows():
     return rows
 
 
-def portfolio_page():
+def portfolio_page(skin='old'):
+    """skin='portal' (v210) returns the map body without the old
+    controls row, for portal.argia.com.mx/map/."""
     import json
     rows = portfolio_rows()
     # Solargis / Global Solar Atlas PVOUT overlay (v182, Tomasz):
@@ -1530,7 +1532,7 @@ def portfolio_page():
 Untick a plant to hide it on the map; the choice is remembered in this browser.</p>
 </div>"""
 
-    body = f'''{controls()}
+    body = f'''__CONTROLS__
 {tiles}
 <div class="card" style="padding:0;overflow:hidden"><div id="map"></div></div>
 <p class="note" style="margin-top:8px">
@@ -1663,7 +1665,9 @@ document.querySelectorAll('.ptog').forEach(function(cb){{
  }});
 }});
 </script>'''
-    return page('Portfolio map', body,
+    if skin == 'portal':
+        return body.replace('__CONTROLS__', '')
+    return page('Portfolio map', body.replace('__CONTROLS__', controls()),
                 'Every plant, live · circle area = installed kWp · '
                 'money is an accrual estimate, sin IVA')
 

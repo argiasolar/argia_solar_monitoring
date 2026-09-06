@@ -36,9 +36,9 @@ class TestHeader:
         h = C.header("monitoring")
         assert [u for _on, u in re.findall(r'class="tab( on)?" href="([^"]+)"', h)] == [
             "/monitoring/", "/monitoring/ppa/", "/monitoring/capex/"]
-        h = C.header("setup")
+        h = C.header("setup", "people")
         assert [u for _on, u in re.findall(r'class="tab( on)?" href="([^"]+)"', h)] == [
-            "/setup/", "/setup/users/", "/setup/plants/", "/setup/finance/", "/setup/cfe/", "/setup/system/"]
+            "/setup/people/", "/setup/plants/", "/setup/finance/", "/setup/cfe/", "/setup/system/"]
         assert re.findall(r'class="tab', C.header("map")) == []      # the map is just the map
 
     def test_language_and_logout_live_in_the_you_menu_only(self):
@@ -127,14 +127,19 @@ class TestWiring:
         assert src.index("sys.argv = sys.argv[:1]") < src.index("import report_gen as RG")
         assert src.index("import report_gen as RG") < src.index("import monitoring_gen as MG")
 
-    def test_every_sub_tab_has_a_page_or_a_legacy_redirect(self):
+    def test_every_sub_tab_has_a_page(self):
+        # setup/* and ask/ are the live apps (nginx proxies them on the portal host too)
         src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         for section, (_en, _es, subs) in C.SECTIONS.items():
+            if section == "setup":
+                continue
             for s, _a, _b in subs:
                 rel = f"{section}/{s + '/' if s else ''}index.html"
                 assert f"'{rel}'" in src, rel
-        for top in ("map/index.html", "setup/index.html", "ask/index.html", "engine/index.html", "ags/index.html"):
+        for top in ("map/index.html", "engine/index.html", "ags/index.html"):
             assert f"'{top}'" in src
+        snippet = (BUNDLE / "nginx-argia_session.conf").read_text(encoding="utf-8")
+        assert "location /setup/ {" in snippet and "location /ask/ {" in snippet and "location /account/ {" in snippet
 
     def test_nginx_vhost_and_units(self):
         conf = (BUNDLE / "portal.argia.com.mx.conf").read_text(encoding="utf-8")
@@ -175,7 +180,7 @@ class TestV209:
             assert f'href="{dest}"' in body or f"'{dest}'" in body, dest
 
     def test_engine_and_ags_destinations(self):
-        assert C.ENGINE_URL == "https://engine.sprinkler.agency/"
+        assert C.ENGINE_URL == "https://engine.sprinkler.agency/engine"
         assert C.AGS_URL.startswith("https://sprinkler.agency/argiagoldenstandard/")
         src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         assert "C.redirect_page(C.ENGINE_URL" in src and "C.redirect_page(C.AGS_URL" in src
@@ -212,3 +217,57 @@ class TestV209:
         src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         assert "RG.plant_parts(k)" in src and "write(f'report/{C.slug(k)}/index.html', plant_report(k))" in src
         assert "write(f'report/{k.lower()}/index.html', C.redirect_page(f'/report/{C.slug(k)}/'" in src
+
+
+
+# ------------------------------------------------------------- v210 rules
+class TestV210:
+    def test_official_logo_in_the_header_everywhere(self):
+        assert C.LOGO_URI.startswith("data:image/png;base64,")
+        for section in [None] + list(C.SECTIONS):
+            assert '<img class="wmlogo" src="data:image/png;base64,' in C.header(section), section
+
+    def test_engine_goes_to_its_engine_path(self):
+        assert C.ENGINE_URL == "https://engine.sprinkler.agency/engine"
+
+    def test_folder_row_cannot_scroll(self):
+        tabs_rule = C.CSS[C.CSS.index(".tabs{"):C.CSS.index("}", C.CSS.index(".tabs{"))]
+        assert "overflow-x:auto" not in tabs_rule and "flex-wrap:wrap" in tabs_rule
+        tab_rule = C.CSS[C.CSS.index(".tab{"):C.CSS.index("}", C.CSS.index(".tab{"))]
+        assert "top:1px" not in tab_rule
+
+    def test_scoped_css_handles_media_blocks(self):
+        out = C.scoped_css("table{a:1}\nth,td{b:2}\n@media print{x{c:3} .y,.z{d:4}}\n.btn{e:5}", ".s")
+        assert ".s table{a:1}" in out and ".s th,.s td{b:2}" in out
+        assert "@media print{.s x{c:3}" in out and ".s .y,.s .z{d:4}}" in out and ".s .btn{e:5}" in out
+
+    def test_setup_and_ask_apps_wear_the_portal_chrome(self):
+        sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
+        assert "def _portal_host():" in sa and "PC.page(t_en, head + f'<div class=\"setupbody\">" in sa
+        assert "if is_global and not _portal_host():" in sa and "return render(drawer='people')" in sa
+        aa = (BUNDLE / "ask_app.py").read_text(encoding="utf-8")
+        assert "def _portal_page():" in aa and "_portal_page() if _portal_host() else PAGE_OLD" in aa
+
+    def test_landing_tile_texts(self):
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        body = src[src.index("def landing():"):src.index("# ------------------------------------------------------------- report pages")]
+        assert "financial.'" in body and "invoices" not in body
+        assert "every 5 minutes" not in body and "on hover" not in body and "designer training" not in body
+
+    def test_tables_carry_a_total_row(self):
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert 'class="total"' in src and "PR kWp-weighted" in src
+
+    def test_financial_invoices_map_are_real_pages(self):
+        src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "write('report/financial/index.html', financial_report())" in src
+        assert "write('report/invoices/index.html', invoices_page())" in src
+        assert "write('map/index.html', map_page())" in src
+        assert "RG.financial_body()" in src and "MG.portfolio_page(skin='portal')" in src
+        assert "IP.index_body(" in src and "base='/invoices/'" in src
+        rg = (BUNDLE / "report_gen.py").read_text(encoding="utf-8")
+        assert "def financial_body():" in rg and "financial_body()]" in rg
+        mg = (V2 / "server/monitoring_gen.py").read_text(encoding="utf-8")
+        assert "def portfolio_page(skin='old'):" in mg and "if skin == 'portal':" in mg
+        ip = (V2 / "scripts/invoice_publish.py").read_text(encoding="utf-8")
+        assert "def index_body(months, blocked_now=None, records=None, zips=None, base=\"\"):" in ip

@@ -118,7 +118,7 @@ class TestPageWiring:
             in GEN_SRC
 
     def test_money_labeled_as_estimate(self):
-        page_seg = GEN_SRC.split("def portfolio_page()")[1]
+        page_seg = GEN_SRC.split("def portfolio_page(")[1]
         assert "sin IVA" in page_seg
         assert "≈" in page_seg
 
@@ -177,7 +177,7 @@ class TestV177_1Feedback:
         assert "clamp(" in GEN_SRC        # .tval shrinks, never spills
 
     def test_no_plant_codes_in_map_ui(self):
-        seg = GEN_SRC.split("def portfolio_page()")[1]
+        seg = GEN_SRC.split("def portfolio_page(")[1]
         assert "'<h3>'+p.name+'</h3>'" in seg           # tooltip title
         assert "p.key+' — '" not in seg                 # code header gone
         assert '"pwrap"' in seg and "'+p.label+'" in seg  # name label
@@ -280,14 +280,14 @@ class TestPvoutLayer:
     the CC BY attribution, and the page renders fine without it."""
 
     def test_layer_is_conditional_on_the_asset(self):
-        seg = GEN_SRC.split("def portfolio_page()")[1]
+        seg = GEN_SRC.split("def portfolio_page(")[1]
         assert "'pvout_mexico.json'" in seg
         assert "'pvout_mexico.png'" in seg
         assert "pv_bounds = None" in seg          # clean absence path
         assert "pv_js, pv_overlays, pv_legend = '', 'null', ''" in seg
 
     def test_image_overlay_with_attribution(self):
-        seg = GEN_SRC.split("def portfolio_page()")[1]
+        seg = GEN_SRC.split("def portfolio_page(")[1]
         assert "L.imageOverlay('assets/pvout_mexico.png'" in seg
         assert "Global Solar Atlas 2.0 / Solargis" in seg
         assert "CC BY 4.0" in seg
@@ -298,7 +298,7 @@ class TestPvoutLayer:
         assert "'Solar potential (PVOUT)': pv" in GEN_SRC
 
     def test_legend_gradient_with_units(self):
-        seg = GEN_SRC.split("def portfolio_page()")[1]
+        seg = GEN_SRC.split("def portfolio_page(")[1]
         assert "linear-gradient(90deg" in seg
         assert "kWh/kWp" in seg and "{pv_legend}" in GEN_SRC
 
@@ -321,7 +321,7 @@ class TestPlantLegend:
         assert "'city': plant_city(meta['customer'])," in GEN_SRC
 
     def test_legend_split_ppa_capex_with_marker_colors(self):
-        seg = GEN_SRC.split("def portfolio_page()")[1]
+        seg = GEN_SRC.split("def portfolio_page(")[1]
         assert 'data-en="PPA plants"' in seg
         assert 'data-en="CAPEX plants"' in seg
         assert "'#2563eb' if r['ppa'] else '#0d9488'" in seg  # map fills
@@ -329,7 +329,7 @@ class TestPlantLegend:
         assert "{legend_card}" in seg
 
     def test_checkboxes_toggle_markers_and_persist(self):
-        seg = GEN_SRC.split("def portfolio_page()")[1]
+        seg = GEN_SRC.split("def portfolio_page(")[1]
         assert 'class="ptog" data-k=' in seg
         assert "MK[p.key]=m;" in seg
         assert "map.removeLayer(MK[k])" in seg

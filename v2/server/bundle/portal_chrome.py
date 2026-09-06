@@ -351,6 +351,25 @@ def page(title, body, section=None, on='', refresh=0, extra_head=''):
             f'{header(section, on)}<div class="wrap">{body}</div>{JS}</body></html>')
 
 
+def skin_reset(scope):
+    """v212: the rules a skinned body (.monbody, .setupbody, .askbody)
+    needs AFTER its scoped legacy CSS. The legacy `.card` has its own
+    padding and `table{width:100%}`; the portal's `.card>table` adds
+    20px side margins on top — 40px of overflow and a pointless
+    scrollbar under every table (Tomasz 2026-09-05). Here the card
+    keeps the legacy padding, loses the portal margins and the
+    scrollbar; wide text cells wrap instead of pushing the width."""
+    s = scope
+    return (f'{s} .card{{overflow:visible}}'
+            f'{s} .card>h2,{s} .card>.note,{s} .card>.legend,{s} .card>table,{s} .card>svg,{s} .card>div,{s} .card>p{{margin-left:0;margin-right:0;max-width:100%}}'
+            f'{s} .card>h2{{padding-top:0}}{s} .card>table{{width:100%;table-layout:auto;margin-bottom:6px}}'
+            f'{s} .card>svg,{s} .card>#dchart{{margin-bottom:6px}}'
+            f'{s} table{{font-size:13px}}{s} th,{s} td{{padding:6px 7px}}'
+            f'{s} td .note,{s} td.note{{white-space:normal}}'
+            f'{s} td:first-child{{white-space:normal}}'
+            f'{s} .kv td:first-child{{white-space:nowrap}}')
+
+
 def scoped_css(css, scope):
     """Prefix every selector of a stylesheet with `scope` so an app's own
     content rules (table, .btn, input …) cannot fight the portal chrome.

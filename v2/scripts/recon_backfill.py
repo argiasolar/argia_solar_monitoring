@@ -26,7 +26,7 @@ import time
 from typing import Dict, Optional, Tuple
 
 from argia.core.config import load_portfolio
-from argia.core.sheets import SheetsClient
+from argia.core.sheets import open_sheets
 from argia.recon import backfill as B
 from argia.recon import counters as C
 from argia.store import pg_mirror
@@ -49,7 +49,11 @@ def daterange(d0: dt.date, d1: dt.date):
         d += dt.timedelta(days=1)
 
 
-def fetch_growatt(plants, portfolio, dates) -> Dict[Tuple[str, str], Optional[float]]:
+def fetch_growatt(plants, portfolio, dates,
+                  dates_by_plant: Optional[Dict[str, list]] = None
+                  ) -> Dict[Tuple[str, str], Optional[float]]:
+    """{(plant, date): Σ max eacToday over the plant's inverters}.
+    ``dates_by_plant`` (v212 retry) limits each plant to its own dates."""
     out: Dict[Tuple[str, str], Optional[float]] = {}
     if not plants:
         return out
@@ -63,7 +67,7 @@ def fetch_growatt(plants, portfolio, dates) -> Dict[Tuple[str, str], Optional[fl
     client.login()
     for p in plants:
         invs = [i.inverter_sn for i in portfolio.inverters_for(p.plant_key)]
-        for d in dates:
+        for d in (dates_by_plant.get(p.plant_key, []) if dates_by_plant else dates):
             vals = []
             for sn in invs:
                 try:
@@ -173,8 +177,8 @@ def main(argv=None) -> int:
     d1 = dt.date.fromisoformat(args.to_date)
     dates = list(daterange(d0, d1))
 
-    sheet_id = os.environ.get("GOOGLE_SHEET_ID_V2", "").strip()
-    portfolio = load_portfolio(SheetsClient(sheet_id=sheet_id))
+    portfolio = load_portfolio(open_sheets())   # v212: same bootstrap as recon
+
     active = [p for p in portfolio.active_plants()
               if (not args.plant_key or p.plant_key == args.plant_key)
               and (not args.skip_brand

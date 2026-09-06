@@ -26,6 +26,7 @@ import secrets
 import sqlite3
 import subprocess
 import time as _time
+import datetime as _dt
 
 from flask import Flask, request, make_response, redirect
 
@@ -476,10 +477,25 @@ def _portal_host():
     return (request.headers.get('X-Forwarded-Host') or request.host or '').split(':')[0].startswith('portal.')
 
 
+def _cfe_css():
+    if _portal_drawer() != 'cfe':
+        return ''
+    import cfe_explorer as CX
+    return CX.EXPLORER_CSS
+
+
 def _portal_drawer():
     seg = (request.path or '/').strip('/').split('/')[0]
     return seg if seg in ('people', 'plants', 'finance', 'cfe', 'system') else 'people'
 
+
+SETUP_PORTAL_CSS = '''
+.setupbody .dnav{display:none}
+.setupbody .tabbar{position:static;background:transparent;border:0;padding:0;margin:0 0 4px;gap:6px}
+.setupbody .tabbar a{font-size:12.5px;padding:4px 11px;border-radius:999px;background:#fff;border:1px solid #d2d7dd;color:#41474f;font-weight:600}
+.setupbody .tabbar a:hover{border-color:#05b1a9;color:#053b38}
+.setupbody section.tab>h2.tabh{color:#05847d}
+'''
 
 SETUP_CONTENT_CSS = '''
 .card{background:#fff;border:1px solid #e4e7ea;border-radius:12px;padding:16px 18px;margin:14px 0;overflow-x:auto;}
@@ -547,11 +563,14 @@ def page(body, msg='', once=None, title=None, sub=None):
                 f'<div class="kicker">{PC.t("Setup", "Configuración")}</div>'
                 f'<h1 class="pt">{PC.t(t_en, t_es)}</h1>'
                 f'<div class="muted">{PC.t(s_en, s_es)}</div></div>')
-        # the drawer's own anchor-chip row duplicates the folder tabs here
+        # v212: the drawer row (.dnav — People/Plants/Finance/CFE/System)
+        # IS the folder row above; the anchor chips (.tabbar — the tabs
+        # inside one drawer) stay, restyled as quiet portal chips.
         extra = ('<style>' + PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody')
-                 + '.setupbody .tabbar{display:none}</style>')
+                 + PC.skin_reset('.setupbody') + SETUP_PORTAL_CSS + _cfe_css() + '</style>')
         return PC.page(t_en, head + f'<div class="setupbody">{once_html}{msg_html}{body}</div>',
                        'setup', _portal_drawer(), extra_head=extra)
+    cfe_css = _cfe_css()
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Setup — ARGIA</title>
@@ -599,6 +618,7 @@ label{{font-size:13.5px;}}
 .umenu .umlabel{{font-size:11px;color:#80868b;padding:6px 10px 0;
  text-transform:uppercase;letter-spacing:.08em;}}
 {cat.CATALOG_CSS}
+{cfe_css}
 </style></head><body><div class="wrap">
 <div class="top"><div><h1 data-en="{html.escape(t_en)}" data-es="{html.escape(t_es)}">{html.escape(t_en)}</h1>
 <div class="sub" data-en="{html.escape(s_en)}" data-es="{html.escape(s_es)}">{html.escape(s_en)}</div></div>
@@ -1972,9 +1992,49 @@ def plants_drawer(msg=''):
                 sub=(d['sub_en'], d['sub_es']))
 
 
+_CFE_CACHE = {'at': 0.0, 'html': ''}
+CFE_CACHE_SEC = 900
+
+
+def cfe_explorer_card():
+    """Setup › CFE › Tariff explorer (v212): the old /cfe/ page inside
+    the portal, plus freshness pill, average-price tiles (GDMTH default)
+    and search. cfe_tariff is read-only here; the dataset (~13 months of
+    every tariff × region × charge) is cached for 15 minutes so the
+    drawer stays quick."""
+    import cfe_explorer as CX
+    now = _time.time()
+    if _CFE_CACHE['html'] and now - _CFE_CACHE['at'] < CFE_CACHE_SEC:
+        return _CFE_CACHE['html']
+    rows = _rows("SELECT tariff_code, region, to_char(month,'YYYY-MM'), charge_type,"
+                 " coalesce(unit,''), value_mxn FROM cfe_tariff"
+                 " WHERE month >= (date_trunc('month', now()) - interval '13 months')::date"
+                 " ORDER BY month;")
+    if rows and rows[0] and rows[0][0] == '__error__':
+        return f'<div class="card"><h2>CFE tariff explorer</h2><p class="note">unavailable: {html.escape(rows[0][1])}</p></div>'
+    ds = CX.build_dataset(rows)
+    cov = _rows("SELECT to_char(month,'YYYY-MM'), source, tariff_code FROM cfe_tariff"
+                " WHERE source='cfe_scrape';")
+    through = CX.verified_through(cov if cov and cov[0][0] != '__error__' else [])
+    healthy = None
+    st = _rows("SELECT (now() - heartbeat_ts) < interval '48 hours', coalesce(probe_status,''),"
+               " coalesce(last_csv_result,'') FROM cfe_pipeline_status WHERE id = 1;")
+    if st and len(st[0]) >= 3 and st[0][0] != '__error__':
+        healthy = (st[0][0] == 't' and st[0][1] == 'ok' and st[0][2] != 'rejected')
+    tone, en, es = CX.freshness(through, _dt.date.today(), healthy)
+    src = _rows("SELECT source, to_char(max(month),'YYYY-MM'), max(loaded_at)::date::text"
+                " FROM cfe_tariff GROUP BY source ORDER BY source;")
+    note = ' · '.join(f'{r[0]}: through {r[1]} (loaded {r[2]})' for r in src
+                      if len(r) == 3 and r[0] != '__error__')
+    out = CX.explorer_html(ds, tone, en, es, sources_note=note)
+    _CFE_CACHE.update(at=now, html=out)
+    return out
+
+
 def cfe_drawer(msg=''):
     d = cat.drawer('cfe')
-    sections = [('status', cfe_status_card()), ('push', cfe_push_card())]
+    sections = [('explorer', cfe_explorer_card()),
+                ('status', cfe_status_card()), ('push', cfe_push_card())]
     return page(cat.drawer_page(d, sections), msg=msg, title=('CFE & tariffs', 'CFE y tarifas'),
                 sub=(d['sub_en'], d['sub_es']))
 

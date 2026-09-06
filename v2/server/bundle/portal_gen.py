@@ -325,7 +325,7 @@ def monitoring_plant(k, d):
  <div style="flex:1"></div>
  <div class="monctl" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">{picker}{buttons}<a class="btn" href="/report/{C.slug(k)}/">{ico("report", 15, "#053b38", 2)} {t("Open report", "Abrir reporte")}</a></div>
 </div>'''
-    extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + MON_OVERRIDES + '</style>'
+    extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES + '</style>'
     return C.page(name(k), head + f'<div class="monbody">{body}</div>', 'monitoring', '',
                   refresh=(300 if live else 0), extra_head=extra)
 

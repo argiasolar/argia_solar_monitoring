@@ -291,6 +291,37 @@ class TestV211:
         body = src[src.index("def landing():"):src.index("# ------------------------------------------------------------- report pages")]
         assert 'class="askbar askonly" href="/ask/"' in body
 
-    def test_setup_hides_the_duplicate_anchor_row_on_the_portal(self):
+    def test_setup_hides_the_duplicate_row_on_the_portal(self):
         sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
-        assert ".setupbody .tabbar{display:none}" in sa
+        # v212: the DRAWER row (.dnav) was the duplicate, not the anchor chips
+        assert ".setupbody .dnav{display:none}" in sa
+        assert ".setupbody .tabbar{display:none}" not in sa
+
+
+# ------------------------------------------------------------- v212 rules
+class TestV212:
+    """Tomasz 2026-09-05: "the bottom scroll bars are pointless" and
+    "why we still have double cards in the setup? … remove the bottom
+    one"."""
+
+    def test_skin_reset_removes_the_40px_overflow(self):
+        css = C.skin_reset(".monbody")
+        assert ".monbody .card{overflow:visible}" in css
+        assert "margin-left:0;margin-right:0" in css and ".monbody .card>table{width:100%" in css
+        # every rule is scoped — nothing leaks into the portal's own cards
+        for rule in re.findall(r"([^{}]+)\{", css):
+            for sel in rule.split(","):
+                assert sel.strip().startswith(".monbody"), sel
+
+    def test_reset_is_appended_after_the_scoped_skin_css(self):
+        pg = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert "C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES" in pg
+        sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
+        assert "PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody')" in sa
+        assert "+ PC.skin_reset('.setupbody') + SETUP_PORTAL_CSS" in sa
+
+    def test_setup_keeps_one_row_of_folders(self):
+        sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
+        assert ".setupbody .dnav{display:none}" in sa
+        # the anchor chips inside a drawer survive, restyled — not hidden
+        assert ".setupbody .tabbar{position:static" in sa

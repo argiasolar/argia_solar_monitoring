@@ -18,7 +18,7 @@ import datetime as dt
 import logging
 import os
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from argia.core.config import PlantConfig, load_portfolio
 from argia.core.sheets import open_sheets
@@ -27,6 +27,7 @@ from argia.recon import backfill as B
 from argia.recon import counters as C
 from argia.recon import engine as E
 from argia.recon import perf as P
+from argia.recon import retry as R
 from argia.store import pg_mirror
 from argia.store.pgq import psql_exec, psql_rows
 
@@ -243,9 +244,30 @@ def inverter_coverage(date_iso: str) -> Dict[str, Tuple[int, int]]:
     return out
 
 
+def closed_plant_months(dates: List[str]) -> Set[Tuple[str, str]]:
+    """{(plant_key, 'YYYY-MM')} with a closed monthly close among the
+    months the dates touch — frozen for every heal (v212)."""
+    months = sorted({d[:7] for d in dates})
+    if not months:
+        return set()
+    firsts = ",".join(f"DATE '{m}-01'" for m in months)
+    out: Set[Tuple[str, str]] = set()
+    for r in psql_rows(
+            "SELECT plant_key, to_char(ref_month, 'YYYY-MM')"
+            " FROM reconciliation_monthly WHERE closed_at IS NOT NULL"
+            f" AND ref_month IN ({firsts});"):
+        if len(r) >= 2 and r[0]:
+            out.add((r[0].strip().upper(), r[1][:7]))
+    return out
+
+
 def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
-                  dry_run: bool) -> int:
-    """(Re)compute reconciliation_daily for one date. Returns row count."""
+                  dry_run: bool,
+                  frozen: Optional[Set[Tuple[str, str]]] = None) -> int:
+    """(Re)compute reconciliation_daily for one date. Returns row count.
+    ``frozen`` = closed plant-months: their KPI rows are never healed
+    (the recon row is still recomputed — it is a check, not billing)."""
+    frozen = frozen or set()
     interval = interval_by_plant(date_iso)
     stored = stored_daily(date_iso)
     coverage = inverter_coverage(date_iso)
@@ -270,7 +292,10 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
         # — the inverters' own counters, the vendor plant daily only where
         # higher — is filled/raised (never lowered). Provenance lands in
         # status_note ("energy from inverter counters (...)").
-        if not dry_run and r.reference_kwh is not None:
+        if (pk.upper(), date_iso[:7]) in frozen:
+            LOG.info("recon %s %s: month closed — KPI row frozen",
+                     date_iso, pk)
+        elif not dry_run and r.reference_kwh is not None:
             cls, _delta = B.classify_day(kpi, r.reference_kwh)
             if cls in (B.CLASS_MISSING, B.CLASS_UNDER):
                 detail = (f"{r.reference_basis}; vendor plant daily "
@@ -311,6 +336,72 @@ RECON_DAILY_ENSURE_SQL = (
     "ALTER TABLE reconciliation_daily"
     " ADD COLUMN IF NOT EXISTS reference_kwh numeric(12,3),"
     " ADD COLUMN IF NOT EXISTS reference_basis text;")
+
+
+# ---------------------------------------------------------------------------
+# Retry pass (v212): re-fetch the vendor's day for open plant-days that
+# still reconcile badly because of OUR gap, then reconcile them again.
+# ---------------------------------------------------------------------------
+def recon_rows_for(dates: List[str]) -> List[List[str]]:
+    if not dates:
+        return []
+    return psql_rows(
+        "SELECT plant_key, prod_date::text, status, coalesce(note,''),"
+        " coalesce(completeness_pct::text,'') FROM reconciliation_daily"
+        f" WHERE prod_date BETWEEN DATE '{dates[0]}' AND DATE '{dates[-1]}';")
+
+
+def retry_pass(active, portfolio, brand_by_plant: Dict[str, str],
+               today: dt.date, days: int, dry_run: bool) -> int:
+    """Returns the number of plant-days re-reconciled."""
+    dates = R.window_dates(today, days)
+    frozen = closed_plant_months(dates)
+    pairs = R.select_retry(brand_by_plant.keys(), dates, recon_rows_for(dates),
+                           closed=frozen)
+    if not pairs:
+        LOG.info("retry: nothing to retry in the last %d days", days)
+        return 0
+    by_plant = R.group_dates(pairs)
+    LOG.info("retry: %d plant-days over %d plants: %s", len(pairs),
+             len(by_plant), {pk: len(ds) for pk, ds in by_plant.items()})
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import recon_backfill as RB
+    plant_by_key = {p.plant_key: p for p in active}
+    fetched: Dict[Tuple[str, str], Optional[float]] = {}
+    for brand, fn in (("GROWATT", None), ("HUAWEI", RB.fetch_huawei),
+                      ("SOLAREDGE", RB.fetch_solaredge)):
+        plants = [plant_by_key[pk] for pk in by_plant
+                  if pk in plant_by_key and brand_by_plant.get(pk) == brand]
+        if not plants:
+            continue
+        try:
+            if brand == "GROWATT":
+                got = RB.fetch_growatt(
+                    plants, portfolio, [],
+                    dates_by_plant={p.plant_key: by_plant[p.plant_key] for p in plants})
+            else:
+                alld = sorted({d for p in plants for d in by_plant[p.plant_key]})
+                got = fn(plants, dt.date.fromisoformat(alld[0]),
+                         dt.date.fromisoformat(alld[-1]))
+        except Exception as e:  # noqa: BLE001
+            LOG.error("retry %s fetch failed: %s", brand, str(e)[:200])
+            continue
+        fetched.update({k: v for k, v in got.items() if k in set(pairs)})
+    rows = [(pk, brand_by_plant.get(pk, ""), d, v) for (pk, d), v in fetched.items()]
+    have = [r for r in rows if r[3] is not None]
+    LOG.info("retry: vendor returned a day for %d of %d plant-days",
+             len(have), len(pairs))
+    for pk, _v, d, kwh in sorted(have):
+        LOG.info("retry %s %s: vendor day %.1f kWh", pk, d, kwh)
+    if dry_run:
+        return 0
+    sql = R.build_retry_snapshot_sql(rows)
+    if sql:
+        psql_exec(sql)
+    total = 0
+    for d in sorted({d for _pk, d in pairs}):
+        total += reconcile_day(d, brand_by_plant, dry_run, frozen=frozen)
+    return total
 
 
 def stamp_pr_stc(gamma_by_plant: Dict[str, Optional[float]],
@@ -363,6 +454,9 @@ def main(argv=None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-snapshot", action="store_true",
                         help="only recompute reconciliation_daily")
+    parser.add_argument("--retry-days", type=int, default=R.RETRY_DAYS,
+                        help="re-fetch the vendor's day for open plant-days"
+                             " that still reconcile badly (0 = off)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -401,8 +495,19 @@ def main(argv=None) -> int:
 
     base = dt.date.fromisoformat(snap_date)
     total = 0
-    for d in recon_dates(base, args.days_back, now_mx().hour):
-        total += reconcile_day(d, brand_by_plant, args.dry_run)
+    dates = recon_dates(base, args.days_back, now_mx().hour)
+    frozen = closed_plant_months(dates)
+    for d in dates:
+        total += reconcile_day(d, brand_by_plant, args.dry_run, frozen=frozen)
+
+    # v212: go back over the open window and re-fetch what the vendor
+    # has for the days that still reconcile badly because of our gap
+    if args.retry_days > 0:
+        try:
+            total += retry_pass(active, portfolio, brand_by_plant,
+                                _today_mx(), args.retry_days, args.dry_run)
+        except Exception as e:  # noqa: BLE001
+            LOG.warning("retry pass failed (recon unaffected): %s", e)
 
     # Re-derive pr on the days the self-heal corrected: the stamped PR
     # still reflected the undercounted interval energy (2026-08-27

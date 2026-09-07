@@ -462,3 +462,19 @@ class TestV230SerialEverywhere:
         assert dpm.issue_detail("inverter-silent:GTO1:SN9", {"label": "Inverter 3"}) == "Inverter 3 (SN9)"
         assert dpm.issue_detail("inverter-silent:GTO1:SN9", {}) == "inverter SN9"
         assert "labels stored with a sample" not in dpm.inverter_labels.__doc__ and "registry" in dpm.inverter_labels.__doc__
+
+
+class TestV235Tooltips:
+    """v235 (Tomasz): tile tooltips were painted under the next card (the v234
+    .card{position:relative} plus the flip tiles' perspective), the h2 tooltips
+    inherited the title's bold, the empty ticket list touched the card edge."""
+
+    def test_open_tooltip_paints_over_the_next_card_and_is_not_bold(self):
+        css = (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
+        assert ".tile:hover,.tile:focus-within{z-index:70}" in css
+        tip = css.split(".tipbox{", 1)[1].split("}", 1)[0]
+        assert "font-weight:400" in tip and "text-transform:none" in tip and "white-space:normal" in tip and "z-index:30" in tip
+
+    def test_empty_ticket_list_keeps_the_card_padding(self):
+        ma = (BUNDLE / "maint_app.py").read_text(encoding="utf-8")
+        assert '<p class="muted" style="margin:0;padding:16px 20px">No tickets.</p>' in ma

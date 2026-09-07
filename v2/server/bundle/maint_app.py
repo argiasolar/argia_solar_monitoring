@@ -340,7 +340,7 @@ def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
             f'<td>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</td>'
             f'<td>{e(TK.fmt_age(TK.age(t, now)))}</td><td class="sla-{state}" style="font-size:12px">{e(sla_txt)}</td></tr>')
     if not out:
-        return '<p class="muted" style="padding:6px 0">No tickets.</p>'
+        return '<p class="muted" style="margin:0;padding:16px 20px">No tickets.</p>'
     return ('<table><tr>' + th('Ticket', 'ticket') + th('Prio', 'prio') + th('Status', 'status') + th('Plant', 'plant')
             + th('Title', 'title') + th('Assigned', 'assigned') + th('Age', 'age') + th('SLA', 'sla') + '</tr>'
             + ''.join(out) + '</table>')

@@ -217,10 +217,11 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .tval{font-size:clamp(15px,1.4vw,20px);line-height:1.15;font-weight:700;color:var(--ink);white-space:nowrap}.tval .unit{font-size:12px;font-weight:600;color:var(--muted);margin-left:4px}   /* v234: the Map tile look (Tomasz) — was 30px/800 */
 .tsub{font-size:12.5px;color:var(--muted)}
 .ti{display:inline-flex;width:15px;height:15px;border-radius:50%;border:1.5px solid #b6bec8;color:var(--muted);font-weight:800;font-size:10px;align-items:center;justify-content:center;margin-left:6px;cursor:help}
-.tipbox{display:none;position:absolute;left:10px;right:10px;top:44px;z-index:30;background:#fffdf4;border:1px solid #e8dfa8;border-radius:8px;padding:10px 12px;font-size:12px;color:#3a4049;box-shadow:0 8px 24px rgba(26,29,35,.12)}
+.tipbox{display:none;position:absolute;left:10px;right:10px;top:44px;z-index:30;background:#fffdf4;border:1px solid #e8dfa8;border-radius:8px;padding:10px 12px;font-size:12px;color:#3a4049;font-weight:400;line-height:1.5;text-align:left;text-transform:none;letter-spacing:0;white-space:normal;box-shadow:0 8px 24px rgba(26,29,35,.12)}
 .ti:hover+.tipbox,.ti:focus+.tipbox,.tipbox:hover{display:block}
 /* flip tiles: only .haswhy (amber/red with a reason) turn around */
 .tile.flip{perspective:800px;background:transparent;border:0;padding:0}
+.tile:hover,.tile:focus-within{z-index:70}   /* v235: an open tooltip paints over the next card (perspective/position make stacking contexts) */
 .flipin{position:relative;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.4,.1,.2,1) .12s;min-height:100%}
 .tile.haswhy:hover .flipin,.tile.haswhy:focus-within .flipin{transform:rotateY(180deg)}
 .face{backface-visibility:hidden;padding:16px 18px;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;background:#fff;min-height:118px}

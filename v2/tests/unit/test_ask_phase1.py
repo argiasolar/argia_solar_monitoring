@@ -285,3 +285,14 @@ class TestPromptRules:
                              ("get_monthly_close", {}), ("get_cfe_tariffs", {}), ("search_standard", {"query": "mppt"})):
             out = T.run_tool(db, name, params)
             assert "totals" in out, (name, out)
+
+
+class TestV228Tickets:
+    def test_prompt_tells_the_model_about_tickets(self):
+        sysm = A.build_system(FakeDB(dict(BASE)), lang="en")
+        assert "MAINTENANCE TICKETS" in sysm and "get_tickets" in sysm and "get_ticket" in sysm
+        assert "portal.argia.com.mx/maintenance/" in sysm
+
+    def test_sql_tool_knows_the_ticket_tables(self):
+        for t in ("ticket", "ticket_event", "ticket_alert", "ticket_follower", "ticket_attachment"):
+            assert t in S.ALLOWED_TABLES and t in S.TABLE_NOTES, t

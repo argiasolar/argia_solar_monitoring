@@ -246,7 +246,7 @@ class TestV227:
         create(client)
         client.post("/t/TK-NL1-0001/status", data={"to": "IN_PROGRESS"}, headers=H())
         page = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
-        assert "→ Resolved: by the data (put it in Verification)" in page and 'value="RESOLVED"' not in page
+        assert "→ Resolved: by the data" in page and "Verification" in page and 'value="RESOLVED"' not in page
         assert client.post("/t/TK-NL1-0001/status", data={"to": "RESOLVED"}, headers=H()).status_code == 400
         # a ticket without alerts is resolved by a person
         create(client, alert_key="", inverter="", title="Roof inspection")
@@ -257,9 +257,17 @@ class TestV227:
     def test_tooltips_legend_and_stats_page(self, client):
         create(client)
         page = client.get("/", headers=H()).data.decode()
-        assert "How it works" in page and "<b>P2</b> energy is being lost" in page and 'title="P2 High' in page
+        assert "How it works" in page and "<b>P2</b> energy is being lost" in page
+        # v228: report-style tooltips (.ti badge + .tipbox) on every column header, no title= in the table
+        table = page.split("<table", 1)[1].split("</table>", 1)[0]
+        assert 'class="tipbox"' in table and 'title="' not in table
+        for text in ("Time since the ticket was opened.", "Who is working on it.", "Resolve target of the priority",
+                     "the plant is in the number", "sets the SLA clock"):
+            assert text in table, text
+        assert table.count('class="ti"') >= 8   # one badge per column header at least
         t = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
-        assert 'title="Who works on it.' in t and 'title="Followers are notified' in t and 'title="In progress — someone is working on it."' in t
+        assert 'class="tipbox"' in t and "Who works on it." in t and "Followers are notified" in t
+        assert "In progress — someone is working on it." in t and "P2 High" in t
         st = client.get("/stats/", headers=H()).data.decode()
         assert "Open tickets by status" in st and "<svg" in st and "Opened / resolved per week" in st and "Plastic Omnium" in st
         assert client.get("/stats/", headers=H("cust")).status_code == 403

@@ -723,6 +723,104 @@ def get_monthly_close(rows: Rows, month: Any = None) -> dict:
             "source": {"tables": ["reconciliation_monthly"], **_freshness(rows)}}
 
 
+# ---------------------------------------------------------- tickets
+_TK_OPEN = "('NEW','IN_PROGRESS','WAITING','VERIFICATION')"
+
+
+def _ticket_row(r, ps, labels) -> dict:
+    from argia.maintenance import tickets as TK
+    number, pk, sn, title, cat, prio, status, by, assigned, created, updated, root, resolution, lost, keys, last = r[:16]
+    return {"number": number, "plant_key": pk, "name": ps.get(pk, {}).get("name"),
+            "inverter": labels.get((pk, sn), sn) if sn else None, "inverter_sn": sn or None,
+            "title": title, "category": TK.CATEGORY_LABEL.get(cat, cat), "priority": prio,
+            "priority_meaning": TK.PRIORITY_LABEL.get(prio), "status": TK.STATUS_LABEL.get(status, status),
+            "open": TK.is_open(status), "opened_by": by, "assigned_to": assigned or None,
+            "created_at": created, "updated_at": updated, "root_cause": root or None,
+            "resolution": resolution or None, "lost_kwh": _f(lost),
+            "linked_alerts": [k for k in (keys or "").split(",") if k], "last_update": last or None}
+
+
+def _inverter_labels(rows: Rows) -> Dict[tuple, str]:
+    out = {}
+    for r in rows("SELECT plant_key, inverter_sn, coalesce(inverter_label,'') FROM inverter /*tag:inv_labels*/;"):
+        if len(r) >= 3 and r[2]:
+            out[(r[0], r[1].strip())] = r[2]
+    return out
+
+
+_TICKET_SELECT = ("SELECT t.number, t.plant_key, coalesce(t.inverter_sn,''), t.title, t.category, t.priority, t.status,"
+                  " t.created_by, coalesce(t.assigned_to,''), t.created_at::text, t.updated_at::text,"
+                  " coalesce(t.root_cause,''), replace(coalesce(t.resolution,''), E'\\n', ' '), t.lost_kwh,"
+                  " coalesce((SELECT string_agg(alert_key, ',') FROM ticket_alert a WHERE a.ticket_id = t.id), ''),"
+                  " coalesce((SELECT replace(body, E'\\n', ' ') FROM ticket_event e WHERE e.ticket_id = t.id"
+                  "   AND e.kind IN ('comment','resolution') AND e.body <> '' ORDER BY ts DESC LIMIT 1), '')"
+                  " FROM ticket t")
+
+
+def get_tickets(rows: Rows, plant: Any = None, status: Any = "open") -> dict:
+    """Maintenance tickets: open ones by default (status 'open'), or
+    'resolved' / 'all' (last 180 days), optionally for one plant."""
+    k = resolve_plant(rows, plant) if plant else None
+    st = str(status or "open").strip().lower()
+    if st == "open":
+        cond = f"t.status IN {_TK_OPEN}"
+    elif st == "resolved":
+        cond = "t.status IN ('RESOLVED','CLOSED') AND t.updated_at > now() - interval '180 days'"
+    else:
+        cond = "t.created_at > now() - interval '180 days'"
+    if k:
+        cond += f" AND t.plant_key = {_q(k)}"
+    ps, labels = plants(rows), _inverter_labels(rows)
+    try:
+        raw = rows(_TICKET_SELECT + f" WHERE {cond} ORDER BY CASE t.priority WHEN 'P1' THEN 0 WHEN 'P2' THEN 1"
+                   " WHEN 'P3' THEN 2 ELSE 3 END, t.updated_at DESC LIMIT 100 /*tag:tickets*/;")
+    except Exception:  # noqa: BLE001
+        raw = []
+    out = [_ticket_row(r, ps, labels) for r in raw if len(r) >= 16]
+    return {"plant_key": k, "name": ps.get(k, {}).get("name") if k else None, "filter": st, "tickets": out,
+            "totals": {"tickets": len(out), "critical_or_high": sum(1 for t in out if t["priority"] in ("P1", "P2"))},
+            "note": "Statuses: New, In progress, Waiting, Verification (work done, monitoring watches the alert), "
+                    "Resolved (confirmed by the data), Closed. Priorities: P1 critical (plant outage/safety, 4 h), "
+                    "P2 high (energy lost / unit off, 24 h), P3 medium (72 h), P4 low (planned). Ticket page: "
+                    "https://portal.argia.com.mx/maintenance/t/<number>/",
+            "source": {"tables": ["ticket", "ticket_alert", "ticket_event"], **_freshness(rows)}}
+
+
+def get_ticket(rows: Rows, number: Any) -> dict:
+    """One ticket in full: header, participants, linked alerts and the
+    whole timeline (comments, status changes, assignments, attachments,
+    alert occurrences)."""
+    num = str(number or "").strip().upper()
+    if not num.startswith("TK-"):
+        num = "TK-" + num
+    ps, labels = plants(rows), _inverter_labels(rows)
+    raw = rows(_TICKET_SELECT + f" WHERE t.number = {_q(num)} /*tag:ticket*/;")
+    if not raw or len(raw[0]) < 16:
+        raise ToolError(f"no ticket {num}")
+    t = _ticket_row(raw[0], ps, labels)
+    from argia.maintenance import tickets as TK
+    t["followers"] = [r[0] for r in rows("SELECT f.username FROM ticket_follower f JOIN ticket t ON t.id = f.ticket_id"
+                                         f" WHERE t.number = {_q(num)} ORDER BY 1 /*tag:ticket_followers*/;") if r and r[0]]
+    events = []
+    for r in rows("SELECT e.ts::text, e.actor, e.kind, replace(e.body, E'\\n', ' '), coalesce(e.meta->>'from',''),"
+                  " coalesce(e.meta->>'to','') FROM ticket_event e JOIN ticket t ON t.id = e.ticket_id"
+                  f" WHERE t.number = {_q(num)} ORDER BY e.ts, e.id /*tag:ticket_events*/;"):
+        if len(r) >= 6:
+            ev = {"at": r[0], "who": r[1], "kind": r[2], "text": r[3]}
+            if r[2] == "status":
+                ev["from"] = TK.STATUS_LABEL.get(r[4], r[4])
+                ev["to"] = TK.STATUS_LABEL.get(r[5], r[5])
+            events.append(ev)
+    files = [{"name": r[0], "by": r[1], "at": r[2]} for r in rows(
+        "SELECT a.filename, a.uploaded_by, a.uploaded_at::text FROM ticket_attachment a JOIN ticket t ON t.id = a.ticket_id"
+        f" WHERE t.number = {_q(num)} ORDER BY a.id /*tag:ticket_files*/;") if len(r) >= 3]
+    t["timeline"] = events
+    t["attachments"] = files
+    t["url"] = f"https://portal.argia.com.mx/maintenance/t/{num}/"
+    t["source"] = {"tables": ["ticket", "ticket_event", "ticket_alert", "ticket_attachment"], **_freshness(rows)}
+    return t
+
+
 # ------------------------------------------------------------ thermal
 def get_thermal_health(rows: Rows, date_from: Any, date_to: Any, plant: Any = None) -> dict:
     """Inverter thermal health over a range: peak temperature, hours
@@ -961,6 +1059,24 @@ TOOLS: List[dict] = [
                     "by whom) — the gate invoices wait for. Omit month for the latest months.",
      "input_schema": {"type": "object",
                       "properties": {"month": {"type": "string", "description": "YYYY-MM"}}}},
+    {"name": "get_tickets",
+     "description": "Maintenance tickets (the O&M work behind an issue): open ones by default, or "
+                    "'resolved' / 'all'; optionally for one plant. Each carries number, plant, inverter, "
+                    "title, status, priority, who is assigned, when it was opened, the linked monitoring "
+                    "alerts and the last update. Use for 'are there open tickets for X', 'who is working on', "
+                    "'what is being done about', 'which tickets are over SLA'.",
+     "input_schema": {"type": "object",
+                      "properties": {"plant": _P,
+                                     "status": {"type": "string", "enum": ["open", "resolved", "all"],
+                                                "description": "default open"}}}},
+    {"name": "get_ticket",
+     "description": "One maintenance ticket in full by its number (TK-NL1-0001): header, assignee, followers, "
+                    "linked alerts, root cause / resolution, and the complete timeline of comments, status "
+                    "changes, assignments, attachments and alert occurrences. Use for 'status of ticket', "
+                    "'history of', 'what was the solution', 'what did the technician write'.",
+     "input_schema": {"type": "object",
+                      "properties": {"number": {"type": "string", "description": "e.g. TK-NL1-0001"}},
+                      "required": ["number"]}},
     {"name": "get_thermal_health",
      "description": "Inverter thermal health over a range: peak internal temperature, hours "
                     ">= 65 C, hot events, deviation from plant peers and ambient, suspected "
@@ -1024,6 +1140,8 @@ DISPATCH: Dict[str, Callable[..., dict]] = {
     "get_monthly_close": get_monthly_close,
     "get_cfe_tariffs": get_cfe_tariffs,
     "get_thermal_health": get_thermal_health,
+    "get_tickets": get_tickets,
+    "get_ticket": get_ticket,
     "search_standard": search_standard,
     "describe_tables": describe_tables,
     "query_database": query_database,
@@ -1034,7 +1152,7 @@ DISPATCH: Dict[str, Callable[..., dict]] = {
 INTERNAL_ONLY = {"query_database", "describe_tables", "get_revenue", "get_lost_generation",
                  "get_monthly_close", "get_reconciliation"}
 _PLANT_LISTS = ("plants", "days", "months", "inverters", "alarms", "maintenance",
-                "open_maintenance", "active_alarms", "worst_days", "inverter_faults")
+                "open_maintenance", "active_alarms", "worst_days", "inverter_faults", "tickets")
 
 
 def run_tool(rows: Rows, name: str, params: Optional[dict],

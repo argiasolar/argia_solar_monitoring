@@ -281,11 +281,16 @@ function setLang(l,save){
  if(save){fetch('/session/lang',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:l})}).catch(()=>{});}
 }
 function argiaFit(){
- /* v224: a table wider than its card scrolls inside the card — the page never scrolls sideways */
+ /* v224: a table wider than its card scrolls inside the card — the page never scrolls sideways.
+    v228: wrapped only while it overflows (a scroll box clips the tooltips inside it); re-checked on resize */
  document.querySelectorAll('.wrap table').forEach(t=>{
-  if(t.closest('.tscroll')||t.parentElement.closest('table'))return;
-  const w=document.createElement('div');w.className='tscroll';t.parentNode.insertBefore(w,t);w.appendChild(t);});
+  if(t.parentElement.closest('table'))return;
+  const box=t.closest('.tscroll');const host=(box||t).parentElement;
+  const over=t.scrollWidth>host.clientWidth+2;
+  if(over&&!box){const w=document.createElement('div');w.className='tscroll';t.parentNode.insertBefore(w,t);w.appendChild(t);}
+  else if(!over&&box){box.parentNode.insertBefore(t,box);box.remove();}});
 }
+let _fitT=null;window.addEventListener('resize',()=>{clearTimeout(_fitT);_fitT=setTimeout(argiaFit,150);});
 window.addEventListener('DOMContentLoaded',()=>{
  argiaFit();
  let stored=null;try{stored=localStorage.getItem('argia_lang');}catch(e){}

@@ -26,6 +26,7 @@ ALLOWED_TABLES: Set[str] = {
     "vendor_counter_snapshot", "contract_monthly", "loan", "loan_schedule",
     "invoicing", "cfe_tariff", "cfe_pipeline_status", "sync_run", "knowledge",
     "finance_audit", "string_daily", "satellite_check", "thermal_daily", "thermal_bins",
+    "ticket", "ticket_event", "ticket_alert", "ticket_follower", "ticket_attachment",
 }
 # never: users/sessions (auth), ask_log (other people's questions), usage_daily, _tele_stage
 # what the model may read about each table, in one line each
@@ -48,6 +49,11 @@ TABLE_NOTES: Dict[str, str] = {
     "sync_run": "every job run: script, status, started_at, error",
     "thermal_daily": "nightly inverter thermal health per inverter-day: peak_c, minutes_over_65/70, events, dt_peer_peak_c (vs plant peers), dt_ambient_peak_c, derating_minutes, lost_kwh (suspected thermal derating vs cooler peers), vendor_derating_minutes (the inverter's own Tinv/Tboost derating mode, Growatt only), cooling_health GOOD/WATCH/POOR — prefer get_thermal_health",
     "thermal_bins": "temperature-binned actual/expected ratios behind the derating curve (bin_c, n, ratio_sum)",
+    "ticket": "maintenance tickets: number (TK-NL1-0001), plant_key, inverter_sn, title, category, priority P1-P4, status NEW/IN_PROGRESS/WAITING/VERIFICATION/RESOLVED/CLOSED, created_by, assigned_to, created_at, resolved_at, root_cause, resolution, lost_kwh — prefer get_tickets / get_ticket",
+    "ticket_event": "a ticket's timeline: ticket_id, ts, actor, kind (created/comment/status/assign/attachment/alert/resolution), body, meta jsonb",
+    "ticket_alert": "monitoring alerts linked to a ticket: ticket_id, alert_key, first_seen, last_seen, occurrences",
+    "ticket_follower": "who follows a ticket: ticket_id, username (or an e-mail address)",
+    "ticket_attachment": "files on a ticket: ticket_id, filename, uploaded_by, uploaded_at",
 }
 MAX_ROWS = 200
 TIMEOUT_MS = 10000

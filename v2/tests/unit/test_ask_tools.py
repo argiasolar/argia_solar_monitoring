@@ -334,3 +334,69 @@ def test_get_revenue_capex_plant_says_so(db):
 def test_month_overlap_days():
     assert T._month_overlap_days("2026-08-30", "2026-09-02") == {"2026-08": (2, 31), "2026-09": (2, 30)}
     assert T._month_overlap_days("2026-02-01", "2026-02-28") == {"2026-02": (28, 28)}
+
+
+# ---------------------------------------------------------- tickets (v228)
+TICKET_ROW = ["TK-NL1-0001", "GTO1", "SN1", "Inverter 1 cooling", "INVERTER", "P2", "IN_PROGRESS", "tomasz", "juan",
+              "2026-09-06 14:00:00+00", "2026-09-07 09:10:00+00", "", "", "12.5",
+              "gto1:inv:sn1:inverter_temp_high", "Fans cleaned, waiting for a hot afternoon"]
+
+
+def ticket_db():
+    db = FakeDB(dict(BASE))
+    db.data.update({
+        "inv_labels": [["GTO1", "SN1", "Inverter 1"]],
+        "tickets": lambda sql: [TICKET_ROW] if "IN ('NEW'" in sql and ("plant_key = 'GTO1'" in sql or "plant_key" not in sql) else [],
+        "ticket": lambda sql: [TICKET_ROW] if "'TK-NL1-0001'" in sql else [],
+        "ticket_followers": [["tomasz"], ["tech@example.com"]],
+        "ticket_events": [["2026-09-06 14:00:00+00", "tomasz", "created", "opened", "", ""],
+                          ["2026-09-06 14:05:00+00", "juan", "status", "", "NEW", "IN_PROGRESS"],
+                          ["2026-09-07 09:10:00+00", "juan", "comment", "Fans cleaned, waiting for a hot afternoon", "", ""]],
+        "ticket_files": [["fans.jpg", "juan", "2026-09-07 09:10:00+00"]],
+    })
+    return db
+
+
+def test_get_tickets_open_for_a_plant_by_name():
+    db = ticket_db()
+    out = T.run_tool(db, "get_tickets", {"plant": "Taigene"})
+    assert out["name"] == "Taigene" and out["totals"] == {"tickets": 1, "critical_or_high": 1}
+    t = out["tickets"][0]
+    assert t["number"] == "TK-NL1-0001" and t["status"] == "In progress" and t["open"] is True
+    assert t["assigned_to"] == "juan" and t["inverter"] == "Inverter 1" and t["priority_meaning"]
+    assert t["linked_alerts"] == ["gto1:inv:sn1:inverter_temp_high"] and t["last_update"].startswith("Fans cleaned")
+    assert "maintenance/t/<number>/" in out["note"]
+    # other plant, nothing open
+    assert T.run_tool(db, "get_tickets", {"plant": "MEX2"})["totals"]["tickets"] == 0
+    # resolved / all change the WHERE
+    def last_tickets_sql():
+        return [s for s in db.sql if "tag:tickets" in s][-1]
+    T.run_tool(db, "get_tickets", {"status": "resolved"})
+    assert "('RESOLVED','CLOSED')" in last_tickets_sql() and "180 days" in last_tickets_sql()
+    T.run_tool(db, "get_tickets", {"status": "all"})
+    assert "('RESOLVED','CLOSED')" not in last_tickets_sql() and "IN ('NEW'" not in last_tickets_sql()
+
+
+def test_get_ticket_full_history():
+    db = ticket_db()
+    out = T.run_tool(db, "get_ticket", {"number": "tk-nl1-0001"})     # case and prefix are forgiven
+    assert out["number"] == "TK-NL1-0001" and out["url"].endswith("/maintenance/t/TK-NL1-0001/")
+    assert out["followers"] == ["tomasz", "tech@example.com"]
+    assert [e["kind"] for e in out["timeline"]] == ["created", "status", "comment"]
+    assert out["timeline"][1] == {"at": "2026-09-06 14:05:00+00", "who": "juan", "kind": "status", "text": "",
+                                  "from": "New", "to": "In progress"}
+    assert out["attachments"] == [{"name": "fans.jpg", "by": "juan", "at": "2026-09-07 09:10:00+00"}]
+    assert "ticket_event" in out["source"]["tables"]
+    assert T.run_tool(db, "get_ticket", {"number": "0009"})["error"] == "no ticket TK-0009"
+    assert "required" in T.run_tool(db, "get_ticket", {})["error"]
+
+
+def test_ticket_tools_registered_and_scoped():
+    names = {t["name"] for t in T.TOOLS}
+    assert {"get_tickets", "get_ticket"} <= names and "tickets" in T._PLANT_LISTS
+    tool = next(t for t in T.TOOLS if t["name"] == "get_tickets")
+    assert tool["input_schema"]["properties"]["status"]["enum"] == ["open", "resolved", "all"]
+    db = ticket_db()
+    out = T.run_tool(db, "get_tickets", {}, scope={"MEX2"})
+    assert out["tickets"] == [] and "totals" not in out           # a customer never sees other plants' tickets
+    assert "not in your account's scope" in T.run_tool(db, "get_ticket", {"number": "TK-NL1-0001"}, scope={"MEX2"})["error"]

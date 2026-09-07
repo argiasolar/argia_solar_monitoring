@@ -49,11 +49,15 @@ Internal accounts only (level `argia` or global admin). Customer accounts get a 
 - **Tooltips**: every status, priority and button carries its meaning; "How it works" legend on the dashboard; priorities explained on the form.
 - **Form**: the inverter list follows the selected plant. Landing tile sits right of the Golden Standard.
 
+## v228 (same day, round 3)
+- **Tooltips like the reports**: the `i` badge + `.tipbox` from the report pages replaces the browser `title=` hints everywhere in the ticket app — status and priority badges, every button, the form labels, the chart heading — and every **column header** (Ticket, Prio, Status, Plant, Title, Assigned, Age, SLA) now explains itself (`COL_HELP`). The last three columns open their box leftwards so it never leaves the page. Tables wrap in a scroll box only while they overflow (`argiaFit`), so a tooltip inside a table is not clipped.
+- **Ask ARGIA sees the tickets**: tools `get_tickets` (open by default; `resolved` / `all` over 180 days; optionally per plant) and `get_ticket` (header, assignee, followers, linked alerts, the whole timeline with status from/to, attachments, portal link). The free-SQL tool may read `ticket`, `ticket_event`, `ticket_alert`, `ticket_follower`, `ticket_attachment`. The system prompt tells the model to answer "open tickets for Plastic Omnium", "status / history / who is working on TK-…" from those tools and that people open and update tickets on the portal. Customer-scoped accounts only see their own plants' tickets; totals are dropped as for every other list.
+
 ## Roadmap
 - **Phase 1 (this commit)**: tickets, plant/inverter link, assignment, followers, timeline, comments, attachments, e-mail notifications, dashboard, alert prefill + link, morning-mail "in hand" lines, occurrences on the timeline.
 - **Phase 2 — automation**: open a ticket automatically for CRITICAL alerts (energy lost / unit off) after N hours without a human ticket; telemetry snapshot on the ticket (power vs expected, temperature, fault code, last-24 h chart); auto-verification (no alert recurrence for 24 h → propose RESOLVED); SLA breach mails.
 - **Phase 3 — operations**: tasks/checklists, preventive-maintenance schedules generating tickets (same engine), maintenance calendar, public vs internal updates and customer visibility per plant, energy/financial impact from the thermal and recon data.
-- **Phase 4 — intelligence**: recurring-problem detection (same plant + model + category), problem records grouping tickets, MTTA/MTTR/SLA/repeat-failure KPIs on the report pages, Ask ARGIA tools over tickets, AI summaries.
+- **Phase 4 — intelligence**: recurring-problem detection (same plant + model + category), problem records grouping tickets, MTTA/MTTR/SLA/repeat-failure KPIs on the report pages, AI summaries (Ask ARGIA tools over tickets: done in v228).
 
 ## Verification
 `tests/unit/test_maintenance_tickets.py` (rules, SQL, mail integration), `tests/unit/test_maint_app.py` (the app against an in-memory fake of the tables: access, create, transitions, attachments, notifications, prefill, wiring). Live: `drift_check` probes `/maintenance/` (302 wall), the ticket created on deploy day proves the round trip.

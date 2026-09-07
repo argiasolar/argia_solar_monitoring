@@ -26,6 +26,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from argia.analytics import evidence as EV
 from argia.analytics.inverter_health import Severity
 from argia.analytics.vendor_flags import MIN_FAULT_SAMPLES, fault_tokens
 from argia.core.time_utils import utc_to_mx
@@ -55,13 +56,16 @@ TEMP_WARN_C = 65.0
 TEMP_HIGH_C = 70.0
 TEMP_CRIT_C = 75.0
 TEMP_PEER_DT_C = 5.0
-"""v216 thermal rule (argia.analytics.thermal bands): >= 65 WARNING;
->= 70 CRITICAL when the unit is hotter than its plant peers by
-TEMP_PEER_DT_C (a cooling problem — dirty heat sink, blocked fan, bad
-clearance) or has no peers; >= 70 with the whole plant equally hot is
-the site's heat, a WARNING; >= 75 always CRITICAL. The message carries
-the peer deviation and, when cooler peers produce more per rated kW,
-the measured shortfall — evidence, not a bare number."""
+"""Thermal rule (argia.analytics.thermal bands; v220 evidence rule):
+>= 65 WARNING; CRITICAL only when the unit is >= 70, hotter than its
+plant peers by TEMP_PEER_DT_C (or alone) AND measurably producing at
+least evidence.THERMAL_LOSS_CRIT_PCT less per rated kW than its cooler
+peers — Tomasz 2026-09-07: "if the production stays the same as an
+inverter that is not so hot, keep it a warning". Plant-wide heat and a
+hot unit without a measured loss stay WARNING whatever the temperature
+(TEMP_CRIT_C is now only the top band label). The message always states
+the evidence: the peer deviation and the measured shortfall, or that no
+cooler peer exists to measure it."""
 
 ACUTE_STALE_MIN = 120
 """No sample for a plant in this many daylight minutes -> acute data gap.
@@ -190,30 +194,19 @@ def evaluate_acute(
             peer_med = (peer_t[len(peer_t) // 2] if len(peer_t) % 2
                         else (peer_t[len(peer_t) // 2 - 1] + peer_t[len(peer_t) // 2]) / 2) if peer_t else None
             dt_peer = (float(temp) - peer_med) if peer_med is not None else None
-            hotter = dt_peer is None or dt_peer >= TEMP_PEER_DT_C
-            if temp >= TEMP_CRIT_C:
-                sev, why = Severity.CRITICAL, f">= {TEMP_CRIT_C:.0f}"
-            elif temp >= TEMP_HIGH_C and hotter:
-                sev, why = Severity.CRITICAL, f">= {TEMP_HIGH_C:.0f} and hotter than its peers"
-            elif temp >= TEMP_HIGH_C:
-                sev, why = Severity.WARNING, f">= {TEMP_HIGH_C:.0f}, plant-wide heat"
-            else:
-                sev, why = Severity.WARNING, f">= {TEMP_WARN_C:.0f}"
-            detail = f", {dt_peer:+.1f} degC vs peers" if dt_peer is not None else ""
-            # measured shortfall against cooler peers (kW per rated kW)
+            hotter = None if dt_peer is None else dt_peer >= TEMP_PEER_DT_C
+            # v220: the measured shortfall against cooler peers (kW per rated
+            # kW) decides CRITICAL — heat alone is a WARNING (Tomasz)
             rk = rated.get((plant, sn)) or rated.get(sn)
             cooler = [v[3] / (rated.get((plant, o)) or rated.get(o) or 0)
                       for o, v in newest.items()
                       if o != sn and v[4] is not None and v[3] is not None
                       and float(v[4]) <= float(temp) - TEMP_PEER_DT_C
                       and (rated.get((plant, o)) or rated.get(o) or 0) > 0]
-            if rk and pw is not None and cooler:
-                cooler.sort()
-                ref = cooler[len(cooler) // 2]
-                if ref > 0:
-                    short = (1 - (pw / rk) / ref) * 100
-                    if short >= 3:
-                        detail += f", producing {short:.0f}% below cooler peers"
+            short = EV.thermal_shortfall_pct(pw, rk, cooler)
+            sev_name, why, evidence = EV.thermal_severity(float(temp), TEMP_WARN_C, TEMP_HIGH_C, hotter, short)
+            sev = Severity[sev_name]
+            detail = (f", {dt_peer:+.1f} degC vs peers" if dt_peer is not None else "") + ", " + evidence
             breaches.append(AcuteBreach(
                 metric="inverter_temp_high", plant_key=plant, inverter_sn=sn,
                 severity=sev, value=round(float(temp), 1),

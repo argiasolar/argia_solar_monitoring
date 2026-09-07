@@ -40,15 +40,20 @@ _CATALOG: Dict[str, Dict[str, str]] = {
     },
     "string_fault": {
         "meaning": (
-            "The inverter started reporting a string-diagnostic flag it "
-            "had NEVER reported before (chronic, always-on flags are "
-            "filtered out). Something changed on the DC side — possibly "
-            "a broken or disconnected string, a blown string fuse, or a "
-            "new mismatch."),
+            "The inverter's own string diagnostic (the Growatt string-break, "
+            "mismatch and unbalance bit masks it sends with every sample) "
+            "raised a bit it had NEVER reported in the last 14 days — "
+            "chronic, always-on bits are filtered out. Something changed on "
+            "the DC side: a broken or disconnected string, a blown string "
+            "fuse, or a new mismatch. It is a WARNING only when the day's "
+            "data shows a loss — a string far below its siblings (amp-hours) "
+            "or the inverter below its plant peers; the message says which. "
+            "Without a measured loss it stays INFO and is not mailed."),
         "check": (
-            "Compare per-string voltages/currents for this inverter in "
-            "the vendor portal against last week. A string at ~0 A in "
-            "good sun confirms a physical problem worth a site visit."),
+            "Open the string card of this inverter on the portal (or the "
+            "vendor portal's per-string currents) and compare with last "
+            "week. A string at ~0 A in good sun confirms a physical problem "
+            "worth a site visit."),
     },
     "inverter_silent": {
         "meaning": (
@@ -70,8 +75,11 @@ _CATALOG: Dict[str, Dict[str, str]] = {
         "meaning": (
             "The inverter's internal temperature is high. It will derate "
             "(produce less on purpose) to protect itself, and sustained "
-            "heat shortens its lifetime. Warning from 65 degC, critical "
-            "from 75 degC."),
+            "heat shortens its lifetime. WARNING from 65 degC; CRITICAL "
+            "only when the unit is at least 70 degC, hotter than its "
+            "plant peers AND measurably producing less than the cooler "
+            "ones — the alert states the measured shortfall. Heat with "
+            "normal output is a warning, not an emergency."),
         "check": (
             "Check ventilation: blocked or dirty fans/heatsink, direct "
             "sun on the enclosure, or dead cooling. If several units at "

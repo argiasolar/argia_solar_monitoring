@@ -36,9 +36,15 @@ MAX_PER_RUN = 20          # the notifier's safety valve
 
 # ---------------------------------------------------------------- pure
 
+MAILED_SEVERITIES = ("WARNING", "CRITICAL")
+"""v220: INFO alerts (a flag without production evidence) live in the
+ledger and on the portal; nobody is mailed about them."""
+
+
 def unmailed(records: Sequence[AlertRecord]) -> List[AlertRecord]:
-    """OPEN records never mailed, oldest first."""
+    """OPEN WARNING/CRITICAL records never mailed, oldest first."""
     out = [r for r in records if r.state == AlertState.OPEN
+           and (r.severity or "").upper() in MAILED_SEVERITIES
            and "email" not in {c.strip() for c in r.channels_sent.split(",")}]
     out.sort(key=lambda r: (r.opened_utc, r.alert_id))
     return out

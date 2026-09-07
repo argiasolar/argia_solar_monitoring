@@ -32,7 +32,7 @@ import argparse
 import datetime as dt
 import logging
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from argia.alerts.digest import apply_daily_digest
 from argia.alerts.engine import (
@@ -53,7 +53,8 @@ from argia.analytics.inverter_health import (
     InverterReading,
     evaluate_inverter_relative,
 )
-from argia.analytics.acute import TEMP_CRIT_C, TEMP_WARN_C
+from argia.analytics import evidence as EV
+from argia.analytics.acute import TEMP_HIGH_C, TEMP_WARN_C
 from argia.analytics.data_health import evaluate_data_stale
 from argia.analytics.vendor_flags import (
     STRING_BASELINE_DAYS,
@@ -171,6 +172,7 @@ def build_candidates(
     stale_breaches: Optional[List] = None,
     temp_candidates: Optional[List[Candidate]] = None,
     offline_candidates: Optional[List[Candidate]] = None,
+    string_rows: Optional[Dict] = None,
 ) -> List[Candidate]:
     """Run the detector layers; map breaches to engine candidates."""
     cands: List[Candidate] = []
@@ -182,7 +184,7 @@ def build_candidates(
         cands.append(candidate_from_fault_breach(b))
 
     for b in evaluate_string_new_bits(string_day or [], string_baseline or []):
-        cands.append(candidate_from_string_breach(b))
+        cands.append(string_candidate_with_evidence(b, per_inverter_kwh, string_rows or {}))
 
     for b in (stale_breaches or []):
         cands.append(candidate_from_stale_breach(b))
@@ -215,8 +217,65 @@ below it. MEX1 (peaks 57-71 degC) used to open, resolve two days later
 and re-open — one mail per cycle — for what is one condition."""
 
 
+def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay]:
+    """thermal_daily rows of the day (argia-thermal ran at 01:10 MX):
+    the measured derating evidence behind a day-peak temperature. Empty
+    on any failure — the rule then stays at WARNING (v220)."""
+    from argia.store.pgq import psql_rows
+    out: Dict[Tuple[str, str], EV.ThermalDay] = {}
+    try:
+        rows = psql_rows("SELECT plant_key, inverter_sn, coalesce(derating_minutes,0), coalesce(lost_kwh,0),"
+                         f" energy_kwh FROM thermal_daily WHERE prod_date = DATE '{date_iso}';")
+    except Exception as e:  # noqa: BLE001
+        log.warning("thermal evidence unreadable (%s) — temperature alerts stay WARNING", e)
+        return out
+    for r in rows:
+        if len(r) >= 5 and r[0] and r[1]:
+            try:
+                out[(r[0], r[1].strip())] = EV.ThermalDay(int(float(r[2])), float(r[3]),
+                                                          float(r[4]) if r[4] else None)
+            except ValueError:
+                continue
+    return out
+
+
+def _read_string_evidence(date_iso: str) -> Dict[Tuple[str, str], List[Tuple[str, Optional[float]]]]:
+    """string_daily rows of the day (kind='string'): (channel, q_ah) per
+    inverter — the per-string amp-hours behind a string flag (v220)."""
+    from argia.store.pgq import psql_rows
+    out: Dict[Tuple[str, str], List[Tuple[str, Optional[float]]]] = {}
+    try:
+        rows = psql_rows("SELECT plant_key, inverter_sn, channel, q_ah FROM string_daily"
+                         f" WHERE prod_date = DATE '{date_iso}' AND kind = 'string';")
+    except Exception as e:  # noqa: BLE001
+        log.warning("string evidence unreadable (%s) — string flags without current data", e)
+        return out
+    for r in rows:
+        if len(r) >= 4 and r[0] and r[1]:
+            try:
+                out.setdefault((r[0], r[1].strip()), []).append((r[2], float(r[3]) if r[3] else None))
+            except ValueError:
+                continue
+    return out
+
+
+def string_candidate_with_evidence(b, readings, string_rows) -> Candidate:
+    """v220: a new string-diagnostic bit is a WARNING only when the day's
+    data shows a loss (a string far below its siblings, or the inverter
+    below its plant peers); otherwise INFO — kept in the ledger and on
+    the portal, never mailed. The message carries the numbers."""
+    ratio = EV.peer_ratio(readings, b.plant_key, b.inverter_sn)
+    weak, med = EV.weak_strings(string_rows.get((b.plant_key, b.inverter_sn), []))
+    sev, evidence = EV.string_severity(ratio, weak, med)
+    c = candidate_from_string_breach(b)
+    msg = c.message.rsplit(" [", 1)[0] + f" — {evidence} [{sev}]"
+    return Candidate(alert_key=c.alert_key, plant_key=c.plant_key, inverter_sn=c.inverter_sn,
+                     metric=c.metric, severity=sev, value=None if ratio is None else round(ratio, 3),
+                     threshold=None, message=msg)
+
+
 def daily_temp_candidates(bundle, portfolio,
-                          open_keys=frozenset()) -> List[Candidate]:
+                          open_keys=frozenset(), evidence=None) -> List[Candidate]:
     """Daily owner of inverter_temp_high: fires on the day's MAX temperature,
     so an acute-opened alert resolves once a full day stays below the
     CLEAR level (60 degC) — below WARN alone is not enough for a key in
@@ -244,15 +303,17 @@ def daily_temp_candidates(bundle, portfolio,
                                  f"{TEMP_CLEAR_C:.0f} [WARNING]"),
                     ))
                 continue
-            crit = t >= TEMP_CRIT_C
+            # v220: CRITICAL only with the nightly thermal evidence of a loss
+            sev, ev_txt = EV.thermal_day_severity(t, TEMP_HIGH_C, (evidence or {}).get((plant.plant_key, sn)))
+            crit = sev == "CRITICAL"
             out.append(Candidate(
                 alert_key=key,
                 plant_key=plant.plant_key, inverter_sn=sn,
                 metric="inverter_temp_high",
-                severity="CRITICAL" if crit else "WARNING",
-                value=round(t, 1), threshold=TEMP_CRIT_C if crit else TEMP_WARN_C,
+                severity=sev,
+                value=round(t, 1), threshold=TEMP_HIGH_C if crit else TEMP_WARN_C,
                 message=(f"{plant.plant_key} {sn}: day-peak temperature "
-                         f"{t:.1f} degC [{'CRITICAL' if crit else 'WARNING'}]"),
+                         f"{t:.1f} degC — {ev_txt} [{sev}]"),
             ))
     return out
 
@@ -385,9 +446,11 @@ def main(argv=None) -> int:
         if r.metric == "inverter_temp_high" and (r.is_open() or r.is_silenced()))
     candidates = build_candidates(
         readings, kpi, fault_samples, string_day, string_baseline, stale,
-        temp_candidates=daily_temp_candidates(bundle, portfolio, open_temp_keys),
+        temp_candidates=daily_temp_candidates(bundle, portfolio, open_temp_keys,
+                                              evidence=_read_thermal_evidence(date_iso)),
         offline_candidates=(daily_offline_candidates(readings)
                             + daily_silent_candidates(bundle, portfolio, date_iso)),
+        string_rows=_read_string_evidence(date_iso),
     )
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)

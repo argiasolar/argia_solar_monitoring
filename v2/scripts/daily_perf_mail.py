@@ -272,7 +272,8 @@ def ledger_issues(labels=None):
         rows = psql_rows(
             "SELECT metric, plant_key, coalesce(inverter_sn,''), severity,"
             " opened_utc, message FROM alert_ledger WHERE state = 'OPEN'"
-            " AND metric <> 'daily_digest' ORDER BY plant_key, metric;")
+            " AND metric <> 'daily_digest' AND severity IN ('WARNING','CRITICAL')"
+            " ORDER BY plant_key, metric;")
     except RuntimeError:
         return out
     for r in rows:
@@ -300,10 +301,11 @@ _ISSUE_PHRASE = dict(naming.METRIC_PHRASE)
 # unit-failed" told Tomasz nothing on 2026-09-03 (v185) — an alert has
 # to name the thing that broke and say what it implies.
 _ISSUE_WHY = {
-    "inverter_temp_high": "Internal temperature above 65 degC (critical from "
-                          "75): the unit derates to protect itself and heat "
-                          "shortens its life. Check fans, filters, heatsink, "
-                          "shade on the enclosure.",
+    "inverter_temp_high": "Internal temperature above 65 degC. CRITICAL only "
+                          "when the unit is also measurably producing less than "
+                          "its cooler peers (the alert states the loss); heat "
+                          "without a measured loss stays a WARNING. Check fans, "
+                          "filters, heatsink, shade on the enclosure.",
     "inverter_fault": "The inverter's own fault code — its diagnosis, not "
                       "an inference. Grid-side codes (Growatt 300-304) mean "
                       "the utility or a breaker, not the PV array.",
@@ -313,8 +315,10 @@ _ISSUE_WHY = {
     "inverter_silent": "Stopped sending while the others produce. When it "
                        "reappears its own counter tells comms gap (no energy "
                        "lost) from a unit that was off.",
-    "string_fault": "A string diagnostic flag the unit never showed before — "
-                    "a broken string, blown fuse or new mismatch on the DC side.",
+    "string_fault": "The inverter's own string diagnostic (Growatt string-break / "
+                    "mismatch / unbalance bits) raised a bit it never showed in the "
+                    "last 14 days, and the day's data shows a loss — the alert names "
+                    "the weak string and the inverter's share of its peers.",
     "energy_daily_pct": "The plant produced far less than the weather "
                         "allowed: outage, curtailment or a wrong expected.",
     "plant_offline": "Telemetry arrived but every inverter stayed at zero "

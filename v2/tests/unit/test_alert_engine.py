@@ -237,17 +237,28 @@ class TestDailyTemperatureHysteresis:
         def active_plants(self):
             return [TestDailyTemperatureHysteresis._Plant()]
 
-    def _cands(self, temps, open_keys=frozenset()):
+    def _cands(self, temps, open_keys=frozenset(), evidence=None):
         from scripts.alerts_daily import daily_temp_candidates
         rows = [_temp_row(t, sn) for sn, t in temps]
-        return daily_temp_candidates(self._Bundle(rows), self._Portfolio(), open_keys)
+        return daily_temp_candidates(self._Bundle(rows), self._Portfolio(), open_keys, evidence=evidence)
 
-    def test_thresholds_unchanged_for_new_alerts(self):
+    def test_thresholds_v220_critical_needs_measured_loss(self):
+        from argia.analytics import evidence as EV
         assert self._cands([("ES1", 62.0)]) == []
         w = self._cands([("ES1", 66.5)])
         assert [c.severity for c in w] == ["WARNING"] and w[0].value == 66.5
+        # 76 C without a thermal evaluation of the day -> WARNING, says so
         c = self._cands([("ES1", 76.2)])
-        assert [x.severity for x in c] == ["CRITICAL"] and c[0].threshold == 75.0
+        assert [x.severity for x in c] == ["WARNING"] and "no thermal evaluation" in c[0].message
+        # 76 C with measured derating loss -> CRITICAL, numbers in the message
+        ev = {("MEX1", "ES1"): EV.ThermalDay(derating_minutes=95, lost_kwh=41.0, energy_kwh=300.0)}
+        c = self._cands([("ES1", 76.2)], evidence=ev)
+        assert [x.severity for x in c] == ["CRITICAL"] and c[0].threshold == 70.0
+        assert "95 min" in c[0].message and "41.0 kWh lost" in c[0].message and "12%" in c[0].message
+        # 76 C, evaluated, but no loss -> WARNING
+        ev = {("MEX1", "ES1"): EV.ThermalDay(0, 0.0, 300.0)}
+        c = self._cands([("ES1", 76.2)], evidence=ev)
+        assert [x.severity for x in c] == ["WARNING"] and "no output loss" in c[0].message
 
     def test_open_alert_survives_a_62_degree_day_and_clears_at_59(self):
         key = "mex1:inv:es1:inverter_temp_high"
@@ -262,7 +273,8 @@ class TestDailyTemperatureHysteresis:
         import pathlib
         src = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "alerts_daily.py"
                ).read_text(encoding="utf-8")
-        assert "daily_temp_candidates(bundle, portfolio, open_temp_keys)" in src
+        assert "daily_temp_candidates(bundle, portfolio, open_temp_keys," in src
+        assert "evidence=_read_thermal_evidence(date_iso)" in src
         assert src.index("ledger = load_alerts_ledger(sheets)") < src.index("candidates = build_candidates(")
 
 

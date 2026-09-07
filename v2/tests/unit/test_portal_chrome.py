@@ -395,5 +395,5 @@ class TestV224Fit:
     def test_monitoring_alert_messages_wrap(self):
         import pathlib
         mg = (pathlib.Path(__file__).resolve().parents[2] / "server/monitoring_gen.py").read_text(encoding="utf-8")
-        assert 'td.wrap-text{white-space:normal;text-align:left;min-width:260px;}' in mg
+        assert 'th.wrap-text,td.wrap-text{white-space:normal;text-align:left;min-width:260px;}' in mg
         assert '<td class="wrap-text">{esc(a["msg"])}</td>' in mg

@@ -564,7 +564,7 @@ table{border-collapse:collapse;width:100%;font-size:13.5px;}
 th,td{text-align:right;padding:6px 8px;border-bottom:1px solid #eceef0;white-space:nowrap;}
 th{color:#5f6368;font-size:12px;}
 td:first-child,th:first-child{text-align:left;}
-td.wrap-text{white-space:normal;text-align:left;min-width:260px;}
+th.wrap-text,td.wrap-text{white-space:normal;text-align:left;min-width:260px;}
 .note{font-size:13px;color:#80868b;}
 .st-PASS{color:#137333;font-weight:600;} .st-REVIEW{color:#a05c00;font-weight:600;}
 .st-FAIL{color:#c5221f;font-weight:600;} .st-NO_DATA{color:#80868b;}
@@ -951,7 +951,7 @@ def alerts_card(pk):
             f' data-es="Alertas abiertas ({len(rows)}, {n_crit} críticas)">Open alerts ({len(rows)}, {n_crit} critical)</h2>'
             '<table><tr><th data-en="Severity" data-es="Severidad">Severity</th><th data-en="Inverter" data-es="Inversor">Inverter</th>'
             '<th data-en="Metric" data-es="Métrica">Metric</th><th data-en="Since" data-es="Desde">Since</th>'
-            '<th data-en="Message" data-es="Mensaje">Message</th></tr>' + trs + '</table>'
+            '<th class="wrap-text" data-en="Message" data-es="Mensaje">Message</th></tr>' + trs + '</table>'
             '<p class="note" data-en="From the alert ledger (daily + snapshot engines). Resolved by the daily run once the condition clears for a whole day."'
             ' data-es="Del registro de alertas (motores diario y de instantáneas). Se resuelven cuando la condición desaparece un día completo.">'
             'From the alert ledger; resolved by the daily run once the condition clears for a whole day.</p></div>')

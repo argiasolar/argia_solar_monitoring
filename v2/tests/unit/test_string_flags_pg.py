@@ -40,8 +40,9 @@ def test_split_by_mx_day_and_active_plants():
 
 def test_new_bit_today_absent_from_baseline_fires_through_the_real_evaluator():
     m = _mod()
-    rows = [(_ts(3, h), "SLP2", "B", {"str_break": "0", "str_unmatch": "0", "str_unblance": "0"})
-            for h in range(9, 16)]
+    base_days = [dt.datetime(2026, 8, d, 18, 0, tzinfo=UTC) for d in range(25, 32)]   # v220.2: a real 7-day baseline
+    rows = [(t.replace(hour=h + 6), "SLP2", "B", {"str_break": "0", "str_unmatch": "0", "str_unblance": "0"})
+            for t in base_days for h in range(9, 16)]
     rows += [(_ts(4, h), "SLP2", "B", {"str_break": "8", "str_unmatch": "0", "str_unblance": "0"})
              for h in range(9, 16)]
     day, base = m.split_string_samples(rows, "2026-09-04", "2026-08-21", {"SLP2"})

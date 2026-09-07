@@ -145,6 +145,13 @@ STRING_BASELINE_DAYS = 14
 MIN_BIT_SAMPLES = 2
 """A new bit must appear in at least this many daylight samples to fire."""
 
+MIN_BASELINE_DAYS = 7
+"""v220.2: an inverter needs at least this many distinct days of string
+samples in its baseline before a bit can be called NEW. The flag columns
+only exist in telemetry_detail since 2026-09-04, so on 2026-09-06 every
+chronic bit of eight inverters across five plants looked "new" against a
+one-day baseline — that is how the Budenheim string alerts were born."""
+
 _STRING_COLS = ("str_break", "str_unmatch", "str_unblance")
 
 
@@ -173,6 +180,7 @@ def evaluate_string_new_bits(
     day_samples: List[Tuple[dt.datetime, str, str, Dict[str, object]]],
     baseline_samples: List[Tuple[dt.datetime, str, str, Dict[str, object]]],
     min_samples: int = MIN_BIT_SAMPLES,
+    min_baseline_days: int = MIN_BASELINE_DAYS,
 ) -> List[StringBitBreach]:
     """Flag string-diagnostic bits present today but absent from the
     inverter's own trailing baseline.
@@ -201,13 +209,20 @@ def evaluate_string_new_bits(
                 day_counts[key][f"{col[4:]}:{b}"] += 1
 
     baseline: Dict[Tuple[str, str], set] = defaultdict(set)
-    for _ts, plant_key, sn, cols in baseline_samples:
+    base_days: Dict[Tuple[str, str], set] = defaultdict(set)
+    for ts, plant_key, sn, cols in baseline_samples:
         key = (str(plant_key).strip(), str(sn).strip())
+        if ts is not None:
+            base_days[key].add(utc_to_mx(ts).date())
         for col in _STRING_COLS:
             baseline[key] |= {f"{col[4:]}:{b}" for b in _bits(cols.get(col))}
 
     breaches: List[StringBitBreach] = []
     for key, counts in sorted(day_counts.items()):
+        if len(base_days[key]) < min_baseline_days:
+            LOG.info("string flags %s/%s: only %d baseline day(s) (< %d) — cannot tell new from chronic, skipped",
+                     key[0], key[1], len(base_days[key]), min_baseline_days)
+            continue
         new = sorted(b for b, n in counts.items()
                      if n >= min_samples and b not in baseline[key])
         if not new:

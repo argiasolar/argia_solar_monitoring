@@ -115,7 +115,7 @@ class TestStringNewBits:
     def test_new_bit_fires_warning(self):
         # Real case: JFM7DXN013 grew unmatch bits 10+11 (value 3072) on top
         # of chronic break bit 9 — early warning weeks before its fault.
-        base = [_ss(12, {"str_break": 512}, day=1)]
+        base = [_ss(12, {"str_break": 512}, day=d) for d in range(1, 8)]      # 7 baseline days
         day = [_ss(10, {"str_break": 512, "str_unmatch": 3072}),
                _ss(12, {"str_break": 512, "str_unmatch": 3072})]
         b = evaluate_string_new_bits(day, base)
@@ -125,15 +125,25 @@ class TestStringNewBits:
         assert b[0].severity.value == "WARNING"
 
     def test_single_sample_new_bit_debounced(self):
-        base = [_ss(12, {"str_break": 512}, day=1)]
+        base = [_ss(12, {"str_break": 512}, day=d) for d in range(1, 8)]
         day = [_ss(10, {"str_unmatch": 3}),          # once only
                _ss(12, {"str_break": 512})]
         assert evaluate_string_new_bits(day, base) == []
 
-    def test_empty_baseline_everything_is_new(self):
+    def test_thin_baseline_cannot_call_anything_new(self):
+        # v220.2: with an empty or one-day baseline every chronic bit would
+        # look new (2026-09-06: eight inverters at once) -> nothing fires
         day = [_ss(10, {"str_break": 16}), _ss(12, {"str_break": 16})]
-        b = evaluate_string_new_bits(day, [])
+        assert evaluate_string_new_bits(day, []) == []
+        one_day = [_ss(12, {"str_break": 0}, day=1)]
+        assert evaluate_string_new_bits(day, one_day) == []
+        six = [_ss(12, {"str_break": 0}, day=d) for d in range(1, 7)]
+        assert evaluate_string_new_bits(day, six) == []
+        seven = six + [_ss(12, {"str_break": 0}, day=7)]
+        b = evaluate_string_new_bits(day, seven)
         assert len(b) == 1 and b[0].new_bits == "break:4"
+        # the guard is a parameter — the historic behaviour is one call away
+        assert evaluate_string_new_bits(day, [], min_baseline_days=0)[0].new_bits == "break:4"
 
     def test_night_day_samples_ignored(self):
         day = [_ss(2, {"str_break": 16}), _ss(3, {"str_break": 16})]
@@ -147,7 +157,7 @@ class TestStringNewBits:
 
     def test_mapper(self):
         day = [_ss(10, {"str_break": 16}), _ss(12, {"str_break": 16})]
-        c = candidate_from_string_breach(evaluate_string_new_bits(day, [])[0])
+        c = candidate_from_string_breach(evaluate_string_new_bits(day, [], min_baseline_days=0)[0])
         assert c.metric == "string_fault"
         assert c.alert_key == "gto1:inv:jfm7dxn013:string_fault"
 

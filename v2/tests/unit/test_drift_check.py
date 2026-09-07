@@ -59,6 +59,7 @@ class TestCompare:
         assert DC.judge_http("portal-login", 401)["ok"] and not DC.judge_http("portal-login", 200)["ok"]
         assert not DC.judge_http("portal-login", None)["ok"]
         assert DC.judge_http("old-report", 301)["ok"]
+        assert [n for n, _, _ in DC.SMOKE_HTTP if n.startswith("old-")] == ["old-report", "old-monitoring"]
         assert DC.judge_age("backup-dump", 3.2)["ok"] and not DC.judge_age("backup-dump", 30.0)["ok"]
         assert not DC.judge_age("backup-dump", None)["ok"]
 

@@ -68,7 +68,8 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("portal-monitoring-wall", "https://portal.argia.com.mx/monitoring/", (302,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),
     ("old-monitoring", "https://monitoring.argia.com.mx/", (301,)),
-    ("old-portfolio", "https://portfolio.argia.com.mx/", (301,)),
+    # portfolio.argia.com.mx has no DNS record (checked 2026-09-06) — its
+    # vhost stays as a 301 map but cannot be probed by name
 ]
 BACKUP_MAX_H = 26.0
 FRESH_FILES = [("backup-dump", "/root/argia_backups/argia_mont_latest.dump"),

@@ -181,7 +181,7 @@ class TestInverterChart:
 
     def _fns(self):
         import html, math
-        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math,
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math, "json": __import__("json"),
               "q": lambda sql: [], "t": lambda en, es: en}
         seg = SRC[SRC.index("def yticks"):]
         exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)      # yticks alone
@@ -200,14 +200,22 @@ class TestInverterChart:
         assert '<title>2026-09-02 · Inverter 1 (A): 650 kWh · 5.24 kWh/kW</title>' in svg
         assert 'Inverter 2 <span class="sn">B</span>' in svg and 'Inverter 1 <span class="sn">A</span>' in svg
         # B's gap breaks its line instead of drawing through the missing day
-        b_path = [seg for seg in svg.split('<path class="line"') if "Inverter 2" in seg][0]
-        assert b_path.count("M") == 2 and "L" not in b_path.split('d="')[1].split('"')[0]
-        assert svg.count("<circle") == 5
+        b_path = [seg for seg in svg.split('<path class="line"') if "<title>Inverter 2</title>" in seg][0].split('d="')[1].split('"')[0]
+        assert b_path.count("M") == 2 and "L" not in b_path
+        assert svg.count('<circle class="pt"') == 5          # v233: visible dots on every point
         # v232: each series is a toggleable group, the legend has a checkbox per unit, the last label has room
         assert svg.count('<g class="ser" data-sn=') == 2 and svg.count('<input type="checkbox" checked data-sn=') == 2
         assert 'onchange="argiaInvToggle(this)"' in svg and "function argiaInvToggle" in svg
         assert 'x2="860"' in svg          # plot ends 40 px before the edge (was 12)
-        assert "tkpill" not in svg        # no open ticket -> no pill
+        assert "tkpill" not in svg        # tickets live in the table, never in the legend (v233)
+        # v233: the day box — the series ride along as JSON, the hover JS and the guide line are there
+        import json as _json, html as _html
+        data = _json.loads(_html.unescape(svg.split('data-chart="', 1)[1].split('"', 1)[0]))
+        assert data["days"] == ["2026-09-01", "2026-09-02", "2026-09-03"] and data["x0"] == 54 and data["W"] == 900
+        assert [s_["label"] for s_ in data["series"]] == ["Inverter 1", "Inverter 2"]
+        assert data["series"][1]["vals"] == [500.0, None, 520.0] and data["series"][0]["rated"] == 124.0
+        assert 'onmousemove="argiaInvHover(event,this)"' in svg and 'class="invguide"' in svg and 'class="invtip"' in svg
+        assert "function argiaInvHover" in svg and "function argiaInvLeave" in svg
         # nothing to draw: one day only, or all zero
         assert fns["inverter_chart_svg"]({"A": {"daily": {"2026-09-01": 5.0}}}, {}) == ""
         assert fns["inverter_chart_svg"]({"A": {"daily": {"d1": 0.0, "d2": 0.0}}}, {}) == ""
@@ -217,7 +225,9 @@ class TestInverterChart:
         rows = [["P", "A", "2026-09-01", "600", "10", "10"], ["P", "A", "2026-09-02", "650", "10", "10"]]
         stats = fns["_inverter_30d"](rows)["P"]
         svg = fns["inverter_chart_svg"](stats, {"A": ("Inverter 1", 124.0)}, tickets={"A": ("TK-NL1-0002", "IN_PROGRESS", "P2")})
-        assert '<a href="/maintenance/t/TK-NL1-0002/" class="tkpill" title="P2 · In progress">TK-NL1-0002 · In progress</a>' in svg
+        assert "tkpill" not in svg                                    # v233: not in the legend any more
+        assert fns["ticket_pill"](("TK-NL1-0002", "IN_PROGRESS", "P2")) == \
+            '<a href="/maintenance/t/TK-NL1-0002/" class="tkpill" title="P2 · In progress">TK-NL1-0002 · In progress</a>'
         assert fns["ticket_pill"](None) == ""
         assert "tkp = ticket_pill(tickets.get(sn))" in SRC and "(f'<br>{tkp}' if tkp else '')" in SRC
         assert "TICKET_BY_INVERTER.get((k, sn))" in SRC
@@ -226,7 +236,7 @@ class TestInverterChart:
         """Executes inverter_card itself (the v232 deploy failed on an
         UnboundLocalError a source-text test could not see)."""
         import html, math
-        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math,
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math, "json": __import__("json"),
               "q": lambda sql: [], "t": lambda en, es: en, "ti": lambda en, es: "<i/>"}
         seg = SRC[SRC.index("def yticks"):]
         exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)
@@ -238,13 +248,23 @@ class TestInverterChart:
         ns["inv_meta"] = {("NL1", "A"): ("Inverter 1", 124.0), ("NL1", "B"): ("Inverter 2", 124.0)}
         ns["TICKET_BY_INVERTER"] = {("NL1", "B"): ("TK-NL1-0002", "NEW", "P2")}
         card = ns["inverter_card"]("NL1")
-        assert card.count('class="tkpill"') == 2            # legend + table row, Inverter 2 only
+        assert card.count('class="tkpill"') == 1            # the table row of Inverter 2 only (v233: legend stays clean)
         assert card.index("<svg") < card.index("<table")
         assert "Inverter 1<br>" in card and 'TK-NL1-0002 · New</a></td>' in card
         assert ns["inverter_card"]("ZZZ").count("No inverter telemetry") == 1
 
     def test_card_embeds_the_chart_above_the_table(self):
-        assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats}, tickets=tickets)" in SRC
+        assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})" in SRC
+        # the chart's CSS lives in the portal chrome — report_gen's own stylesheet never reaches the portal pages
+        chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
+        for rule in (".invchart{position:relative", ".invlegs{", ".invleg{", ".invtip{", ".tkpill{", ".sw{"):
+            assert rule in chrome, rule
+
+    def test_tile_values_fit_one_line(self):
+        """v233 (Tomasz: the big bold numbers wrap inside the tiles) — 24px like the Map cards."""
+        chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
+        assert ".tval{font-size:24px" in chrome and ".tile .thero{font-size:24px" in chrome
+        assert ".kpi .v{font-size:24px" in (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
         assert "+ chart +" in SRC and "Daily kWh per inverter, each from its own counter" in SRC
         assert "Inverters — last 30 days" in SRC
         assert "specific yield ÷ the plant median" in SRC

@@ -628,7 +628,7 @@ th.wrap-text,td.wrap-text{white-space:normal;text-align:left;min-width:260px;}
 .st-FAIL{color:#c5221f;font-weight:600;} .st-NO_DATA{color:#80868b;}
 h2.sect{font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#1c2733;margin:22px 0 4px;}
 .kpis{display:flex;gap:26px;flex-wrap:wrap;margin:10px 0 2px;align-items:flex-end;}
-.kpi .v{font-size:27px;font-weight:700;color:#1c2733;}
+.kpi .v{font-size:24px;font-weight:700;color:#1c2733;}
 .kpi .l{font-size:12.5px;color:#5f6368;margin-top:2px;}
 /* gauge tile: column, bottom-aligned so its caption sits on the same
    line as the other KPI labels (svg is display:block, no descender gap) */

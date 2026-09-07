@@ -494,11 +494,14 @@ th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--grid);}
 th{color:var(--ink2);font-weight:600;font-size:12px;}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 .sn{font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:10px;color:#80868b;letter-spacing:.2px;white-space:nowrap;}
-.invchart{padding:0 8px 0 0;}
-.invlegs{margin:4px 0 12px 54px;display:flex;flex-wrap:wrap;gap:6px 16px;}
-.invleg{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;}
+.invchart{position:relative;padding:0 8px 0 0;}
+.invlegs{margin:6px 0 14px 54px;display:flex;flex-wrap:wrap;gap:6px 18px;}
+.invleg{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
 .invleg input{margin:0;accent-color:#05b1a9;}
-.tkpill{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e6f6f5;color:#0b7d78;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none;}
+.invtip{position:absolute;z-index:20;background:#fff;border:1px solid #e3e6ea;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgba(26,29,35,.12);pointer-events:none;white-space:nowrap;}
+.invtip .sw{margin-right:6px;vertical-align:middle;}.invtip .muted{color:#80868b;}
+.tkpill{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:10px;background:#e6f6f5;color:#0b7d78;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;}
 .tkpill:hover{background:#cdeeec;}
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;font-size:12px;
  background:var(--green-bg);color:var(--green-tx);}
@@ -1066,7 +1069,11 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
     production over time'): one line per inverter, daily kWh from its
     own counter over the rolling 30 days. ``stats`` = inv30[plant]
     ({sn: {..., 'daily': {date: kwh}}}), ``meta`` = {sn: (label,
-    rated_kw)}. Hover a point for the day, the unit and its kWh/kW.
+    rated_kw)}. v233: hovering a day shows every inverter's kWh for
+    that day in one box (the JS reads the series from data-attributes;
+    without JS the point titles still answer); a checkbox per inverter
+    in the legend includes or excludes its line; tickets stay in the
+    table (``tickets`` is accepted for compatibility, not drawn).
     Pure; '' when there is nothing to draw."""
     days = sorted({d for a in stats.values() for d in (a.get('daily') or {})})
     if len(days) < 2:
@@ -1083,12 +1090,13 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
 
     def pt(i, v):
         return (pad_l + pw * i / (n - 1), pad_t + ph * (1 - v / tks[-1]))
-    out = [f'<svg viewBox="0 0 {W} {H}" role="img" style="width:100%;height:auto;display:block">']
+    out = [f'<svg viewBox="0 0 {W} {H}" role="img" style="width:100%;height:auto;display:block" onmousemove="argiaInvHover(event,this)" onmouseleave="argiaInvLeave(this)">']
     for tk in tks:
         y = pad_t + ph * (1 - tk / tks[-1])
         out.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{W-pad_r}" y2="{y:.1f}" class="grid"/>')
         out.append(f'<text x="{pad_l-6}" y="{y+4:.1f}" class="tick" text-anchor="end">{int(tk):,}</text>')
-    legend = []
+    out.append(f'<line class="invguide" x1="{pad_l}" y1="{pad_t}" x2="{pad_l}" y2="{pad_t+ph}" style="display:none;stroke:#9aa0a6;stroke-dasharray:3 3"/>')
+    legend, series = [], []
     for j, sn in enumerate(order):
         label, rated = meta.get(sn) or ('', 0)
         color = INV_COLORS[j % len(INV_COLORS)]
@@ -1102,23 +1110,44 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
         for i, v in pts:
             x, y = pt(i, v)
             per_kw = f' · {v / rated:,.2f} kWh/kW' if rated else ''
-            out.append(f'<circle class="hit" cx="{x:.1f}" cy="{y:.1f}" r="7">'
+            out.append(f'<circle class="pt" cx="{x:.1f}" cy="{y:.1f}" r="2.6" style="fill:{color}">'
                        f'<title>{days[i]} · {who} ({sid}): {v:,.0f} kWh{per_kw}</title></circle>')
         out.append('</g>')
-        tk = ticket_pill((tickets or {}).get(sn))
         legend.append(f'<label class="invleg"><input type="checkbox" checked data-sn="{sid}" onchange="argiaInvToggle(this)">'
-                      f'<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{color}"></span>'
-                      f'{who} <span class="sn">{sid}</span>{tk}</label>')
+                      f'<span class="sw" style="background:{color}"></span>{who} <span class="sn">{sid}</span></label>')
+        series.append({'sn': sn, 'label': label or sn, 'color': color, 'rated': rated or 0,
+                       'vals': [round(daily[d], 1) if d in daily else None for d in days]})
     ev = max(1, n // 8)
     for i, d in enumerate(days):
         if i % ev == 0:
             out.append(f'<text x="{pad_l+pw*i/(n-1):.1f}" y="{H-8}" class="tick" text-anchor="middle">{d[5:]}</text>')
     out.append(f'<line x1="{pad_l}" y1="{pad_t+ph}" x2="{W-pad_r}" y2="{pad_t+ph}" class="axis"/>')
     out.append('</svg>')
-    js = ('<script>function argiaInvToggle(cb){var svg=cb.closest(".invchart").querySelector("svg");'
-          'svg.querySelectorAll(".ser").forEach(function(g){if(g.getAttribute("data-sn")===cb.getAttribute("data-sn"))'
-          'g.style.display=cb.checked?"":"none";});}</script>')
-    return ('<div class="invchart">' + ''.join(out) + '<div class="invlegs">' + ''.join(legend) + '</div>' + js + '</div>')
+    data = html.escape(json.dumps({'days': days, 'x0': pad_l, 'pw': pw, 'W': W, 'series': series}, separators=(',', ':')), quote=True)
+    return (f'<div class="invchart" data-chart="{data}">' + ''.join(out)
+            + '<div class="invtip" style="display:none"></div>'
+            + '<div class="invlegs">' + ''.join(legend) + '</div>' + INV_CHART_JS + '</div>')
+
+
+INV_CHART_JS = (
+    '<script>'
+    'function argiaInvToggle(cb){var box=cb.closest(".invchart"),svg=box.querySelector("svg");'
+    'svg.querySelectorAll(".ser").forEach(function(g){if(g.getAttribute("data-sn")===cb.getAttribute("data-sn"))'
+    'g.style.display=cb.checked?"":"none";});}'
+    'function argiaInvHover(ev,svg){var box=svg.closest(".invchart"),d=box._d||(box._d=JSON.parse(box.getAttribute("data-chart")));'
+    'var r=svg.getBoundingClientRect(),x=(ev.clientX-r.left)*d.W/r.width,n=d.days.length;'
+    'var i=Math.round((x-d.x0)/d.pw*(n-1));if(i<0)i=0;if(i>n-1)i=n-1;'
+    'var gx=d.x0+d.pw*i/(n-1),g=svg.querySelector(".invguide");g.setAttribute("x1",gx);g.setAttribute("x2",gx);g.style.display="";'
+    'var off={};box.querySelectorAll(".invleg input").forEach(function(c){if(!c.checked)off[c.getAttribute("data-sn")]=1;});'
+    'var h="<b>"+d.days[i]+"</b>";d.series.forEach(function(s){if(off[s.sn])return;var v=s.vals[i];'
+    'h+="<div><span class=sw style=\'background:"+s.color+"\'></span>"+s.label+" <span class=sn>"+s.sn+"</span> <b>"+(v==null?"—":Math.round(v).toLocaleString()+" kWh")+"</b>"'
+    '+(v!=null&&s.rated?" <span class=muted>"+(v/s.rated).toFixed(2)+" kWh/kW</span>":"")+"</div>";});'
+    'var tip=box.querySelector(".invtip");tip.innerHTML=h;tip.style.display="";'
+    'var px=gx*r.width/d.W,left=px+14;if(left+tip.offsetWidth>box.clientWidth)left=px-tip.offsetWidth-14;'
+    'tip.style.left=Math.max(0,left)+"px";tip.style.top=(r.top-box.getBoundingClientRect().top+10)+"px";}'
+    'function argiaInvLeave(svg){var box=svg.closest(".invchart");box.querySelector(".invtip").style.display="none";'
+    'svg.querySelector(".invguide").style.display="none";}'
+    '</script>')
 
 
 def inverter_card(k):
@@ -1161,7 +1190,7 @@ def inverter_card(k):
                     f'<td class="num">{av_txt}</td></tr>')
     tip = ti("Rolling 30 days ending at the data edge (fixed window — the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) — same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher — judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
              "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba — júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
-    chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats}, tickets=tickets)
+    chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})
     if chart:
         chart = (f'<p class="note" style="margin:0 0 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
                  + chart)

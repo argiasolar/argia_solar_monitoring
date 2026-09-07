@@ -246,7 +246,7 @@ def financial_report():
     head = f'''
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
  <div style="display:flex;flex-direction:column;gap:4px">
-  <div class="kicker">PPA + LaaS · {t("generated", "generado")} {RG.gen_at} · {t("actuals through", "reales hasta")} {RG.asof}</div>
+  <div class="kicker">PPA + LaaS · {t("generated", "generado")} {RG.gen_at} · {t("actuals through", "reales hasta")} {RG.asof} · {t("all amounts MXN, sin IVA (LaaS USD fees at the loan FX)", "todos los montos en MXN, sin IVA (cuotas LaaS en USD al tipo de cambio del crédito)")}</div>
   <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><h1 class="pt">{t("Financial report", "Reporte financiero")}</h1><span class="rng mono muted" id="hdr_range"></span></div>
  </div>
  <button class="btn2 noprint" onclick="window.print()">{ico("print", 15)} {t("PDF · current selection", "PDF · selección actual")}</button>

@@ -1516,7 +1516,8 @@ def financial_page():
     body = [chrome_top('Financial Report', 'Reporte Financiero', '', home='..',
                        range_id='hdr_range',
                        right_sub=f'{t("generated","generado")} {gen_at} · '
-                                 f'{t("actuals through","reales hasta")} {asof}'),
+                                 f'{t("actuals through","reales hasta")} {asof} · '
+                                 f'{t("all amounts MXN, sin IVA","todos los montos en MXN, sin IVA")}'),
             financial_body()]
     return page(''.join(body), 'Financial Report — ARGIA')
 
@@ -1558,9 +1559,9 @@ td.asset{{white-space:nowrap;}}
 }}
 </style>
 <div class="tiles oneline">
- <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero" id="k_exp">—</div></div>
- <div class="tile"><div class="tlabel">{t("Actual revenue","Ingreso real")}</div><div class="thero" id="k_act">—</div></div>
- <div class="tile"><div class="tlabel">{t("Net cash (actual)","Flujo neto (real)")}</div><div class="thero" id="k_net">—</div></div>
+ <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero"><span id="k_exp">—</span> <span class="unit">MXN</span></div></div>
+ <div class="tile"><div class="tlabel">{t("Actual revenue","Ingreso real")}</div><div class="thero"><span id="k_act">—</span> <span class="unit">MXN</span></div></div>
+ <div class="tile"><div class="tlabel">{t("Net cash (actual)","Flujo neto (real)")}</div><div class="thero"><span id="k_net">—</span> <span class="unit">MXN</span></div></div>
  <div class="tile"><div class="tlabel">{t("DSCR expected","DSCR esperado")}</div><div class="thero" id="k_de">—</div></div>
  <div class="tile"><div class="tlabel">{t("DSCR actual","DSCR real")}</div><div class="thero" id="k_da">—</div></div>
 </div>
@@ -1605,6 +1606,7 @@ function compute(){{
  document.getElementById('k_de').textContent=T.debt? (100*(T.exp-T.om)/T.debt).toFixed(0)+'%':'—';
  document.getElementById('k_da').textContent=T.debt? (100*(T.act-T.om)/T.debt).toFixed(0)+'%':'—';
  const rows=(o,which)=>`
+  <tr><th></th><th class="num">MXN</th></tr>
   <tr><td data-en="Revenue" data-es="Ingreso">Revenue</td><td class="num">${{fmt(which==='e'?o.exp:o.act)}}</td></tr>
   <tr><td data-en="O&M costs" data-es="Costos O&M">O&M costs</td><td class="num">(${{fmt(o.om)}})</td></tr>
   <tr><td data-en="Debt service" data-es="Servicio de deuda">Debt service</td><td class="num">(${{fmt(o.debt)}})</td></tr>
@@ -1615,9 +1617,9 @@ function compute(){{
  document.getElementById('tbl_exp').innerHTML=rows(T,'e');
  document.getElementById('tbl_act').innerHTML=rows(T,'a');
  let h=`<tr><th data-en="Asset" data-es="Activo">Asset</th><th data-en="Type" data-es="Tipo">Type</th>
-   <th class="num" data-en="Exp. revenue" data-es="Ingreso esp.">Exp. revenue</th>
-   <th class="num" data-en="Actual revenue" data-es="Ingreso real">Actual revenue</th>
-   <th class="num">O&M</th><th class="num" data-en="Debt service" data-es="Serv. deuda">Debt service</th>
+   <th class="num" data-en="Exp. revenue MXN" data-es="Ingreso esp. MXN">Exp. revenue MXN</th>
+   <th class="num" data-en="Actual revenue MXN" data-es="Ingreso real MXN">Actual revenue MXN</th>
+   <th class="num">O&M MXN</th><th class="num" data-en="Debt service MXN" data-es="Serv. deuda MXN">Debt service MXN</th>
    <th class="num" data-en="Loan position" data-es="Posición crédito">Loan</th>
    <th class="num">DSCR exp.</th><th class="num">DSCR act.</th></tr>`;
  const order=Object.keys(per).sort((a,b)=>per[b].act-per[a].act);

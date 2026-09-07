@@ -513,3 +513,18 @@ class TestV236ReferenceLanguage:
     def test_set_lang_swaps_the_href(self):
         css = (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
         assert "document.querySelectorAll('a[data-href-en]').forEach(a=>{a.href=(l==='es'&&a.dataset.hrefEs)?a.dataset.hrefEs:a.dataset.hrefEn;});" in css
+
+
+class TestV238FinancialCurrency:
+    """v238 (Tomasz): the financial report showed bare numbers — every amount is MXN and says so."""
+
+    def test_tiles_tables_and_kicker_say_mxn(self):
+        rg = (BUNDLE / "report_gen.py").read_text(encoding="utf-8")
+        for kid in ("k_exp", "k_act", "k_net"):
+            assert f'<span id="{kid}">—</span> <span class="unit">MXN</span>' in rg, kid
+        assert '<tr><th></th><th class="num">MXN</th></tr>' in rg                      # the two summary tables
+        assert 'data-en="Exp. revenue MXN"' in rg and 'data-en="Debt service MXN"' in rg and '<th class="num">O&M MXN</th>' in rg
+        assert 'all amounts MXN, sin IVA' in rg
+        pg = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
+        assert 'all amounts MXN, sin IVA (LaaS USD fees at the loan FX)' in pg
+        assert ".thero .unit{" in (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")

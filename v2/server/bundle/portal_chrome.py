@@ -256,7 +256,7 @@ tr.total td{border-top:2px solid var(--line2);background:#fafbfd}
 /* legacy fragment classes (plant page from report_gen.plant_parts) */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0}
 .tile.flip .face.front{position:relative}.tile.flip.good .face{background:#e6f7f5;border-color:#b8e6e1}.tile.flip.warn .face{background:#fff4e0;border-color:#f3dcae}.tile.flip.bad .face{background:#fdeaea;border-color:#f3b9b9}
-.tile .thero{font-size:clamp(15px,1.4vw,20px);font-weight:700}
+.tile .thero{font-size:clamp(15px,1.4vw,20px);font-weight:700}.thero .unit{font-size:12px;font-weight:600;color:var(--muted);margin-left:4px}
 .card h2{font-size:15px;font-weight:700;margin:0 0 6px}.card>h2,.card>.note,.card>.legend,.card>table,.card>svg,.card>div#dchart{margin-left:20px;margin-right:20px}.card>h2{padding-top:16px}.card>table{width:calc(100% - 40px);margin-bottom:16px}.card>svg,.card>#dchart{margin-bottom:16px;max-width:calc(100% - 40px)}
 .card td .pill{font-size:inherit;padding:1px 9px}
 .card>.tscroll{margin:0 20px 16px;max-width:calc(100% - 40px)}.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.tscroll>table{width:100%;margin:0}

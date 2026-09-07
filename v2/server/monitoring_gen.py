@@ -564,6 +564,7 @@ table{border-collapse:collapse;width:100%;font-size:13.5px;}
 th,td{text-align:right;padding:6px 8px;border-bottom:1px solid #eceef0;white-space:nowrap;}
 th{color:#5f6368;font-size:12px;}
 td:first-child,th:first-child{text-align:left;}
+td.wrap-text{white-space:normal;text-align:left;min-width:260px;}
 .note{font-size:13px;color:#80868b;}
 .st-PASS{color:#137333;font-weight:600;} .st-REVIEW{color:#a05c00;font-weight:600;}
 .st-FAIL{color:#c5221f;font-weight:600;} .st-NO_DATA{color:#80868b;}
@@ -944,7 +945,7 @@ def alerts_card(pk):
     trs = ''.join(
         f'<tr><td><span class="pill {"bad" if a["sev"] == "CRITICAL" else "warn"}">{esc(a["sev"])}</span></td>'
         f'<td>{esc(a["sn"]) or "plant"}</td><td>{esc(a["metric"])}</td><td>{esc(a["since"])}</td>'
-        f'<td>{esc(a["msg"])}</td></tr>' for a in rows)
+        f'<td class="wrap-text">{esc(a["msg"])}</td></tr>' for a in rows)
     n_crit = sum(1 for a in rows if a['sev'] == 'CRITICAL')
     return (f'<div class="card"><h2 data-en="Open alerts ({len(rows)}, {n_crit} critical)"'
             f' data-es="Alertas abiertas ({len(rows)}, {n_crit} críticas)">Open alerts ({len(rows)}, {n_crit} critical)</h2>'

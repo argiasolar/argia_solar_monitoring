@@ -99,8 +99,8 @@ CATALOG_CSS = """
 .tabbar a{font-size:12.5px;padding:4px 10px;border-radius:12px;background:#fff;border:1px solid #dadce0;
  color:#3c4043;text-decoration:none;}
 .tabbar a:hover{border-color:var(--dc,#5f6368);}
-section.tab{scroll-margin-top:56px;}
-section.tab>h2.tabh{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dc,#5f6368);
+section.dtab{scroll-margin-top:124px;}
+section.dtab>h2.tabh{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dc,#5f6368);
  margin:22px 0 -6px;}
 .kv{font-size:13px;}
 .kv td:first-child{color:#5f6368;white-space:nowrap;width:220px;}
@@ -147,7 +147,7 @@ def tab_bar(d: Dict) -> str:
 def section(d: Dict, tab: str, body: str) -> str:
     """One tab on a drawer page: anchor + heading + its cards. Pure."""
     en, es = next(((en, es) for t, en, es in d["tabs"] if t == tab), (tab, tab))
-    return (f'<section class="tab" id="{_e(tab)}" style="--dc:{d["color"]}">'
+    return (f'<section class="dtab" id="{_e(tab)}" style="--dc:{d["color"]}">'
             f'<h2 class="tabh" data-en="{_e(en)}" data-es="{_e(es)}">{_e(en)}</h2>{body}</section>')
 
 

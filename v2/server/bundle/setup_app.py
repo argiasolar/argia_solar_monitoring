@@ -495,7 +495,7 @@ SETUP_PORTAL_CSS = '''
 .setupbody .tabbar{position:static;background:transparent;border:0;padding:0;margin:0 0 4px;gap:6px}
 .setupbody .tabbar a{font-size:12.5px;padding:4px 11px;border-radius:999px;background:#fff;border:1px solid #d2d7dd;color:#41474f;font-weight:600}
 .setupbody .tabbar a:hover{border-color:#05b1a9;color:#053b38}
-.setupbody section.tab>h2.tabh{color:#05847d}
+.setupbody section.dtab>h2.tabh{color:#05847d}
 '''
 
 SETUP_CONTENT_CSS = '''

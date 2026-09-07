@@ -242,6 +242,7 @@ tr.total td{border-top:2px solid var(--line2);background:#fafbfd}
 .tile .thero{font-size:27px;font-weight:800}
 .card h2{font-size:15px;font-weight:700;margin:0 0 6px}.card>h2,.card>.note,.card>.legend,.card>table,.card>svg,.card>div#dchart{margin-left:20px;margin-right:20px}.card>h2{padding-top:16px}.card>table{width:calc(100% - 40px);margin-bottom:16px}.card>svg,.card>#dchart{margin-bottom:16px;max-width:calc(100% - 40px)}
 .card td .pill{font-size:inherit;padding:1px 9px}
+.card>.tscroll{margin:0 20px 16px;max-width:calc(100% - 40px)}.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.tscroll>table{width:100%;margin:0}
 .card>details{margin:16px 20px}.card>details summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--ink)}.card>details[open] summary{margin-bottom:6px}.card.audit p{margin:6px 0;line-height:1.55;font-size:13px;color:var(--ink2)}
 .note{font-size:12.5px;color:var(--muted);margin:0 0 8px}.legend{display:flex;gap:14px;font-size:12.5px;color:var(--ink2);margin:0 0 6px;flex-wrap:wrap}
 .key{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
@@ -276,7 +277,14 @@ function setLang(l,save){
  try{localStorage.setItem('argia_lang',l);}catch(e){}
  if(save){fetch('/session/lang',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:l})}).catch(()=>{});}
 }
+function argiaFit(){
+ /* v224: a table wider than its card scrolls inside the card — the page never scrolls sideways */
+ document.querySelectorAll('.wrap table').forEach(t=>{
+  if(t.closest('.tscroll')||t.parentElement.closest('table'))return;
+  const w=document.createElement('div');w.className='tscroll';t.parentNode.insertBefore(w,t);w.appendChild(t);});
+}
 window.addEventListener('DOMContentLoaded',()=>{
+ argiaFit();
  let stored=null;try{stored=localStorage.getItem('argia_lang');}catch(e){}
  setLang(stored||'en');
  const who=document.getElementById('uwho');
@@ -369,8 +377,8 @@ def skin_reset(scope):
     scrollbar; wide text cells wrap instead of pushing the width."""
     s = scope
     return (f'{s} .card{{overflow:visible}}'
-            f'{s} .card>h2,{s} .card>.note,{s} .card>.legend,{s} .card>table,{s} .card>svg,{s} .card>div,{s} .card>p{{margin-left:0;margin-right:0;max-width:100%}}'
-            f'{s} .card>h2{{padding-top:0}}{s} .card>table{{width:100%;table-layout:auto;margin-bottom:6px}}'
+            f'{s} .card>h2,{s} .card>.note,{s} .card>.legend,{s} .card>table,{s} .card>svg,{s} .card>div,{s} .card>p,{s} .card>.tscroll{{margin-left:0;margin-right:0;max-width:100%}}'
+            f'{s} .card>h2{{padding-top:0}}{s} .card>table{{width:100%;table-layout:auto;margin-bottom:6px}}{s} .tscroll>table{{width:100%;table-layout:auto;margin-bottom:6px}}{s} .card>.tscroll{{margin-bottom:6px}}'
             f'{s} .card>svg,{s} .card>#dchart{{margin-bottom:6px}}'
             f'{s} table{{font-size:13px}}{s} th,{s} td{{padding:6px 7px}}'
             f'{s} td .note,{s} td.note{{white-space:normal}}'

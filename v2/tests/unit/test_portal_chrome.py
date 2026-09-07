@@ -365,3 +365,35 @@ class TestV213:
         assert "write('logged-out.html', signed_out_page())" in pg
         assert "write('no-access.html', no_access_page())" in pg
         assert "RG.logged_out_page()" not in pg and "RG.no_access_page()" not in pg
+
+
+class TestV224Fit:
+    """v224 (Tomasz, 2026-09-07 screenshots): Setup cards did not fit their
+    text — the catalog's <section class="tab"> collided with the portal
+    chrome's `.tab` (the tab-bar button: white-space:nowrap, padding,
+    grey background), so every note ran off the card in one line and a
+    grey box framed each section. Tables wider than a card now scroll
+    inside the card, never the page."""
+
+    def test_setup_sections_do_not_wear_the_tab_button_class(self):
+        import pathlib
+        v2 = pathlib.Path(__file__).resolve().parents[2]
+        cat = (v2 / "server/bundle/setup_catalog.py").read_text(encoding="utf-8")
+        assert '<section class="dtab" id=' in cat and 'section class="tab"' not in cat
+        assert "section.dtab{scroll-margin-top:124px;}" in cat        # below the sticky header + tab bar
+        setup = (v2 / "server/bundle/setup_app.py").read_text(encoding="utf-8")
+        assert "section.tab" not in setup and "section.dtab>h2.tabh" in setup
+
+    def test_chrome_wraps_wide_tables_in_a_scroll_box(self):
+        assert ".tscroll{overflow-x:auto" in C.CSS and ".card>.tscroll{margin:0 20px 16px;max-width:calc(100% - 40px)}" in C.CSS
+        assert "function argiaFit(){" in C.JS and "document.querySelectorAll('.wrap table')" in C.JS
+        assert "argiaFit();" in C.JS
+        r = C.skin_reset(".setupbody")
+        assert ".setupbody .card>.tscroll{margin-left:0;margin-right:0;max-width:100%}" in r
+        assert ".setupbody .tscroll>table{width:100%" in r
+
+    def test_monitoring_alert_messages_wrap(self):
+        import pathlib
+        mg = (pathlib.Path(__file__).resolve().parents[2] / "server/monitoring_gen.py").read_text(encoding="utf-8")
+        assert 'td.wrap-text{white-space:normal;text-align:left;min-width:260px;}' in mg
+        assert '<td class="wrap-text">{esc(a["msg"])}</td>' in mg

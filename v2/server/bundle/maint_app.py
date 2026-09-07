@@ -508,7 +508,7 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
             f'<button class="btn2" type="submit">Add</button></form>{tip("An outside address (technician, customer contact): notified of every change, can reply by mail to comment.")}'
             '</div>')
     comment = (f'<form class="card frm" method="post" action="/maintenance/t/{e(t.number)}/comment" enctype="multipart/form-data" style="padding:14px 20px;margin-top:14px">'
-               f'<h2 class="ct" title="{e(BTN_HELP["update"])}">Add an update</h2><textarea name="body" placeholder="What was found, what was done, what is next…"></textarea>'
+               f'<h2 class="ct">Add an update{tip(BTN_HELP["update"])}</h2><textarea name="body" placeholder="What was found, what was done, what is next…"></textarea>'
                f'<label>Attachments (photos, PDF, up to {MAX_UPLOAD // (1024 * 1024)} MB each)</label><input type="file" name="files" multiple>'
                '<div class="act"><button class="btn" type="submit">Post update</button></div></form>')
     tl = f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Timeline</h2>{timeline(t, evs, files)}</div>'

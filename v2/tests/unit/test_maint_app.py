@@ -268,6 +268,7 @@ class TestV227:
         t = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
         assert 'class="tipbox"' in t and "Who works on it." in t and "Followers are notified" in t
         assert "In progress — someone is working on it." in t and "P2 High" in t
+        assert re.search(r'<h2 class="ct">Add an update<span class="tw">', t) and 'class="ct" title=' not in t
         st = client.get("/stats/", headers=H()).data.decode()
         assert "Open tickets by status" in st and "<svg" in st and "Opened / resolved per week" in st and "Plastic Omnium" in st
         assert client.get("/stats/", headers=H("cust")).status_code == 403

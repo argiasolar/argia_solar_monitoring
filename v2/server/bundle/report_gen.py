@@ -1135,6 +1135,7 @@ def inverter_card(k):
         rated = (inv_meta.get((k, sn)) or ('', 0))[1]
         yields[sn] = a['kwh'] / rated if rated > 0 and a['kwh'] > 0 else None
     med = _median([y for y in yields.values() if y is not None])
+    tickets = {sn: TICKET_BY_INVERTER.get((k, sn)) for sn in stats}       # v232: open ticket per unit
     rows = []
     for sn in sorted(stats, key=lambda s: -(yields.get(s) or 0)):
         a = stats[sn]
@@ -1160,7 +1161,6 @@ def inverter_card(k):
                     f'<td class="num">{av_txt}</td></tr>')
     tip = ti("Rolling 30 days ending at the data edge (fixed window — the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) — same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher — judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
              "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba — júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
-    tickets = {sn: TICKET_BY_INVERTER.get((k, sn)) for sn in stats}
     chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats}, tickets=tickets)
     if chart:
         chart = (f'<p class="note" style="margin:0 0 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'

@@ -222,6 +222,27 @@ class TestInverterChart:
         assert "tkp = ticket_pill(tickets.get(sn))" in SRC and "(f'<br>{tkp}' if tkp else '')" in SRC
         assert "TICKET_BY_INVERTER.get((k, sn))" in SRC
 
+    def test_inverter_card_renders_end_to_end(self):
+        """Executes inverter_card itself (the v232 deploy failed on an
+        UnboundLocalError a source-text test could not see)."""
+        import html, math
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math,
+              "q": lambda sql: [], "t": lambda en, es: en, "ti": lambda en, es: "<i/>"}
+        seg = SRC[SRC.index("def yticks"):]
+        exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)
+        _exec_seg("def _inverter_30d", "inv30 = _inverter_30d", ns)
+        _exec_seg("def _median", "# ================= page: plant performance", ns)
+        rows = [["NL1", "A", "2026-09-01", "600", "10", "10"], ["NL1", "A", "2026-09-02", "650", "10", "10"],
+                ["NL1", "B", "2026-09-01", "500", "10", "10"], ["NL1", "B", "2026-09-02", "520", "10", "10"]]
+        ns["inv30"] = ns["_inverter_30d"](rows)
+        ns["inv_meta"] = {("NL1", "A"): ("Inverter 1", 124.0), ("NL1", "B"): ("Inverter 2", 124.0)}
+        ns["TICKET_BY_INVERTER"] = {("NL1", "B"): ("TK-NL1-0002", "NEW", "P2")}
+        card = ns["inverter_card"]("NL1")
+        assert card.count('class="tkpill"') == 2            # legend + table row, Inverter 2 only
+        assert card.index("<svg") < card.index("<table")
+        assert "Inverter 1<br>" in card and 'TK-NL1-0002 · New</a></td>' in card
+        assert ns["inverter_card"]("ZZZ").count("No inverter telemetry") == 1
+
     def test_card_embeds_the_chart_above_the_table(self):
         assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats}, tickets=tickets)" in SRC
         assert "+ chart +" in SRC and "Daily kWh per inverter, each from its own counter" in SRC

@@ -28,7 +28,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-recon-close | 1st 06:10 MX | monthly close (`recon_close.py`) — closed months are frozen |
 | argia-satcheck | 06:20 MX | site sensor vs satellite irradiance drift |
 | argia-alerts-daily | 06:30 MX | daily alert tier (energy vs expected, twins, thermal day peak) |
-| argia-drift | 06:30 MX | status-quo harness (git vs deployed, smoke answers, backup age) |
+| argia-drift | 06:30 MX | status-quo harness (git vs deployed, smoke answers, backup age, inverter registry vs table + SolarEdge equipment lists) |
 | argia-finreport | 06:50 MX | financial report pages |
 | argia-report-am, argia-report-pm | 07:05 / 20:45 MX | daily report pages (yesterday / today) |
 | argia-client-pages | :15 07–20 MX | client report pages |
@@ -99,6 +99,7 @@ Severity rule (Tomasz, 2026-09-07): **CRITICAL = energy is being lost or a plant
 | portal DOWN (ntfy) | `curl -sI https://portal.argia.com.mx/login` (401 = healthy), `systemctl status nginx argia-auth` | `nginx -t && systemctl reload nginx`; `systemctl restart argia-auth` |
 | PostgreSQL slow / locks | `runuser -u postgres -- psql -c "SELECT pid, now()-query_start, left(query,60) FROM pg_stat_activity WHERE state<>'idle'"` | never run an ad-hoc query on `plant`/`telemetry` without `SET statement_timeout`; `pg_terminate_backend(pid)` by explicit pid |
 | backup stale | `ls -l /root/argia_backups`, `journalctl -u argia-dbdump` | `systemctl start argia-dbdump`; on the Pi `tail ~/argia_logs/db_backup_pull.log` |
+| "inverter registry: …" (digest) | `cd /root/argia_v2/v2 && ./.venv/bin/python scripts/inverter_registry.py --live` | the vendor renamed/replaced an inverter, or the table drifted: fix `data/inverter_registry.json` against the manufacturer portal (never the table by hand), commit, deploy, then `scripts/inverter_registry.py --apply` (idempotent; labels and missing rows only, never the active flag) |
 
 ## 8. Where the numbers are explained
 Portal "How the numbers are calculated" (report pages), `docs/AGS_701_VS_MONITORING_2026-09.md` (standard vs implementation), `docs/INVERTER_THERMAL_HEALTH_V216.md`, Ask ARGIA (`/ask/`, read-only SQL + Golden Standard search).

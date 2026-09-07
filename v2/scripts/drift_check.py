@@ -19,7 +19,12 @@ without a server):
 * **smoke** — the public answers the portal must give (401 on /login,
   302 on /, 301 from the retired domains, 200 for the favicon), the
   age of the last backup and of the portfolio snapshot, every argia
-  timer active.
+  timer active;
+* **registry** (v229) — the ``inverter`` table vs ``data/inverter_registry.json``
+  (which serial is "Inverter N", as the manufacturer names it) and, for
+  the SolarEdge plants, the vendor's live equipment list vs the
+  registry (one API call per site) — a renamed or replaced inverter
+  shows up here the next morning.
 
 The nightly unit never fails on a finding: it writes the JSON and the
 alert mailer turns findings into admin-only WARNINGs (v217 routing) on
@@ -151,6 +156,8 @@ def findings(report: dict) -> List[str]:
         out.append(f"extra (not in git): {x}")
     for u in report.get("unmapped", []):
         out.append(f"unmapped bundle file (no deploy rule): {u}")
+    for line in report.get("registry", []):
+        out.append(f"inverter registry: {line}")
     for s in report.get("smoke", []):
         if not s.get("ok"):
             if "code" in s:
@@ -210,6 +217,23 @@ def timers_inactive() -> List[str]:
     return out
 
 
+def registry_findings(repo: str) -> List[str]:
+    """Table vs registry file, plus the SolarEdge live lists. A database
+    or API problem is itself a finding — never an exception."""
+    try:
+        sys.path.insert(0, os.path.join(repo, "v2", "scripts"))
+        from argia.core import inverter_registry as R
+        from argia.store.pgq import psql_rows
+        import inverter_registry as IR
+        reg = R.load(os.path.join(repo, "v2", "data", "inverter_registry.json"))
+        out = [f"file: {b}" for b in R.validate(reg)]
+        out += R.compare(reg, IR.table_rows(psql_rows))
+        out += IR.live_findings(reg, psql_rows)
+        return out
+    except Exception as e:  # noqa: BLE001
+        return [f"check failed: {type(e).__name__}: {e}"]
+
+
 def build_report(repo: str = REPO) -> dict:
     bundle_files = sorted(os.listdir(os.path.join(repo, "v2/server/bundle")))
     prs = pairs(repo, bundle_files)
@@ -224,7 +248,7 @@ def build_report(repo: str = REPO) -> dict:
     rep = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "git": git_state(repo), "files": files,
            "extras": extras(deployed, expected), "unmapped": unmapped(bundle_files),
-           "smoke": smoke}
+           "smoke": smoke, "registry": registry_findings(repo)}
     rep["findings"] = findings(rep)
     return rep
 

@@ -1,0 +1,69 @@
+{
+  "_doc": "Which serial number is which inverter, per plant — as the manufacturer portal names them. This file is the pinned truth for the monitoring `inverter` table: drift_check compares the table to it every morning and scripts/inverter_registry.py --apply makes the table match. When a vendor renames or replaces an inverter, change THIS file (verified against the portal), then apply. `vendor_label` is what the portal shows verbatim; `label` is our normalised name; `active: false` rows are known to monitoring but not polled.",
+  "verified": "2026-09-07",
+  "verified_how": "Growatt server.growatt.com Parameter Comparison tree, FusionSolar Device Management, SolarEdge /equipment/{site}/list (API, live) — screenshots by Tomasz 2026-09-07",
+  "plants": {
+    "GTO1": {
+      "JFM7DXN00T": {"label": "Inverter 1", "vendor_label": "Inversor 1"},
+      "JFM7DXN00U": {"label": "Inverter 2", "vendor_label": "Inversor 2"},
+      "JFM5D8900B": {"label": "Inverter 3", "vendor_label": "Inversor 3"},
+      "JFMCE9D014": {"label": "Inverter 4", "vendor_label": "Inversor 4"},
+      "JFM7DXN013": {"label": "Inverter 5", "vendor_label": "Inversor 5"},
+      "MWKNE9500D": {"label": "Inverter 6", "vendor_label": "Inversor 6", "note": "60 kW unit"}
+    },
+    "GTO2": {
+      "7B115A29-0F": {"label": "Inverter 1", "vendor_label": "Inverter 1"},
+      "7E0514A6-3D": {"label": "Inverter 2", "vendor_label": "Inverter 2", "active": false, "rated_kw": 100,
+                      "note": "produces, but its monitoring link is dead (0 samples from the API, model blank) — known since 2026-08; not polled, no alerts"},
+      "7E05142F-C6": {"label": "Inverter 3", "vendor_label": "Inverter 3"},
+      "7E05117B-0F": {"label": "Inverter 4", "vendor_label": "Inverter 4"},
+      "7E051918-B4": {"label": "Inverter 5", "vendor_label": "Inverter 5"}
+    },
+    "MEX1": {
+      "ES2470051825": {"label": "Inverter 1", "vendor_label": "Inverter 1"},
+      "ES2470051826": {"label": "Inverter 2", "vendor_label": "Inverter 2"},
+      "GR2489022511": {"label": "Inverter 3", "vendor_label": "Inverter 3"}
+    },
+    "MEX2": {
+      "GR2499018250": {"label": "Inverter 1", "vendor_label": "Inversor_1"},
+      "GR2499018245": {"label": "Inverter 2", "vendor_label": "Inversor_2"},
+      "GR2499018270": {"label": "Inverter 3", "vendor_label": "Inversor_3"}
+    },
+    "MEX3": {
+      "JGM7DY500G": {"label": "Inverter 1", "vendor_label": "", "note": "single inverter; no alias set on the Growatt portal"}
+    },
+    "NL1": {
+      "JGMAE6500G": {"label": "Inverter 1", "vendor_label": "Inversor 1"},
+      "JGMAE6500L": {"label": "Inverter 2", "vendor_label": "Inversor 2"},
+      "JGMAE65009": {"label": "Inverter 3", "vendor_label": "Inversor 3"},
+      "JGMAE6500K": {"label": "Inverter 4", "vendor_label": "Inversor 4"}
+    },
+    "NL2": {
+      "JJM4D4P01C": {"label": "Inverter 1", "vendor_label": "Budenheim 1"},
+      "JJM4D4P017": {"label": "Inverter 2", "vendor_label": "Budenheim 2"}
+    },
+    "QRO1": {
+      "7E0571B7-AB": {"label": "Inverter 1", "vendor_label": "Inverter 1"},
+      "7E05721B-10": {"label": "Inverter 2", "vendor_label": "Inverter 2"},
+      "7E0571A4-98": {"label": "Inverter 3", "vendor_label": "Inverter 3"},
+      "7B1663F5-E9": {"label": "Inverter 4", "vendor_label": "Inverter 4", "rated_kw": 100,
+                      "note": "replaced 7E0571AA-9E (the SN in the 2026-08 fixture); never in the table before 2026-09-07"},
+      "7E050550-D8": {"label": "Inverter 5", "vendor_label": "Inverter 5"}
+    },
+    "SLP1": {
+      "JNM7DY306G": {"label": "Inverter 1", "vendor_label": "", "note": "no alias on the Growatt portal — numbering is ours, unverified on site"},
+      "JNM7DY306D": {"label": "Inverter 2", "vendor_label": "", "active": false, "note": "decommissioned 2026-04-29"},
+      "JNMDEXH011": {"label": "Inverter 3", "vendor_label": "", "note": "no alias on the Growatt portal — numbering is ours, unverified on site"}
+    },
+    "SLP2": {
+      "JFM7DXN03J": {"label": "Inverter 1", "vendor_label": "Inversor 1"},
+      "JFM7DXN039": {"label": "Inverter 2", "vendor_label": "Inversor 2"}
+    },
+    "TAM1": {
+      "JNMAE7D006": {"label": "Inverter 1", "vendor_label": "Inversor 1"},
+      "JNMAE5X00K": {"label": "Inverter 2", "vendor_label": "Inversor 2"},
+      "JNMAE7D007": {"label": "Inverter 3", "vendor_label": "Inversor 3"},
+      "JNMAE5X00L": {"label": "Inverter 4", "vendor_label": "Inversor 4"}
+    }
+  }
+}

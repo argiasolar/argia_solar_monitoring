@@ -70,12 +70,14 @@ class TestCompare:
                "extras": ["loans.csv"], "unmapped": [],
                "smoke": [DC.judge_http("portal-login", 502), DC.judge_age("backup-dump", 40.0),
                          {"check": "timers-active", "ok": False, "detail": "inactive: argia-kpi.timer"},
-                         DC.judge_http("old-report", 301)]}
+                         DC.judge_http("old-report", 301)],
+               "registry": ["NL1 JGMAE65009: table says 'Inverter 1', the vendor's name is 'Inversor 3' -> 'Inverter 3'"]}
         f = DC.findings(rep)
         assert f == ["checkout abc1234 is not origin/main fff0000",
                      "hand-edited in checkout: v2/x.py",
                      "diff: /opt/argia/bundle/a.py",
                      "extra (not in git): loans.csv",
+                     "inverter registry: NL1 JGMAE65009: table says 'Inverter 1', the vendor's name is 'Inversor 3' -> 'Inverter 3'",
                      "portal-login: HTTP 502 (expected 401)",
                      "backup-dump: 40.0 h old (max 26.0)",
                      "timers-active: inactive: argia-kpi.timer"]

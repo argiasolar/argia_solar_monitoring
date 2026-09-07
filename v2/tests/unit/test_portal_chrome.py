@@ -409,7 +409,7 @@ class TestV225PortalNames:
         mg = (pathlib.Path(__file__).resolve().parents[2] / "server/monitoring_gen.py").read_text(encoding="utf-8")
         assert "from argia.alerts import naming as _naming" in mg
         assert "NAMES = (_naming.names_from_rows(" in mg
-        assert '<td title="{esc(a["sn"])}">{esc(inverter_name(pk, a["sn"]))}</td><td>{esc(alert_phrase(a["metric"]))}</td>' in mg
+        assert '<td>{inverter_html(pk, a["sn"])}</td><td>{esc(alert_phrase(a["metric"]))}</td>' in mg      # v230: label + serial
         assert '<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td>' in mg
         assert 'data-en="Issue" data-es="Problema"' in mg
         # the sanitiser is the same one the mails use: prefix, bracketed plant, severity tag
@@ -421,4 +421,44 @@ class TestV225PortalNames:
         n = naming.Names({"NL1": "Plastic Omnium"}, {("NL1", "JGMAE6500G"): "Inverter 4"})
         msg = "NL1 JGMAE6500G: day-peak temperature 72.0 degC — suspected derating 30 min vs cooler peers"
         assert n.text(msg, "NL1", "JGMAE6500G") == "day-peak temperature 72.0 degC — suspected derating 30 min vs cooler peers"
-        assert n.inverter("NL1", "JGMAE6500G") == "Inverter 4" and naming.phrase("inverter_temp_high") == "inverter running hot"
+        assert n.inverter("NL1", "JGMAE6500G") == "Inverter 4 (JGMAE6500G)" and n.inverter_short("NL1", "JGMAE6500G") == "Inverter 4" and naming.phrase("inverter_temp_high") == "inverter running hot"
+
+
+class TestV230SerialEverywhere:
+    """v230 (Tomasz): 'if we see just Inverter 3 it is not good enough' —
+    every place a person reads an inverter shows label AND serial, one
+    format: text 'Inverter 3 (JGMAE65009)', pages the serial in a .sn span."""
+
+    def test_naming_layer_one_format(self):
+        from argia.alerts import naming
+        n = naming.Names({"NL1": "Plastic Omnium"}, {("NL1", "JGMAE65009"): "Inverter 3"})
+        assert n.inverter("NL1", "JGMAE65009") == "Inverter 3 (JGMAE65009)"
+        assert n.inverter_full("NL1", "JGMAE65009") == "Inverter 3 (JGMAE65009)"
+        assert n.inverter_html("NL1", "JGMAE65009") == 'Inverter 3 <span class="sn">JGMAE65009</span>'
+        assert n.inverter("NL1", "UNKNOWN") == "inverter UNKNOWN" and n.inverter_html("NL1", "UNKNOWN") == 'inverter <span class="sn">UNKNOWN</span>'
+        assert n.inverter("NL1", "") == "" and n.inverter_html("NL1", None) == ""
+        assert naming.inverter_html("<b>", "S&N") == '&lt;b&gt; <span class="sn">S&amp;N</span>'
+        # a serial inside a sentence is replaced by label + serial, never by the label alone
+        assert n.text("NL1 JGMAE65009: JGMAE65009 hot", "NL1", "JGMAE65009") == "Inverter 3 (JGMAE65009) hot"
+
+    def test_generators_render_label_and_serial(self):
+        mg = (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
+        assert 'f\'<tr><td>{inverter_html(pk, i["sn"])}</td>\'' in mg            # latest-sample table
+        assert "% (inverter_html(pk, r['sn']), tone.get(r['band'], 'off')" in mg   # thermal table
+        assert "{esc(inverter_name(pk, sn))}</span>')" in mg                       # chart legend
+        assert "'label': NAMES.inverter_short(r[1], r[2]) if NAMES else r[3]" in mg   # registry label, not the sample's
+        assert 'esc(i["label"])' not in mg
+        rg = (BUNDLE / "report_gen.py").read_text(encoding="utf-8")
+        assert "rows.append(f'<tr><td>{_naming.inverter_html(label, sn)}</td>'" in rg
+        assert ".sn{font-family:ui-monospace" in rg and ".sn{font-family:ui-monospace" in (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
+        ma = (BUNDLE / "maint_app.py").read_text(encoding="utf-8")
+        assert ma.count("n.inverter_html(t.plant_key, t.inverter_sn)") == 2 and "inverter_full(" not in ma
+        dh = (V2 / "argia" / "report" / "dashboard_html.py").read_text(encoding="utf-8")
+        assert "r.inverter_label + ' (' + r.inverter_sn + ')'" in dh
+
+    def test_daily_mail_detail_and_ask_carry_the_serial(self):
+        sys.path.insert(0, str(V2 / "scripts"))
+        import daily_perf_mail as dpm
+        assert dpm.issue_detail("inverter-silent:GTO1:SN9", {"label": "Inverter 3"}) == "Inverter 3 (SN9)"
+        assert dpm.issue_detail("inverter-silent:GTO1:SN9", {}) == "inverter SN9"
+        assert "labels stored with a sample" not in dpm.inverter_labels.__doc__ and "registry" in dpm.inverter_labels.__doc__

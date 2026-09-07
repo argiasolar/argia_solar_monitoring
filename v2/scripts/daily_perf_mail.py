@@ -207,14 +207,12 @@ def unit_error(unit: str) -> str:
 
 def inverter_labels():
     """{serial: 'Inverter 3'} so a silent-inverter alert names the unit
-    an engineer can find on site, not only its serial."""
-    from argia.store.pgq import psql_rows
+    an engineer can find on site, not only its serial. v230: from the
+    inverter table (the registry), not the label stored with a sample."""
     try:
-        return {r[0]: r[1] for r in psql_rows(
-            "SELECT DISTINCT ON (inverter_sn) inverter_sn, inverter_label"
-            " FROM telemetry WHERE ts_utc > now() - interval '7 days'"
-            " ORDER BY inverter_sn, ts_utc DESC;") if len(r) >= 2 and r[1]}
-    except RuntimeError:
+        n = naming.load_names()
+        return {sn: lab for (_pk, sn), lab in n.inverters.items()}
+    except Exception:  # noqa: BLE001
         return {}
 
 
@@ -484,14 +482,14 @@ def issue_detail(key: str, extra=None) -> str:
         sn = rest.split(":", 1)[1] if ":" in rest else ""
         lab = (extra or {}).get("label")
         if sn:
-            bits.append(f"{lab} \u00b7 SN {sn}" if lab else f"SN {sn}")
+            bits.append(naming.inverter_text(lab, sn))
         bits.append(naming.Names().text(extra["message"],
                                         subscriptions.alert_plant(key), sn or None))
         return " \u00b7 ".join(b for b in bits if b)
     if head == "inverter-silent" and ":" in rest:
         sn = rest.split(":", 1)[1]
         lab = (extra or {}).get("label")
-        bits.append(f"{lab} \u00b7 SN {sn}" if lab else f"SN {sn}")
+        bits.append(naming.inverter_text(lab, sn))
     elif head == "recon-fail" and ":" in rest:
         bits.append("for %s" % rest.split(":", 1)[1])
     elif head == "unit-failed" and rest:

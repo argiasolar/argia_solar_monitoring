@@ -335,7 +335,7 @@ def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
             f'<tr class="tkrow"><td><a class="tkn" href="/maintenance/t/{e(t.number)}/">{e(t.number)}</a></td>'
             f'<td>{pill(PRIO_CLS.get(t.priority, "off"), t.priority)}</td>'
             f'<td>{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}</td>'
-            f'<td><b>{e(n.plant(t.plant_key))}</b>' + (f'<div class="muted" style="font-size:12px">{e(n.inverter(t.plant_key, t.inverter_sn))}</div>' if t.inverter_sn else '')
+            f'<td><b>{e(n.plant(t.plant_key))}</b>' + (f'<div class="muted" style="font-size:12px">{n.inverter_html(t.plant_key, t.inverter_sn)}</div>' if t.inverter_sn else '')
             + f'</td><td><a href="/maintenance/t/{e(t.number)}/">{e(t.title)}</a><div class="muted" style="font-size:12px">{e(TK.CATEGORY_LABEL.get(t.category, t.category))}</div></td>'
             f'<td>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</td>'
             f'<td>{e(TK.fmt_age(TK.age(t, now)))}</td><td class="sla-{state}" style="font-size:12px">{e(sla_txt)}</td></tr>')
@@ -494,7 +494,7 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
             + (f'<p class="pill ok" style="display:inline-flex">{e(msg)}</p>' if msg else '')
             + '<div class="card" style="padding:14px 20px"><div class="fields">'
             f'<div><div class="k">Plant</div><b>{e(n.plant_full(t.plant_key))}</b></div>'
-            f'<div><div class="k">Inverter</div>{e(n.inverter_full(t.plant_key, t.inverter_sn)) if t.inverter_sn else "<span class=muted>plant level</span>"}</div>'
+            f'<div><div class="k">Inverter</div>{n.inverter_html(t.plant_key, t.inverter_sn) if t.inverter_sn else "<span class=muted>plant level</span>"}</div>'
             f'<div><div class="k">Category</div>{e(TK.CATEGORY_LABEL.get(t.category, t.category))}</div>'
             f'<div><div class="k">Opened</div>{e(when(t.created_at))} by {e(name_of(t.created_by))} · {e(TK.fmt_age(TK.age(t, now)))}</div>'
             f'<div><div class="k">Assigned</div>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</div>'

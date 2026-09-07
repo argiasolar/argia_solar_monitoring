@@ -655,7 +655,7 @@ class TestLedgerIssuesInTheDailyMail:
         i = d["issues"][0]
         assert i["what"] == "inverter reports a fault code"
         assert i["who"].startswith("Holiday Inn Express") and "SLP2" in i["who"]
-        assert "Inverter 2" in i["detail"] and "SN JFM7DXN039" in i["detail"] and "no AC connection" in i["detail"]
+        assert "Inverter 2 (JFM7DXN039)" in i["detail"] and "no AC connection" in i["detail"]
         assert "utility or a breaker" in i["why"]
         text = dpm.render_text(d)
         assert "inverter reports a fault code" in text and "no AC connection" in text

@@ -119,8 +119,10 @@ class TestNames:
         assert NAMES.plant_full("NL2") == "Budenheim (NL2)"
         assert NAMES.plant_full("QRO1") == "QRO1"                 # unknown stays visible
         assert NAMES.plant_full("PORTFOLIO") == "Portfolio"
-        assert NAMES.inverter("NL2", "JJM4D4P017") == "Inverter 1"
-        assert NAMES.inverter_full("NL2", "JJM4D4P017") == "Inverter 1 · SN JJM4D4P017"
+        assert NAMES.inverter("NL2", "JJM4D4P017") == "Inverter 1 (JJM4D4P017)"      # v230: label AND serial, always
+        assert NAMES.inverter_short("NL2", "JJM4D4P017") == "Inverter 1"
+        assert NAMES.inverter_html("NL2", "JJM4D4P017") == 'Inverter 1 <span class="sn">JJM4D4P017</span>'
+        assert NAMES.inverter_full("NL2", "JJM4D4P017") == "Inverter 1 (JJM4D4P017)"
         assert NAMES.inverter_full("NL2", "JJM4D4P01C") == "inverter JJM4D4P01C"
         assert NAMES.inverter_full("NL2", "") == ""
 
@@ -139,7 +141,7 @@ class TestNames:
         n = N.names_from_rows([("NL2", "BUDENHEIM (Monterrey, NL)")],
                               [("NL2", "S1", "S1"), ("NL2", "S2", "Inverter 2")])
         assert n.inverter_full("NL2", "S1") == "inverter S1"
-        assert n.inverter_full("NL2", "S2") == "Inverter 2 · SN S2"
+        assert n.inverter_full("NL2", "S2") == "Inverter 2 (S2)"
 
     def test_phrase_table_is_shared_with_the_daily_mail(self):
         import sys
@@ -162,17 +164,17 @@ class TestLedgerMailNames:
     def test_single_alert_names_first_codes_as_detail(self):
         subj, body, html = LM.render_mail([rec()], NAMES, when_mx="2026-09-06 06:30")
         assert subj == "[ARGIA] 6 Sep — 1 warning (Budenheim)"
-        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1\n      Inverter 1: NEW string-diagnostic bit(s)" in body
+        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1 (JJM4D4P017)\n      Inverter 1 (JJM4D4P017): NEW string-diagnostic bit(s)" in body
         assert "NL2 JJM4D4P017:" not in body and "NL2 JJM4D4P017:" not in html
-        assert "Inverter 1" in html and "new string diagnostic flag" in html
+        assert "Inverter 1 (JJM4D4P017)" in html and "new string diagnostic flag" in html
 
     def test_digest_subject_names_plants(self):
         subj, body, _ = LM.render_mail([rec(aid="ALT-1"), rec(sn="JJM4D4P01C", aid="ALT-2"),
                                         rec(plant="GTO1", sn="SN9", metric="inverter_temp_high", aid="ALT-3")],
                                        NAMES, when_mx="2026-09-06 06:30")
         assert subj == "[ARGIA] 6 Sep — 3 warnings (Budenheim, Taigene)"
-        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1, inverter JJM4D4P01C" in body
-        assert "  Taigene (GTO1)\n    inverter running hot — Inverter 3" in body
+        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1 (JJM4D4P017), inverter JJM4D4P01C" in body
+        assert "  Taigene (GTO1)\n    inverter running hot — Inverter 3 (SN9)" in body
         assert re.search(r"^NL2\b", body, re.M) is None
 
     def test_old_label_dict_still_accepted(self):
@@ -198,7 +200,7 @@ class TestMonitorNames:
         assert "Last usable sample from Taigene is 50 minutes old" in body
         assert "• job failed: argia-telemetry.service" in body
         assert "• Plastic Omnium (NL1): no telemetry today" in body
-        assert "• Taigene (GTO1): inverter silent (Inverter 3 · SN SN9)" in body
+        assert "• Taigene (GTO1): inverter silent — Inverter 3 (SN9)" in body
         assert "• scheduled job failed: argia-kpi.service" in body
         assert "• SAG (MEX1): reconciliation FAIL 2026-09-05" in body
         assert "plant-dark:" not in body and "recon-fail:" not in body
@@ -285,7 +287,7 @@ class TestInternalToAdminOnly:
         r = dpm.issue_record("string_fault:NL2:JJM4D4P017", "WARNING",
                              extra={"message": "NL2 JJM4D4P017: NEW string-diagnostic bit(s)",
                                     "label": "Inverter 1"})
-        assert r["detail"] == "Inverter 1 · SN JJM4D4P017 · NEW string-diagnostic bit(s)"
+        assert r["detail"] == "Inverter 1 (JJM4D4P017) · NEW string-diagnostic bit(s)"
 
 
 # ------------------------------------------------------------ 4. ntfy

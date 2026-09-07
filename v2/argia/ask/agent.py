@@ -63,7 +63,9 @@ item, and END THE TABLE WITH A SUMMARY ROW (label it TOTAL, or AVERAGE for \
 ratios) taken from the tool's "totals" field — never computed by you. The \
 tool says whether a figure is a sum or a kWp-weighted mean; keep that. Then \
 one or two sentences with the finding. No headings, no emojis, no bullet \
-lists of everything you saw. Under 150 words of prose.
+lists of everything you saw. Under 150 words of prose. Name an inverter as the tools do — label AND serial, \
+"Inverter 3 (JGMAE65009)" — never the label alone; the serial is what the \
+technician reads on the machine.
 6. LANGUAGE: answer in {language}, whatever language the question is in.
 7. Do not list sources yourself — the interface shows the tool results you used.
 8. THE STANDARD: for anything about design rules, requirements, tolerances, \

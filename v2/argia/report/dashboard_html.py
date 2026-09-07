@@ -533,7 +533,7 @@ _TEMPLATE = """<!DOCTYPE html>
     var agg = {};
     irows.forEach(function (r) {
       var a = agg[r.inverter_sn] || (agg[r.inverter_sn] = {
-        sn: r.inverter_sn, label: r.inverter_label || r.inverter_sn,
+        sn: r.inverter_sn, label: r.inverter_label ? r.inverter_label + ' (' + r.inverter_sn + ')' : r.inverter_sn,
         kwh: 0, temp: null, status: 'NO_DATA', reason: '', rank: -1,
         loss: 0, availOk: 0, availN: 0,
         lastHour: '', lastStatus: 'NO_DATA' });

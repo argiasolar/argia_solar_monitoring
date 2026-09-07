@@ -327,7 +327,7 @@ def describe_key(key: str, names=None) -> str:
         who = names.plant_full(plant) if names else plant
         tail = rest.split(":", 1)[1] if ":" in rest else ""
         if head == "inverter-silent" and tail:
-            return f"{who}: {what} ({names.inverter_full(plant, tail) if names else tail})"
+            return f"{who}: {what} — {names.inverter(plant, tail) if names else tail}"
         if tail:
             return f"{who}: {what} {tail}"
         return f"{who}: {what}"

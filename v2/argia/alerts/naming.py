@@ -96,16 +96,25 @@ class Names:
         return f"{name} ({key})" if name else (key or "")
 
     # ---- inverters
-    def inverter(self, plant_key: Optional[str], sn: Optional[str]) -> str:
+    # v230 (Tomasz): "Inverter 3" alone is not good enough — every place
+    # a person reads shows the label AND the serial, one format:
+    #     Inverter 3 (JGMAE65009)        text (mails, tickets, Ask)
+    #     Inverter 3 <span class="sn">JGMAE65009</span>   pages
+    def inverter_short(self, plant_key: Optional[str], sn: Optional[str]) -> str:
+        """The label alone ('Inverter 3'), or 'inverter <serial>' when the
+        unit has no label. For sort keys and tight chart legends."""
         lab = self.inverters.get(((plant_key or "").upper(), (sn or "").strip()))
         return lab if lab else f"inverter {sn}" if sn else ""
 
-    def inverter_full(self, plant_key: Optional[str], sn: Optional[str]) -> str:
-        """'Inverter 3 · SN JJM4D4P017' (or 'inverter JJM4D4P017')."""
-        if not sn:
-            return ""
-        lab = self.inverters.get(((plant_key or "").upper(), sn.strip()))
-        return f"{lab} · SN {sn}" if lab else f"inverter {sn}"
+    def inverter(self, plant_key: Optional[str], sn: Optional[str]) -> str:
+        """'Inverter 3 (JGMAE65009)' — label and serial, always."""
+        return inverter_text(self.inverters.get(((plant_key or "").upper(), (sn or "").strip())), sn)
+
+    inverter_full = inverter          # one format since v230
+
+    def inverter_html(self, plant_key: Optional[str], sn: Optional[str]) -> str:
+        """'Inverter 3 <span class="sn">JGMAE65009</span>' (escaped)."""
+        return inverter_html(self.inverters.get(((plant_key or "").upper(), (sn or "").strip())), sn)
 
     # ---- free text
     def text(self, message: str, plant_key: Optional[str] = None,
@@ -124,8 +133,28 @@ class Names:
         if sn and plant_key:
             lab = self.inverters.get((plant_key.upper(), sn.strip()))
             if lab:
-                s = re.sub(r"\b" + re.escape(sn) + r"\b", lab, s)
+                s = re.sub(r"\b" + re.escape(sn) + r"\b", inverter_text(lab, sn), s)
         return s
+
+
+def inverter_text(label: Optional[str], sn: Optional[str]) -> str:
+    """Label + serial for text: 'Inverter 3 (JGMAE65009)'; a unit without
+    a label is 'inverter JGMAE65009'; no serial -> ''."""
+    sn = (sn or "").strip()
+    if not sn:
+        return ""
+    return f"{label} ({sn})" if label else f"inverter {sn}"
+
+
+def inverter_html(label: Optional[str], sn: Optional[str]) -> str:
+    """Label + serial for pages, the serial in a muted mono span
+    (portal_chrome styles ``.sn``). Escaped."""
+    import html as _html
+    sn = (sn or "").strip()
+    if not sn:
+        return ""
+    tail = f'<span class="sn">{_html.escape(sn)}</span>'
+    return f"{_html.escape(label)} {tail}" if label else f"inverter {tail}"
 
 
 def names_from_rows(plant_rows: Iterable, inverter_rows: Iterable = ()) -> Names:

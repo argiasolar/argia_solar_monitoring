@@ -296,3 +296,6 @@ class TestV228Tickets:
     def test_sql_tool_knows_the_ticket_tables(self):
         for t in ("ticket", "ticket_event", "ticket_alert", "ticket_follower", "ticket_attachment"):
             assert t in S.ALLOWED_TABLES and t in S.TABLE_NOTES, t
+
+    def test_prompt_wants_label_and_serial(self):
+        assert 'label AND serial' in A.build_system(FakeDB(dict(BASE)), lang="en")

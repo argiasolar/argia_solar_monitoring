@@ -731,7 +731,8 @@ def _ticket_row(r, ps, labels) -> dict:
     from argia.maintenance import tickets as TK
     number, pk, sn, title, cat, prio, status, by, assigned, created, updated, root, resolution, lost, keys, last = r[:16]
     return {"number": number, "plant_key": pk, "name": ps.get(pk, {}).get("name"),
-            "inverter": labels.get((pk, sn), sn) if sn else None, "inverter_sn": sn or None,
+            "inverter": (f"{labels[(pk, sn)]} ({sn})" if (pk, sn) in labels else f"inverter {sn}") if sn else None,
+            "inverter_sn": sn or None,
             "title": title, "category": TK.CATEGORY_LABEL.get(cat, cat), "priority": prio,
             "priority_meaning": TK.PRIORITY_LABEL.get(prio), "status": TK.STATUS_LABEL.get(status, status),
             "open": TK.is_open(status), "opened_by": by, "assigned_to": assigned or None,

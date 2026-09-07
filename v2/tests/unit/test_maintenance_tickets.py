@@ -150,7 +150,7 @@ class TestMailIntegration:
         new = [self._rec(1, "k1"), self._rec(2, "k2")]
         subj, text, html = LM.render_mail(new, n, still_open=new, when_mx="2026-09-08 06:30", now_utc=NOW, tickets=briefs)
         assert subj == "[ARGIA] 8 Sep — 1 warning (Plastic Omnium)"                       # k1 is not counted as new
-        assert "In hand — open maintenance tickets\n  Plastic Omnium: TK-NL1-0007 · In progress · juan · 1 d 22 h — last update: Filters replaced (inverter running hot — Inverter 1)" in text
+        assert "In hand — open maintenance tickets\n  Plastic Omnium: TK-NL1-0007 · In progress · juan · 1 d 22 h — last update: Filters replaced (inverter running hot — Inverter 1 (JGMAE65009))" in text
         assert text.count("ALT-1") == 0 and "ALT-2" in text                                 # the handled alert is not listed as new
         assert "Still open" not in text                                                       # nor as still open
         assert 'href="https://portal.argia.com.mx/maintenance/t/TK-NL1-0007/"' in html

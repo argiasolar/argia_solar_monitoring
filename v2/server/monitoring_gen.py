@@ -192,7 +192,20 @@ def alert_text(msg, pk, sn):
 
 
 def inverter_name(pk, sn):
+    """Text: 'Inverter 3 (JGMAE65009)' — label and serial, always (v230)."""
     return NAMES.inverter(pk, sn) if (NAMES and sn) else (sn or 'plant')
+
+
+def inverter_html(pk, sn):
+    """Pages: 'Inverter 3 <span class="sn">JGMAE65009</span>' (escaped)."""
+    return NAMES.inverter_html(pk, sn) if (NAMES and sn) else esc(sn or 'plant')
+
+
+def inverter_sort(pk, sn):
+    """'Inverter 10' after 'Inverter 2'; unlabelled units last, by serial."""
+    lab = NAMES.inverter_short(pk, sn) if NAMES else (sn or '')
+    m = re.search(r'(\d+)\s*$', lab)
+    return (0, int(m.group(1)), sn) if (m and not lab.startswith('inverter ')) else (1, 0, sn or '')
 
 
 # Dates with REAL collection (newest first, capped). Vendors sometimes
@@ -306,7 +319,9 @@ for r in q("SELECT DISTINCT ON (d, plant_key, inverter_sn) * FROM ("
         if d not in DATES:
             continue
         LATEST.setdefault(d, {}).setdefault(r[1], []).append({
-            'sn': r[2], 'label': r[3], 'status': int(f(r[4]) or 0),
+            # v230: the label from the inverter table (the registry), never the
+            # one stored with the sample — a renumbered unit must read the same on every day
+            'sn': r[2], 'label': NAMES.inverter_short(r[1], r[2]) if NAMES else r[3], 'status': int(f(r[4]) or 0),
             'power_w': f(r[5]), 'etoday': f(r[6]), 'temp': f(r[7]),
             'fault': r[8] if r[8] not in ('', '0') else '',
             'last_mx': r[9], 'age_min': f(r[10]) or 9e9})
@@ -431,7 +446,6 @@ def thermal_card(pk, d):
     if use is None:
         return ''
     rows = THERMAL.get((pk, use), [])
-    labels = {sn: label for sn, label, _r in CONFIG_INV.get(pk, [])}
     tone = {'normal': 'good', 'watch': 'good', 'warning': 'warn', 'high': 'warn', 'critical': 'bad'}
     htone = {'GOOD': 'good', 'WATCH': 'warn', 'POOR': 'bad'}
     trs = []
@@ -449,7 +463,7 @@ def thermal_card(pk, d):
         trs.append(
             '<tr><td>%s</td><td><span class="pill %s">%s °C</span></td><td>%s</td><td>%d</td>'
             '<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td><span class="pill %s">%s</span></td></tr>'
-            % (esc(labels.get(r['sn'], r['sn'])), tone.get(r['band'], 'off'), fmt1(r['peak']),
+            % (inverter_html(pk, r['sn']), tone.get(r['band'], 'off'), fmt1(r['peak']),
                hm(r['min65']) if r['min65'] else '0h 00', r['events'], signed(r['dt_peer']),
                signed(r['dt_amb']), hm(r['derating_min']), fmt1(r['lost']) if r['lost'] else '—',
                ('<span class="pill bad">%s</span>' % hm(r['vendor_min'])) if r.get('vendor_min') else '—',
@@ -921,8 +935,7 @@ def _inv_color(i, n):
 
 def intraday_svg(pk, kwp, pr, d):
     invs = HOURLY.get(d, {}).get(pk, {})
-    label_by_sn = {i['sn']: i['label'] for i in LATEST.get(d, {}).get(pk, [])}
-    sns = sorted(invs, key=lambda s: label_by_sn.get(s, s))
+    sns = sorted(invs, key=lambda s: inverter_sort(pk, s))
     hours = list(range(6, 21))
     if not sns:
         return ('<p class="note" data-en="No 5-minute samples for this day." '
@@ -974,7 +987,7 @@ def intraday_svg(pk, kwp, pr, d):
     if tpts:
         leg.append('<span class="note" style="margin-right:14px"><span style="color:#1c2733">╌╌</span> <span data-en="Theoretical (irr × kWp × PR)" data-es="Teórico (irr × kWp × PR)">Theoretical (irr × kWp × PR)</span></span>')
     for idx, sn in enumerate(sns):
-        leg.append(f'<span class="note" style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:{_inv_color(idx, len(sns))};border-radius:2px"></span> {esc(label_by_sn.get(sn, sn))}</span>')
+        leg.append(f'<span class="note" style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:{_inv_color(idx, len(sns))};border-radius:2px"></span> {esc(inverter_name(pk, sn))}</span>')
     return svg + '<div style="margin-top:6px">' + ''.join(leg) + '</div>'
 
 
@@ -995,7 +1008,7 @@ def alerts_card(pk):
                 f' data-en="open ticket" data-es="abrir ticket">open ticket</a>')
     trs = ''.join(
         f'<tr><td><span class="pill {"bad" if a["sev"] == "CRITICAL" else "warn"}">{esc(a["sev"])}</span></td>'
-        f'<td title="{esc(a["sn"])}">{esc(inverter_name(pk, a["sn"]))}</td><td>{esc(alert_phrase(a["metric"]))}</td><td>{esc(a["since"])}</td>'
+        f'<td>{inverter_html(pk, a["sn"])}</td><td>{esc(alert_phrase(a["metric"]))}</td><td>{esc(a["since"])}</td>'
         f'<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td><td>{ticket_cell(a)}</td></tr>' for a in rows)
     n_crit = sum(1 for a in rows if a['sev'] == 'CRITICAL')
     return (f'<div class="card"><h2 data-en="Open alerts ({len(rows)}, {n_crit} critical)"'
@@ -1025,7 +1038,7 @@ def plant_page(pk, d, skin='old'):
     inv_cells = []
     portal = VENDOR_PORTAL.get(str(meta.get('brand', '')).upper())
     peers = peer_ratios({i['sn']: i['etoday'] for i in invs}, RATED.get(pk, {}))
-    for i in sorted(invs, key=lambda v: v['label']):
+    for i in sorted(invs, key=lambda v: inverter_sort(pk, v['sn'])):
         stale = live and i['age_min'] > STALE_MIN
         fault = i['status'] == 3
         pill_cls = 'bad' if stale else ('warn' if fault else 'good')
@@ -1054,7 +1067,7 @@ def plant_page(pk, d, skin='old'):
                          f' title="Open {esc(meta["brand"])} portal">'
                          f'{pill_html}</a>')
         inv_cells.append(
-            f'<tr><td>{esc(i["label"])}</td>'
+            f'<tr><td>{inverter_html(pk, i["sn"])}</td>'
             f'<td>{pill_html}'
             f'{(" <span class=note>" + esc(detail) + "</span>") if detail else ""}</td>'
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'

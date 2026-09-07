@@ -363,7 +363,7 @@ def test_get_tickets_open_for_a_plant_by_name():
     assert out["name"] == "Taigene" and out["totals"] == {"tickets": 1, "critical_or_high": 1}
     t = out["tickets"][0]
     assert t["number"] == "TK-NL1-0001" and t["status"] == "In progress" and t["open"] is True
-    assert t["assigned_to"] == "juan" and t["inverter"] == "Inverter 1" and t["priority_meaning"]
+    assert t["assigned_to"] == "juan" and t["inverter"] == "Inverter 1 (SN1)" and t["priority_meaning"]
     assert t["linked_alerts"] == ["gto1:inv:sn1:inverter_temp_high"] and t["last_update"].startswith("Fans cleaned")
     assert "maintenance/t/<number>/" in out["note"]
     # other plant, nothing open

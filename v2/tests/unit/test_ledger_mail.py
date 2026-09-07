@@ -156,7 +156,7 @@ class TestGroupedByPlant:
         from argia.alerts import naming
         n = naming.Names({}, {("GTO1", "X1"): "Inverter 10", ("GTO1", "X2"): "Inverter 2", ("GTO1", "X3"): "Inverter 1"})
         subj, text, html = LM.render_mail([rec(1, "GTO1"), rec(2, "GTO1"), rec(3, "GTO1")], n)
-        assert "— Inverter 1, Inverter 2, Inverter 10\n" in text
+        assert "— Inverter 1 (X3), Inverter 2 (X2), Inverter 10 (X1)\n" in text
 
     def test_message_is_cleaned(self):
         from argia.alerts import naming

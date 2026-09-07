@@ -214,7 +214,7 @@ class TestCreate:
     def test_prefill_from_alert(self, client):
         r = client.get("/new/?alert=nl1:inv:sn1:inverter_temp_high", headers=H())
         html = r.data.decode()
-        assert 'value="Plastic Omnium · Inverter 1: inverter running hot"' in html
+        assert 'value="Plastic Omnium · Inverter 1 (SN1): inverter running hot"' in html
         assert '<option value="NL1|SN1" selected data-plant="NL1">' in html and '<option value="P3" selected title="P3 Medium' in html
         assert "getElementById('plant')" in html                     # the inverter list follows the plant
         assert '<option value="inverter/derating" selected>' in html

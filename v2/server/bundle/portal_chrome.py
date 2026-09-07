@@ -160,6 +160,7 @@ a{color:var(--teal2);text-decoration:none}a:hover{color:var(--deep)}
 .wrap{max-width:1280px;margin:0 auto;padding:26px 28px 44px}
 .mono{font:600 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em}
 .muted{color:var(--muted)}
+.sn{font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:11px;color:var(--muted);letter-spacing:.2px;white-space:nowrap}   /* v230: the serial beside every inverter label */
 .card{background:#fff;border:1px solid var(--line);border-radius:12px}
 .kicker{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal2);font-weight:800}
 h1.pt{font-size:28px;line-height:1.1;margin:0;color:var(--deep);font-weight:800;letter-spacing:-.01em}

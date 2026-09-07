@@ -20,6 +20,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argia_logo import LOGO_URI  # official wordmark, transparent PNG data URI
 from argia_client_logos import CLIENT_LOGOS  # plant_key -> (display name, grayscale data URI)
+sys.path.insert(0, '/root/argia_v2/v2')
+try:
+    from argia.alerts import naming as _naming      # v230: label + serial, one format everywhere
+except Exception:  # noqa: BLE001
+    class _naming:  # type: ignore
+        @staticmethod
+        def inverter_html(label, sn):
+            return html.escape(label or sn or '')
 
 OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/portal.argia.com.mx/www'   # v214: the portal root
 DB = 'argia_mont'
@@ -235,7 +243,7 @@ def thermal_card(k):
         health = (t('POOR', 'MALA') if cls == 'bad' else t('WATCH', 'VIGILAR') if cls == 'warn' else t('GOOD', 'BUENA'))
         pill = f'<span class="pill {cls}">{health}</span>' if cls else f'<span class="pill">{health}</span>'
         t_lost += a['lost']; t_min65 += a['min65']; t_der += a['derating_min']; t_vendor += vendor_min
-        rows.append(f'<tr><td>{html.escape(label or sn)}</td>'
+        rows.append(f'<tr><td>{_naming.inverter_html(label, sn)}</td>'
                     f'<td class="num">{a["peak"]:,.1f}</td>'
                     f'<td class="num">{a["min65"] / 60:,.1f}</td>'
                     f'<td class="num">{a["events"]}</td>'
@@ -484,6 +492,7 @@ table{border-collapse:collapse;width:100%;font-size:13.5px;}
 th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--grid);}
 th{color:var(--ink2);font-weight:600;font-size:12px;}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+.sn{font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:10px;color:#80868b;letter-spacing:.2px;white-space:nowrap;}
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;font-size:12px;
  background:var(--green-bg);color:var(--green-tx);}
 .badge.laas{background:var(--laas-bg);color:var(--laas-tx);}

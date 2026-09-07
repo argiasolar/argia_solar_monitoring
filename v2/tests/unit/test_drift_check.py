@@ -124,3 +124,17 @@ class TestSecurityHeaders:
         # (it would drop the server-level set)
         body = conf[conf.index("listen 443"):]
         assert "add_header" not in body[body.index("include /etc/nginx/snippets"):]
+
+
+class TestRunbookCoversEveryJob:
+    """docs/OPERATIONS.md must name every timer that exists — a job nobody
+    can find in the runbook is a job nobody will fix at 3 a.m."""
+
+    def test_every_timer_is_in_the_runbook(self):
+        ops = (V2 / "docs/OPERATIONS.md").read_text(encoding="utf-8")
+        missing = [p.stem for p in sorted(BUNDLE.glob("argia-*.timer")) if p.stem not in ops]
+        assert missing == [], missing
+
+    def test_checklist_and_readme_point_at_the_runbook(self):
+        assert "docs/OPERATIONS.md" in (V2 / "README.md").read_text(encoding="utf-8")
+        assert "OPERATIONS.md" in (V2 / "docs/GO_LIVE_CHECKLIST.md").read_text(encoding="utf-8")

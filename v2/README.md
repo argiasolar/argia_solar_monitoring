@@ -1,90 +1,56 @@
-# Argia_Mont v2.0
+# Argia_Mont v2 — fleet monitoring for ARGIA Solar (Mexico)
 
-Solar plant monitoring system for the Argia portfolio (Mexico).
+Operating monitor for the ARGIA solar fleet (11 plants — Growatt, Huawei,
+SolarEdge; PPA, CAPEX and LaaS portfolios). It collects inverter telemetry
+every 5 minutes, reconciles it nightly against the vendors' own counters,
+computes the KPIs (energy vs expected, PR, PR_STC, availability, soiling,
+thermal health), alerts by mail and push, closes the month, publishes the
+portal and the invoices, and answers questions (Ask ARGIA).
 
-Replaces the v1 `argia_solar_monitoring` codebase with a tested, modular architecture
-that supports Growatt, Huawei, SolarEdge, and SMA inverters.
+**Live**: https://portal.argia.com.mx (login required). **Runbook**:
+`docs/OPERATIONS.md`. **Go-live status**: `docs/GO_LIVE_CHECKLIST.md`.
+**Standard vs implementation**: `docs/AGS_701_VS_MONITORING_2026-09.md`.
 
-## Why v2?
-
-v1 worked but had:
-- 5 near-duplicate Growatt clients
-- Two scripts (`argia_snap.py`, `argia_sync.py`) with identical purpose
-- No tests anywhere
-- Naive timezone handling (`utcnow() + timedelta(hours=-6)` breaks DST)
-- Append-only writes with no idempotency (re-running = duplicate rows)
-- Inverter SNs stored as columns with typos (`INVERTER2`, `IVERTER2`)
-- Dead code paths (SMA scaffold never finished)
-
-v2 fixes all of the above and adds SolarEdge.
-
-## Project layout
-
+## Layout
 ```
 argia/
-├── core/        # sheets client, time utils, normalization, config loader
-├── vendors/     # one file per vendor: growatt, huawei, solaredge, sma
-└── meteo/       # irradiance + cloud cover
-
-tests/
-├── unit/        # pure functions, fast, no network
-├── fixtures/    # captured real API responses (anonymized)
-└── regression/  # schema lock + idempotency
-
-scripts/         # CLI entry points the Pi cron calls
-pi/              # crontab.example for Raspberry Pi
+├── core/        config (plant + inverter registers), time, normalisation, alert state
+├── vendors/     growatt / huawei / solaredge clients + parsers (fixtures under tests/)
+├── meteo/       satellite irradiance + weather
+├── kpi/         energy, irradiance, performance (PR, PR_STC, availability), reconcile, satellite
+├── recon/       nightly reconciliation vs vendor counters, monthly close, 14-day retry
+├── analytics/   alert rules: acute, silent, data health, strings, inverter peers, soiling, thermal
+├── alerts/      engine (ledger), monitor (infra), subscriptions (who gets what), naming, mail
+├── ask/         Ask ARGIA: tools, read-only SQL guard, Golden Standard knowledge
+└── store/       PostgreSQL access (psql wrapper), mirror
+scripts/         every scheduled job (one file each) — see docs/OPERATIONS.md §2
+server/bundle/   what runs on pio06: generators, auth/setup/ask apps, systemd units, nginx — README there is the deploy map
+pi/              the off-site Pi: deploy loop, portal watchdog, outage watch, backup pull, CFE fetcher, crontab
+tests/           unit (pure functions, source-level invariants), fixtures (captured vendor responses), regression
+docs/            runbooks, design notes, the go-live checklist
+tools/           one-off, kept for traceability (e.g. the AGS-701 Rev 1 patch)
 ```
 
-## Setup
+## Principles
+- **Git is the only source of truth.** Nothing is patched on a server by hand; `scripts/drift_check.py` compares every deployed copy with git every morning and the administrator is told about any difference.
+- **Pure functions, tested.** Decisions (what is an alert, who receives it, what a number means) are pure and unit-tested; I/O is thin. Source-level tests pin the invariants that matter (portal-only recipients, CAPEX never mailed, names before codes, every unit sets HOME…).
+- **Vendor counters are the reference.** A gap > 3 % between our interval sum and the vendor's daily counter is a collection fault, not production; closed months are frozen; `daily_production` is never edited by hand.
+- **Secrets never travel through chat, git or logs** — file to file, 0600.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# Run the test suite
-pytest
-
-# See coverage
-pytest --cov=argia
+## Develop
 ```
-
-## Required environment variables
-
-Stored in `~/.argia_mont.env` on the Pi (chmod 600). NEVER commit.
-
+python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt -r requirements-dev.txt
+PYTHONPATH=. python -m pytest -q                   # 3,4xx tests, ~15 s
 ```
-GOOGLE_SHEET_ID=...
-GOOGLE_CREDENTIALS=...     # service account JSON, single line
+Scripts read their configuration from the environment (`pi/env.example`
+lists the names); without `ARGIA_PG_MIRROR=1` every job exits quietly, so
+the suite and a dry run never touch production.
 
-GROWATT_USERNAME=...
-GROWATT_PASSWORD=...
-GROWATT_API_TOKEN=...      # Open API token (preferred over web scraping)
-
-HUAWEI_USERNAME=...
-HUAWEI_PASSWORD=...
-
-SOLAREDGE_API_KEY=...
-
-SMA_CLIENT_ID=...          # sandbox/prod
-SMA_CLIENT_SECRET=...
-SMA_LOGIN_HINT=...         # email used during back-channel consent
-SMA_ENVIRONMENT=sandbox    # sandbox or production
-```
-
-## Sheet schema (v2)
-
-See `MIGRATION.md` for the new tab layout and how to migrate from v1.
-
-## Running
-
-The Raspberry Pi cron is the scheduler. See `pi/crontab.example`.
-
-```bash
-# Daily aggregate (one row per plant per day, idempotent)
-python scripts/argia_mont_daily.py
-
-# 10-minute snapshot during daylight hours
-python scripts/argia_mont_10min.py
-```
+## History
+v1 (repository root, `legacy_v1/`) was the Google-Sheets era. v2 moved
+collection to the Pi (July 2026), then everything to the pio06 server
+with PostgreSQL (August 2026), retired the Sheets (v188–v192), the old
+report domains (v214) and reached the go-live audit at v218 (September
+2026). The dated notes in `docs/` and the project workspace tell the story
+version by version.

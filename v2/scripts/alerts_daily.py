@@ -382,6 +382,46 @@ def daily_offline_candidates(readings: List[InverterReading]) -> List[Candidate]
     return out
 
 
+def _ticket_briefs():
+    """v226: {alert_key: TicketBrief} of OPEN maintenance tickets; {} when
+    the module or the tables are not there (the mail then carries the
+    warning itself)."""
+    try:
+        from argia.maintenance import tickets as TK
+        return TK.load_open_briefs()
+    except Exception as e:  # noqa: BLE001
+        log.warning("ticket briefs unavailable (%s)", e)
+        return {}
+
+
+def _attach_to_tickets(records, tickets, dry_run: bool = False) -> int:
+    """v226: an alert opened or touched today whose key has an open ticket
+    is an occurrence on that ticket — counted in ticket_alert and written
+    to the timeline as an 'alert' event (actor 'monitoring')."""
+    if not tickets:
+        return 0
+    from argia.maintenance import tickets as TK
+    from argia.store.pgq import psql_exec, psql_rows
+    n = 0
+    for r in records:
+        b = tickets.get(r.alert_key)
+        if b is None or not getattr(b, "open", False):
+            continue
+        log.info("TICKET   %s  %s -> %s", r.alert_id, r.alert_key, b.number)
+        if dry_run:
+            n += 1
+            continue
+        try:
+            tid = psql_rows(f"SELECT id FROM ticket WHERE number = {TK._txt(b.number)};")
+            if tid and tid[0]:
+                psql_exec(TK.link_alert_sql(int(tid[0][0]), r.alert_key)
+                          + TK.event_sql(int(tid[0][0]), "monitoring", "alert", r.message[:400], {"alert_id": r.alert_id}))
+                n += 1
+        except Exception as e:  # noqa: BLE001
+            log.warning("could not attach %s to %s: %s", r.alert_id, b.number, e)
+    return n
+
+
 @instrument("alerts_daily")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
@@ -514,8 +554,10 @@ def main(argv=None) -> int:
     # once per issue type. Mailed records come back with 'email' in
     # channels_sent.
     from argia.alerts.ledger_mail import mail_new_alerts
+    tickets = _ticket_briefs()
+    _attach_to_tickets(result.opened + result.touched, tickets, dry_run=args.dry_run)
     records = mail_new_alerts(result.records, dry_run=args.dry_run, morning=True,
-                              when_mx=now_mx().strftime("%Y-%m-%d %H:%M"), now_utc=now_utc)
+                              when_mx=now_mx().strftime("%Y-%m-%d %H:%M"), now_utc=now_utc, tickets=tickets)
     mailed = records != list(result.records)
 
     if args.dry_run:

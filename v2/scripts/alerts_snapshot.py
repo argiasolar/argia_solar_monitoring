@@ -250,8 +250,13 @@ def main(argv=None) -> int:
     # during the day rides tomorrow's 06:30 mail (Tomasz: fewer mails,
     # each one carrying something that needs a hand)
     from argia.alerts.ledger_mail import mail_new_alerts
+    try:                                     # v226: a CRITICAL with an open ticket reports the ticket, not the alarm
+        from argia.maintenance import tickets as TK
+        tickets = TK.load_open_briefs()
+    except Exception:  # noqa: BLE001
+        tickets = {}
     records = mail_new_alerts(result.records, dry_run=args.dry_run, severities=("CRITICAL",),
-                              when_mx=mx.strftime("%Y-%m-%d %H:%M"))
+                              when_mx=mx.strftime("%Y-%m-%d %H:%M"), tickets=tickets)
     mailed = records != list(result.records)
 
     if args.dry_run:

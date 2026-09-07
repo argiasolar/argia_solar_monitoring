@@ -1,0 +1,23 @@
+[Unit]
+# v226: maintenance tickets — the /maintenance/ pages. nginx proxies
+# /maintenance/ here behind the session login; internal accounts only.
+# Attachments live in /opt/argia/tickets/<number>/ (root-only).
+Description=ARGIA maintenance tickets (/maintenance/)
+After=network.target postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_MAINT_PORT=8514
+Environment=ARGIA_TICKET_FILES=/opt/argia/tickets
+ExecStart=/usr/bin/python3 /opt/argia/bundle/maint_app.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

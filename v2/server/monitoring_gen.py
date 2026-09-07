@@ -264,14 +264,25 @@ for r in q(f"SELECT {MX_D}, plant_key, inverter_sn, max(temperature_c)"
 # the digest row is a mail vehicle, not an issue
 ALERTS_OPEN = {}   # plant -> [dict]
 for r in q("SELECT plant_key, coalesce(inverter_sn,''), metric, severity,"
-           " left(opened_utc, 10), message FROM alert_ledger"
+           " left(opened_utc, 10), message, alert_key FROM alert_ledger"
            " WHERE state = 'OPEN' AND metric <> 'daily_digest'"
            " ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 ELSE 1 END,"
            " opened_utc;"):
-    if len(r) >= 6:
+    if len(r) >= 7:
         ALERTS_OPEN.setdefault(r[0], []).append({
             'sn': r[1], 'metric': r[2], 'sev': r[3], 'since': r[4],
-            'msg': r[5]})
+            'msg': r[5], 'key': r[6]})
+
+# v226: the maintenance ticket behind an alert (open tickets only) —
+# {alert_key: (number, status)}; empty before the first ticket exists
+TICKET_BY_ALERT = {}
+try:
+    for r in q("SELECT a.alert_key, t.number, t.status FROM ticket_alert a JOIN ticket t ON t.id = a.ticket_id"
+               " WHERE t.status IN ('NEW','IN_PROGRESS','WAITING','VERIFICATION');"):
+        if len(r) >= 3:
+            TICKET_BY_ALERT[r[0]] = (r[1], r[2])
+except RuntimeError:
+    pass
 
 
 # ------------------------------------------------- per-date aggregates
@@ -975,16 +986,23 @@ def alerts_card(pk):
         return ('<div class="card"><h2 data-en="Open alerts" data-es="Alertas abiertas">Open alerts</h2>'
                 '<p class="note" data-en="No open alerts for this plant." data-es="Sin alertas abiertas para esta planta.">'
                 'No open alerts for this plant.</p></div>')
+    def ticket_cell(a):
+        tk = TICKET_BY_ALERT.get(a.get('key', ''))
+        if tk:
+            return (f'<a href="/maintenance/t/{esc(tk[0])}/" class="pill good" title="{esc(tk[1])}">{esc(tk[0])}</a>'
+                    f'<div class="note">{esc(tk[1].replace("_", " ").lower())}</div>')
+        return (f'<a class="note" href="/maintenance/new/?alert={esc(a.get("key", ""))}&amp;plant={esc(pk)}&amp;sn={esc(a["sn"])}"'
+                f' data-en="open ticket" data-es="abrir ticket">open ticket</a>')
     trs = ''.join(
         f'<tr><td><span class="pill {"bad" if a["sev"] == "CRITICAL" else "warn"}">{esc(a["sev"])}</span></td>'
         f'<td title="{esc(a["sn"])}">{esc(inverter_name(pk, a["sn"]))}</td><td>{esc(alert_phrase(a["metric"]))}</td><td>{esc(a["since"])}</td>'
-        f'<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td></tr>' for a in rows)
+        f'<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td><td>{ticket_cell(a)}</td></tr>' for a in rows)
     n_crit = sum(1 for a in rows if a['sev'] == 'CRITICAL')
     return (f'<div class="card"><h2 data-en="Open alerts ({len(rows)}, {n_crit} critical)"'
             f' data-es="Alertas abiertas ({len(rows)}, {n_crit} críticas)">Open alerts ({len(rows)}, {n_crit} critical)</h2>'
             '<table><tr><th data-en="Severity" data-es="Severidad">Severity</th><th data-en="Inverter" data-es="Inversor">Inverter</th>'
             '<th data-en="Issue" data-es="Problema">Issue</th><th data-en="Since" data-es="Desde">Since</th>'
-            '<th class="wrap-text" data-en="Message" data-es="Mensaje">Message</th></tr>' + trs + '</table>'
+            '<th class="wrap-text" data-en="Message" data-es="Mensaje">Message</th><th data-en="Ticket" data-es="Ticket">Ticket</th></tr>' + trs + '</table>'
             '<p class="note" data-en="From the alert ledger (daily + snapshot engines). Resolved by the daily run once the condition clears for a whole day."'
             ' data-es="Del registro de alertas (motores diario y de instantáneas). Se resuelven cuando la condición desaparece un día completo.">'
             'From the alert ledger; resolved by the daily run once the condition clears for a whole day.</p></div>')

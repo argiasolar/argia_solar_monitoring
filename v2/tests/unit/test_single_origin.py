@@ -38,10 +38,11 @@ class TestMonitoringLinksArePrefixed:
         on the report host, the /invoices/ register (2026-09-01,
         the recon board's invoice-annexes button), and the /portfolio/
         fleet map (v177 — it lives at the webroot under the financial
-        gate, NOT inside /monitoring/)."""
+        gate, NOT inside /monitoring/), and the /maintenance/ tickets
+        (v226 — a live app on the portal host)."""
         import re
         bad = [ln.strip() for ln in MONGEN.splitlines()
-               if re.search(r'href="/(?!account/|invoices/|portfolio/'
+               if re.search(r'href="/(?!account/|invoices/|portfolio/|maintenance/'
                             r'|favicon|"|\s)', ln)]
         assert bad == [], bad
         out = [ln.strip() for ln in MONGEN.splitlines()

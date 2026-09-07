@@ -150,19 +150,58 @@ def glossary(alerts: Sequence[AlertRecord]) -> List[Tuple[str, str]]:
     return [(naming.phrase(m), txt) for m, txt in seen.items() if txt]
 
 
+def in_hand(alerts: Sequence[AlertRecord], still_open: Sequence[AlertRecord],
+            tickets: Dict[str, "object"], n, now_utc: Optional[dt.datetime]) -> Tuple[List[AlertRecord], List[str]]:
+    """v226: alerts whose key has an OPEN maintenance ticket are 'in
+    hand'. Returns (those alerts — new or still open — , one line per
+    ticket: 'TK-NL1-0007 · In progress · juan · 12 d — last update: …
+    (inverter running hot — Inverter 1, Inverter 4)'). Pure."""
+    from argia.alerts import naming
+    from argia.maintenance import tickets as TK
+    if not tickets:
+        return [], []
+    seen: Dict[str, List[AlertRecord]] = {}
+    handled: List[AlertRecord] = []
+    for a in list(alerts) + [r for r in still_open if r.state == AlertState.OPEN and r.metric != DIGEST_METRIC]:
+        b = tickets.get(a.alert_key)
+        if b is None or not getattr(b, "open", False):
+            continue
+        if any(x.alert_id == a.alert_id for x in seen.setdefault(b.number, [])):
+            continue
+        seen[b.number].append(a)
+        handled.append(a)
+    lines = []
+    for number, items in sorted(seen.items()):
+        b = tickets[items[0].alert_key]
+        t = TK.Ticket(0, number, items[0].plant_key, "", "", "", "", b.priority, b.status, "", b.assigned_to,
+                      b.created_at, b.created_at)
+        head = TK.progress_line(t, TK.Event(0, 0, "", "", "comment", b.last_update) if b.last_update else None,
+                                now_utc or dt.datetime.now(dt.timezone.utc))
+        what = "; ".join(sorted({f"{naming.phrase(a.metric)}" + (f" — {n.inverter(a.plant_key, a.inverter_sn)}" if a.inverter_sn else "")
+                                 for a in items}))
+        lines.append(f"{n.plant(items[0].plant_key)}: {head} ({what})")
+    return handled, lines
+
+
 def render_mail(alerts: Sequence[AlertRecord], labels=None,
                 still_open: Sequence[AlertRecord] = (),
-                when_mx: str = "", now_utc: Optional[dt.datetime] = None) -> Tuple[str, str, str]:
+                when_mx: str = "", now_utc: Optional[dt.datetime] = None,
+                tickets: Optional[Dict[str, "object"]] = None) -> Tuple[str, str, str]:
     """(subject, text, html) — the one mail format (v223). ``alerts`` are
     the new ones; ``still_open`` the ledger (or the recipient's view of
-    it) for the reminder section. Pure."""
+    it) for the reminder section; ``tickets`` (v226, {alert_key:
+    TicketBrief}) turns alerts that have an open ticket into the
+    ticket's progress line instead of a repeated warning. Pure."""
     import html as _h
     from argia.alerts import naming
     n = _names(labels)
     e = lambda x: _h.escape(str(x))  # noqa: E731
+    handled, hand_lines = in_hand(alerts, still_open, tickets or {}, n, now_utc)
+    handled_ids = {a.alert_id for a in handled}
+    alerts = [a for a in alerts if a.alert_id not in handled_ids]
     n_crit = sum(1 for a in alerts if (a.severity or "").upper() == "CRITICAL")
     n_warn = sum(1 for a in alerts if (a.severity or "").upper() == "WARNING")
-    ids = {a.alert_id for a in alerts}
+    ids = {a.alert_id for a in alerts} | handled_ids
     so_crit, so_warn, so_lines = still_open_lines(still_open, ids, n, now_utc)
     plants = sorted({n.plant(a.plant_key) for a in alerts})
     day = ""
@@ -175,6 +214,8 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
     if alerts:
         parts = ([f"{n_crit} critical"] if n_crit else []) + ([f"{n_warn} warning{'s' if n_warn != 1 else ''}"] if n_warn else [])
         subject = head + ", ".join(parts) + f" ({', '.join(plants)})"
+    elif hand_lines:
+        subject = head + f"nothing new — {len(hand_lines)} ticket{'s' if len(hand_lines) != 1 else ''} in hand"
     else:
         subject = head + f"nothing new — {so_crit} critical still open"
     # ---- text
@@ -191,6 +232,10 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
             for a in items:
                 lab = n.inverter(pk, a.inverter_sn) + ": " if a.inverter_sn else ""
                 t.append(f"      {lab}{clean_message(a, n)}  ({a.alert_id})")
+        t.append("")
+    if hand_lines:
+        t.append("In hand — open maintenance tickets")
+        t.extend(f"  {ln}" for ln in hand_lines)
         t.append("")
     if so_lines:
         t.append(f"Still open from previous days: {so_crit} critical / {so_warn} warning")
@@ -223,6 +268,13 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
                 lab = n.inverter(pk, a.inverter_sn) + ": " if a.inverter_sn else ""
                 h.append(f'<div style="margin:0 0 2px 36px;color:#5f6368;font-size:12px">{e(lab)}{e(clean_message(a, n))}'
                          f' <span style="color:#b0b4b8">{e(a.alert_id)}</span></div>')
+    if hand_lines:
+        h.append('<div style="margin:18px 0 4px;font-weight:700">In hand <span style="font-weight:400;color:#5f6368">open maintenance tickets</span></div>')
+        for ln in hand_lines:
+            num = ln.split(": ", 1)[1].split(" · ")[0] if ": " in ln else ""
+            link = f'https://portal.argia.com.mx/maintenance/t/{num}/' if num.startswith("TK-") else ""
+            h.append(f'<div style="margin:0 0 3px 12px;font-size:12px;color:#05847d">' + (f'<a href="{link}" style="color:#05847d">' if link else '')
+                     + e(ln) + ('</a>' if link else '') + '</div>')
     if so_lines:
         h.append(f'<div style="margin:18px 0 4px;font-weight:700">Still open from previous days '
                  f'<span style="font-weight:400;color:#5f6368">{so_crit} critical / {so_warn} warning</span></div>')
@@ -301,7 +353,8 @@ def mail_new_alerts(records: Sequence[AlertRecord],
                     severities: Sequence[str] = MAILED_SEVERITIES,
                     morning: bool = False,
                     when_mx: str = "",
-                    now_utc: Optional[dt.datetime] = None) -> List[AlertRecord]:
+                    now_utc: Optional[dt.datetime] = None,
+                    tickets: Optional[Dict[str, "object"]] = None) -> List[AlertRecord]:
     """Mail every unmailed OPEN alert of ``severities`` to its subscribers;
     return the records with 'email' marked on the ones that went out.
     ``morning`` (the 06:30 daily run) adds the still-open reminder and
@@ -316,6 +369,7 @@ def mail_new_alerts(records: Sequence[AlertRecord],
                  and subscriptions.is_mailable(r.plant_key, excluded)]
     if not cands and not (morning and open_crit):
         return list(records)
+    tickets = tickets or {}
     try:
         rcpts = recipients()
     except Exception as e:  # noqa: BLE001
@@ -348,7 +402,7 @@ def mail_new_alerts(records: Sequence[AlertRecord],
         so = [r for r in mailable_open if scope is None or r.plant_key.upper() in scope]
         if not alerts and not any((r.severity or "").upper() == "CRITICAL" and r.state == AlertState.OPEN for r in so):
             continue                    # this view has nothing to say
-        subject, body, html = render_mail(alerts, labels, still_open=so, when_mx=when_mx, now_utc=now_utc)
+        subject, body, html = render_mail(alerts, labels, still_open=so, when_mx=when_mx, now_utc=now_utc, tickets=tickets)
         if dry_run:
             LOG.info("[DRY RUN] would mail %s: %s (%d alert(s))",
                      ", ".join(emails), subject, len(alerts))

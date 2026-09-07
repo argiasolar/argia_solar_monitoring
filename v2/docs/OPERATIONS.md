@@ -45,7 +45,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-dbdump | 03:30 server time | pg_dump + auth DB + portfolio snapshot → `/root/argia_backups` |
 | argia-ags-ingest | Sun 04:20 | Golden Standard page → `knowledge` (Ask ARGIA) |
 
-Services (always on): `argia-auth` 8512 (login/session), `argia-setup` 8511 (admin), `argia-ask` 8513 (Ask ARGIA); nginx in front. Every job runs through `pi/run_job.sh <name> <script>` (venv, secrets, flock, log `/root/argia_logs/<name>.log`).
+Services (always on): `argia-auth` 8512 (login/session), `argia-setup` 8511 (admin), `argia-ask` 8513 (Ask ARGIA), `argia-maint` 8514 (maintenance tickets, v226; attachments in `/opt/argia/tickets/`, root-only); nginx in front. Every job runs through `pi/run_job.sh <name> <script>` (venv, secrets, flock, log `/root/argia_logs/<name>.log`).
 
 Pi cron (`pi/crontab.example` is byte-for-byte the live table): `deploy.sh` every 10 min (follows main), `report_watch.sh` every 5 min (portal probe → ntfy `argia-reportwatch-x9k24fq7`), `ppa_watch.sh` every 30 min 08–19 (acts only while the server is down), `pull_backup.sh` 22:00 (dumps + `portfolio.json`), `cfe_daily.sh` 08:10.
 
@@ -58,6 +58,7 @@ cd /root/argia_v2 && git fetch -q && git reset --hard -q origin/main
 cp v2/server/bundle/*.py v2/server/bundle/*.sh v2/server/bundle/*.sql /opt/argia/bundle/
 cp v2/server/monitoring_gen.py /opt/argia/bundle/
 cp v2/server/bundle/argia-*.service v2/server/bundle/argia-*.timer /etc/systemd/system/ && systemctl daemon-reload
+systemctl restart argia-auth argia-setup argia-ask argia-maint      # when their code changed
 # nginx only when a vhost/snippet changed — see server/bundle/README.md for the file map
 systemctl restart argia-auth argia-setup argia-ask       # only when those apps changed
 /root/argia_v2/v2/pi/run_job.sh drift drift_check.py && tail -3 /root/argia_logs/drift.log   # "status quo intact"
@@ -79,7 +80,11 @@ Rules: commit scripts use `set -o pipefail` and are idempotent; never hand-edit 
 | reports | AM/PM report pages | subscribers |
 | ntfy | `portal.argia.com.mx is DOWN / BACK UP` (+ HTTP code), backup pull failures, outage-mode plant stalls | the topic on the admin's phone |
 
+| ticket participants | every change on a maintenance ticket (opened, status, assignment, update, attachment, resolution) — to the creator, assignee and followers, minus the person who made the change | portal accounts with an e-mail (v226) |
+
 If the plant table cannot be read, plant alerts are **held** (fail closed) and infrastructure alerts still go out — nothing is silently sent to a CAPEX customer.
+
+An alert whose key is linked to an **open maintenance ticket** is "in hand": the morning mail shows the ticket's progress line (number, status, assignee, age, last update) instead of repeating the warning, and every new occurrence lands on the ticket's timeline (`ledger_mail.in_hand`, `alerts_daily._attach_to_tickets`). See `docs/MAINTENANCE_TICKETS.md`.
 
 Severity rule (Tomasz, 2026-09-07): **CRITICAL = energy is being lost or a plant/inverter is off**; data gaps, heat without a measured loss and diagnostic flags without a measured loss are WARNING. A fleet-wide telemetry blank (the collector, the vendor cloud, PostgreSQL) never becomes an inverter alert (`silent.collector_windows`). The infra mailer (`alert_mailer.py`, every 30 min) no longer judges plants — the ledger does.
 

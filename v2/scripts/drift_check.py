@@ -66,6 +66,7 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("portal-favicon", "https://portal.argia.com.mx/favicon.png", (200,)),
     ("portal-setup-wall", "https://portal.argia.com.mx/setup/", (302,)),
     ("portal-monitoring-wall", "https://portal.argia.com.mx/monitoring/", (302,)),
+    ("portal-maintenance-wall", "https://portal.argia.com.mx/maintenance/", (302,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),
     ("old-monitoring", "https://monitoring.argia.com.mx/", (301,)),
     # portfolio.argia.com.mx has no DNS record (checked 2026-09-06) — its

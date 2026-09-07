@@ -99,6 +99,8 @@ def landing():
          'Inversores en vivo, alertas, temperaturas, pares.', ''),
         ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers.',
          'La flota en un mapa, estado y cifras de hoy.', ''),
+        ('maint', 'Maintenance', 'Mantenimiento', '/maintenance/', 'Tickets: what ARGIA is doing about each issue.',
+         'Tickets: qué hace ARGIA con cada problema.', ''),
         ('engine', 'Engine', 'Engine', '/engine/', 'Sizing and proposals.', 'Dimensionamiento y propuestas.', 'engine.sprinkler.agency'),
         ('ags', 'ARGIA Golden Standard', 'ARGIA Golden Standard', '/ags/', 'The ARGIA design, build and O&M standard.',
          'El estándar ARGIA de diseño, construcción y O&M.', 'sprinkler.agency'),

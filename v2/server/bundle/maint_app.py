@@ -259,38 +259,98 @@ th:nth-last-child(-n+3) .tw .tipbox{left:auto;right:0}   /* the last columns ope
 .frm label .tw .ti{margin-left:5px}
 '''
 COL_HELP = {
-    'ticket': 'TK-<plant>-<number>: the plant is in the number. Click to open.',
-    'prio': 'P1 critical · P2 high · P3 medium · P4 low — sets the SLA clock; hover a priority for its meaning.',
-    'status': 'New → In progress → Waiting → Verification → Resolved → Closed. Resolved comes from the data when alerts are linked.',
-    'plant': 'Plant (and inverter) the ticket is about.',
-    'title': 'What the ticket is about, with its category underneath.',
-    'assigned': 'Who is working on it. Unassigned tickets belong to nobody yet.',
-    'age': 'Time since the ticket was opened.',
-    'sla': 'Resolve target of the priority (P1 4 h, P2 24 h, P3 72 h, P4 planned): time left, or how far over.',
+    'ticket': ('TK-<plant>-<number>: the plant is in the number. Click to open.',
+               'TK-<planta>-<número>: la planta va en el número. Clic para abrir.'),
+    'prio': ('P1 critical · P2 high · P3 medium · P4 low — sets the SLA clock; hover a priority for its meaning.',
+             'P1 crítica · P2 alta · P3 media · P4 baja — fija el reloj SLA; pase el cursor por una prioridad para ver su significado.'),
+    'status': ('New → In progress → Waiting → Verification → Resolved → Closed. Resolved comes from the data when alerts are linked.',
+               'Nuevo → En curso → En espera → Verificación → Resuelto → Cerrado. Resuelto lo decide el dato cuando hay alertas vinculadas.'),
+    'plant': ('Plant (and inverter) the ticket is about.', 'Planta (e inversor) a la que se refiere el ticket.'),
+    'title': ('What the ticket is about, with its category underneath.', 'De qué trata el ticket, con su categoría debajo.'),
+    'assigned': ('Who is working on it. Unassigned tickets belong to nobody yet.', 'Quién lo atiende. Un ticket sin asignar aún no es de nadie.'),
+    'age': ('Time since the ticket was opened.', 'Tiempo desde que se abrió el ticket.'),
+    'sla': ('Resolve target of the priority (P1 4 h, P2 24 h, P3 72 h, P4 planned): time left, or how far over.',
+            'Objetivo de resolución de la prioridad (P1 4 h, P2 24 h, P3 72 h, P4 planificado): tiempo restante, o cuánto se excedió.'),
 }
 TABS = [('', 'Open', 'Abiertos'), ('new', 'New ticket', 'Nuevo ticket'), ('resolved', 'Resolved', 'Resueltos'),
         ('stats', 'Statistics', 'Estadísticas')]
 PRIO_HELP = {
-    'P1': 'P1 Critical — plant outage, safety, transformer/MV, >50% of production unavailable. Resolve target 4 h.',
-    'P2': 'P2 High — energy is being lost: inverter offline or off, measured thermal loss, production <70% of expected. Resolve target 24 h.',
-    'P3': 'P3 Medium — a single string, a data gap, heat without a measured loss, a diagnostic flag. Resolve target 72 h.',
-    'P4': 'P4 Low — cleaning, cosmetic, documentation, planned preventive work. No SLA clock.',
+    'P1': ('P1 Critical — plant outage, safety, transformer/MV, >50% of production unavailable. Resolve target 4 h.',
+           'P1 Crítica — planta fuera, seguridad, transformador/MT, >50% de la producción no disponible. Objetivo de resolución 4 h.'),
+    'P2': ('P2 High — energy is being lost: inverter offline or off, measured thermal loss, production <70% of expected. Resolve target 24 h.',
+           'P2 Alta — se pierde energía: inversor fuera o apagado, pérdida térmica medida, producción <70% de lo esperado. Objetivo 24 h.'),
+    'P3': ('P3 Medium — a single string, a data gap, heat without a measured loss, a diagnostic flag. Resolve target 72 h.',
+           'P3 Media — un solo string, un hueco de datos, calor sin pérdida medida, una bandera de diagnóstico. Objetivo 72 h.'),
+    'P4': ('P4 Low — cleaning, cosmetic, documentation, planned preventive work. No SLA clock.',
+           'P4 Baja — limpieza, cosmético, documentación, trabajo preventivo planificado. Sin reloj SLA.'),
 }
 STATUS_HELP = {
-    'NEW': 'New — opened, nobody has started yet.',
-    'IN_PROGRESS': 'In progress — someone is working on it.',
-    'WAITING': 'Waiting — blocked on parts, the customer, the vendor or the weather.',
-    'VERIFICATION': 'Verification — the work is done; monitoring watches the linked alerts. When none recurs for 2 days the data marks the ticket Resolved; if one recurs it goes back to In progress.',
-    'RESOLVED': 'Resolved — confirmed by the data (or by a person when no alert is linked). Record the root cause, then close.',
-    'CLOSED': 'Closed — paperwork done. Can be re-opened.',
+    'NEW': ('New — opened, nobody has started yet.', 'Nuevo — abierto, nadie ha empezado aún.'),
+    'IN_PROGRESS': ('In progress — someone is working on it.', 'En curso — alguien está trabajando en ello.'),
+    'WAITING': ('Waiting — blocked on parts, the customer, the vendor or the weather.',
+                'En espera — bloqueado por refacciones, el cliente, el fabricante o el clima.'),
+    'VERIFICATION': ('Verification — the work is done; monitoring watches the linked alerts. When none recurs for 2 days the data marks the ticket Resolved; if one recurs it goes back to In progress.',
+                     'Verificación — el trabajo está hecho; el monitoreo vigila las alertas vinculadas. Si ninguna reaparece en 2 días el dato marca el ticket como Resuelto; si alguna reaparece vuelve a En curso.'),
+    'RESOLVED': ('Resolved — confirmed by the data (or by a person when no alert is linked). Record the root cause, then close.',
+                 'Resuelto — confirmado por el dato (o por una persona cuando no hay alerta vinculada). Registre la causa raíz y cierre.'),
+    'CLOSED': ('Closed — paperwork done. Can be re-opened.', 'Cerrado — papeleo hecho. Se puede reabrir.'),
 }
 BTN_HELP = {
-    'assign': 'Who works on it. The assignee is notified of every change.',
-    'priority': 'How urgent it is; sets the SLA clock. Hover a priority for its meaning.',
-    'follow': 'Followers are notified of every change but have no duties.',
-    'link': 'Tie this monitoring alert to the ticket: the morning mail then reports the ticket instead of the warning, new occurrences land on the timeline, and the data verifies the fix.',
-    'update': 'Post what was found, done or planned. Attach photos or documents. Participants are notified.',
+    'assign': ('Who works on it. The assignee is notified of every change.', 'Quién lo atiende. El asignado recibe aviso de cada cambio.'),
+    'priority': ('How urgent it is; sets the SLA clock. Hover a priority for its meaning.', 'Qué tan urgente es; fija el reloj SLA. Pase el cursor por una prioridad para ver su significado.'),
+    'follow': ('Followers are notified of every change but have no duties.', 'Los seguidores reciben aviso de cada cambio pero no tienen obligaciones.'),
+    'link': ('Tie this monitoring alert to the ticket: the morning mail then reports the ticket instead of the warning, new occurrences land on the timeline, and the data verifies the fix.',
+             'Vincule esta alerta de monitoreo al ticket: el correo matutino reporta entonces el ticket en vez de la advertencia, las nuevas ocurrencias caen en la línea de tiempo y el dato verifica la reparación.'),
+    'update': ('Post what was found, done or planned. Attach photos or documents. Participants are notified.',
+               'Publique lo encontrado, hecho o planeado. Adjunte fotos o documentos. Se avisa a los participantes.'),
 }
+KIND_LABEL = {   # timeline verbs
+    'created': ('opened the ticket', 'abrió el ticket'), 'comment': ('', ''), 'status': ('changed status', 'cambió el estado'),
+    'assign': ('assigned', 'asignó'), 'follow': ('follows', 'sigue'), 'unfollow': ('stopped following', 'dejó de seguir'),
+    'attachment': ('attached a file', 'adjuntó un archivo'), 'alert': ('alert', 'alerta'), 'priority': ('changed priority', 'cambió la prioridad'),
+    'system': ('', ''), 'resolution': ('resolution', 'resolución'),
+}
+FLASH = {'status updated': 'estado actualizado', 'assigned': 'asignado', 'priority updated': 'prioridad actualizada',
+         'follower added': 'seguidor agregado', 'alert linked': 'alerta vinculada', 'resolution saved': 'resolución guardada',
+         'update posted': 'actualización publicada'}
+
+
+def T(en: str, es: Optional[str] = None) -> str:
+    """Bilingual text — the chrome's setLang swaps it with the interface language."""
+    return PC.t(en, es)
+
+
+def status_label(code: str) -> str:
+    return T(TK.STATUS_LABEL.get(code, code), TK.STATUS_LABEL_ES.get(code, code))
+
+
+def priority_label(code: str, with_code: bool = True) -> str:
+    row = next((p for p in TK.PRIORITIES if p[0] == code), None)
+    en, es = (row[1], row[2]) if row else (code, code)
+    return T(f'{code} {en}' if with_code else en, f'{code} {es}' if with_code else es)
+
+
+def category_label(code: str) -> str:
+    row = next((c for c in TK.CATEGORIES if c[0] == code), None)
+    return T(row[1], row[2]) if row else e(code)
+
+
+def sla_text(txt: str) -> str:
+    """The SLA sentence from tickets.sla_state (English) with its Spanish twin."""
+    es = txt
+    if txt == 'planned work, no SLA clock':
+        es = 'trabajo planificado, sin reloj SLA'
+    else:
+        m = re.match(r'^resolved in (.+) \(target (\d+) h\)$', txt)
+        if m:
+            es = f'resuelto en {m.group(1)} (objetivo {m.group(2)} h)'
+        m = re.match(r'^(.+) over the (\d+) h target$', txt)
+        if m:
+            es = f'{m.group(1)} sobre el objetivo de {m.group(2)} h'
+        m = re.match(r'^(.+) left of (\d+) h$', txt)
+        if m:
+            es = f'quedan {m.group(1)} de {m.group(2)} h'
+    return T(txt, es)
 
 
 def page(title: str, body: str, on: str = '') -> str:
@@ -299,8 +359,8 @@ def page(title: str, body: str, on: str = '') -> str:
 
 
 def no_access() -> tuple:
-    return page('Maintenance', '<div class="card" style="padding:18px"><b>Maintenance tickets are for the ARGIA team.</b>'
-                '<div class="muted">Your account sees the reports and monitoring pages.</div></div>'), 403
+    return page('Maintenance', f'<div class="card" style="padding:18px"><b>{T("Maintenance tickets are for the ARGIA team.", "Los tickets de mantenimiento son para el equipo ARGIA.")}</b>'
+                f'<div class="muted">{T("Your account sees the reports and monitoring pages.", "Su cuenta ve las páginas de reportes y monitoreo.")}</div></div>'), 403
 
 
 def when(ts: str) -> str:
@@ -312,18 +372,22 @@ def when(ts: str) -> str:
 
 
 def pill(cls: str, txt: str) -> str:
-    return f'<span class="pill {cls}">{e(txt)}</span>'
+    """txt may already be bilingual markup (from T) — a plain string is escaped."""
+    return f'<span class="pill {cls}">{txt if txt.startswith("<span data-en=") else e(txt)}</span>'
 
 
-def tip(text: str) -> str:
+def tip(text, es: Optional[str] = None) -> str:
     """The report pages' tooltip: an 'i' badge with a hover/focus box —
-    the same .ti/.tipbox the KPI tiles use (Tomasz: one tooltip design)."""
+    the same .ti/.tipbox the KPI tiles use (Tomasz: one tooltip design).
+    ``text`` is an (en, es) pair or an English string (+ optional es)."""
+    if isinstance(text, tuple):
+        text, es = text
     return (f'<span class="tw"><span class="ti" tabindex="0" role="note" aria-label="definition">i</span>'
-            f'<span class="tipbox">{e(text)}</span></span>')
+            f'<span class="tipbox">{T(text, es)}</span></span>')
 
 
-def th(label: str, key: str) -> str:
-    return f'<th>{e(label)}{tip(COL_HELP[key])}</th>'
+def th(en: str, es: str, key: str) -> str:
+    return f'<th>{T(en, es)}{tip(COL_HELP[key])}</th>'
 
 
 def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
@@ -334,15 +398,15 @@ def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
         out.append(
             f'<tr class="tkrow"><td><a class="tkn" href="/maintenance/t/{e(t.number)}/">{e(t.number)}</a></td>'
             f'<td>{pill(PRIO_CLS.get(t.priority, "off"), t.priority)}</td>'
-            f'<td>{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}</td>'
+            f'<td>{pill(STATUS_CLS.get(t.status, "off"), status_label(t.status))}</td>'
             f'<td><b>{e(n.plant(t.plant_key))}</b>' + (f'<div class="muted" style="font-size:12px">{n.inverter_html(t.plant_key, t.inverter_sn)}</div>' if t.inverter_sn else '')
-            + f'</td><td><a href="/maintenance/t/{e(t.number)}/">{e(t.title)}</a><div class="muted" style="font-size:12px">{e(TK.CATEGORY_LABEL.get(t.category, t.category))}</div></td>'
+            + f'</td><td><a href="/maintenance/t/{e(t.number)}/">{e(t.title)}</a><div class="muted" style="font-size:12px">{category_label(t.category)}</div></td>'
             f'<td>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</td>'
-            f'<td>{e(TK.fmt_age(TK.age(t, now)))}</td><td class="sla-{state}" style="font-size:12px">{e(sla_txt)}</td></tr>')
+            f'<td>{e(TK.fmt_age(TK.age(t, now)))}</td><td class="sla-{state}" style="font-size:12px">{sla_text(sla_txt)}</td></tr>')
     if not out:
-        return '<p class="muted" style="margin:0;padding:16px 20px">No tickets.</p>'
-    return ('<table><tr>' + th('Ticket', 'ticket') + th('Prio', 'prio') + th('Status', 'status') + th('Plant', 'plant')
-            + th('Title', 'title') + th('Assigned', 'assigned') + th('Age', 'age') + th('SLA', 'sla') + '</tr>'
+        return f'<p class="muted" style="margin:0;padding:16px 20px">{T("No tickets.", "Sin tickets.")}</p>'
+    return ('<table><tr>' + th('Ticket', 'Ticket', 'ticket') + th('Prio', 'Prio', 'prio') + th('Status', 'Estado', 'status') + th('Plant', 'Planta', 'plant')
+            + th('Title', 'Título', 'title') + th('Assigned', 'Asignado', 'assigned') + th('Age', 'Edad', 'age') + th('SLA', 'SLA', 'sla') + '</tr>'
             + ''.join(out) + '</table>')
 
 
@@ -358,33 +422,54 @@ def dashboard(tks: List[TK.Ticket], now: dt.datetime, me: str) -> str:
         by_plant[t.plant_key] = by_plant.get(t.plant_key, 0) + 1
     n = names()
     plants_txt = ' · '.join(f'{e(n.plant(k))} {v}' for k, v in sorted(by_plant.items(), key=lambda kv: -kv[1])) or '—'
-    cnt = ''.join(f'<div class="card"><div class="n">{v}</div><div class="l">{l}</div></div>' for v, l in
-                  ((n_open, 'open'), (n_crit, 'P1 / P2'), (n_prog, 'in progress'), (n_ver, 'verification'), (n_over, 'over SLA')))
-    return (f'<div class="kicker">Maintenance</div><h1 class="pt">Tickets</h1>'
-            f'<div class="muted" style="margin:4px 0 16px">Open by plant: {plants_txt}</div>'
+    cnt = ''.join(f'<div class="card"><div class="n">{v}</div><div class="l">{T(en, es)}</div></div>' for v, en, es in
+                  ((n_open, 'open', 'abiertos'), (n_crit, 'P1 / P2', 'P1 / P2'), (n_prog, 'in progress', 'en curso'),
+                   (n_ver, 'verification', 'verificación'), (n_over, 'over SLA', 'fuera de SLA')))
+    return (f'<div class="kicker">{T("Maintenance", "Mantenimiento")}</div><h1 class="pt">Tickets</h1>'
+            f'<div class="muted" style="margin:4px 0 16px">{T("Open by plant", "Abiertos por planta")}: {plants_txt}</div>'
             f'<div class="cnt">{cnt}</div>'
-            + (f'<div class="card"><h2 class="ct" style="padding:14px 20px 0">My tickets ({len(mine)})</h2>{ticket_rows(mine, now)}</div>' if mine else '')
-            + f'<div class="card" style="margin-top:14px"><h2 class="ct" style="padding:14px 20px 0">All open ({n_open})</h2>{ticket_rows(tks, now)}</div>'
+            + (f'<div class="card"><h2 class="ct" style="padding:14px 20px 0">{T("My tickets", "Mis tickets")} ({len(mine)})</h2>{ticket_rows(mine, now)}</div>' if mine else '')
+            + f'<div class="card" style="margin-top:14px"><h2 class="ct" style="padding:14px 20px 0">{T("All open", "Todos los abiertos")} ({n_open})</h2>{ticket_rows(tks, now)}</div>'
             + legend())
 
 
 def legend() -> str:
-    pr = ''.join(f'<div><b>{e(k)}</b> {e(v.split(" — ", 1)[1])}</div>' for k, v in PRIO_HELP.items())
-    st = ''.join(f'<div><b>{e(TK.STATUS_LABEL[k])}</b> {e(v.split(" — ", 1)[1])}</div>' for k, v in STATUS_HELP.items())
+    def tail(v):
+        return v.split(" — ", 1)[1] if " — " in v else v
+    pr = ''.join(f'<div><b>{e(k)}</b> {T(tail(v[0]), tail(v[1]))}</div>' for k, v in PRIO_HELP.items())
+    st = ''.join(f'<div><b>{status_label(k)}</b> {T(tail(v[0]), tail(v[1]))}</div>' for k, v in STATUS_HELP.items())
     return (f'<div class="card" style="padding:14px 20px;margin-top:14px;font-size:12.5px;color:var(--ink2)">'
-            f'<h2 class="ct">How it works</h2><div class="fields" style="margin-top:8px"><div><div class="k">Priorities</div>{pr}</div>'
-            f'<div><div class="k">Statuses</div>{st}</div></div>'
-            '<div class="muted" style="margin-top:8px">A ticket linked to a monitoring alert is verified by the data: put it in Verification when the work is done; '
-            'the nightly run marks it Resolved after 2 quiet days, or sends it back to In progress if the alert recurs. The <b>i</b> badges explain every column, badge and button.</div></div>')
+            f'<h2 class="ct">{T("How it works", "Cómo funciona")}</h2><div class="fields" style="margin-top:8px"><div><div class="k">{T("Priorities", "Prioridades")}</div>{pr}</div>'
+            f'<div><div class="k">{T("Statuses", "Estados")}</div>{st}</div></div>'
+            '<div class="muted" style="margin-top:8px">' + T(
+                "A ticket linked to a monitoring alert is verified by the data: put it in Verification when the work is done; "
+                "the nightly run marks it Resolved after 2 quiet days, or sends it back to In progress if the alert recurs. The i badges explain every column, badge and button.",
+                "Un ticket vinculado a una alerta de monitoreo lo verifica el dato: póngalo en Verificación cuando el trabajo esté hecho; "
+                "la corrida nocturna lo marca Resuelto tras 2 días tranquilos, o lo devuelve a En curso si la alerta reaparece. Las insignias i explican cada columna, etiqueta y botón.")
+            + '</div></div>')
 
 
 def select(name: str, options, value: str = '', blank: str = '', titles: Optional[Dict[str, str]] = None,
            attrs: str = '') -> str:
-    opts = (f'<option value="">{e(blank)}</option>' if blank is not None else '')
-    for v, lab in options:
-        tt = f' title="{e(titles[v])}"' if titles and v in titles else ''
+    """options: (value, label) or (value, label_en, label_es); blank likewise a string or an (en, es) pair."""
+    def lab_attrs(lab):
+        if isinstance(lab, tuple):
+            return f' data-en="{e(lab[0])}" data-es="{e(lab[1])}"', e(lab[0])
+        return '', e(lab)
+    if blank is None:
+        opts = ''
+    else:
+        ba, bt = lab_attrs(blank)
+        opts = f'<option value=""{ba}>{bt}</option>'
+    for opt in options:
+        v, lab = opt[0], (opt[1], opt[2]) if len(opt) > 2 else opt[1]
+        tt_v = titles.get(v) if titles else None
+        if isinstance(tt_v, tuple):
+            tt_v = tt_v[0]
+        tt = f' title="{e(tt_v)}"' if tt_v else ''
         dp = f' data-plant="{e(v.split("|")[0])}"' if '|' in v else ''
-        opts += f'<option value="{e(v)}"{" selected" if v == value else ""}{tt}{dp}>{e(lab)}</option>'
+        la, lt = lab_attrs(lab)
+        opts += f'<option value="{e(v)}"{" selected" if v == value else ""}{tt}{dp}{la}>{lt}</option>'
     return f'<select name="{name}"{(" " + attrs) if attrs else ""}>{opts}</select>'
 
 
@@ -395,23 +480,24 @@ def new_form(pre: dict) -> str:
     inv_opts = [('', '— plant level —')] + [(f"{i['plant']}|{i['sn']}", f"{n.plant(i['plant'])} · {i['label']} ({i['sn']})") for i in inv]
     st = staff()
     people = [(s['username'], s['name']) for s in st]
-    return (f'<div class="kicker">Maintenance</div><h1 class="pt">New ticket</h1>'
+    inv_opts = [('', '— plant level —', '— nivel de planta —')] + inv_opts[1:]
+    return (f'<div class="kicker">{T("Maintenance", "Mantenimiento")}</div><h1 class="pt">{T("New ticket", "Nuevo ticket")}</h1>'
             f'<form class="card frm" method="post" action="/maintenance/new/" style="padding:18px 20px;margin-top:14px;max-width:760px">'
             f'<input type="hidden" name="alert_key" value="{e(pre.get("alert_key", ""))}">'
-            '<label>Plant</label>' + select("plant", [(p["key"], p["name"] + " (" + p["key"] + ")") for p in ps], pre.get("plant", ""), "— choose —", attrs='id="plant"')
-            + '<label>Inverter (optional — the list follows the plant)</label>' + select("inverter", inv_opts, pre.get("inverter", ""), None, attrs='id="inverter"')
-            + f'<label>Title</label><input type="text" name="title" maxlength="140" required value="{e(pre.get("title", ""))}">'
-            f'<label>Category</label>{select("category", [(c[0], c[1]) for c in TK.CATEGORIES], pre.get("category", "other"), None)}'
-            f'<label>Priority{tip(BTN_HELP["priority"])}</label>{select("priority", [(p[0], p[0] + " " + p[1]) for p in TK.PRIORITIES], pre.get("priority", "P3"), None, titles=PRIO_HELP)}'
-            f'<div class="muted" style="font-size:12px;margin-top:3px">{" · ".join(e(v) for v in PRIO_HELP.values())}</div>'
-            f'<label>Assign to{tip(BTN_HELP["assign"])}</label>{select("assigned_to", people, pre.get("assigned_to", ""), "— unassigned —")}'
-            f'<label>Followers{tip(BTN_HELP["follow"])}</label><div class="fields">'
+            f'<label>{T("Plant", "Planta")}</label>' + select("plant", [(p["key"], p["name"] + " (" + p["key"] + ")") for p in ps], pre.get("plant", ""), ("— choose —", "— elija —"), attrs='id="plant"')
+            + f'<label>{T("Inverter (optional — the list follows the plant)", "Inversor (opcional — la lista sigue a la planta)")}</label>' + select("inverter", inv_opts, pre.get("inverter", ""), None, attrs='id="inverter"')
+            + f'<label>{T("Title", "Título")}</label><input type="text" name="title" maxlength="140" required value="{e(pre.get("title", ""))}">'
+            f'<label>{T("Category", "Categoría")}</label>{select("category", [(c[0], c[1], c[2]) for c in TK.CATEGORIES], pre.get("category", "other"), None)}'
+            f'<label>{T("Priority", "Prioridad")}{tip(BTN_HELP["priority"])}</label>{select("priority", [(p[0], p[0] + " " + p[1], p[0] + " " + p[2]) for p in TK.PRIORITIES], pre.get("priority", "P3"), None, titles=PRIO_HELP)}'
+            f'<div class="muted" style="font-size:12px;margin-top:3px">{T(" · ".join(v[0] for v in PRIO_HELP.values()), " · ".join(v[1] for v in PRIO_HELP.values()))}</div>'
+            f'<label>{T("Assign to", "Asignar a")}{tip(BTN_HELP["assign"])}</label>{select("assigned_to", people, pre.get("assigned_to", ""), ("— unassigned —", "— sin asignar —"))}'
+            f'<label>{T("Followers", "Seguidores")}{tip(BTN_HELP["follow"])}</label><div class="fields">'
             + ''.join(f'<label style="margin:0"><input type="checkbox" name="follower" value="{e(u)}"> {e(nm)}</label>' for u, nm in people)
-            + '</div><label>External followers — e-mail addresses, comma separated (a technician, a customer contact; they get every update and can reply by mail)</label>'
+            + f'</div><label>{T("External followers — e-mail addresses, comma separated (a technician, a customer contact; they get every update and can reply by mail)", "Seguidores externos — correos separados por coma (un técnico, un contacto del cliente; reciben cada actualización y pueden responder por correo)")}</label>'
             f'<input type="text" name="emails" placeholder="name@company.com, other@company.com" value="{e(pre.get("emails", ""))}">'
-            f'<label>Description</label><textarea name="description">{e(pre.get("description", ""))}</textarea>'
-            '<div class="act"><button class="btn" type="submit">Open ticket</button>'
-            '<a class="btn2" href="/maintenance/">Cancel</a></div></form>'
+            f'<label>{T("Description", "Descripción")}</label><textarea name="description">{e(pre.get("description", ""))}</textarea>'
+            f'<div class="act"><button class="btn" type="submit">{T("Open ticket", "Abrir ticket")}</button>'
+            f'<a class="btn2" href="/maintenance/">{T("Cancel", "Cancelar")}</a></div></form>'
             + PLANT_FILTER_JS)
 
 
@@ -427,19 +513,18 @@ def timeline(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]]) ->
     n = names()
     items = []
     for ev in evs:
-        who = name_of(ev.actor) if ev.actor and ev.actor != 'monitoring' else ('Monitoring' if ev.actor == 'monitoring' else 'System')
-        kind = {'created': 'opened the ticket', 'comment': '', 'status': 'changed status', 'assign': 'assigned',
-                'follow': 'follows', 'unfollow': 'stopped following', 'attachment': 'attached a file',
-                'alert': 'alert', 'priority': 'changed priority', 'system': '', 'resolution': 'resolution'}.get(ev.kind, ev.kind)
-        body = ev.body
+        who = e(name_of(ev.actor)) if ev.actor and ev.actor != 'monitoring' else (T('Monitoring', 'Monitoreo') if ev.actor == 'monitoring' else T('System', 'Sistema'))
+        kind_en, kind_es = KIND_LABEL.get(ev.kind, (ev.kind, ev.kind))
+        body = e(ev.body)
         if ev.kind == 'status':
-            body = f'{TK.STATUS_LABEL.get(ev.meta.get("from", ""), ev.meta.get("from", ""))} → {TK.STATUS_LABEL.get(ev.meta.get("to", ""), ev.meta.get("to", ""))}' + (f'\n{ev.body}' if ev.body else '')
+            fr, to = ev.meta.get("from", ""), ev.meta.get("to", "")
+            body = f'{status_label(fr)} → {status_label(to)}' + (f'<br>{e(ev.body)}' if ev.body else '')
         elif ev.kind == 'alert':
-            body = n.text(ev.body, t.plant_key, t.inverter_sn)
+            body = e(n.text(ev.body, t.plant_key, t.inverter_sn))
         fl = ''.join(f'<a href="/maintenance/t/{e(t.number)}/file/{e(f["id"])}">📎 {e(f["filename"])} <span class="muted">({int(f["bytes"] or 0) // 1024} kB)</span></a>'
                      for f in files.get(ev.id, []))
-        items.append(f'<li><div class="when">{e(when(ev.ts))}</div><div style="flex:1"><span class="who">{e(who)}</span>'
-                     f'<span class="kind">{e(kind)}</span>' + (f'<div class="body">{e(body)}</div>' if body else '')
+        items.append(f'<li><div class="when">{e(when(ev.ts))}</div><div style="flex:1"><span class="who">{who}</span>'
+                     f'<span class="kind">{T(kind_en, kind_es) if kind_en else ""}</span>' + (f'<div class="body">{body}</div>' if body else '')
                      + (f'<div class="files">{fl}</div>' if fl else '') + '</div></li>')
     return '<ul class="tl">' + ''.join(items) + '</ul>'
 
@@ -453,10 +538,10 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
     nxt = ''
     for s_ in TK.TRANSITIONS.get(t.status, ()):
         if s_ == 'RESOLVED' and t.alert_keys:
-            nxt += ('<span class="btn2" style="opacity:.55;cursor:default">→ Resolved: by the data</span>' + tip(STATUS_HELP["VERIFICATION"]))
+            nxt += (f'<span class="btn2" style="opacity:.55;cursor:default">→ {T("Resolved: by the data", "Resuelto: por el dato")}</span>' + tip(STATUS_HELP["VERIFICATION"]))
             continue
         nxt += (f'<form method="post" action="/maintenance/t/{e(t.number)}/status"><input type="hidden" name="to" value="{s_}">'
-                f'<button class="btn2" type="submit">→ {e(TK.STATUS_LABEL[s_])}</button></form>' + tip(STATUS_HELP.get(s_, "")))
+                f'<button class="btn2" type="submit">→ {status_label(s_)}</button></form>' + tip(STATUS_HELP.get(s_, ("", ""))))
     following = me in t.followers
     alerts = open_ledger_alerts(t.plant_key, t.inverter_sn)
     linked = set(t.alert_keys)
@@ -469,49 +554,56 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
             rows.append(f'<tr><td>{pill("crit" if a["severity"] == "CRITICAL" else "warn", a["severity"])}</td>'
                         f'<td>{e(naming.phrase(a["metric"]))}</td><td>{e(a["since"])}</td>'
                         f'<td class="wrap-text">{e(amsg)}</td>'
-                        f'<td>' + ('<span class="pill ok">linked</span>' if on else
+                        f'<td>' + (f'<span class="pill ok">{T("linked", "vinculada")}</span>' if on else
                                    f'<form method="post" action="/maintenance/t/{e(t.number)}/link"><input type="hidden" name="alert_key" value="{e(a["alert_key"])}">'
-                                   f'<button class="btn2" type="submit" style="padding:4px 10px">link</button></form>' + tip(BTN_HELP["link"])) + '</td></tr>')
+                                   f'<button class="btn2" type="submit" style="padding:4px 10px">{T("link", "vincular")}</button></form>' + tip(BTN_HELP["link"])) + '</td></tr>')
         stale = [k for k in linked if k not in {a['alert_key'] for a in alerts}]
-        al = ('<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Monitoring alerts on this plant'
-              + (' / inverter' if t.inverter_sn else '') + '</h2><div class="muted" style="font-size:12px;margin-bottom:6px">'
-              'A linked alert reports this ticket\'s progress in the morning mail instead of repeating the warning; new occurrences land on the timeline.</div>'
-              + ('<table><tr><th>Sev</th><th>Issue</th><th>Since</th><th>Message</th><th></th></tr>' + ''.join(rows) + '</table>' if rows else '')
-              + (f'<div class="muted" style="font-size:12px;margin-top:6px">Linked alerts no longer open in the ledger: {e(", ".join(stale))}</div>' if stale else '')
+        al = ('<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">'
+              + (T('Monitoring alerts on this plant / inverter', 'Alertas de monitoreo en esta planta / inversor') if t.inverter_sn
+                 else T('Monitoring alerts on this plant', 'Alertas de monitoreo en esta planta'))
+              + '</h2><div class="muted" style="font-size:12px;margin-bottom:6px">'
+              + T("A linked alert reports this ticket's progress in the morning mail instead of repeating the warning; new occurrences land on the timeline.",
+                  "Una alerta vinculada reporta el avance de este ticket en el correo matutino en vez de repetir la advertencia; las nuevas ocurrencias caen en la línea de tiempo.") + '</div>'
+              + (f'<table><tr><th>{T("Sev", "Sev")}</th><th>{T("Issue", "Problema")}</th><th>{T("Since", "Desde")}</th><th>{T("Message", "Mensaje")}</th><th></th></tr>' + ''.join(rows) + '</table>' if rows else '')
+              + (f'<div class="muted" style="font-size:12px;margin-top:6px">{T("Linked alerts no longer open in the ledger", "Alertas vinculadas que ya no están abiertas en el registro")}: {e(", ".join(stale))}</div>' if stale else '')
               + '</div>')
     res = ''
     if t.status in ('VERIFICATION', 'RESOLVED', 'CLOSED') or t.root_cause:
         res = (f'<form class="card frm" method="post" action="/maintenance/t/{e(t.number)}/resolution" style="padding:14px 20px;margin-top:14px">'
-               f'<h2 class="ct">Resolution</h2><label>Root cause</label>{select("root_cause", TK.ROOT_CAUSES, t.root_cause, "— pick —")}'
-               f'<label>What was done / prevent recurrence</label><textarea name="resolution">{e(t.resolution)}</textarea>'
-               f'<label>Energy lost (kWh, if known)</label><input type="text" name="lost_kwh" value="{e("" if t.lost_kwh is None else t.lost_kwh)}" style="max-width:160px">'
-               '<div class="act"><button class="btn2" type="submit">Save resolution</button></div></form>')
-    head = (f'<div class="kicker">Maintenance · <span class="mono">{e(t.number)}</span></div>'
+               f'<h2 class="ct">{T("Resolution", "Resolución")}</h2><label>{T("Root cause", "Causa raíz")}</label>'
+               f'{select("root_cause", [(c, l, TK.ROOT_CAUSE_ES.get(c, l)) for c, l in TK.ROOT_CAUSES], t.root_cause, ("— pick —", "— elija —"))}'
+               f'<label>{T("What was done / prevent recurrence", "Qué se hizo / cómo evitar que se repita")}</label><textarea name="resolution">{e(t.resolution)}</textarea>'
+               f'<label>{T("Energy lost (kWh, if known)", "Energía perdida (kWh, si se conoce)")}</label><input type="text" name="lost_kwh" value="{e("" if t.lost_kwh is None else t.lost_kwh)}" style="max-width:160px">'
+               f'<div class="act"><button class="btn2" type="submit">{T("Save resolution", "Guardar resolución")}</button></div></form>')
+    sla_help = (COL_HELP["sla"][0] + " Green = on track, amber = last quarter of the target, red = over.",
+                COL_HELP["sla"][1] + " Verde = en tiempo, ámbar = último cuarto del objetivo, rojo = excedido.")
+    flash = T(msg, FLASH.get(msg, msg)) if msg else ''
+    head = (f'<div class="kicker">{T("Maintenance", "Mantenimiento")} · <span class="mono">{e(t.number)}</span></div>'
             f'<h1 class="pt" style="font-size:24px">{e(t.title)}</h1>'
-            f'<div class="act">{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}{tip(STATUS_HELP.get(t.status, ""))}'
-            f'{pill(PRIO_CLS.get(t.priority, "off"), t.priority + " " + TK.PRIORITY_LABEL.get(t.priority, ""))}{tip(PRIO_HELP.get(t.priority, ""))}'
-            f'<span class="sla-{state}" style="font-size:12.5px">SLA: {e(sla_txt)}</span>{tip(COL_HELP["sla"] + " Green = on track, amber = last quarter of the target, red = over.")}</div>'
-            + (f'<p class="pill ok" style="display:inline-flex">{e(msg)}</p>' if msg else '')
+            f'<div class="act">{pill(STATUS_CLS.get(t.status, "off"), status_label(t.status))}{tip(STATUS_HELP.get(t.status, ("", "")))}'
+            f'{pill(PRIO_CLS.get(t.priority, "off"), priority_label(t.priority))}{tip(PRIO_HELP.get(t.priority, ("", "")))}'
+            f'<span class="sla-{state}" style="font-size:12.5px">SLA: {sla_text(sla_txt)}</span>{tip(sla_help)}</div>'
+            + (f'<p class="pill ok" style="display:inline-flex">{flash}</p>' if msg else '')
             + '<div class="card" style="padding:14px 20px"><div class="fields">'
-            f'<div><div class="k">Plant</div><b>{e(n.plant_full(t.plant_key))}</b></div>'
-            f'<div><div class="k">Inverter</div>{n.inverter_html(t.plant_key, t.inverter_sn) if t.inverter_sn else "<span class=muted>plant level</span>"}</div>'
-            f'<div><div class="k">Category</div>{e(TK.CATEGORY_LABEL.get(t.category, t.category))}</div>'
-            f'<div><div class="k">Opened</div>{e(when(t.created_at))} by {e(name_of(t.created_by))} · {e(TK.fmt_age(TK.age(t, now)))}</div>'
-            f'<div><div class="k">Assigned</div>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</div>'
-            f'<div><div class="k">Followers</div>{e(", ".join(name_of(u) for u in t.followers)) or "<span class=muted>—</span>"}</div>'
+            f'<div><div class="k">{T("Plant", "Planta")}</div><b>{e(n.plant_full(t.plant_key))}</b></div>'
+            f'<div><div class="k">{T("Inverter", "Inversor")}</div>{n.inverter_html(t.plant_key, t.inverter_sn) if t.inverter_sn else "<span class=muted>" + T("plant level", "nivel de planta") + "</span>"}</div>'
+            f'<div><div class="k">{T("Category", "Categoría")}</div>{category_label(t.category)}</div>'
+            f'<div><div class="k">{T("Opened", "Abierto")}</div>{e(when(t.created_at))} {T("by", "por")} {e(name_of(t.created_by))} · {e(TK.fmt_age(TK.age(t, now)))}</div>'
+            f'<div><div class="k">{T("Assigned", "Asignado")}</div>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</div>'
+            f'<div><div class="k">{T("Followers", "Seguidores")}</div>{e(", ".join(name_of(u) for u in t.followers)) or "<span class=muted>—</span>"}</div>'
             '</div>' + (f'<div style="margin-top:12px;white-space:pre-wrap">{e(t.description)}</div>' if t.description else '') + '</div>'
             f'<div class="act">{nxt}'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/assign">{select("assigned_to", people, t.assigned_to, "— unassigned —")} <button class="btn2" type="submit">Assign</button></form>{tip(BTN_HELP["assign"])}'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/priority">{select("priority", [(p[0], p[0] + " " + p[1]) for p in TK.PRIORITIES], t.priority, None, titles=PRIO_HELP)} <button class="btn2" type="submit">Priority</button></form>{tip(BTN_HELP["priority"])}'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="hidden" name="on" value="{0 if following else 1}"><button class="btn2" type="submit">{"Unfollow" if following else "Follow"}</button></form>{tip(BTN_HELP["follow"])}'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="text" name="email" placeholder="add follower by e-mail" style="border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;width:220px"> '
-            f'<button class="btn2" type="submit">Add</button></form>{tip("An outside address (technician, customer contact): notified of every change, can reply by mail to comment.")}'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/assign">{select("assigned_to", people, t.assigned_to, ("— unassigned —", "— sin asignar —"))} <button class="btn2" type="submit">{T("Assign", "Asignar")}</button></form>{tip(BTN_HELP["assign"])}'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/priority">{select("priority", [(p[0], p[0] + " " + p[1], p[0] + " " + p[2]) for p in TK.PRIORITIES], t.priority, None, titles=PRIO_HELP)} <button class="btn2" type="submit">{T("Priority", "Prioridad")}</button></form>{tip(BTN_HELP["priority"])}'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="hidden" name="on" value="{0 if following else 1}"><button class="btn2" type="submit">{T("Unfollow", "Dejar de seguir") if following else T("Follow", "Seguir")}</button></form>{tip(BTN_HELP["follow"])}'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="text" name="email" placeholder="add follower by e-mail" data-ph-en="add follower by e-mail" data-ph-es="agregar seguidor por correo" style="border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;width:220px"> '
+            f'<button class="btn2" type="submit">{T("Add", "Agregar")}</button></form>{tip("An outside address (technician, customer contact): notified of every change, can reply by mail to comment.", "Una dirección externa (técnico, contacto del cliente): recibe aviso de cada cambio y puede responder por correo para comentar.")}'
             '</div>')
     comment = (f'<form class="card frm" method="post" action="/maintenance/t/{e(t.number)}/comment" enctype="multipart/form-data" style="padding:14px 20px;margin-top:14px">'
-               f'<h2 class="ct">Add an update{tip(BTN_HELP["update"])}</h2><textarea name="body" placeholder="What was found, what was done, what is next…"></textarea>'
-               f'<label>Attachments (photos, PDF, up to {MAX_UPLOAD // (1024 * 1024)} MB each)</label><input type="file" name="files" multiple>'
-               '<div class="act"><button class="btn" type="submit">Post update</button></div></form>')
-    tl = f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Timeline</h2>{timeline(t, evs, files)}</div>'
+               f'<h2 class="ct">{T("Add an update", "Agregar una actualización")}{tip(BTN_HELP["update"])}</h2><textarea name="body" placeholder="What was found, what was done, what is next…" data-ph-en="What was found, what was done, what is next…" data-ph-es="Qué se encontró, qué se hizo, qué sigue…"></textarea>'
+               f'<label>{T("Attachments (photos, PDF, up to %d MB each)" % (MAX_UPLOAD // (1024 * 1024)), "Adjuntos (fotos, PDF, hasta %d MB cada uno)" % (MAX_UPLOAD // (1024 * 1024)))}</label><input type="file" name="files" multiple>'
+               f'<div class="act"><button class="btn" type="submit">{T("Post update", "Publicar actualización")}</button></div></form>')
+    tl = f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">{T("Timeline", "Línea de tiempo")}</h2>{timeline(t, evs, files)}</div>'
     return head + al + comment + tl + res
 
 
@@ -540,7 +632,7 @@ def resolved():
         return no_access()
     now = dt.datetime.now(dt.timezone.utc)
     tks = load_tickets("status IN ('RESOLVED','CLOSED') AND updated_at > now() - interval '90 days'")
-    return page('Maintenance', f'<div class="kicker">Maintenance</div><h1 class="pt">Resolved (90 days)</h1>'
+    return page('Maintenance', f'<div class="kicker">{T("Maintenance", "Mantenimiento")}</div><h1 class="pt">{T("Resolved (90 days)", "Resueltos (90 días)")}</h1>'
                 f'<div class="card" style="margin-top:14px">{ticket_rows(tks, now)}</div>', 'resolved')
 
 
@@ -557,24 +649,24 @@ def stats_page():
     n = names()
     series = TK.status_timeline(tks, evs, 60, now)
     st = TK.stats(tks, now)
-    leg = ''.join(f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:12px"><span style="width:10px;height:10px;background:{TK.STATUS_COLOR[k]};border-radius:2px"></span>{e(TK.STATUS_LABEL[k])}</span>'
+    leg = ''.join(f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:12px"><span style="width:10px;height:10px;background:{TK.STATUS_COLOR[k]};border-radius:2px"></span>{status_label(k)}</span>'
                   for k in TK.STATUS_COLOR)
     weeks = ''.join(f'<tr><td>{w.strftime("%d %b")}</td><td class="num">{o}</td><td class="num">{r}</td></tr>' for w, o, r in st["weeks"])
-    tbl = lambda rows, lab: ('<table><tr><th>' + lab + '</th><th class="num">open</th></tr>'  # noqa: E731
-                             + ''.join(f'<tr><td>{e(k)}</td><td class="num">{v}</td></tr>' for k, v in rows) + '</table>') if rows else '<p class="muted">—</p>'
-    body = (f'<div class="kicker">Maintenance</div><h1 class="pt">Statistics</h1>'
+    tbl = lambda rows, lab: ('<table><tr><th>' + lab + '</th><th class="num">' + T("open", "abiertos") + '</th></tr>'  # noqa: E731
+                             + ''.join(f'<tr><td>{k}</td><td class="num">{v}</td></tr>' for k, v in rows) + '</table>') if rows else '<p class="muted">—</p>'
+    body = (f'<div class="kicker">{T("Maintenance", "Mantenimiento")}</div><h1 class="pt">{T("Statistics", "Estadísticas")}</h1>'
             f'<div class="cnt" style="margin-top:14px">'
-            f'<div class="card"><div class="n">{st["n_open"]}</div><div class="l">open now</div></div>'
-            f'<div class="card"><div class="n">{st["over_sla"]}</div><div class="l">over SLA</div></div>'
-            f'<div class="card"><div class="n">{st["mttr_h"] if st["mttr_h"] is not None else "—"}</div><div class="l">MTTR, hours (resolved: {st["n_resolved"]})</div></div>'
-            f'<div class="card"><div class="n">{st["n_total"]}</div><div class="l">tickets, 180 days</div></div></div>'
-            f'<div class="card" style="padding:14px 20px"><h2 class="ct" style="display:flex;align-items:center">Open tickets by status — last 60 days{tip("Open tickets at the end of each day, stacked by status, replayed from the status changes on every timeline.")}</h2>'
+            f'<div class="card"><div class="n">{st["n_open"]}</div><div class="l">{T("open now", "abiertos ahora")}</div></div>'
+            f'<div class="card"><div class="n">{st["over_sla"]}</div><div class="l">{T("over SLA", "fuera de SLA")}</div></div>'
+            f'<div class="card"><div class="n">{st["mttr_h"] if st["mttr_h"] is not None else "—"}</div><div class="l">{T("MTTR, hours (resolved: %d)" % st["n_resolved"], "MTTR, horas (resueltos: %d)" % st["n_resolved"])}</div></div>'
+            f'<div class="card"><div class="n">{st["n_total"]}</div><div class="l">{T("tickets, 180 days", "tickets, 180 días")}</div></div></div>'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct" style="display:flex;align-items:center">{T("Open tickets by status — last 60 days", "Tickets abiertos por estado — últimos 60 días")}{tip("Open tickets at the end of each day, stacked by status, replayed from the status changes on every timeline.", "Tickets abiertos al final de cada día, apilados por estado, reconstruidos a partir de los cambios de estado de cada línea de tiempo.")}</h2>'
             f'<div style="margin:6px 0">{leg}</div>{TK.status_chart_svg(series)}</div>'
             f'<div class="grid g3" style="margin-top:14px">'
-            f'<div class="card" style="padding:14px 20px"><h2 class="ct">Opened / resolved per week</h2><table><tr><th>week of</th><th class="num">opened</th><th class="num">resolved</th></tr>{weeks}</table></div>'
-            f'<div class="card" style="padding:14px 20px"><h2 class="ct">Open by plant</h2>{tbl([(n.plant(k), v) for k, v in st["by_plant"]], "plant")}</div>'
-            f'<div class="card" style="padding:14px 20px"><h2 class="ct">Open by category</h2>{tbl([(TK.CATEGORY_LABEL.get(k, k), v) for k, v in st["by_category"]], "category")}</div>'
-            f'</div><div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Open by priority</h2>{tbl([(k + " " + TK.PRIORITY_LABEL.get(k, ""), v) for k, v in st["by_priority"]], "priority")}</div>')
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct">{T("Opened / resolved per week", "Abiertos / resueltos por semana")}</h2><table><tr><th>{T("week of", "semana del")}</th><th class="num">{T("opened", "abiertos")}</th><th class="num">{T("resolved", "resueltos")}</th></tr>{weeks}</table></div>'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct">{T("Open by plant", "Abiertos por planta")}</h2>{tbl([(e(n.plant(k)), v) for k, v in st["by_plant"]], T("plant", "planta"))}</div>'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct">{T("Open by category", "Abiertos por categoría")}</h2>{tbl([(category_label(k), v) for k, v in st["by_category"]], T("category", "categoría"))}</div>'
+            f'</div><div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">{T("Open by priority", "Abiertos por prioridad")}</h2>{tbl([(priority_label(k), v) for k, v in st["by_priority"]], T("priority", "prioridad"))}</div>')
     return page('Maintenance statistics', body, 'stats')
 
 

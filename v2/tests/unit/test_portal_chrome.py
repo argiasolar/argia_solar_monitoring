@@ -477,7 +477,7 @@ class TestV235Tooltips:
 
     def test_empty_ticket_list_keeps_the_card_padding(self):
         ma = (BUNDLE / "maint_app.py").read_text(encoding="utf-8")
-        assert '<p class="muted" style="margin:0;padding:16px 20px">No tickets.</p>' in ma
+        assert '<p class="muted" style="margin:0;padding:16px 20px">{T("No tickets.", "Sin tickets.")}</p>' in ma
 
 
 class TestV236ReferenceLanguage:

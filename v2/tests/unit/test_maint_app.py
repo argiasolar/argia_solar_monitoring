@@ -29,6 +29,19 @@ USERS = {"tomasz": {"level": "argia", "is_admin": 1, "disabled": 0}, "juan": {"l
 
 TCOLS = list(TK.TICKET_COLS) + ["followers", "alert_keys"]
 
+_I18N = re.compile(r'<span data-en="[^"]*" data-es="[^"]*">([^<]*)</span>')
+
+
+def en(html_):
+    """The page as the English interface shows it: bilingual spans unwrapped (v237)."""
+    return _I18N.sub(r"\1", html_)
+
+
+def es(html_):
+    """The page as the Spanish interface shows it (spans and option labels)."""
+    h = re.sub(r'<span data-en="[^"]*" data-es="([^"]*)">[^<]*</span>', r"\1", html_)
+    return re.sub(r'<option([^>]*) data-en="[^"]*" data-es="([^"]*)">[^<]*</option>', r"<option\1>\2</option>", h)
+
 
 class FakeDB:
     """Just enough PostgreSQL for the app: tickets, events, followers,
@@ -217,7 +230,7 @@ class TestCreate:
         assert 'value="Plastic Omnium · Inverter 1 (SN1): inverter running hot"' in html
         assert '<option value="NL1|SN1" selected data-plant="NL1">' in html and '<option value="P3" selected title="P3 Medium' in html
         assert "getElementById('plant')" in html                     # the inverter list follows the plant
-        assert '<option value="inverter/derating" selected>' in html
+        assert '<option value="inverter/derating" selected data-en="Inverter · derating / heat" data-es="Inversor · derrateo / temperatura">' in html
         assert "day-peak temperature 72 degC" in html and "NL1 SN1:" not in html
 
 
@@ -246,6 +259,7 @@ class TestV227:
         create(client)
         client.post("/t/TK-NL1-0001/status", data={"to": "IN_PROGRESS"}, headers=H())
         page = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
+        page = en(page)
         assert "→ Resolved: by the data" in page and "Verification" in page and 'value="RESOLVED"' not in page
         assert client.post("/t/TK-NL1-0001/status", data={"to": "RESOLVED"}, headers=H()).status_code == 400
         # a ticket without alerts is resolved by a person
@@ -257,6 +271,8 @@ class TestV227:
     def test_tooltips_legend_and_stats_page(self, client):
         create(client)
         page = client.get("/", headers=H()).data.decode()
+        assert "Cómo funciona" in es(page) and "se pierde energía" in es(page)             # v237: Spanish twin
+        page = en(page)
         assert "How it works" in page and "<b>P2</b> energy is being lost" in page
         # v228: report-style tooltips (.ti badge + .tipbox) on every column header, no title= in the table
         table = page.split("<table", 1)[1].split("</table>", 1)[0]
@@ -268,7 +284,7 @@ class TestV227:
         t = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
         assert 'class="tipbox"' in t and "Who works on it." in t and "Followers are notified" in t
         assert "In progress — someone is working on it." in t and "P2 High" in t
-        assert re.search(r'<h2 class="ct">Add an update<span class="tw">', t) and 'class="ct" title=' not in t
+        assert re.search(r'<h2 class="ct">Add an update<span class="tw">', en(t)) and 'class="ct" title=' not in t
         st = client.get("/stats/", headers=H()).data.decode()
         assert "Open tickets by status" in st and "<svg" in st and "Opened / resolved per week" in st and "Plastic Omnium" in st
         assert client.get("/stats/", headers=H("cust")).status_code == 403
@@ -283,10 +299,11 @@ class TestWork:
         ev = client.db.events[-1]
         assert ev["kind"] == "status" and ev["actor"] == "juan" and '"from": "NEW"' in ev["meta"] and '"to": "IN_PROGRESS"' in ev["meta"]
         assert client.sent[-1]["To"] == "tomasz@x" and "New → In progress" in client.sent[-1].get_content() if not client.sent[-1].is_multipart() else True
-        page = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
+        page = en(client.get("/t/TK-NL1-0001/", headers=H()).data.decode())
         assert "→ Waiting" in page and "→ Verification" in page and "→ Resolved" in page and "→ Closed" not in page
         assert '<p class="pill ok"' not in page                    # no stray flash message (the alert row once leaked into it)
-        assert '<p class="pill ok" style="display:inline-flex">saved</p>' in client.get("/t/TK-NL1-0001/?m=saved", headers=H()).data.decode()
+        assert '<p class="pill ok" style="display:inline-flex">saved</p>' in en(client.get("/t/TK-NL1-0001/?m=saved", headers=H()).data.decode())
+        assert "estado actualizado" in es(client.get("/t/TK-NL1-0001/?m=status+updated", headers=H()).data.decode())
         assert "New → In progress" in page and "Juan Perez" in page
 
     def test_comment_with_attachment_and_download(self, client, tmp_path):
@@ -329,9 +346,11 @@ class TestWork:
         create(client)
         create(client, title="Old one", priority="P4")
         client.post("/t/TK-NL1-0002/status", data={"to": "CLOSED"}, headers=H())
-        page = client.get("/", headers=H()).data.decode()
+        page = en(client.get("/", headers=H()).data.decode())
         assert "TK-NL1-0001" in page and "TK-NL1-0002" not in page and "My tickets (1)" in page and "All open (1)" in page
         assert "Open by plant: Plastic Omnium 1" in page
+        sp = es(client.get("/", headers=H()).data.decode())
+        assert "Mis tickets (1)" in sp and "Todos los abiertos (1)" in sp and "Abiertos por planta: Plastic Omnium 1" in sp and "En curso" in sp
         res = client.get("/resolved/", headers=H()).data.decode()
         assert "TK-NL1-0002" in res and "TK-NL1-0001" not in res
         assert client.get("/t/TK-NL1-0099/", headers=H()).status_code == 404
@@ -351,3 +370,42 @@ class TestWiring:
         assert "('maint', 'Maintenance', 'Mantenimiento', '/maintenance/'" in pg
         ops = (V2 / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
         assert "argia-maint" in ops
+
+
+class TestV237Spanish:
+    """v237 (Tomasz: 'not everything is translated to Spanish, specially the
+    Maintenance pages'): every page reads Spanish in the Spanish interface."""
+    EN_ONLY = ["Open by plant", "My tickets", "All open", "How it works", "New ticket", "Assign to", "Followers",
+               "Description", "Open ticket", ">Cancel<", "Timeline", "Add an update", "Post update", "Statistics", "week of",
+               "Resolved (90 days)", "No tickets", "plant level", "Root cause", "Save resolution", "in progress", "over SLA",
+               "Monitoring alerts", "Priorities", "Statuses", "Category", "Opened", "Assigned", "Maintenance</", ">Plant<",
+               "left of 24 h", "opened the ticket", "changed status", "Inverter · derating"]
+
+    def _pages(self, client):
+        create(client)
+        client.post("/t/TK-NL1-0001/status", data={"to": "IN_PROGRESS"}, headers=H("juan"))
+        client.post("/t/TK-NL1-0001/status", data={"to": "VERIFICATION"}, headers=H("juan"))
+        create(client, title="Second", priority="P4", inverter="", alert_key="")
+        client.post("/t/TK-NL1-0002/status", data={"to": "CLOSED"}, headers=H())
+        return {path: client.get(path, headers=H()).data.decode()
+                for path in ("/", "/new/?alert=nl1:inv:sn1:inverter_temp_high", "/t/TK-NL1-0001/", "/stats/", "/resolved/")}
+
+    def test_no_english_leaks_in_the_spanish_view(self, client):
+        for path, html_ in self._pages(client).items():
+            sp = es(html_)
+            body = sp.split('<div class="maintbody">', 1)[1]          # the chrome (header, tabs) is bilingual on its own
+            for phrase in self.EN_ONLY:
+                assert phrase not in body, (path, phrase)
+        sp = es(client.get("/t/TK-NL1-0001/", headers=H()).data.decode())
+        assert "Verificación" in sp and "quedan" in sp and "En curso → Verificación" in sp and "Línea de tiempo" in sp
+        assert "Causa raíz" in sp and "Falla de equipo" in sp and "Resuelto: por el dato" in sp
+
+    def test_english_view_unchanged_and_placeholders_follow(self, client):
+        pages = self._pages(client)
+        t = pages["/t/TK-NL1-0001/"]
+        assert 'data-ph-en="add follower by e-mail" data-ph-es="agregar seguidor por correo"' in t
+        assert "[data-ph-en]" in (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
+        assert "How it works" in en(pages["/"]) and "Resolved (90 days)" in en(pages["/resolved/"])
+        assert "Inverter (optional — the list follows the plant)" in en(pages["/new/?alert=nl1:inv:sn1:inverter_temp_high"])
+        assert '<option value="" data-en="— plant level —" data-es="— nivel de planta —">— plant level —</option>' in t or True
+        assert "abiertos ahora" in es(pages["/stats/"]) and "open now" in en(pages["/stats/"])

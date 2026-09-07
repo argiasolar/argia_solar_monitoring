@@ -1081,6 +1081,18 @@ MAIL_CHANNEL_LABEL = {
     'daily': 'Daily PPA performance (19:00)',
     'reports': 'Daily PDF reports (morning + evening)',
 }
+MAIL_CHANNEL_LABEL_ES = {   # v237: the people page reads Spanish too
+    'maintenance': 'Mantenimiento — alertas en vivo',
+    'financial': 'Reportes financieros',
+    'daily': 'Desempeño PPA diario (19:00)',
+    'reports': 'Reportes PDF diarios (mañana + tarde)',
+}
+
+
+def channel_label(c: str) -> str:
+    en = MAIL_CHANNEL_LABEL.get(c, c)
+    return (f'<span data-en="{html.escape(en, quote=True)}" data-es="{html.escape(MAIL_CHANNEL_LABEL_ES.get(c, en), quote=True)}">'
+            f'{html.escape(en)}</span>')
 MAIL_ENSURE_SQL = """CREATE TABLE IF NOT EXISTS mail_subscription (
     email    text NOT NULL,
     channel  text NOT NULL
@@ -1132,8 +1144,8 @@ def subscriptions_card():
         email, chan, plants, en, uname, by = r[:6]
         on = en == 't'
         who = by_email.get(email.lower())
-        badge = ('<span class="pill">active</span>' if on else
-                 '<span class="pill" style="background:#eceef0;color:#5f6368">paused</span>')
+        badge = ('<span class="pill" data-en="active" data-es="activa">active</span>' if on else
+                 '<span class="pill" style="background:#eceef0;color:#5f6368" data-en="paused" data-es="pausada">paused</span>')
         if who is None:
             badge += (' <span class="pill" style="background:#fdeaea;'
                       'color:#b3261e" data-en="no portal account — not mailed"'
@@ -1149,8 +1161,9 @@ def subscriptions_card():
             f'<input type="hidden" name="csrf" value="{CSRF}">'
             f'<input type="hidden" name="email" value="{html.escape(email)}">'
             f'<input type="hidden" name="channel" value="{html.escape(chan)}">'
-            f'<button class="btn">{"pause" if on else "resume"}</button></form>'
-            f'<form method="post" action="/setup/mail/delete" style="display:inline">'
+            + ('<button class="btn" data-en="pause" data-es="pausar">pause</button></form>' if on
+               else '<button class="btn" data-en="resume" data-es="reanudar">resume</button></form>')
+            + f'<form method="post" action="/setup/mail/delete" style="display:inline">'
             f'<input type="hidden" name="csrf" value="{CSRF}">'
             f'<input type="hidden" name="email" value="{html.escape(email)}">'
             f'<input type="hidden" name="channel" value="{html.escape(chan)}">'
@@ -1158,13 +1171,13 @@ def subscriptions_card():
         trs.append(
             f'<tr><td><b>{html.escape(who or uname or "?")}</b><br>'
             f'<span class="note">{html.escape(email)}</span></td>'
-            f'<td>{html.escape(MAIL_CHANNEL_LABEL.get(chan, chan))}</td>'
+            f'<td>{channel_label(chan)}</td>'
             f'<td>{scope}</td><td>{badge}</td>'
             f'<td>{html.escape(by)}</td><td>{acts}</td></tr>')
     rows_html = ('<table><tr><th data-en="User" data-es="Usuario">User</th>'
                  '<th data-en="Channel" data-es="Canal">Channel</th>'
                  '<th data-en="Plants" data-es="Plantas">Plants</th>'
-                 '<th>Status</th>'
+                 '<th data-en="Status" data-es="Estado">Status</th>'
                  '<th data-en="Added by" data-es="Agregado por">Added by</th>'
                  '<th></th></tr>' + ''.join(trs) + '</table>'
                  if trs else
@@ -1173,7 +1186,7 @@ def subscriptions_card():
         f'<option value="{html.escape(u)}">{html.escape(name)} '
         f'&lt;{html.escape(em)}&gt;</option>' for u, name, em in users)
     chan_opts = ''.join(
-        f'<option value="{c}">{MAIL_CHANNEL_LABEL[c]}</option>'
+        f'<option value="{c}" data-en="{html.escape(MAIL_CHANNEL_LABEL[c], quote=True)}" data-es="{html.escape(MAIL_CHANNEL_LABEL_ES[c], quote=True)}">{html.escape(MAIL_CHANNEL_LABEL[c])}</option>'
         for c in MAIL_CHANNELS)
     plant_boxes = ''.join(
         f'<label style="margin-right:8px;white-space:nowrap">'

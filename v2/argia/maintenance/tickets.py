@@ -128,6 +128,12 @@ ROOT_CAUSES: List[Tuple[str, str]] = [
     ("design", "Design issue"), ("unknown", "Unknown"),
 ]
 
+ROOT_CAUSE_ES = {
+    "equipment": "Falla de equipo", "installation": "Problema de instalación", "manufacturer": "Fabricante / garantía",
+    "environment": "Ambiental (calor, polvo, clima)", "grid": "Red / CFE", "customer": "Lado del cliente",
+    "comms": "Comunicación", "design": "Problema de diseño", "unknown": "Desconocida",
+}
+
 EVENT_KINDS = ("created", "comment", "status", "assign", "follow", "unfollow",
                "attachment", "alert", "priority", "system", "resolution")
 

@@ -1,0 +1,48 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><title>Inverter heat vs output — 2026 summer</title>
+<style>body{font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0b0b0b;background:#fcfcfb;max-width:900px;margin:0 auto;padding:28px 20px;line-height:1.45}
+h1{font-size:24px;margin:0 0 4px} h2{font-size:17px;margin:28px 0 8px} .lead{color:#52514e;margin:0 0 18px}
+table{border-collapse:collapse;width:100%;font-size:13px} th,td{border-bottom:1px solid #e6e6e3;padding:6px 8px;text-align:right;vertical-align:top} th:first-child,td:first-child{text-align:left} th{color:#52514e;font-weight:600;font-size:12px}
+.sub{color:#52514e;font-size:11px} .kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0} .kpi div{border:1px solid #e6e6e3;border-radius:8px;padding:10px 12px} .kpi b{display:block;font-size:22px} .kpi span{color:#52514e;font-size:12px}
+img{width:100%;height:auto;border:1px solid #e6e6e3;border-radius:6px;margin:8px 0} .note{background:#f3f4f6;border-radius:8px;padding:10px 14px;font-size:13px} .warn{border-left:4px solid #eb6834;padding-left:12px;display:block;margin-top:6px}
+@media(max-width:700px){.kpi{grid-template-columns:repeat(2,1fr)} .tw{overflow-x:auto}}</style></head><body>
+<h1>Inverter heat vs output — what the fleet actually loses</h1>
+<p class=lead>Argia_Mont v2 telemetry, 5-minute samples, 2026-07-01 → 2026-09-06 (60 days with data; 18–25 Aug missing), {{INTERVALS}} inverter-intervals with a peer reference. Computed 2026-09-07.</p>
+<div class=kpi>
+<div><b>1.8–2.9 MWh</b><span>measurable thermal loss, whole fleet, 60 days (net – derating-only)</span></div>
+<div><b>MXN 3.6–5.8 k</b><span>at the PPA tariff (2.02 MXN/kWh, Plastic Omnium)</span></div>
+<div><b>2 of 36</b><span>inverters carry all of it — both at Plastic Omnium</span></div>
+<div><b>{{H65}} h</b><span>inverter-hours ≥ 65 °C fleet-wide → ~200 h of actual derating</span></div></div>
+
+<h2>The answer in three sentences</h2>
+<p>Yes, heat costs energy — but only where an inverter is <em>hotter than its peers</em>, and only above about 75 °C. Plastic Omnium inverter 1 (JGMAE65009) produces <b>9 % less</b> than its cooler siblings at midday when it is ≥ 75 °C (n = 1,609 intervals) and inverter 4 (JGMAE6500G) <b>4 % less</b> (n = 1,990); together 1.8–2.9 MWh over the summer so far, 1.1–1.8 % of the plant's energy. Everywhere else — SAG's three Huawei units at up to 76 °C, Quimica Coyoacan at 75 °C, Taigene — the hot inverters keep up with their peers: <b>no measurable loss</b>, even at 75 °C.</p>
+
+<h2>How it was measured (the three methods, as proposed)</h2>
+<p><b>1 · Cooler-peer counterfactual, per 5-minute interval.</b> For every inverter at every minute: output per kWp DC versus the median of its plant siblings that are ≥ 5 °C cooler and running ≥ 15 % of rating, scaled by the inverter's own <em>cool baseline</em> — its usual ratio to the peers when below 65 °C, <em>per hour of day</em> (inverter 4 at Plastic Omnium is shaded in the morning; an all-day baseline hid its midday derating — the v216 nightly job has exactly that blind spot, fix listed below). Clipping intervals (≥ 97 % of AC rating) are excluded. Loss = expected − actual while ≥ 65 °C, reported as a range: <b>net</b> (negatives count — the honest central number) to <b>derating-only</b> (positives only — the upper bound).</p>
+<p><b>2 · The inverter against itself at the same conditions.</b> Cool (&lt; 65 °C) vs hot (≥ 70 °C) intervals in the same bin of irradiance (100 W/m²) and module temperature (5 °C). <span class=warn>Inconclusive on this data: the hot inverter appears to make 3–13 % <em>more</em> in the same bin. Our irradiance and module temperature are hourly modelled values (Open-Meteo), not site instruments, so the bins do not really hold sun and module heat constant — hot intervals are simply the clear midday peaks. This method needs a Class-A on-site sensor (AGS-901); dropped from the numbers.</span></p>
+<p><b>3 · Empirical ratio-vs-temperature curve.</b> Output relative to <em>all</em> running peers, normalised by the own cool baseline, binned by the inverter's internal temperature — the fleet's own derating curve.</p>
+<img src="{{IMG_CURVE}}" alt="fleet curve">
+<p class=note>Fleet-wide the ratio is flat at 100 % through 70–75 °C (n = 3,272) and drops to 97.4 % above 75 °C (n = 4,126) — and that 2.6 % is almost entirely Plastic Omnium inverters 1 and 4. A hot inverter is not, by itself, a losing inverter.</p>
+
+<h2>Plastic Omnium — the case</h2>
+<img src="{{IMG_NL1}}" alt="Plastic Omnium curve">
+<p>Inverters 1 and 4 fall away above 70 °C (93 % and 98 % of baseline at ≥ 75 °C over all hours; −9 % and −4 % at midday); inverters 2 and 3 <em>rise</em> above 100 % in the same bins — they are only that hot at the clearest noon, exactly when 1 and 4 derate, so relative to the plant they look better. Both hot units run 8–14 °C above their siblings on the same roof, same sun: a unit-specific cooling problem (54 % of Plastic Omnium's hot intervals are ≥ 5 °C above the peer median; at SAG it is 2 %).</p>
+<img src="{{IMG_DAY}}" alt="Plastic Omnium hottest day">
+<p>The hottest day (28 Aug) shows the plateau the theory predicts: inverters 2 and 3 climb to 75 % of DC rating, inverters 1 and 4 flatten at ~68 % from 11:30 to 14:30 while their temperature sits at 80–82 °C, then rejoin the peer curve as they cool after 16:00. That is inverter thermal limiting, not module heat — module heat would pull all four down together.</p>
+<table><tr><th>Month</th><th>Jul</th><th>Aug (23 days)</th><th>Sep 1–6</th><th>Total</th></tr>
+<tr><td>Plastic Omnium, derating-only loss, kWh</td><td>{{JUL}}</td><td>{{AUG}}</td><td>{{SEP}}</td><td>{{TOT}}</td></tr></table>
+<p class=sub style="margin-top:6px">Net (negatives counted): inverter 1 {{NET1}} kWh, inverter 4 {{NET4}} kWh. At this rate over the hot half of the year: roughly 5–8 MWh, MXN 10–16 k per year, for two inverters.</p>
+
+<h2>Every inverter that spent ≥ 5 h above 70 °C</h2>
+<div class=tw><table><tr><th>Inverter</th><th>Peak °C</th><th>h ≥ 65</th><th>h ≥ 70</th><th>h ≥ 75</th><th>h derating</th><th>Midday ≥ 75 °C vs own cool</th><th>Mean vs cooler peers, all hot h</th><th>Loss kWh net – derating-only</th><th>MXN</th></tr>{{ROWS}}</table></div>
+<p class=sub>"Midday ≥ 75 °C vs own cool" = median output-to-peers ratio at 11–15 h when ≥ 75 °C, relative to the same ratio when &lt; 65 °C at the same hours — the cleanest single number. "Mean vs cooler peers" averages every interval ≥ 65 °C including the mild ones (negative = below the counterfactual), ± standard error; small n = noise. CAPEX plants (Ryder) carry no tariff.</p>
+
+<h2>What this means for the alerts and the O&amp;M list</h2>
+<p>1. The v220 rule (CRITICAL only with a measured shortfall ≥ 10 % against cooler peers; heat alone = WARNING) is confirmed by the data — SAG at 76 °C is a warning, not an outage.<br>
+2. <b>Plastic Omnium inverters 1 and 4 are an O&amp;M ticket with a number attached</b>: 8–14 °C hotter than identical siblings on the same roof, 9 % / 4 % output loss above 75 °C, ~3 MWh a summer. Check fans, filters, heat-sink dust, enclosure clearance and sun exposure of those two units first; the thermal card will show the before/after.<br>
+3. The nightly thermal job (`thermal_daily`) should take its cool baseline per hour of day, as this analysis does — otherwise a morning-shaded unit's derating is under-counted (inverter 4: 1,185 kWh derating-only here vs 517 kWh in the v216 30-day figure).<br>
+4. Not thermal, but the same data showed it: Taigene inverter 6 (JFM7DXN013) sits 31 % below its peers even when cool — the known FT=302 unit; Budenheim inverter 1 (JJM4D4P01C) 20–40 % below inverter 2 per kWp at all temperatures — a DC-side or register problem, consistent with yesterday's string warning; Hirschmann and Ryder inverters differ by 10–35 % per kWp at all temperatures — most likely the DC ratings in the register, worth checking against the as-built.<br>
+5. Method 2 (self vs self) is the method that would settle inverter vs module heat beyond doubt, and it needs an on-site irradiance/module sensor — the AGS-701 R1 Class-A point in practice.</p>
+
+<h2>Caveats</h2>
+<p>Peer comparison assumes the siblings share sun, orientation and shading; the per-hour baseline absorbs fixed differences (DC size, morning shade) but not a fault that starts inside the window. 8 days (18–25 Aug) are missing from the telemetry with temperature. Losses are valued at the PPA tariff without IVA; CAPEX plants are shown without money. Thresholds: cooler peer ≥ 5 °C, running ≥ 15 %, clipping excluded ≥ 97 % AC, derating interval &lt; 97 % of expected. Reproducible: `tools/thermal_deep_analysis.py` in the repo on the exported CSVs.</p>
+</body></html>

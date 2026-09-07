@@ -1,0 +1,10 @@
+[Unit]
+Description=ARGIA ticket replies by mail — every 10 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/10:00
+RandomizedDelaySec=30
+Persistent=false
+
+[Install]
+WantedBy=timers.target

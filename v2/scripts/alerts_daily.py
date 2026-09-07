@@ -394,31 +394,100 @@ def _ticket_briefs():
         return {}
 
 
-def _attach_to_tickets(records, tickets, dry_run: bool = False) -> int:
-    """v226: an alert opened or touched today whose key has an open ticket
-    is an occurrence on that ticket — counted in ticket_alert and written
-    to the timeline as an 'alert' event (actor 'monitoring')."""
-    if not tickets:
+def _open_tickets():
+    """v227: the OPEN tickets themselves (asset matching, verification);
+    [] when the tables are not there."""
+    try:
+        from argia.maintenance import tickets as TK
+        from argia.store.pgq import psql_csv
+        return [TK.ticket_from_row(r) for r in TK.rows_from_csv(psql_csv(
+            TK.SELECT_TICKETS + " WHERE status IN ('NEW','IN_PROGRESS','WAITING','VERIFICATION');"))]
+    except Exception as e:  # noqa: BLE001
+        log.warning("open tickets unavailable (%s)", e)
+        return []
+
+
+def _ticket_notify(t, what, detail=""):
+    """Tell the ticket's participants what the data decided (fail-soft)."""
+    try:
+        from argia.alerts import naming
+        from argia.maintenance import notify as NOTIFY
+        n = naming.load_names()
+        email_of, name_of = NOTIFY.account_lookups()
+        NOTIFY.send(t, "monitoring", what, detail, email_of, name_of, n.plant(t.plant_key),
+                    n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else "")
+    except Exception as e:  # noqa: BLE001
+        log.warning("ticket notification failed: %s", e)
+
+
+def _attach_to_tickets(records, open_tickets, dry_run: bool = False) -> int:
+    """v226/v227: an alert opened or touched today that belongs to an open
+    ticket — by alert_key, or by the ASSET (same plant + inverter, or the
+    plant itself for a plant-level alert) — is an occurrence on that
+    ticket: counted in ticket_alert (which links it from now on) and
+    written to the timeline as an 'alert' event (actor 'monitoring'). So
+    once a ticket exists for an inverter, its warnings are never repeated
+    in the mail — the ticket's progress is."""
+    if not open_tickets:
         return 0
     from argia.maintenance import tickets as TK
-    from argia.store.pgq import psql_exec, psql_rows
+    from argia.store.pgq import psql_exec
+    by_key = {k: t for t in open_tickets for k in t.alert_keys}
     n = 0
     for r in records:
-        b = tickets.get(r.alert_key)
-        if b is None or not getattr(b, "open", False):
+        t = by_key.get(r.alert_key) or TK.matching_ticket(open_tickets, r.plant_key, r.inverter_sn or "")
+        if t is None:
             continue
-        log.info("TICKET   %s  %s -> %s", r.alert_id, r.alert_key, b.number)
+        log.info("TICKET   %s  %s -> %s", r.alert_id, r.alert_key, t.number)
         if dry_run:
             n += 1
             continue
         try:
-            tid = psql_rows(f"SELECT id FROM ticket WHERE number = {TK._txt(b.number)};")
-            if tid and tid[0]:
-                psql_exec(TK.link_alert_sql(int(tid[0][0]), r.alert_key)
-                          + TK.event_sql(int(tid[0][0]), "monitoring", "alert", r.message[:400], {"alert_id": r.alert_id}))
-                n += 1
+            psql_exec(TK.link_alert_sql(t.id, r.alert_key)
+                      + TK.event_sql(t.id, "monitoring", "alert", r.message[:400], {"alert_id": r.alert_id}))
+            if r.alert_key not in t.alert_keys:
+                t.alert_keys.append(r.alert_key)
+            n += 1
         except Exception as e:  # noqa: BLE001
-            log.warning("could not attach %s to %s: %s", r.alert_id, b.number, e)
+            log.warning("could not attach %s to %s: %s", r.alert_id, t.number, e)
+    return n
+
+
+def _verify_tickets(open_tickets, ledger_records, touched_records, now_utc, dry_run: bool = False) -> int:
+    """v227: the last step before closing comes from the data. For every
+    ticket in VERIFICATION with linked alerts: an alert seen again today
+    sends it back to In progress; none open and none seen for
+    tickets.VERIFY_QUIET_DAYS marks it Resolved. Both are timeline events
+    by 'monitoring' and a mail to the participants."""
+    from argia.maintenance import tickets as TK
+    from argia.store.pgq import psql_csv, psql_exec
+    cands = [t for t in open_tickets if t.status == "VERIFICATION" and t.alert_keys]
+    if not cands:
+        return 0
+    open_keys = {r.alert_key for r in ledger_records if r.is_open()}
+    touched = {r.alert_key for r in touched_records}
+    last_seen = {}
+    try:
+        for r in TK.rows_from_csv(psql_csv("SELECT alert_key, max(last_seen)::text AS seen FROM ticket_alert GROUP BY 1;")):
+            ts = TK.parse_ts(r.get("seen") or "")
+            if ts is not None:
+                last_seen[r["alert_key"]] = ts
+    except Exception as e:  # noqa: BLE001
+        log.warning("ticket_alert last_seen unavailable (%s)", e)
+    n = 0
+    for t in cands:
+        to, reason = TK.verify_decision(t, open_keys, touched, last_seen, now_utc)
+        log.info("VERIFY   %s  %s", t.number, reason or "nothing to decide")
+        if to is None or dry_run:
+            continue
+        try:
+            psql_exec(TK.status_sql(t.id, to) + TK.event_sql(t.id, "monitoring", "status", reason, {"from": t.status, "to": to}))
+            old = t.status
+            t.status = to
+            _ticket_notify(t, f"Status: {TK.STATUS_LABEL.get(old, old)} → {TK.STATUS_LABEL.get(to, to)} (by the data)", reason)
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            log.warning("could not update %s: %s", t.number, e)
     return n
 
 
@@ -554,8 +623,10 @@ def main(argv=None) -> int:
     # once per issue type. Mailed records come back with 'email' in
     # channels_sent.
     from argia.alerts.ledger_mail import mail_new_alerts
-    tickets = _ticket_briefs()
-    _attach_to_tickets(result.opened + result.touched, tickets, dry_run=args.dry_run)
+    open_tickets = _open_tickets()
+    _attach_to_tickets(result.opened + result.touched, open_tickets, dry_run=args.dry_run)
+    _verify_tickets(open_tickets, result.records, result.opened + result.touched, now_utc, dry_run=args.dry_run)
+    tickets = _ticket_briefs()            # after the attach: newly linked keys count as in hand
     records = mail_new_alerts(result.records, dry_run=args.dry_run, morning=True,
                               when_mx=now_mx().strftime("%Y-%m-%d %H:%M"), now_utc=now_utc, tickets=tickets)
     mailed = records != list(result.records)

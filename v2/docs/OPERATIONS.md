@@ -44,6 +44,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-archive, argia-archive-month | 03:00 MX / 2nd 03:00 MX | telemetry archive + retention |
 | argia-dbdump | 03:30 server time | pg_dump + auth DB + portfolio snapshot → `/root/argia_backups` |
 | argia-ags-ingest | Sun 04:20 | Golden Standard page → `knowledge` (Ask ARGIA) |
+| argia-ticket-mail | every 10 min | replies to `[TK-…]` mails → ticket comments (v227; idle until `IMAP_HOST/IMAP_USER/IMAP_PASS` are in `/root/.argia_mail`) |
 
 Services (always on): `argia-auth` 8512 (login/session), `argia-setup` 8511 (admin), `argia-ask` 8513 (Ask ARGIA), `argia-maint` 8514 (maintenance tickets, v226; attachments in `/opt/argia/tickets/`, root-only); nginx in front. Every job runs through `pi/run_job.sh <name> <script>` (venv, secrets, flock, log `/root/argia_logs/<name>.log`).
 

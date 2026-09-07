@@ -41,6 +41,14 @@ One **timeline** per ticket: created, comment, status, assign, follow, attachmen
 ## Access
 Internal accounts only (level `argia` or global admin). Customer accounts get a no-access page. Customer-visible tickets (public vs internal comments) are Phase 3.
 
+## v227 (same day)
+- **Participants by e-mail**: any address can follow a ticket (at creation or later); it is notified of every change. Notifications go out as `[TK-NL1-0007] …` with `Reply-To` = the service mailbox; `scripts/ticket_mail_in.py` (timer `argia-ticket-mail`, every 10 min) files a participant's reply as a comment (attachments included) once `IMAP_HOST/IMAP_USER/IMAP_PASS` exist in `/root/.argia_mail` — until then it logs "IMAP not configured".
+- **Resolved comes from the data**: a ticket with linked alerts cannot be marked Resolved by a person — the button says "by the data (put it in Verification)". In Verification the nightly run (`alerts_daily._verify_tickets`) marks it Resolved when no linked alert is open or has been seen for 2 days, or sends it back to In progress when one recurs; both as `monitoring` timeline events with a mail. Tickets without alerts are resolved by people.
+- **No repeated warnings**: at creation every open alert on the asset is linked; the nightly run attaches any alert opened/touched on the same plant + inverter (or the plant, for plant-level alerts) to the open ticket — so the morning mail and the 19:00 performance mail show "In hand: TK-… · status · last update" instead of the warning.
+- **Statistics tab**: open tickets by status over 60 days (stacked SVG), opened/resolved per week, MTTR, open by plant / category / priority, over-SLA count.
+- **Tooltips**: every status, priority and button carries its meaning; "How it works" legend on the dashboard; priorities explained on the form.
+- **Form**: the inverter list follows the selected plant. Landing tile sits right of the Golden Standard.
+
 ## Roadmap
 - **Phase 1 (this commit)**: tickets, plant/inverter link, assignment, followers, timeline, comments, attachments, e-mail notifications, dashboard, alert prefill + link, morning-mail "in hand" lines, occurrences on the timeline.
 - **Phase 2 — automation**: open a ticket automatically for CRITICAL alerts (energy lost / unit off) after N hours without a human ticket; telemetry snapshot on the ticket (power vs expected, temperature, fault code, last-24 h chart); auto-verification (no alert recurrence for 24 h → propose RESOLVED); SLA breach mails.

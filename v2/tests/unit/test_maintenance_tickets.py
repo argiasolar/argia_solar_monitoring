@@ -168,7 +168,7 @@ class TestMailIntegration:
         import pathlib
         v2 = pathlib.Path(__file__).resolve().parents[2]
         d = (v2 / "scripts/alerts_daily.py").read_text(encoding="utf-8")
-        assert "tickets = _ticket_briefs()" in d and "_attach_to_tickets(result.opened + result.touched, tickets" in d
+        assert "tickets = _ticket_briefs()" in d and "_attach_to_tickets(result.opened + result.touched, open_tickets" in d
         assert "tickets=tickets)" in d
         s = (v2 / "scripts/alerts_snapshot.py").read_text(encoding="utf-8")
         assert "TK.load_open_briefs()" in s and "tickets=tickets)" in s
@@ -181,6 +181,112 @@ class TestMailIntegration:
         import pathlib
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
         ad = importlib.import_module("alerts_daily")
-        briefs = {"k1": TK.TicketBrief("TK-NL1-0007", "IN_PROGRESS", "P2", "juan", "2026-09-06", "", True)}
-        assert ad._attach_to_tickets([self._rec(1, "k1"), self._rec(2, "k2")], briefs, dry_run=True) == 1
-        assert ad._attach_to_tickets([self._rec(1, "k1")], {}, dry_run=True) == 0
+        open_t = [tk(alert_keys=["k1"], inverter_sn="JGMAE65009")]
+        # by key (k1) and by asset (k2 is the same inverter) — both land on the ticket; k3 is another inverter
+        assert ad._attach_to_tickets([self._rec(1, "k1"), self._rec(2, "k2"), self._rec(3, "k3", sn="OTHER")], open_t, dry_run=True) == 2
+        assert ad._attach_to_tickets([self._rec(1, "k1")], [], dry_run=True) == 0
+        # verification: dry run decides but changes nothing
+        v = tk(status="VERIFICATION", alert_keys=["k1"])
+        assert ad._verify_tickets([v], [], [self._rec(1, "k1")], NOW, dry_run=True) == 0
+
+
+class TestV227:
+    """v227: e-mail participants, reply-by-mail, verification by the
+    data, asset matching, statistics."""
+
+    def test_email_identities(self):
+        assert TK.is_email("tech@contractor.mx") and not TK.is_email("juan") and not TK.is_email("a@b")
+        assert TK.valid_email(" Tech@Contractor.MX ") == "tech@contractor.mx" and TK.valid_email("nope") == ""
+        t = tk(followers=["arturo", "tech@contractor.mx"])
+        assert TK.recipients(t, "tomasz") == ["juan", "arturo", "tech@contractor.mx"]
+        from argia.maintenance import notify as N
+        assert N.address_of("tech@contractor.mx", lambda u: "") == "tech@contractor.mx"
+        assert N.address_of("juan", lambda u: "juan@x") == "juan@x"
+        subj, text, html = N.render(t, "Juan Perez", "Status: New → In progress", "", "Plastic Omnium", "Inverter 1", "Juan Perez")
+        assert subj == "[TK-NL1-0007] Plastic Omnium: Inverter 1 cooling — In progress"
+        assert "Reply to this mail to add a comment" in text and "/maintenance/t/TK-NL1-0007/" in html
+
+    def test_parse_ts_is_python310_safe(self):
+        assert TK.parse_ts("2026-09-06 14:00:00+00") == dt.datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
+        assert TK.parse_ts("2026-09-06 14:00:00.123456+00") == dt.datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
+        assert TK.parse_ts("2026-09-06T14:00:00+00:00") == dt.datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
+        assert TK.parse_ts("2026-09-06 08:00:00-06") == dt.datetime(2026, 9, 6, 14, 0, tzinfo=UTC)
+        assert TK.parse_ts("garbage") is None and TK.parse_ts("") is None
+
+    def test_reply_parsing(self):
+        assert TK.reply_ticket_number("Re: [TK-NL1-0007] Plastic Omnium: cooling — In progress") == "TK-NL1-0007"
+        assert TK.reply_ticket_number("hello") is None
+        body = "Filters replaced today.\nPhotos attached.\n\nOn Mon, Sep 7, 2026 at 9:00 AM ARGIA Monitoring <service@argia.com.mx> wrote:\n> Status: New\n> …"
+        assert TK.strip_reply(body) == "Filters replaced today.\nPhotos attached."
+        assert TK.strip_reply("> quoted only\n> more") == ""
+        assert TK.strip_reply("ok\n-- \nJuan\nARGIA") == "ok"
+
+    def test_verify_decision(self):
+        now = NOW
+        seen_old = {"k1": now - dt.timedelta(days=3)}
+        v = tk(status="VERIFICATION", alert_keys=["k1"])
+        assert TK.verify_decision(v, [], [], seen_old, now) == ("RESOLVED", "no linked alert open or seen for 2 days — resolved by the data")
+        assert TK.verify_decision(v, [], ["k1"], seen_old, now)[0] == "IN_PROGRESS"           # recurred today
+        assert TK.verify_decision(v, ["k1"], [], seen_old, now) == (None, "waiting: 1 linked alert(s) still open in the ledger")
+        assert TK.verify_decision(v, [], [], {"k1": now - dt.timedelta(hours=20)}, now)[0] is None   # too recent
+        assert TK.verify_decision(tk(status="IN_PROGRESS", alert_keys=["k1"]), [], [], {}, now) == (None, "")
+        assert TK.verify_decision(tk(status="VERIFICATION", alert_keys=[]), [], [], {}, now) == (None, "")   # people resolve these
+
+    def test_matching_ticket_by_asset(self):
+        a = tk(id=1, number="TK-NL1-0001", inverter_sn="SN1", created_at="2026-09-01 10:00:00+00")
+        b = tk(id=2, number="TK-NL1-0002", inverter_sn="SN1", created_at="2026-09-05 10:00:00+00")
+        p = tk(id=3, number="TK-NL1-0003", inverter_sn="", created_at="2026-09-05 10:00:00+00")
+        assert TK.matching_ticket([a, b, p], "nl1", "SN1").number == "TK-NL1-0002"     # newest on the asset
+        assert TK.matching_ticket([a, b, p], "NL1", "").number == "TK-NL1-0003"        # plant-level alert -> plant-level ticket
+        assert TK.matching_ticket([a, b, p], "NL1", "SN9") is None and TK.matching_ticket([], "NL1", "SN1") is None
+
+    def test_status_timeline_and_stats_and_chart(self):
+        t1 = tk(id=1, number="TK-NL1-0001", status="RESOLVED", created_at="2026-09-01 10:00:00+00", resolved_at="2026-09-03 10:00:00+00")
+        t2 = tk(id=2, number="TK-NL1-0002", status="IN_PROGRESS", created_at="2026-09-05 10:00:00+00")
+        evs = [TK.Event(1, 1, "2026-09-02 10:00:00+00", "juan", "status", "", {"from": "NEW", "to": "IN_PROGRESS"}),
+               TK.Event(2, 1, "2026-09-03 10:00:00+00", "monitoring", "status", "", {"from": "IN_PROGRESS", "to": "RESOLVED"}),
+               TK.Event(3, 2, "2026-09-06 10:00:00+00", "juan", "status", "", {"from": "NEW", "to": "IN_PROGRESS"})]
+        series = TK.status_timeline([t1, t2], evs, 8, NOW)
+        by_day = {d.isoformat(): c for d, c in series}
+        assert by_day["2026-09-01"] == {"NEW": 1} and by_day["2026-09-02"] == {"IN_PROGRESS": 1}
+        assert by_day["2026-09-03"] == {} and by_day["2026-09-05"] == {"NEW": 1} and by_day["2026-09-08"] == {"IN_PROGRESS": 1}
+        st = TK.stats([t1, t2], NOW, weeks=2)
+        assert st["n_open"] == 1 and st["n_resolved"] == 1 and st["mttr_h"] == 48.0
+        assert st["by_plant"] == [("NL1", 1)] and st["by_priority"] == [("P2", 1)] and st["over_sla"] == 1
+        assert sum(o for _w, o, _r in st["weeks"]) == 2 and sum(r for _w, _o, r in st["weeks"]) == 1
+        svg = TK.status_chart_svg(series)
+        assert svg.startswith("<svg") and "<polygon" in svg and "In progress" in svg and TK.status_chart_svg([]) == ""
+
+    def test_ingester_parses_a_reply(self):
+        import sys
+        import pathlib
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
+        import ticket_mail_in as MI
+        raw = (b"From: Juan Perez <juan@x>\r\nTo: service@argia.com.mx\r\nSubject: Re: [TK-NL1-0007] Plastic Omnium: cooling\r\n"
+               b"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n--B\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+               b"Filters replaced.\r\n\r\nOn Mon wrote:\r\n> old\r\n--B\r\nContent-Type: image/png\r\nContent-Disposition: attachment; filename=\"a.png\"\r\n"
+               b"Content-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--B\r\nContent-Type: application/x-msdownload\r\n"
+               b"Content-Disposition: attachment; filename=\"run.exe\"\r\nContent-Transfer-Encoding: base64\r\n\r\nAAAA\r\n--B--\r\n")
+        number, sender, text, files = MI.parse_message(raw)
+        assert (number, sender, text) == ("TK-NL1-0007", "juan@x", "Filters replaced.")
+        assert [f[0] for f in files] == ["a.png"]
+        t = tk(followers=["tech@contractor.mx"])
+        assert MI.may_comment(t, "juan@x", lambda u: {"juan": "juan@x"}.get(u, "")) == "juan"
+        assert MI.may_comment(t, "tech@contractor.mx", lambda u: "") == "tech@contractor.mx"
+        assert MI.may_comment(t, "stranger@x", lambda u: "") is None
+        assert MI.imap_config({"SMTP_HOST": "h"}) is None
+        assert MI.imap_config({"IMAP_HOST": "h", "IMAP_USER": "u", "IMAP_PASS": "p"})["folder"] == "INBOX"
+
+    def test_daily_job_wiring(self):
+        import pathlib
+        v2 = pathlib.Path(__file__).resolve().parents[2]
+        d = (v2 / "scripts/alerts_daily.py").read_text(encoding="utf-8")
+        assert "open_tickets = _open_tickets()" in d and "_verify_tickets(open_tickets, result.records, result.opened + result.touched, now_utc" in d
+        assert "TK.matching_ticket(open_tickets, r.plant_key, r.inverter_sn" in d
+        assert "tickets = _ticket_briefs()            # after the attach" in d
+        pm = (v2 / "scripts/daily_perf_mail.py").read_text(encoding="utf-8")
+        assert '(extra or {}).get("ticket") or _ISSUE_WHY.get(head, "")' in pm and "opened_utc, message, alert_key FROM alert_ledger" in pm
+        pg = (v2 / "server/bundle/portal_gen.py").read_text(encoding="utf-8")
+        assert pg.index("('ags',") < pg.index("('maint',") < pg.index("('setup',")
+        assert "argia-ticket-mail" in (v2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
+        assert "ticket_mail_in.py" in (v2 / "server/bundle/argia-ticket-mail.service").read_text(encoding="utf-8")

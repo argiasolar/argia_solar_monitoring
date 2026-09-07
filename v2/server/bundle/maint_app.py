@@ -37,6 +37,7 @@ sys.path.insert(0, os.environ.get('ARGIA_V2_DIR', '/root/argia_v2/v2'))
 
 import portal_chrome as PC                              # noqa: E402
 from argia.alerts import emailer, naming                # noqa: E402
+from argia.maintenance import notify as NOTIFY           # noqa: E402
 from argia.maintenance import tickets as TK             # noqa: E402
 from argia.store import pgq                             # noqa: E402
 
@@ -113,6 +114,8 @@ def staff() -> List[Dict[str, str]]:
 
 
 def email_of(username: str) -> str:
+    if TK.is_email(username):
+        return username.strip().lower()
     for s in staff():
         if s['username'] == username:
             return s['email']
@@ -120,6 +123,10 @@ def email_of(username: str) -> str:
 
 
 def name_of(username: str) -> str:
+    """A portal account by its display name; an e-mail participant by
+    the address itself (v227)."""
+    if username == 'monitoring':
+        return 'Monitoring'
     for s in staff():
         if s['username'] == username:
             return s['name'] or username
@@ -215,39 +222,11 @@ def add_event(t: TK.Ticket, who: str, kind: str, body: str = '', meta: Optional[
 
 # ------------------------------------------------------------ notify
 def notify(t: TK.Ticket, who: str, what: str, detail: str = '') -> int:
-    """E-mail the other participants about one change. Returns the
-    number of addresses mailed; never raises."""
-    try:
-        to = [email_of(u) for u in TK.recipients(t, who)]
-        to = sorted({e for e in to if e})
-        if not to:
-            return 0
-        cfg = emailer.load_smtp()
-        if not cfg:
-            return 0
-        n = names()
-        plant = n.plant(t.plant_key)
-        subject = f"[ARGIA] {t.number} · {plant}: {t.title} — {TK.STATUS_LABEL.get(t.status, t.status)}"
-        url = f"{PORTAL}/maintenance/t/{t.number}/"
-        text = (f"{what}\n{detail}\n\n{t.number} · {plant}"
-                + (f" · {n.inverter(t.plant_key, t.inverter_sn)}" if t.inverter_sn else "")
-                + f"\n{t.title}\nStatus: {TK.STATUS_LABEL.get(t.status, t.status)} · Priority: {t.priority}"
-                f" · Assigned: {name_of(t.assigned_to) if t.assigned_to else '—'}\nBy: {name_of(who)}\n\n{url}\n")
-        e = html.escape
-        htm = (f'<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a19;max-width:640px">'
-               f'<div style="font-size:12px;color:#5f6368">{e(t.number)} · {e(plant)}'
-               + (f' · {e(n.inverter(t.plant_key, t.inverter_sn))}' if t.inverter_sn else '')
-               + f'</div><div style="font-size:16px;font-weight:700;margin:2px 0 10px">{e(t.title)}</div>'
-               f'<div style="padding:10px 12px;border-left:4px solid #05b1a9;background:#f4fbfa;margin-bottom:10px"><b>{e(what)}</b>'
-               + (f'<div style="margin-top:4px;white-space:pre-wrap">{e(detail)}</div>' if detail else '')
-               + f'<div style="margin-top:6px;color:#5f6368;font-size:12px">by {e(name_of(who))}</div></div>'
-               f'<div style="font-size:13px;color:#41474f">Status <b>{e(TK.STATUS_LABEL.get(t.status, t.status))}</b> · '
-               f'Priority <b>{e(t.priority)}</b> · Assigned <b>{e(name_of(t.assigned_to) if t.assigned_to else "—")}</b></div>'
-               f'<p><a href="{url}">{url}</a></p></div>')
-        msg = emailer.build_html_email(subject, text, htm, cfg['SMTP_USER'], to)
-        return len(to) if emailer.send(msg, cfg) else 0
-    except Exception:                                    # noqa: BLE001
-        return 0
+    """E-mail the other participants about one change (v227: through
+    argia.maintenance.notify — usernames and bare e-mails alike)."""
+    n = names()
+    return NOTIFY.send(t, who, what, detail, email_of, name_of, n.plant(t.plant_key),
+                       n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else '')
 
 
 # --------------------------------------------------------------- HTML
@@ -274,7 +253,29 @@ CSS = '''
 .cnt .card{padding:14px 16px}.cnt .n{font-size:26px;font-weight:800;color:var(--deep)}.cnt .l{font-size:12px;color:var(--muted)}
 .sla-ok{color:var(--teal2)}.sla-due{color:#b26a00}.sla-breached{color:#c2554e}
 '''
-TABS = [('', 'Open', 'Abiertos'), ('new', 'New ticket', 'Nuevo ticket'), ('resolved', 'Resolved', 'Resueltos')]
+TABS = [('', 'Open', 'Abiertos'), ('new', 'New ticket', 'Nuevo ticket'), ('resolved', 'Resolved', 'Resueltos'),
+        ('stats', 'Statistics', 'Estadísticas')]
+PRIO_HELP = {
+    'P1': 'P1 Critical — plant outage, safety, transformer/MV, >50% of production unavailable. Resolve target 4 h.',
+    'P2': 'P2 High — energy is being lost: inverter offline or off, measured thermal loss, production <70% of expected. Resolve target 24 h.',
+    'P3': 'P3 Medium — a single string, a data gap, heat without a measured loss, a diagnostic flag. Resolve target 72 h.',
+    'P4': 'P4 Low — cleaning, cosmetic, documentation, planned preventive work. No SLA clock.',
+}
+STATUS_HELP = {
+    'NEW': 'New — opened, nobody has started yet.',
+    'IN_PROGRESS': 'In progress — someone is working on it.',
+    'WAITING': 'Waiting — blocked on parts, the customer, the vendor or the weather.',
+    'VERIFICATION': 'Verification — the work is done; monitoring watches the linked alerts. When none recurs for 2 days the data marks the ticket Resolved; if one recurs it goes back to In progress.',
+    'RESOLVED': 'Resolved — confirmed by the data (or by a person when no alert is linked). Record the root cause, then close.',
+    'CLOSED': 'Closed — paperwork done. Can be re-opened.',
+}
+BTN_HELP = {
+    'assign': 'Who works on it. The assignee is notified of every change.',
+    'priority': 'How urgent it is; sets the SLA clock. Hover a priority for its meaning.',
+    'follow': 'Followers are notified of every change but have no duties.',
+    'link': 'Tie this monitoring alert to the ticket: the morning mail then reports the ticket instead of the warning, new occurrences land on the timeline, and the data verifies the fix.',
+    'update': 'Post what was found, done or planned. Attach photos or documents. Participants are notified.',
+}
 
 
 def page(title: str, body: str, on: str = '') -> str:
@@ -289,12 +290,9 @@ def no_access() -> tuple:
 
 def when(ts: str) -> str:
     """'2026-09-07 15:03:21.1+00' -> '07 Sep 09:03' MX."""
-    try:
-        d = dt.datetime.fromisoformat(ts.replace(' ', 'T').split('.')[0] + '+00:00' if '+' not in ts else ts.replace(' ', 'T'))
-    except ValueError:
+    d = TK.parse_ts(ts)
+    if d is None:
         return ts[:16]
-    if d.tzinfo is None:
-        d = d.replace(tzinfo=dt.timezone.utc)
     return d.astimezone(MX).strftime('%d %b %H:%M')
 
 
@@ -309,8 +307,8 @@ def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
         state, sla_txt = TK.sla_state(t, now)
         out.append(
             f'<tr class="tkrow"><td><a class="tkn" href="/maintenance/t/{e(t.number)}/">{e(t.number)}</a></td>'
-            f'<td>{pill(PRIO_CLS.get(t.priority, "off"), t.priority)}</td>'
-            f'<td>{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}</td>'
+            f'<td><span title="{e(PRIO_HELP.get(t.priority, ""))}">{pill(PRIO_CLS.get(t.priority, "off"), t.priority)}</span></td>'
+            f'<td><span title="{e(STATUS_HELP.get(t.status, ""))}">{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}</span></td>'
             f'<td><b>{e(n.plant(t.plant_key))}</b>' + (f'<div class="muted" style="font-size:12px">{e(n.inverter(t.plant_key, t.inverter_sn))}</div>' if t.inverter_sn else '')
             + f'</td><td><a href="/maintenance/t/{e(t.number)}/">{e(t.title)}</a><div class="muted" style="font-size:12px">{e(TK.CATEGORY_LABEL.get(t.category, t.category))}</div></td>'
             f'<td>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted>—</span>"}</td>'
@@ -340,15 +338,27 @@ def dashboard(tks: List[TK.Ticket], now: dt.datetime, me: str) -> str:
             f'<div class="cnt">{cnt}</div>'
             + (f'<div class="card"><h2 class="ct" style="padding:14px 20px 0">My tickets ({len(mine)})</h2>{ticket_rows(mine, now)}</div>' if mine else '')
             + f'<div class="card" style="margin-top:14px"><h2 class="ct" style="padding:14px 20px 0">All open ({n_open})</h2>{ticket_rows(tks, now)}</div>'
-            '<p class="muted" style="font-size:12px;margin-top:12px">Priorities: P1 critical (plant outage, safety) · P2 high (energy lost, unit off) · '
-            'P3 medium (data, heat without loss, single string) · P4 low / planned. Status flow: New → In progress → Waiting → Verification → Resolved → Closed.</p>')
+            + legend())
 
 
-def select(name: str, options, value: str = '', blank: str = '') -> str:
+def legend() -> str:
+    pr = ''.join(f'<div><b>{e(k)}</b> {e(v.split(" — ", 1)[1])}</div>' for k, v in PRIO_HELP.items())
+    st = ''.join(f'<div><b>{e(TK.STATUS_LABEL[k])}</b> {e(v.split(" — ", 1)[1])}</div>' for k, v in STATUS_HELP.items())
+    return (f'<div class="card" style="padding:14px 20px;margin-top:14px;font-size:12.5px;color:var(--ink2)">'
+            f'<h2 class="ct">How it works</h2><div class="fields" style="margin-top:8px"><div><div class="k">Priorities</div>{pr}</div>'
+            f'<div><div class="k">Statuses</div>{st}</div></div>'
+            '<div class="muted" style="margin-top:8px">A ticket linked to a monitoring alert is verified by the data: put it in Verification when the work is done; '
+            'the nightly run marks it Resolved after 2 quiet days, or sends it back to In progress if the alert recurs. Hover any button or badge for its meaning.</div></div>')
+
+
+def select(name: str, options, value: str = '', blank: str = '', titles: Optional[Dict[str, str]] = None,
+           attrs: str = '') -> str:
     opts = (f'<option value="">{e(blank)}</option>' if blank is not None else '')
     for v, lab in options:
-        opts += f'<option value="{e(v)}"{" selected" if v == value else ""}>{e(lab)}</option>'
-    return f'<select name="{name}">{opts}</select>'
+        tt = f' title="{e(titles[v])}"' if titles and v in titles else ''
+        dp = f' data-plant="{e(v.split("|")[0])}"' if '|' in v else ''
+        opts += f'<option value="{e(v)}"{" selected" if v == value else ""}{tt}{dp}>{e(lab)}</option>'
+    return f'<select name="{name}"{(" " + attrs) if attrs else ""}>{opts}</select>'
 
 
 def new_form(pre: dict) -> str:
@@ -361,17 +371,29 @@ def new_form(pre: dict) -> str:
     return (f'<div class="kicker">Maintenance</div><h1 class="pt">New ticket</h1>'
             f'<form class="card frm" method="post" action="/maintenance/new/" style="padding:18px 20px;margin-top:14px;max-width:760px">'
             f'<input type="hidden" name="alert_key" value="{e(pre.get("alert_key", ""))}">'
-            f'<label>Plant</label>{select("plant", [(p["key"], p["name"] + " (" + p["key"] + ")") for p in ps], pre.get("plant", ""), "— choose —")}'
-            f'<label>Inverter (optional)</label>{select("inverter", inv_opts, pre.get("inverter", ""), None)}'
-            f'<label>Title</label><input type="text" name="title" maxlength="140" required value="{e(pre.get("title", ""))}">'
+            '<label>Plant</label>' + select("plant", [(p["key"], p["name"] + " (" + p["key"] + ")") for p in ps], pre.get("plant", ""), "— choose —", attrs='id="plant"')
+            + '<label>Inverter (optional — the list follows the plant)</label>' + select("inverter", inv_opts, pre.get("inverter", ""), None, attrs='id="inverter"')
+            + f'<label>Title</label><input type="text" name="title" maxlength="140" required value="{e(pre.get("title", ""))}">'
             f'<label>Category</label>{select("category", [(c[0], c[1]) for c in TK.CATEGORIES], pre.get("category", "other"), None)}'
-            f'<label>Priority</label>{select("priority", [(p[0], p[0] + " " + p[1]) for p in TK.PRIORITIES], pre.get("priority", "P3"), None)}'
-            f'<label>Assign to</label>{select("assigned_to", people, pre.get("assigned_to", ""), "— unassigned —")}'
-            f'<label>Followers (notified on every update)</label><div class="fields">'
+            f'<label title="{e(BTN_HELP["priority"])}">Priority</label>{select("priority", [(p[0], p[0] + " " + p[1]) for p in TK.PRIORITIES], pre.get("priority", "P3"), None, titles=PRIO_HELP)}'
+            f'<div class="muted" style="font-size:12px;margin-top:3px">{" · ".join(e(v) for v in PRIO_HELP.values())}</div>'
+            f'<label title="{e(BTN_HELP["assign"])}">Assign to</label>{select("assigned_to", people, pre.get("assigned_to", ""), "— unassigned —")}'
+            f'<label title="{e(BTN_HELP["follow"])}">Followers (notified on every update)</label><div class="fields">'
             + ''.join(f'<label style="margin:0"><input type="checkbox" name="follower" value="{e(u)}"> {e(nm)}</label>' for u, nm in people)
-            + f'</div><label>Description</label><textarea name="description">{e(pre.get("description", ""))}</textarea>'
+            + '</div><label>External followers — e-mail addresses, comma separated (a technician, a customer contact; they get every update and can reply by mail)</label>'
+            f'<input type="text" name="emails" placeholder="name@company.com, other@company.com" value="{e(pre.get("emails", ""))}">'
+            f'<label>Description</label><textarea name="description">{e(pre.get("description", ""))}</textarea>'
             '<div class="act"><button class="btn" type="submit">Open ticket</button>'
-            '<a class="btn2" href="/maintenance/">Cancel</a></div></form>')
+            '<a class="btn2" href="/maintenance/">Cancel</a></div></form>'
+            + PLANT_FILTER_JS)
+
+
+PLANT_FILTER_JS = '''<script>
+(function(){var p=document.getElementById('plant'),i=document.getElementById('inverter');if(!p||!i)return;
+function f(){var k=p.value;for(var o of i.options){var pk=o.getAttribute('data-plant');o.hidden=!!(pk&&k&&pk!==k);
+ if(o.selected&&o.hidden)i.value='';}}
+p.addEventListener('change',f);f();})();
+</script>'''
 
 
 def timeline(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]]) -> str:
@@ -401,8 +423,14 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
     state, sla_txt = TK.sla_state(t, now)
     st = staff()
     people = [(s['username'], s['name']) for s in st]
-    nxt = ''.join(f'<form method="post" action="/maintenance/t/{e(t.number)}/status"><input type="hidden" name="to" value="{s}">'
-                  f'<button class="btn2" type="submit">→ {e(TK.STATUS_LABEL[s])}</button></form>' for s in TK.TRANSITIONS.get(t.status, ()))
+    nxt = ''
+    for s_ in TK.TRANSITIONS.get(t.status, ()):
+        if s_ == 'RESOLVED' and t.alert_keys:
+            nxt += (f'<span class="btn2" style="opacity:.55;cursor:default" title="{e(STATUS_HELP["VERIFICATION"])}">'
+                    '→ Resolved: by the data (put it in Verification)</span>')
+            continue
+        nxt += (f'<form method="post" action="/maintenance/t/{e(t.number)}/status"><input type="hidden" name="to" value="{s_}">'
+                f'<button class="btn2" type="submit" title="{e(STATUS_HELP.get(s_, ""))}">→ {e(TK.STATUS_LABEL[s_])}</button></form>')
     following = me in t.followers
     alerts = open_ledger_alerts(t.plant_key, t.inverter_sn)
     linked = set(t.alert_keys)
@@ -417,7 +445,7 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
                         f'<td class="wrap-text">{e(amsg)}</td>'
                         f'<td>' + ('<span class="pill ok">linked</span>' if on else
                                    f'<form method="post" action="/maintenance/t/{e(t.number)}/link"><input type="hidden" name="alert_key" value="{e(a["alert_key"])}">'
-                                   f'<button class="btn2" type="submit" style="padding:4px 10px">link</button></form>') + '</td></tr>')
+                                   f'<button class="btn2" type="submit" style="padding:4px 10px" title="{e(BTN_HELP["link"])}">link</button></form>') + '</td></tr>')
         stale = [k for k in linked if k not in {a['alert_key'] for a in alerts}]
         al = ('<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Monitoring alerts on this plant'
               + (' / inverter' if t.inverter_sn else '') + '</h2><div class="muted" style="font-size:12px;margin-bottom:6px">'
@@ -434,9 +462,9 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
                '<div class="act"><button class="btn2" type="submit">Save resolution</button></div></form>')
     head = (f'<div class="kicker">Maintenance · <span class="mono">{e(t.number)}</span></div>'
             f'<h1 class="pt" style="font-size:24px">{e(t.title)}</h1>'
-            f'<div class="act">{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}'
-            f'{pill(PRIO_CLS.get(t.priority, "off"), t.priority + " " + TK.PRIORITY_LABEL.get(t.priority, ""))}'
-            f'<span class="sla-{state}" style="font-size:12.5px">SLA: {e(sla_txt)}</span></div>'
+            f'<div class="act"><span title="{e(STATUS_HELP.get(t.status, ""))}">{pill(STATUS_CLS.get(t.status, "off"), TK.STATUS_LABEL.get(t.status, t.status))}</span>'
+            f'<span title="{e(PRIO_HELP.get(t.priority, ""))}">{pill(PRIO_CLS.get(t.priority, "off"), t.priority + " " + TK.PRIORITY_LABEL.get(t.priority, ""))}</span>'
+            f'<span class="sla-{state}" style="font-size:12.5px" title="Resolve target of the priority; green = on track, amber = last quarter, red = over">SLA: {e(sla_txt)}</span></div>'
             + (f'<p class="pill ok" style="display:inline-flex">{e(msg)}</p>' if msg else '')
             + '<div class="card" style="padding:14px 20px"><div class="fields">'
             f'<div><div class="k">Plant</div><b>{e(n.plant_full(t.plant_key))}</b></div>'
@@ -447,12 +475,14 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
             f'<div><div class="k">Followers</div>{e(", ".join(name_of(u) for u in t.followers)) or "<span class=muted>—</span>"}</div>'
             '</div>' + (f'<div style="margin-top:12px;white-space:pre-wrap">{e(t.description)}</div>' if t.description else '') + '</div>'
             f'<div class="act">{nxt}'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/assign">{select("assigned_to", people, t.assigned_to, "— unassigned —")} <button class="btn2" type="submit">Assign</button></form>'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/priority">{select("priority", [(p[0], p[0] + " " + p[1]) for p in TK.PRIORITIES], t.priority, None)} <button class="btn2" type="submit">Priority</button></form>'
-            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="hidden" name="on" value="{0 if following else 1}"><button class="btn2" type="submit">{"Unfollow" if following else "Follow"}</button></form>'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/assign">{select("assigned_to", people, t.assigned_to, "— unassigned —")} <button class="btn2" type="submit" title="{e(BTN_HELP["assign"])}">Assign</button></form>'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/priority">{select("priority", [(p[0], p[0] + " " + p[1]) for p in TK.PRIORITIES], t.priority, None, titles=PRIO_HELP)} <button class="btn2" type="submit" title="{e(BTN_HELP["priority"])}">Priority</button></form>'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="hidden" name="on" value="{0 if following else 1}"><button class="btn2" type="submit" title="{e(BTN_HELP["follow"])}">{"Unfollow" if following else "Follow"}</button></form>'
+            f'<form method="post" action="/maintenance/t/{e(t.number)}/follow"><input type="text" name="email" placeholder="add follower by e-mail" style="border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;width:220px"> '
+            f'<button class="btn2" type="submit" title="An outside address (technician, customer contact): notified of every change, can reply by mail to comment.">Add</button></form>'
             '</div>')
     comment = (f'<form class="card frm" method="post" action="/maintenance/t/{e(t.number)}/comment" enctype="multipart/form-data" style="padding:14px 20px;margin-top:14px">'
-               '<h2 class="ct">Add an update</h2><textarea name="body" placeholder="What was found, what was done, what is next…"></textarea>'
+               f'<h2 class="ct" title="{e(BTN_HELP["update"])}">Add an update</h2><textarea name="body" placeholder="What was found, what was done, what is next…"></textarea>'
                f'<label>Attachments (photos, PDF, up to {MAX_UPLOAD // (1024 * 1024)} MB each)</label><input type="file" name="files" multiple>'
                '<div class="act"><button class="btn" type="submit">Post update</button></div></form>')
     tl = f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Timeline</h2>{timeline(t, evs, files)}</div>'
@@ -486,6 +516,40 @@ def resolved():
     tks = load_tickets("status IN ('RESOLVED','CLOSED') AND updated_at > now() - interval '90 days'")
     return page('Maintenance', f'<div class="kicker">Maintenance</div><h1 class="pt">Resolved (90 days)</h1>'
                 f'<div class="card" style="margin-top:14px">{ticket_rows(tks, now)}</div>', 'resolved')
+
+
+@app.get('/stats/')
+def stats_page():
+    me = _guard()
+    if me is None:
+        return no_access()
+    now = dt.datetime.now(dt.timezone.utc)
+    tks = load_tickets("created_at > now() - interval '180 days'")
+    evs = [TK.event_from_row(r) for r in TK.rows_from_csv(rows_csv(
+        "SELECT id, ticket_id, ts::text AS ts, actor, kind, body, meta::text AS meta FROM ticket_event"
+        " WHERE kind = 'status' AND ts > now() - interval '180 days' ORDER BY ts, id;"))]
+    n = names()
+    series = TK.status_timeline(tks, evs, 60, now)
+    st = TK.stats(tks, now)
+    leg = ''.join(f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:12px"><span style="width:10px;height:10px;background:{TK.STATUS_COLOR[k]};border-radius:2px"></span>{e(TK.STATUS_LABEL[k])}</span>'
+                  for k in TK.STATUS_COLOR)
+    weeks = ''.join(f'<tr><td>{w.strftime("%d %b")}</td><td class="num">{o}</td><td class="num">{r}</td></tr>' for w, o, r in st["weeks"])
+    tbl = lambda rows, lab: ('<table><tr><th>' + lab + '</th><th class="num">open</th></tr>'  # noqa: E731
+                             + ''.join(f'<tr><td>{e(k)}</td><td class="num">{v}</td></tr>' for k, v in rows) + '</table>') if rows else '<p class="muted">—</p>'
+    body = (f'<div class="kicker">Maintenance</div><h1 class="pt">Statistics</h1>'
+            f'<div class="cnt" style="margin-top:14px">'
+            f'<div class="card"><div class="n">{st["n_open"]}</div><div class="l">open now</div></div>'
+            f'<div class="card"><div class="n">{st["over_sla"]}</div><div class="l">over SLA</div></div>'
+            f'<div class="card"><div class="n">{st["mttr_h"] if st["mttr_h"] is not None else "—"}</div><div class="l">MTTR, hours (resolved: {st["n_resolved"]})</div></div>'
+            f'<div class="card"><div class="n">{st["n_total"]}</div><div class="l">tickets, 180 days</div></div></div>'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct" title="Open tickets at the end of each day, stacked by status, last 60 days">Open tickets by status — last 60 days</h2>'
+            f'<div style="margin:6px 0">{leg}</div>{TK.status_chart_svg(series)}</div>'
+            f'<div class="grid g3" style="margin-top:14px">'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct">Opened / resolved per week</h2><table><tr><th>week of</th><th class="num">opened</th><th class="num">resolved</th></tr>{weeks}</table></div>'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct">Open by plant</h2>{tbl([(n.plant(k), v) for k, v in st["by_plant"]], "plant")}</div>'
+            f'<div class="card" style="padding:14px 20px"><h2 class="ct">Open by category</h2>{tbl([(TK.CATEGORY_LABEL.get(k, k), v) for k, v in st["by_category"]], "category")}</div>'
+            f'</div><div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">Open by priority</h2>{tbl([(k + " " + TK.PRIORITY_LABEL.get(k, ""), v) for k, v in st["by_priority"]], "priority")}</div>')
+    return page('Maintenance statistics', body, 'stats')
 
 
 @app.get('/new/')
@@ -551,14 +615,24 @@ def new_post():
     for u in f.getlist('follower'):
         if u.strip():
             execute(TK.follow_sql(tid, u.strip()))
+    for em in (f.get('emails') or '').replace(';', ',').split(','):
+        em = TK.valid_email(em)
+        if em:
+            execute(TK.follow_sql(tid, em))
+    # v227: every open alert on this asset is the ticket's from the start —
+    # the morning mail reports the ticket, not the warnings
+    keys = {a['alert_key'] for a in open_ledger_alerts(plant, sn)} if sn else \
+        {a['alert_key'] for a in open_ledger_alerts(plant, '') if not a['inverter_sn']}
     if f.get('alert_key'):
-        execute(TK.link_alert_sql(tid, f.get('alert_key').strip()))
+        keys.add(f.get('alert_key').strip())
+    for k in sorted(keys):
+        execute(TK.link_alert_sql(tid, k))
     t = load_ticket(number)
     add_event(t, me, 'created', t.description)
     if assigned:
         add_event(t, me, 'assign', f'assigned to {name_of(assigned)}', {'to': assigned})
-    if f.get('alert_key'):
-        add_event(t, me, 'alert', f'linked to alert {f.get("alert_key").strip()}', {'alert_key': f.get('alert_key').strip()})
+    for k in sorted(keys):
+        add_event(t, me, 'alert', f'linked to alert {k}', {'alert_key': k})
     notify(t, me, 'New ticket opened', t.description)
     return redirect(f'/maintenance/t/{number}/')
 
@@ -590,6 +664,8 @@ def ticket_status(number):
     to = (request.form.get('to') or '').strip().upper()
     if not TK.can_transition(t.status, to):
         abort(400)
+    if to == 'RESOLVED' and t.alert_keys:
+        abort(400)                          # v227: the data resolves a ticket that has alerts (verify job)
     execute(TK.status_sql(t.id, to))
     old = t.status
     t = load_ticket(number)
@@ -635,6 +711,15 @@ def ticket_follow(number):
     if me is None:
         return no_access()
     t = _ticket_or_404(number)
+    em = TK.valid_email(request.form.get('email') or '')
+    if request.form.get('email') and not em:
+        abort(400)
+    if em:                                  # v227: an outside address as a follower
+        execute(TK.follow_sql(t.id, em, True))
+        t = load_ticket(number)
+        add_event(t, me, 'follow', f'added {em} as a follower', {'who': em})
+        notify(t, me, f'{em} added as a follower')
+        return redirect(f'/maintenance/t/{t.number}/?m=follower+added')
     on = (request.form.get('on') or '1') == '1'
     execute(TK.follow_sql(t.id, me, on))
     t = load_ticket(number)

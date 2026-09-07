@@ -77,7 +77,11 @@ class FakeDB:
                 return self._csv(self._tk_rows(lambda t: t["number"] == m.group(1)), TCOLS)
             if "'RESOLVED','CLOSED'" in sql:
                 return self._csv(self._tk_rows(lambda t: t["status"] in ("RESOLVED", "CLOSED")), TCOLS)
+            if "created_at > now()" in sql:
+                return self._csv(self._tk_rows(lambda t: True), TCOLS)
             return self._csv(self._tk_rows(lambda t: TK.is_open(t["status"])), TCOLS)
+        if "FROM ticket_event" in sql and "kind = 'status'" in sql:
+            return self._csv([e for e in self.events if e["kind"] == "status"], ["id", "ticket_id", "ts", "actor", "kind", "body", "meta"])
         if "FROM ticket_event" in sql:
             tid = int(re.search(r"ticket_id = (\d+)", sql).group(1))
             return self._csv([e for e in self.events if e["ticket_id"] == tid], ["id", "ticket_id", "ts", "actor", "kind", "body", "meta"])
@@ -197,7 +201,8 @@ class TestCreate:
         assert [e["kind"] for e in client.db.events] == ["created", "assign", "alert"]
         # mail to juan (assignee) — arturo has no e-mail, tomasz did it
         assert len(client.sent) == 1 and client.sent[0]["To"] == "juan@x"
-        assert client.sent[0]["Subject"] == "[ARGIA] TK-NL1-0001 · Plastic Omnium: Inverter 1 cooling — New"
+        assert client.sent[0]["Subject"] == "[TK-NL1-0001] Plastic Omnium: Inverter 1 cooling — New"   # v227: threads; a reply files as a comment
+        assert client.sent[0]["Reply-To"] == "svc@x"
         # second ticket on the same plant counts up
         create(client, title="Second")
         assert client.db.tickets[2]["number"] == "TK-NL1-0002"
@@ -210,9 +215,54 @@ class TestCreate:
         r = client.get("/new/?alert=nl1:inv:sn1:inverter_temp_high", headers=H())
         html = r.data.decode()
         assert 'value="Plastic Omnium · Inverter 1: inverter running hot"' in html
-        assert '<option value="NL1|SN1" selected>' in html and '<option value="P3" selected>' in html
+        assert '<option value="NL1|SN1" selected data-plant="NL1">' in html and '<option value="P3" selected title="P3 Medium' in html
+        assert "getElementById('plant')" in html                     # the inverter list follows the plant
         assert '<option value="inverter/derating" selected>' in html
         assert "day-peak temperature 72 degC" in html and "NL1 SN1:" not in html
+
+
+class TestV227:
+    def test_external_email_followers_are_notified_and_can_be_added_later(self, client):
+        create(client, emails="tech@contractor.mx, bad address, Customer@Client.com")
+        assert (1, "tech@contractor.mx") in client.db.followers and (1, "customer@client.com") in client.db.followers
+        assert not any("bad" in u for _t, u in client.db.followers)
+        assert client.sent[0]["To"] == "customer@client.com, juan@x, tech@contractor.mx"
+        assert client.post("/t/TK-NL1-0001/follow", data={"email": "nonsense"}, headers=H()).status_code == 400
+        r = client.post("/t/TK-NL1-0001/follow", data={"email": "Second@Client.com"}, headers=H())
+        assert r.status_code == 302 and (1, "second@client.com") in client.db.followers
+        assert client.db.events[-1]["kind"] == "follow" and "second@client.com" in client.db.events[-1]["body"]
+        page = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
+        assert "second@client.com" in page and 'placeholder="add follower by e-mail"' in page
+
+    def test_creation_links_every_open_alert_on_the_asset(self, client):
+        client.db.ledger.append({"alert_key": "nl1:inv:sn1:inverter_silent", "plant_key": "NL1", "inverter_sn": "SN1",
+                                 "metric": "inverter_silent", "severity": "WARNING", "since": "2026-09-07",
+                                 "message": "NL1 SN1: no data 13:50-14:35 [WARNING]", "opened_utc": "2026-09-07T12:30:00"})
+        create(client, alert_key="")
+        assert {k for _t, k in client.db.alerts} == {"nl1:inv:sn1:inverter_temp_high", "nl1:inv:sn1:inverter_silent"}
+        assert [e["kind"] for e in client.db.events].count("alert") == 2
+
+    def test_data_resolves_a_ticket_with_alerts_people_cannot(self, client):
+        create(client)
+        client.post("/t/TK-NL1-0001/status", data={"to": "IN_PROGRESS"}, headers=H())
+        page = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
+        assert "→ Resolved: by the data (put it in Verification)" in page and 'value="RESOLVED"' not in page
+        assert client.post("/t/TK-NL1-0001/status", data={"to": "RESOLVED"}, headers=H()).status_code == 400
+        # a ticket without alerts is resolved by a person
+        create(client, alert_key="", inverter="", title="Roof inspection")
+        client.db.alerts = {k: v for k, v in client.db.alerts.items() if k[0] != 2}
+        client.post("/t/TK-NL1-0002/status", data={"to": "IN_PROGRESS"}, headers=H())
+        assert client.post("/t/TK-NL1-0002/status", data={"to": "RESOLVED"}, headers=H()).status_code == 302
+
+    def test_tooltips_legend_and_stats_page(self, client):
+        create(client)
+        page = client.get("/", headers=H()).data.decode()
+        assert "How it works" in page and "<b>P2</b> energy is being lost" in page and 'title="P2 High' in page
+        t = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
+        assert 'title="Who works on it.' in t and 'title="Followers are notified' in t and 'title="In progress — someone is working on it."' in t
+        st = client.get("/stats/", headers=H()).data.decode()
+        assert "Open tickets by status" in st and "<svg" in st and "Opened / resolved per week" in st and "Plastic Omnium" in st
+        assert client.get("/stats/", headers=H("cust")).status_code == 403
 
 
 class TestWork:

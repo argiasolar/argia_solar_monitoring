@@ -1,0 +1,11 @@
+[Unit]
+# v227: file participants' e-mail replies as ticket comments (IMAP on the
+# service mailbox). Harmless until IMAP_* keys exist in /root/.argia_mail.
+Description=ARGIA ticket replies by mail (IMAP -> ticket comment)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+Environment=ARGIA_TICKET_FILES=/opt/argia/tickets
+ExecStart=/root/argia_v2/v2/pi/run_job.sh ticket-mail ticket_mail_in.py

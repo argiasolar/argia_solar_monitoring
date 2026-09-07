@@ -259,6 +259,27 @@ def gather_issues():
     return alerts, maint
 
 
+def ticket_briefs():
+    """v227: {alert_key: TicketBrief} of open maintenance tickets, {} when
+    the module or tables are absent."""
+    try:
+        from argia.maintenance import tickets as TK
+        return TK.load_open_briefs()
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def ticket_line(b) -> str:
+    """'In hand: TK-NL1-0001 · In progress · tomasz — last update: …' Pure."""
+    from argia.maintenance import tickets as TK
+    parts = [b.number, TK.STATUS_LABEL.get(b.status, b.status)] + ([b.assigned_to] if b.assigned_to else [])
+    s = "In hand: " + " · ".join(parts)
+    if b.last_update:
+        u = b.last_update.strip().replace("\n", " ")
+        s += f" — last update: {u[:160]}{'…' if len(u) > 160 else ''}"
+    return s
+
+
 def ledger_issues(labels=None):
     """v203: the engine's OPEN alerts (alert_ledger — temperature, vendor
     faults, peer lag, silent inverter, string flags, plant offline) as
@@ -271,15 +292,17 @@ def ledger_issues(labels=None):
     try:
         rows = psql_rows(
             "SELECT metric, plant_key, coalesce(inverter_sn,''), severity,"
-            " opened_utc, message FROM alert_ledger WHERE state = 'OPEN'"
+            " opened_utc, message, alert_key FROM alert_ledger WHERE state = 'OPEN'"
             " AND metric <> 'daily_digest' AND severity IN ('WARNING','CRITICAL')"
             " ORDER BY plant_key, metric;")
     except RuntimeError:
         return out
+    tickets = ticket_briefs()
     for r in rows:
         if len(r) < 6 or not r[0] or not r[1]:
             continue
         metric, plant, sn, sev, opened, msg = r[0], r[1], r[2], r[3] or "WARNING", r[4], r[5]
+        brief = tickets.get(r[6]) if len(r) > 6 else None
         try:
             first_seen = parse_pg_ts(opened.replace("T", " ")) if opened else None
         except (ValueError, AttributeError):
@@ -287,6 +310,8 @@ def ledger_issues(labels=None):
         extra = {"message": msg or ""}
         if sn and (labels or {}).get(sn):
             extra["label"] = labels[sn]
+        if brief is not None:
+            extra["ticket"] = ticket_line(brief)
         out.append((f"{metric}:{plant}:{sn}" if sn else f"{metric}:{plant}", sev,
                     first_seen, extra))
     return out
@@ -487,7 +512,8 @@ def issue_record(key: str, severity: str, first_seen=None, extra=None,
         "who": issue_who(key, labels),
         "what": _ISSUE_PHRASE.get(head, head),
         "detail": issue_detail(key, extra),
-        "why": _ISSUE_WHY.get(head, ""),
+        # v227: a ticket in hand replaces the generic advice with its progress
+        "why": (extra or {}).get("ticket") or _ISSUE_WHY.get(head, ""),
         "since": humanize_since(first_seen, now),
     }
 

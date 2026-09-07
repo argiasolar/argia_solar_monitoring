@@ -188,6 +188,30 @@ class Event:
 
 
 # ------------------------------------------------------------ helpers
+def parse_ts(s: str) -> Optional[dt.datetime]:
+    """psql's '2026-09-06 14:00:00.12+00' (or ISO 'T' form) -> aware UTC
+    datetime; None when unparseable. Python 3.10-safe (it rejects '+00')."""
+    raw = (s or "").strip().replace("T", " ")
+    if not raw:
+        return None
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[ ](\d{2}:\d{2}:\d{2})(?:\.\d+)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$", raw)
+    if not m:
+        try:
+            d = dt.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+    day, hms, off = m.groups()
+    if not off or off == "Z":
+        tz = dt.timezone.utc
+    else:
+        sign = 1 if off[0] == "+" else -1
+        digits = off[1:].replace(":", "")
+        hh, mm = int(digits[:2]), int(digits[2:4] or 0)
+        tz = dt.timezone(sign * dt.timedelta(hours=hh, minutes=mm))
+    return dt.datetime.strptime(f"{day} {hms}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+
+
 def participants(t: Ticket) -> List[str]:
     """Everyone on the ticket: creator, assignee, followers — deduplicated,
     order kept."""
@@ -206,12 +230,9 @@ def recipients(t: Ticket, actor: str) -> List[str]:
 
 
 def age(t: Ticket, now: dt.datetime) -> dt.timedelta:
-    try:
-        opened = dt.datetime.fromisoformat(t.created_at.replace(" ", "T"))
-    except ValueError:
+    opened = parse_ts(t.created_at)
+    if opened is None:
         return dt.timedelta(0)
-    if opened.tzinfo is None:
-        opened = opened.replace(tzinfo=dt.timezone.utc)
     return max(dt.timedelta(0), now - opened)
 
 
@@ -234,13 +255,8 @@ def sla_state(t: Ticket, now: dt.datetime) -> Tuple[str, str]:
         return "none", "planned work, no SLA clock"
     a = age(t, now)
     if not t.open:
-        try:
-            done = dt.datetime.fromisoformat((t.resolved_at or t.closed_at or t.updated_at).replace(" ", "T"))
-            if done.tzinfo is None:
-                done = done.replace(tzinfo=dt.timezone.utc)
-            took = done - dt.datetime.fromisoformat(t.created_at.replace(" ", "T")).replace(tzinfo=dt.timezone.utc)
-        except ValueError:
-            took = a
+        done, opened = parse_ts(t.resolved_at or t.closed_at or t.updated_at), parse_ts(t.created_at)
+        took = (done - opened) if (done is not None and opened is not None) else a
         ok = took.total_seconds() <= target_h * 3600
         return ("ok" if ok else "breached"), f"resolved in {fmt_age(took)} (target {target_h} h)"
     left = target_h * 3600 - a.total_seconds()
@@ -494,3 +510,192 @@ def load_open_briefs(rows_csv=None) -> Dict[str, TicketBrief]:
         return briefs_by_alert(tks, last)
     except Exception:  # noqa: BLE001
         return {}
+
+
+# ------------------------------------------------------- v227 additions
+def is_email(identity: str) -> bool:
+    """A participant is a portal username or, since v227, a bare e-mail
+    address (an external technician, a customer contact)."""
+    s = (identity or "").strip()
+    return "@" in s and " " not in s and "." in s.split("@", 1)[1]
+
+
+def valid_email(s: str) -> str:
+    s = (s or "").strip().lower()
+    return s if is_email(s) and len(s) <= 120 else ""
+
+
+VERIFY_QUIET_DAYS = 2
+"""A ticket in VERIFICATION is RESOLVED by the data when none of its
+linked alerts has been open or touched for this many days."""
+
+
+def verify_decision(t: Ticket, ledger_open_keys: Iterable[str], touched_keys: Iterable[str],
+                    last_seen: Dict[str, dt.datetime], now: dt.datetime,
+                    quiet_days: int = VERIFY_QUIET_DAYS) -> Tuple[Optional[str], str]:
+    """The data's verdict on a ticket (pure):
+
+    * VERIFICATION + a linked alert recurred today → ("IN_PROGRESS",
+      reason) — the fix did not hold;
+    * VERIFICATION + no linked alert open and none seen for
+      ``quiet_days`` → ("RESOLVED", reason);
+    * VERIFICATION + linked alerts still open / recently seen → (None,
+      "waiting: …") — keep watching;
+    * any other status, or no linked alerts → (None, "") — nothing for
+      the data to say (a ticket without alerts is resolved by people).
+    """
+    if t.status != "VERIFICATION" or not t.alert_keys:
+        return None, ""
+    open_keys = set(ledger_open_keys)
+    touched = set(touched_keys)
+    hit = [k for k in t.alert_keys if k in touched]
+    if hit:
+        return "IN_PROGRESS", f"monitoring saw the alert again ({', '.join(hit)}) — back to In progress"
+    still = [k for k in t.alert_keys if k in open_keys]
+    if still:
+        return None, f"waiting: {len(still)} linked alert(s) still open in the ledger"
+    recent = []
+    for k in t.alert_keys:
+        seen = last_seen.get(k)
+        if seen is not None and (now - seen) < dt.timedelta(days=quiet_days):
+            recent.append(k)
+    if recent:
+        return None, f"waiting: last occurrence less than {quiet_days} days ago"
+    return "RESOLVED", f"no linked alert open or seen for {quiet_days} days — resolved by the data"
+
+
+def matching_ticket(open_tickets: Iterable[Ticket], plant_key: str, inverter_sn: str) -> Optional[Ticket]:
+    """The open ticket on the same asset (plant + inverter, or the plant
+    itself for a plant-level alert), newest first. Pure."""
+    cands = [t for t in open_tickets if t.plant_key.upper() == (plant_key or "").upper()
+             and (t.inverter_sn or "") == (inverter_sn or "")]
+    if not cands:
+        return None
+    return sorted(cands, key=lambda t: t.created_at, reverse=True)[0]
+
+
+# --------------------------------------------------------- reply by mail
+REPLY_NUMBER_RE = re.compile(r"\[(TK-[A-Z0-9]{3,6}-\d{4,})\]")
+_QUOTE_HEAD = re.compile(r"^(On .+wrote:|El .+escribi[oó]:|-{3,}\s*Original Message\s*-{3,}|From: .+|De: .+|_{5,})\s*$", re.I)
+
+
+def reply_ticket_number(subject: str) -> Optional[str]:
+    m = REPLY_NUMBER_RE.search(subject or "")
+    return m.group(1) if m else None
+
+
+def strip_reply(body: str) -> str:
+    """The person's own words: everything before the quoted mail, minus
+    '>' lines and signature separators. Pure."""
+    out: List[str] = []
+    for ln in (body or "").replace("\r", "").split("\n"):
+        if _QUOTE_HEAD.match(ln.strip()) or ln.rstrip() in ("--", "-- "):
+            break
+        if ln.lstrip().startswith(">"):
+            continue
+        out.append(ln.rstrip())
+    return "\n".join(out).strip()
+
+
+# ------------------------------------------------------------- statistics
+def status_timeline(tickets: Sequence[Ticket], status_events: Sequence[Event],
+                    days: int, now: dt.datetime) -> List[Tuple[dt.date, Dict[str, int]]]:
+    """Open tickets by status at the end of each of the last ``days``
+    days, replayed from the status events (kind='status', meta from/to)
+    and the creation dates. Pure."""
+    parse = parse_ts
+    created = {t.id: parse(t.created_at) for t in tickets}
+    changes: Dict[int, List[Tuple[dt.datetime, str]]] = {}
+    for ev in status_events:
+        ts = parse(ev.ts)
+        if ts is not None and ev.kind == "status" and ev.meta.get("to"):
+            changes.setdefault(ev.ticket_id, []).append((ts, ev.meta["to"]))
+    out = []
+    for back in range(days - 1, -1, -1):
+        day = (now - dt.timedelta(days=back)).date()
+        end = dt.datetime.combine(day, dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
+        counts: Dict[str, int] = {}
+        for t in tickets:
+            c = created.get(t.id)
+            if c is None or c > end:
+                continue
+            status = "NEW"
+            for ts, to in sorted(changes.get(t.id, [])):
+                if ts <= end:
+                    status = to
+            if is_open(status):
+                counts[status] = counts.get(status, 0) + 1
+        out.append((day, counts))
+    return out
+
+
+def stats(tickets: Sequence[Ticket], now: dt.datetime, weeks: int = 8) -> dict:
+    """Opened / resolved per week, MTTR of resolved tickets, counts by
+    plant, category, priority, over-SLA. Pure."""
+    parse = parse_ts
+    week_of = lambda d: (d - dt.timedelta(days=d.weekday())).date()  # noqa: E731
+    weeks_list = [week_of(now - dt.timedelta(weeks=w)) for w in range(weeks - 1, -1, -1)]
+    opened = {w: 0 for w in weeks_list}
+    resolved = {w: 0 for w in weeks_list}
+    mttr: List[float] = []
+    by_plant: Dict[str, int] = {}
+    by_cat: Dict[str, int] = {}
+    by_prio: Dict[str, int] = {}
+    over = 0
+    for t in tickets:
+        c = parse(t.created_at)
+        if c is not None and week_of(c) in opened:
+            opened[week_of(c)] += 1
+        r = parse(t.resolved_at) if t.resolved_at else None
+        if r is not None:
+            if week_of(r) in resolved:
+                resolved[week_of(r)] += 1
+            if c is not None:
+                mttr.append((r - c).total_seconds() / 3600.0)
+        if t.open:
+            by_plant[t.plant_key] = by_plant.get(t.plant_key, 0) + 1
+            by_cat[t.category] = by_cat.get(t.category, 0) + 1
+            by_prio[t.priority] = by_prio.get(t.priority, 0) + 1
+            if sla_state(t, now)[0] == "breached":
+                over += 1
+    return {"weeks": [(w, opened[w], resolved[w]) for w in weeks_list],
+            "mttr_h": round(sum(mttr) / len(mttr), 1) if mttr else None, "n_resolved": len(mttr),
+            "by_plant": sorted(by_plant.items(), key=lambda kv: -kv[1]),
+            "by_category": sorted(by_cat.items(), key=lambda kv: -kv[1]),
+            "by_priority": sorted(by_prio.items()), "over_sla": over,
+            "n_open": sum(1 for t in tickets if t.open), "n_total": len(tickets)}
+
+
+STATUS_COLOR = {"NEW": "#c2554e", "IN_PROGRESS": "#f0a83b", "WAITING": "#9aa3ad", "VERIFICATION": "#05b1a9"}
+
+
+def status_chart_svg(series: Sequence[Tuple[dt.date, Dict[str, int]]], width: int = 720, height: int = 180) -> str:
+    """Stacked area of open tickets by status over time — inline SVG, no
+    library. Pure."""
+    if not series:
+        return ""
+    order = ["NEW", "IN_PROGRESS", "WAITING", "VERIFICATION"]
+    top = max(1, max(sum(c.values()) for _d, c in series))
+    pad_l, pad_r, pad_t, pad_b = 28, 8, 8, 22
+    w, h = width - pad_l - pad_r, height - pad_t - pad_b
+    n = len(series)
+    x = lambda i: pad_l + (w * i / max(1, n - 1))  # noqa: E731
+    y = lambda v: pad_t + h - h * v / top  # noqa: E731
+    parts = [f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}" role="img" aria-label="open tickets by status">']
+    for g in range(0, top + 1, max(1, top // 4)):
+        parts.append(f'<line x1="{pad_l}" y1="{y(g):.1f}" x2="{width - pad_r}" y2="{y(g):.1f}" stroke="#eceef0"/>'
+                     f'<text x="{pad_l - 4}" y="{y(g) + 4:.1f}" font-size="10" text-anchor="end" fill="#6b7480">{g}</text>')
+    base = [0] * n
+    for st in order:
+        tops = [base[i] + series[i][1].get(st, 0) for i in range(n)]
+        if not any(tops[i] - base[i] for i in range(n)):
+            base = tops
+            continue
+        pts = " ".join(f"{x(i):.1f},{y(tops[i]):.1f}" for i in range(n)) + " " + " ".join(f"{x(i):.1f},{y(base[i]):.1f}" for i in range(n - 1, -1, -1))
+        parts.append(f'<polygon points="{pts}" fill="{STATUS_COLOR[st]}" fill-opacity=".75"><title>{STATUS_LABEL[st]}</title></polygon>')
+        base = tops
+    step = max(1, n // 6)
+    for i in range(0, n, step):
+        parts.append(f'<text x="{x(i):.1f}" y="{height - 6}" font-size="10" text-anchor="middle" fill="#6b7480">{series[i][0].strftime("%d %b")}</text>')
+    parts.append("</svg>")
+    return "".join(parts)

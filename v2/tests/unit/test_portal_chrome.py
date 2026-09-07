@@ -396,4 +396,28 @@ class TestV224Fit:
         import pathlib
         mg = (pathlib.Path(__file__).resolve().parents[2] / "server/monitoring_gen.py").read_text(encoding="utf-8")
         assert 'th.wrap-text,td.wrap-text{white-space:normal;text-align:left;min-width:260px;}' in mg
-        assert '<td class="wrap-text">{esc(a["msg"])}</td>' in mg
+        assert '<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td>' in mg
+
+
+class TestV225PortalNames:
+    """v225: names first, codes as detail — on the monitoring page's open
+    alerts too (Tomasz 2026-09-07: 'fix the naming on the portal pages')."""
+
+    def test_alerts_card_uses_the_naming_layer(self):
+        import pathlib
+        mg = (pathlib.Path(__file__).resolve().parents[2] / "server/monitoring_gen.py").read_text(encoding="utf-8")
+        assert "from argia.alerts import naming as _naming" in mg
+        assert "NAMES = (_naming.names_from_rows(" in mg
+        assert '<td title="{esc(a["sn"])}">{esc(inverter_name(pk, a["sn"]))}</td><td>{esc(alert_phrase(a["metric"]))}</td>' in mg
+        assert '<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td>' in mg
+        assert 'data-en="Issue" data-es="Problema"' in mg
+        # the sanitiser is the same one the mails use: prefix, bracketed plant, severity tag
+        assert '_SEV_TAG = re.compile(r"\\s*\\[(?:CRITICAL|WARNING|INFO)\\]\\s*$")' in mg
+        assert "re.sub(r\"^\\[[A-Z0-9]{3,6}\\]\\s*\", '', txt)" in mg
+
+    def test_ledger_message_reads_like_the_mail(self):
+        from argia.alerts import naming
+        n = naming.Names({"NL1": "Plastic Omnium"}, {("NL1", "JGMAE6500G"): "Inverter 4"})
+        msg = "NL1 JGMAE6500G: day-peak temperature 72.0 degC — suspected derating 30 min vs cooler peers"
+        assert n.text(msg, "NL1", "JGMAE6500G") == "day-peak temperature 72.0 degC — suspected derating 30 min vs cooler peers"
+        assert n.inverter("NL1", "JGMAE6500G") == "Inverter 4" and naming.phrase("inverter_temp_high") == "inverter running hot"

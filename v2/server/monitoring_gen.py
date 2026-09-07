@@ -18,6 +18,7 @@ Deploy: repo v2/server/ -> cp to /opt/argia/bundle/ after each pull.
 import datetime as dt
 import html
 import os
+import re
 import subprocess
 import sys
 from zoneinfo import ZoneInfo
@@ -35,6 +36,14 @@ except Exception:                                     # noqa: BLE001
 
     def is_normal_state(vendor, raw):
         return (raw or '').strip() in ('', '0')
+
+# v225: names first, codes as detail — on the portal too (Tomasz). The
+# naming layer of the mails (argia/alerts/naming.py); a codes-only
+# fallback keeps the page rendering without the checkout.
+try:
+    from argia.alerts import naming as _naming
+except Exception:                                     # noqa: BLE001
+    _naming = None
 
 # Grid emission factor register (argia/core/co2.py). The fallback keeps
 # the page rendering if the checkout is missing; test_constants.py pins
@@ -161,6 +170,30 @@ for r in q("SELECT plant_key, inverter_sn,"
            " FROM inverter WHERE active ORDER BY 1, 3;"):
     if len(r) >= 4:
         CONFIG_INV.setdefault(r[0], []).append((r[1], r[2], f(r[3])))
+
+NAMES = (_naming.names_from_rows([(pk, m['customer']) for pk, m in PLANTS.items()],
+                                 [(pk, sn, lab) for pk, lst in CONFIG_INV.items() for sn, lab, _r in lst])
+         if _naming else None)
+_SEV_TAG = re.compile(r"\s*\[(?:CRITICAL|WARNING|INFO)\]\s*$")
+
+
+def alert_phrase(metric):
+    """'inverter_temp_high' -> 'inverter running hot' (codes without the layer)."""
+    return _naming.phrase(metric) if _naming else (metric or '').replace('_', ' ')
+
+
+def alert_text(msg, pk, sn):
+    """The ledger message for people: no 'PK SN: ' prefix, no trailing
+    '[SEVERITY]' (the pill says it), plant codes as names, serials as labels."""
+    txt = _SEV_TAG.sub('', msg or '')
+    if NAMES is None:
+        return txt
+    return NAMES.text(re.sub(r"^\[[A-Z0-9]{3,6}\]\s*", '', txt), pk, sn)
+
+
+def inverter_name(pk, sn):
+    return NAMES.inverter(pk, sn) if (NAMES and sn) else (sn or 'plant')
+
 
 # Dates with REAL collection (newest first, capped). Vendors sometimes
 # return rows carrying stale timestamps, which would create hollow
@@ -944,13 +977,13 @@ def alerts_card(pk):
                 'No open alerts for this plant.</p></div>')
     trs = ''.join(
         f'<tr><td><span class="pill {"bad" if a["sev"] == "CRITICAL" else "warn"}">{esc(a["sev"])}</span></td>'
-        f'<td>{esc(a["sn"]) or "plant"}</td><td>{esc(a["metric"])}</td><td>{esc(a["since"])}</td>'
-        f'<td class="wrap-text">{esc(a["msg"])}</td></tr>' for a in rows)
+        f'<td title="{esc(a["sn"])}">{esc(inverter_name(pk, a["sn"]))}</td><td>{esc(alert_phrase(a["metric"]))}</td><td>{esc(a["since"])}</td>'
+        f'<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td></tr>' for a in rows)
     n_crit = sum(1 for a in rows if a['sev'] == 'CRITICAL')
     return (f'<div class="card"><h2 data-en="Open alerts ({len(rows)}, {n_crit} critical)"'
             f' data-es="Alertas abiertas ({len(rows)}, {n_crit} críticas)">Open alerts ({len(rows)}, {n_crit} critical)</h2>'
             '<table><tr><th data-en="Severity" data-es="Severidad">Severity</th><th data-en="Inverter" data-es="Inversor">Inverter</th>'
-            '<th data-en="Metric" data-es="Métrica">Metric</th><th data-en="Since" data-es="Desde">Since</th>'
+            '<th data-en="Issue" data-es="Problema">Issue</th><th data-en="Since" data-es="Desde">Since</th>'
             '<th class="wrap-text" data-en="Message" data-es="Mensaje">Message</th></tr>' + trs + '</table>'
             '<p class="note" data-en="From the alert ledger (daily + snapshot engines). Resolved by the daily run once the condition clears for a whole day."'
             ' data-es="Del registro de alertas (motores diario y de instantáneas). Se resuelven cuando la condición desaparece un día completo.">'

@@ -56,7 +56,11 @@ def plant_alerts(freshness: Dict[str, Optional[float]],
                  in_window: bool) -> List[Alert]:
     """freshness: {plant_key: minutes since last usable sample, or None
     when the plant has no data today}. Only alarms inside the MX
-    production window — a quiet plant at night is normal."""
+    production window — a quiet plant at night is normal.
+
+    v223: NOT wired in the mailer any more — the alert ledger's
+    ``data_stale`` / ``plant_offline`` rules own the plant (kept as a
+    pure, tested function)."""
     out: List[Alert] = []
     if not in_window:
         return out
@@ -80,7 +84,9 @@ def inverter_alerts(silent: List[Tuple[str, str, str]],
     """silent: [(plant, sn, label)] — inverters configured ACTIVE that
     produced no usable sample today while their plant reports. This is
     the GTO2 lesson (2026-08-26): a dead inverter hides inside a plant
-    that still looks green if you only count what answers."""
+    that still looks green if you only count what answers. v223: not
+    wired in the mailer — the ledger's ``inverter_silent`` (acute +
+    daily, judged by the vendor counter) owns it."""
     if not in_window:
         return []
     return [Alert(f"inverter-silent:{pk}:{sn}", SEV_WARN,

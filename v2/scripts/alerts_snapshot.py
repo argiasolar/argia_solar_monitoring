@@ -79,6 +79,16 @@ payload ~20x, and the ratio improves as the tab grows."""
 TELEMETRY_TAB = "Telemetry_Argia"
 
 
+def usable_sample(power_w, etoday_kwh, temperature_c) -> bool:
+    """v223: a telemetry row with neither power, nor a day counter, nor a
+    temperature is the vendor cloud answering with nothing (MEX1 /
+    FusionSolar, 2026-09-05 and 09-07 mornings). For the acute tier it
+    is NO sample: the plant then ages into ``data_stale`` like a plant
+    whose datalogger is down, instead of looking fresh and healthy.
+    Pure."""
+    return power_w is not None or etoday_kwh is not None or temperature_c is not None
+
+
 def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     """Read only the tail of Telemetry_Argia and parse the acute fields.
 
@@ -108,6 +118,8 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     if not all(n in header for n in need):
         raise RuntimeError(f"{TELEMETRY_TAB} missing columns for acute parse")
     idx = {n: header.index(n) for n in need}
+    if "etoday_kwh" in header:
+        idx["etoday_kwh"] = header.index("etoday_kwh")
     end_col_i = max(idx.values())
     end_col = chr(ord("A") + end_col_i) if end_col_i < 26 else "A" + chr(ord("A") + end_col_i - 26)
 
@@ -129,9 +141,12 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
         except ValueError:
             continue
         st = cell("status")
+        pw, etoday = safe_float(cell("power_w")), safe_float(cell("etoday_kwh")) if "etoday_kwh" in idx else None
+        if not usable_sample(pw, etoday, safe_float(cell("temperature_c"))):
+            continue        # v223: an empty vendor row (SAG/FusionSolar mornings) is no sample at all
         samples.append((
             ts, str(cell("plant_key") or ""), str(cell("inverter_sn") or ""),
-            safe_float(cell("power_w")), safe_float(cell("temperature_c")),
+            pw, safe_float(cell("temperature_c")),
             int(st) if isinstance(st, (int, float)) else None,
             cell("fault_code"),
         ))
@@ -230,9 +245,13 @@ def main(argv=None) -> int:
     for r in result.opened:
         log.info("OPEN   %s  %s", r.alert_id, r.message)
 
-    # v196: mail newly OPEN alerts to the 'maintenance' subscribers
+    # v196: mail newly OPEN alerts to the 'maintenance' subscribers —
+    # v223: CRITICAL only between the morning mails; a WARNING opened
+    # during the day rides tomorrow's 06:30 mail (Tomasz: fewer mails,
+    # each one carrying something that needs a hand)
     from argia.alerts.ledger_mail import mail_new_alerts
-    records = mail_new_alerts(result.records, dry_run=args.dry_run)
+    records = mail_new_alerts(result.records, dry_run=args.dry_run, severities=("CRITICAL",),
+                              when_mx=mx.strftime("%Y-%m-%d %H:%M"))
     mailed = records != list(result.records)
 
     if args.dry_run:

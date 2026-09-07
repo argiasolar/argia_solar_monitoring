@@ -69,10 +69,10 @@ Rules: commit scripts use `set -o pipefail` and are idempotent; never hand-edit 
 - **Accounts**: `users_YYYYMMDD.db` → `/opt/argia/auth/users.db` (chmod 600), then `systemctl restart argia-auth argia-setup`.
 - **Server rebuild**: install PostgreSQL 17 + nginx + python3-venv; clone the repo to `/root/argia_v2`; `python3 -m venv v2/.venv && pip install -r v2/requirements.txt`; recreate the secret files; run the deploy block; restore the DB; `systemctl enable --now` every `argia-*.timer` and the three services; certificates via certbot webroot for `portal.argia.com.mx` (the old three domains only 301).
 
-## 6. Who gets which mail (v217 rules)
+## 6. Who gets which mail (v217 rules, v223 cadence)
 | Channel (`/setup/`) | Content | Who |
 |---|---|---|
-| maintenance | plant alerts (dark/stale, silent inverter, engine alerts: faults, strings, thermal, energy vs expected) — **PPA plants only, CAPEX never**; names first, codes as detail | subscribers, scoped per plant |
+| maintenance | **one morning mail** after the 06:30 daily run: new CRITICAL first, then WARNING, grouped plant → issue → inverters, the still-open reminder, explanations once per issue type; **during the day only CRITICAL** (energy being lost or a unit off: plant at 0 W, inverter fault, inverter off ≥3 h, measured thermal loss, production < 70 %) — a WARNING waits for the next morning. **PPA plants only, CAPEX never**; names first, codes as detail | subscribers, scoped per plant |
 | — | infrastructure & monitoring-internal (job failed, disk, PostgreSQL, CFE pipeline, reconciliation FAIL, sensor drift, config drift, smoke) | **administrator only** (`ARGIA_MAIL_ADMIN`, default tomasz.zemelka@argia.com.mx) |
 | daily | 19:00 MX PPA performance mail | subscribers |
 | financial | Friday weekly + monthly financial mail | subscribers |
@@ -80,6 +80,8 @@ Rules: commit scripts use `set -o pipefail` and are idempotent; never hand-edit 
 | ntfy | `portal.argia.com.mx is DOWN / BACK UP` (+ HTTP code), backup pull failures, outage-mode plant stalls | the topic on the admin's phone |
 
 If the plant table cannot be read, plant alerts are **held** (fail closed) and infrastructure alerts still go out — nothing is silently sent to a CAPEX customer.
+
+Severity rule (Tomasz, 2026-09-07): **CRITICAL = energy is being lost or a plant/inverter is off**; data gaps, heat without a measured loss and diagnostic flags without a measured loss are WARNING. A fleet-wide telemetry blank (the collector, the vendor cloud, PostgreSQL) never becomes an inverter alert (`silent.collector_windows`). The infra mailer (`alert_mailer.py`, every 30 min) no longer judges plants — the ledger does.
 
 ## 7. When something is red
 | Symptom | First look | Then |

@@ -34,7 +34,7 @@ import logging
 import sys
 from typing import Dict, List, Optional, Tuple
 
-from argia.alerts.digest import apply_daily_digest
+from argia.alerts.digest import resolve_digest_rows
 from argia.alerts.engine import (
     Candidate,
     candidate_from_expected_breach,
@@ -331,12 +331,18 @@ def daily_temp_candidates(bundle, portfolio,
 def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]:
     """Daily owner of inverter_silent (v203): every daylight gap of one
     inverter while its siblings produced, classified through the vendor
-    counter — comms-only (WARNING) or the unit was OFF (CRITICAL)."""
-    from argia.analytics.silent import evaluate_silent_gaps
+    counter — comms-only (WARNING) or the unit was OFF (CRITICAL). v223:
+    fleet-wide blanks (the collector) are excluded first."""
+    from argia.analytics.silent import collector_windows, evaluate_silent_gaps
     from argia.core.alerts_state import make_inverter_alert_key
     from argia.core.time_utils import MX_TZ
     y, m, d = (int(x) for x in date_iso.split("-"))
     day_end = dt.datetime(y, m, d, 20, 0, tzinfo=MX_TZ).astimezone(UTC)
+    windows = collector_windows({p.plant_key: [r.timestamp_utc for r in bundle.rows_for_plant(p.plant_key)]
+                                 for p in portfolio.active_plants()})
+    for a, b in windows:
+        log.info("collector blank %s-%s MX (fleet-wide) — inverter gaps inside it are not alerts",
+                 a.astimezone(MX_TZ).strftime("%H:%M"), b.astimezone(MX_TZ).strftime("%H:%M"))
     out: List[Candidate] = []
     for plant in portfolio.active_plants():
         invs = portfolio.inverters_for(plant.plant_key)
@@ -344,7 +350,7 @@ def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]
         rows = [(r.timestamp_utc, str(r.inverter_sn).strip(), r.etoday_kwh, r.power_w)
                 for r in bundle.rows_for_plant(plant.plant_key)]
         for b in evaluate_silent_gaps(plant.plant_key, rows, rated, day_end,
-                                      configured=[i.inverter_sn for i in invs]):
+                                      configured=[i.inverter_sn for i in invs], collector=windows):
             out.append(Candidate(
                 alert_key=make_inverter_alert_key(plant.plant_key, b.inverter_sn,
                                                   "inverter_silent"),
@@ -495,19 +501,21 @@ def main(argv=None) -> int:
     for r in result.resolved:
         log.info("RESOLVE  %s  %s", r.alert_id, r.alert_key)
 
-    # --- daily open-alerts digest --------------------------------------
-    # Mail-once dedupe means ongoing issues go silent (three GTO1 FAULTs
-    # sat unmailed for days, 2026-07-06). One digest alert per morning
-    # while anything stays open restores "silence = all clear".
-    digest = apply_daily_digest(result.records, dt.datetime.now(UTC))
+    # --- the daily digest pseudo-alert is retired (v223) ---------------
+    # "Silence means all clear" now lives inside the morning mail as the
+    # "still open" section; any digest row left open is closed here.
+    now_utc = dt.datetime.now(UTC)
+    digest = resolve_digest_rows(result.records, now_utc)
     for line in digest.log_lines():
         log.info("%s", line)
 
-    # v196: mail newly OPEN alerts (incl. the digest) to the 'maintenance'
-    # subscribers — the server side of the retired Apps Script notifier.
-    # Mailed records come back with 'email' in channels_sent.
+    # v196/v223: the ONE morning mail — new WARNING/CRITICAL alerts grouped
+    # plant -> issue -> inverters, the still-open reminder, explanations
+    # once per issue type. Mailed records come back with 'email' in
+    # channels_sent.
     from argia.alerts.ledger_mail import mail_new_alerts
-    records = mail_new_alerts(result.records, dry_run=args.dry_run)
+    records = mail_new_alerts(result.records, dry_run=args.dry_run, morning=True,
+                              when_mx=now_mx().strftime("%Y-%m-%d %H:%M"), now_utc=now_utc)
     mailed = records != list(result.records)
 
     if args.dry_run:

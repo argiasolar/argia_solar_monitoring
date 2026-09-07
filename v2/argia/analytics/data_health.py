@@ -57,7 +57,11 @@ def evaluate_data_stale(
     INCLUDING the edges — a day whose last sample lands at 13:18 has a
     trailing hole to 20:00 even though no two samples are far apart.
 
-    - zero rows all day        -> CRITICAL (collector produced nothing)
+    - zero rows all day        -> WARNING (collector produced nothing —
+                                 a DATA problem; v223: CRITICAL is reserved
+                                 for a measured energy loss or a unit off;
+                                 the vendor counter / reconciliation says
+                                 whether energy was lost)
     - largest hole > threshold -> WARNING  (aggregates for the day suspect)
 
     Pure function — no I/O.
@@ -71,9 +75,10 @@ def evaluate_data_stale(
         stamps = timestamps_by_plant.get(pk) or []
         if not stamps:
             breaches.append(StaleBreach(
-                plant_key=pk, gap_hours=None, severity=Severity.CRITICAL,
-                message=(f"{pk}: NO telemetry arrived for {date_iso} "
-                         f"[CRITICAL]"),
+                plant_key=pk, gap_hours=None, severity=Severity.WARNING,
+                message=(f"{pk}: NO telemetry arrived for {date_iso} — data feed, "
+                         f"production unknown until the vendor counter is read "
+                         f"[WARNING]"),
             ))
             continue
 

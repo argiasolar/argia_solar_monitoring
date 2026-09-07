@@ -32,18 +32,21 @@ class TestPure:
         assert [r.alert_id for r in LM.unmailed(rs)] == ["ALT-20260904-001", "ALT-20260904-005",
                                                         "ALT-20260904-002"]
 
-    def test_subject_and_body_like_the_notifier(self):
+    def test_one_alert_one_mail(self):
         r = rec(1)
         # v217: metric as a phrase; without a names table the code stays
-        assert LM.subject_for(r) == "[ARGIA] WARNING — GTO1: inverter reports a fault code"
-        b = LM.body_for(r)
-        assert "Alert:      ALT-20260904-001" in b and "Plant:      GTO1\nInverter:   inverter X1" in b
-        assert "Value:      1.0 (threshold 0.0)" in b and b.endswith("fault 1\n\ncheck it\n")
+        subj, text, html = LM.render_mail([r], when_mx="2026-09-04 12:30")
+        assert subj == "[ARGIA] 4 Sep — 1 warning (GTO1)"
+        assert "WARNING — new\n  GTO1\n    inverter reports a fault code — inverter X1\n      inverter X1: fault 1  (ALT-20260904-001)" in text
+        assert "What these mean" in text and "inverter reports a fault code:" in text
+        assert text.endswith("Portal: https://portal.argia.com.mx/monitoring/")
 
     def test_several_alerts_one_mail(self):
-        subj, body = LM.digest_body([rec(1), rec(2, plant="NL1", sev="CRITICAL")])
-        assert subj == "[ARGIA] CRITICAL — 2 new alerts (GTO1, NL1)"
-        assert body.count("Alert:      ") == 2
+        subj, text, html = LM.render_mail([rec(1), rec(2, plant="NL1", sev="CRITICAL")], when_mx="2026-09-04 12:30")
+        assert subj == "[ARGIA] 4 Sep — 1 critical, 1 warning (GTO1, NL1)"
+        assert text.index("CRITICAL — new") < text.index("NL1") < text.index("WARNING — new") < text.index("GTO1")
+        assert text.count("(ALT-20260904-") == 2
+        assert html.count(">CRITICAL<") == 2 and html.count(">WARNING<") == 2      # bar + pill each
 
     def test_views_by_scope(self):
         alerts = [rec(1, "GTO1"), rec(2, "NL1")]
@@ -108,42 +111,102 @@ class TestWiring:
     def test_engine_scripts_mail_then_persist_the_marks(self):
         for name in ("alerts_daily.py", "alerts_snapshot.py"):
             src = (V2 / "scripts" / name).read_text(encoding="utf-8")
-            assert "records = mail_new_alerts(result.records, dry_run=args.dry_run)" in src
+            assert "records = mail_new_alerts(result.records, dry_run=args.dry_run," in src
             assert "mailed = records != list(result.records)" in src
+        # v223: intraday CRITICAL only; the morning run carries WARNINGs + still-open
+        assert 'severities=("CRITICAL",)' in (V2 / "scripts" / "alerts_snapshot.py").read_text(encoding="utf-8")
+        assert "morning=True" in (V2 / "scripts" / "alerts_daily.py").read_text(encoding="utf-8")
+        for name in ("alerts_daily.py", "alerts_snapshot.py"):
+            src = (V2 / "scripts" / name).read_text(encoding="utf-8")
             assert "write_ledger(sheets, records)" in src
             assert "or mailed" in src
 
 
 class TestGroupedByPlant:
-    """v204 (Tomasz): 'make it divided by plants visually easier to recognize'."""
+    """v204 (Tomasz): 'make it divided by plants visually easier to recognize';
+    v223: CRITICAL first, plant -> issue type -> inverters on one line,
+    explanations once at the bottom, still-open reminder."""
 
     def _alerts(self):
         return [rec(1, "SLP2"), rec(2, "NL1", sev="CRITICAL"), rec(3, "NL1"),
-                rec(4, "PORTFOLIO", sev="CRITICAL"), rec(5, "GTO1", sev="CRITICAL")]
+                rec(5, "GTO1", sev="CRITICAL")]
 
-    def test_order_critical_plants_first_portfolio_last(self):
-        groups = LM.by_plant(self._alerts())
-        assert [pk for pk, _ in groups] == ["GTO1", "NL1", "SLP2", "PORTFOLIO"]
-        nl1 = dict(groups)["NL1"]
-        assert [a.severity for a in nl1] == ["CRITICAL", "WARNING"]
+    def test_grouped_critical_plants_first(self):
+        g = LM.grouped(self._alerts())
+        assert [(sev, pk) for sev, pk, _ in g] == [("CRITICAL", "GTO1"), ("CRITICAL", "NL1"), ("WARNING", "NL1"), ("WARNING", "SLP2")]
+        mets = dict((pk, m) for sev, pk, m in g if sev == "CRITICAL")
+        assert [x[0] for x in mets["NL1"]] == ["inverter_fault"] and [a.alert_id for a in mets["NL1"][0][2]] == ["ALT-20260904-002"]
 
-    def test_text_body_has_a_header_bar_per_plant(self):
+    def test_text_groups_plant_issue_inverters(self):
         labels = {"NL1": "Plastic Omnium", "SLP2": "Holiday Inn Express"}
-        subj, body = LM.digest_body(self._alerts(), labels)
-        # v217: names in the subject, code as the detail in the header
-        assert subj == "[ARGIA] CRITICAL — 5 new alerts (GTO1, Holiday Inn Express, Plastic Omnium, Portfolio)"
-        assert "Plastic Omnium (NL1)  —  2 alert(s), 1 critical" in body
-        assert "Holiday Inn Express (SLP2)  —  1 alert(s)" in body
-        assert body.count("=====") >= 8 and body.index("GTO1") < body.index("(NL1)") < body.index("(SLP2)")
-        assert body.count("Alert:      ") == 5
+        subj, text, html = LM.render_mail(self._alerts(), labels, when_mx="2026-09-04 06:30")
+        assert subj == "[ARGIA] 4 Sep — 2 critical, 2 warnings (GTO1, Holiday Inn Express, Plastic Omnium)"
+        assert "CRITICAL — new\n  GTO1\n" in text and "  Plastic Omnium (NL1)\n    inverter reports a fault code — inverter X2" in text
+        assert text.index("CRITICAL — new") < text.index("WARNING — new") < text.index("Holiday Inn Express (SLP2)")
+        assert text.count("What these mean") == 1 and text.count("inverter reports a fault code:") == 1   # once, not per alert
+        assert "Still open" not in text                                                      # nothing older
 
-    def test_html_has_one_section_per_plant_and_escapes(self):
+    def test_inverters_of_one_issue_share_a_line(self):
+        rs = [rec(1, "GTO1"), rec(2, "GTO1"), rec(3, "GTO1")]
+        subj, text, html = LM.render_mail(rs, when_mx="2026-09-04 06:30")
+        assert "    inverter reports a fault code — inverter X1, inverter X2, inverter X3\n" in text
+        assert text.count("      inverter X") == 3 and html.count("font-size:12px") >= 3
+
+    def test_message_is_cleaned(self):
+        from argia.alerts import naming
+        n = naming.Names({"GTO2": "Hirschmann"}, {("GTO1", "X1"): "Inverter 1"})
+        r = rec(1, "GTO1", sev="WARNING")
+        r = r.__class__(**{**r.__dict__, "message": "GTO1 X1: day-peak temperature 65.1 degC — no output loss [WARNING]"})
+        assert LM.clean_message(r, n) == "day-peak temperature 65.1 degC — no output loss"
+        r2 = rec(2, "GTO2", sev="CRITICAL")
+        r2 = r2.__class__(**{**r2.__dict__, "inverter_sn": "", "message": "[GTO2] produced 1765 kWh vs 2899 expected (61%) — below 70%"})
+        assert LM.clean_message(r2, n) == "produced 1765 kWh vs 2899 expected (61%) — below 70%"
+
+    def test_still_open_reminder_and_no_news_mail(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 7, 12, 31, tzinfo=dt.timezone.utc)
+        old = [rec(9, "NL1", sev="CRITICAL", opened="2026-08-26T17:00:00+00:00"),
+               rec(10, "NL1", opened="2026-09-05T12:30:00+00:00"),
+               rec(11, "PORTFOLIO", sev="CRITICAL")]          # a leftover digest row is never listed
+        old[2] = old[2].__class__(**{**old[2].__dict__, "metric": "daily_digest"})
+        new = [rec(1, "GTO1")]
+        subj, text, html = LM.render_mail(new, {"NL1": "Plastic Omnium"}, still_open=old + new, when_mx="2026-09-07 06:30", now_utc=now)
+        assert "Still open from previous days: 1 critical / 1 warning" in text
+        assert "  CRITICAL · Plastic Omnium: inverter reports a fault code (inverter X9) — 12 d" in text
+        assert "  WARNING · Plastic Omnium: inverter reports a fault code (inverter X10) — 2 d" in text
+        assert "daily digest" not in text and "ALT-20260904-001" in text          # the new one is not "still open"
+        subj, text, html = LM.render_mail([], {"NL1": "Plastic Omnium"}, still_open=old, when_mx="2026-09-07 06:30", now_utc=now)
+        assert subj == "[ARGIA] 7 Sep — nothing new — 1 critical still open" and "What these mean" not in text
+
+    def test_html_escapes_and_colours(self):
         alerts = self._alerts()
         alerts[0] = alerts[0].__class__(**{**alerts[0].__dict__, "message": "<b>x</b> & y"})
-        html = LM.digest_html(alerts, {"NL1": "Plastic Omnium"})
-        assert html.count("border-left:6px solid") == 4                     # 4 plant headers
+        subj, text, html = LM.render_mail(alerts, {"NL1": "Plastic Omnium"})
+        assert html.count("border-left:6px solid") == 2                     # one bar per severity
         assert "Plastic Omnium (NL1)" in html and "&lt;b&gt;x&lt;/b&gt; &amp; y" in html
-        assert html.count(">CRITICAL<") == 3 and html.count(">WARNING<") == 2
+        assert "#c5221f" in html and "#a05c00" in html
+
+    def test_unmailed_filters_severities_and_digest(self):
+        rs = [rec(1, sev="WARNING"), rec(2, sev="CRITICAL"), rec(3, sev="INFO")]
+        rs.append(rec(4, "PORTFOLIO", sev="CRITICAL").__class__(**{**rec(4, "PORTFOLIO", sev="CRITICAL").__dict__, "metric": "daily_digest"}))
+        assert [r.alert_id for r in LM.unmailed(rs)] == ["ALT-20260904-001", "ALT-20260904-002"]
+        assert [r.alert_id for r in LM.unmailed(rs, ("CRITICAL",))] == ["ALT-20260904-002"]
+
+    def test_morning_mail_without_news_only_for_open_criticals(self, monkeypatch, caplog):
+        import logging
+        from argia.alerts import subscriptions
+        monkeypatch.setattr(subscriptions, "load_excluded_plants", lambda: frozenset({"QRO1"}))
+        monkeypatch.setattr(LM, "recipients", lambda: [("all@x", None)])
+        with caplog.at_level(logging.INFO):
+            LM.mail_new_alerts([rec(1, sent="email", sev="CRITICAL")], dry_run=True, morning=True, when_mx="2026-09-07 06:30")
+        assert "would mail all@x: [ARGIA] 7 Sep — nothing new — 1 critical still open" in caplog.text
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            LM.mail_new_alerts([rec(1, sent="email", sev="WARNING")], dry_run=True, morning=True, when_mx="2026-09-07 06:30")
+        assert "would mail" not in caplog.text                                  # open warnings alone: silence
+        with caplog.at_level(logging.INFO):
+            LM.mail_new_alerts([rec(2, sev="WARNING")], dry_run=True, severities=("CRITICAL",))
+        assert "would mail" not in caplog.text                                  # intraday: a WARNING waits for the morning
 
     def test_short_customer(self):
         assert LM.short_customer("PLASTIC OMNIUM PPA land (Monterrey, NL)") == "Plastic Omnium"
@@ -156,5 +219,5 @@ class TestGroupedByPlant:
         import pathlib
         src = (pathlib.Path(__file__).resolve().parents[2] / "argia" / "alerts" / "ledger_mail.py"
                ).read_text(encoding="utf-8")
-        assert "emailer.build_html_email(subject, body, digest_html(alerts, labels)" in src
+        assert "emailer.build_html_email(subject, body, html, cfg[\"SMTP_USER\"], emails)" in src
         assert "subscriptions.is_mailable(r.plant_key, excluded)" in src

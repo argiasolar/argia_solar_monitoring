@@ -19,10 +19,23 @@ same job from the ledger the engine just reconciled:
 
 Without /root/.argia_mail (no SMTP) nothing is sent and nothing is
 marked — the alerts stay unmailed and are retried next run, logged.
+
+v223 (Tomasz, 2026-09-07, after a 10-alert morning mail): ONE readable
+mail, not ten cards. CRITICAL first, then WARNING; inside a severity the
+alerts are grouped plant → issue type → inverters on one line, the
+per-inverter facts in small print under it; the long explanation appears
+ONCE per issue type at the bottom ("What these mean"), not under every
+alert; a "still open" line per plant replaces the old daily_digest
+pseudo-alert. Intraday ticks mail CRITICAL only (``severities``) — a
+WARNING waits for the morning mail. Severity rule the mail follows:
+CRITICAL = energy is being lost or a plant/inverter is off; everything
+about data, heat without loss or a flag without loss is WARNING.
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import re
 from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from argia.core.alerts_state import AlertRecord, AlertState, mark_channels_sent
@@ -41,13 +54,178 @@ MAILED_SEVERITIES = ("WARNING", "CRITICAL")
 ledger and on the portal; nobody is mailed about them."""
 
 
-def unmailed(records: Sequence[AlertRecord]) -> List[AlertRecord]:
-    """OPEN WARNING/CRITICAL records never mailed, oldest first."""
+def unmailed(records: Sequence[AlertRecord],
+             severities: Sequence[str] = MAILED_SEVERITIES) -> List[AlertRecord]:
+    """OPEN records of the given severities never mailed, oldest first
+    (the digest pseudo-alert never; v223)."""
+    sevs = {x.upper() for x in severities}
     out = [r for r in records if r.state == AlertState.OPEN
-           and (r.severity or "").upper() in MAILED_SEVERITIES
+           and (r.severity or "").upper() in sevs and r.metric != DIGEST_METRIC
            and "email" not in {c.strip() for c in r.channels_sent.split(",")}]
     out.sort(key=lambda r: (r.opened_utc, r.alert_id))
     return out
+
+
+DIGEST_METRIC = "daily_digest"
+_TAG = re.compile(r"\s*\[(?:CRITICAL|WARNING|INFO)\]\s*$")
+_BRACKET_PK = re.compile(r"^\[[A-Z0-9]{3,6}\]\s*")
+_RANK = {"CRITICAL": 0, "WARNING": 1}
+
+
+def clean_message(r: AlertRecord, n) -> str:
+    """The alert text for people: no 'PK SN: ' prefix, no trailing
+    '[SEVERITY]' tag (the pill says it), codes replaced by names."""
+    return _TAG.sub("", n.text(_BRACKET_PK.sub("", r.message or ""), r.plant_key, r.inverter_sn)).strip()
+
+
+def _age_days(r: AlertRecord, now_utc: Optional[dt.datetime]) -> int:
+    if now_utc is None:
+        return 0
+    try:
+        opened = dt.datetime.fromisoformat(r.opened_utc)
+    except (TypeError, ValueError):
+        return 0
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=dt.timezone.utc)
+    return max(0, (now_utc.date() - opened.date()).days)
+
+
+def grouped(alerts: Sequence[AlertRecord]) -> List[Tuple[str, str, List[Tuple[str, str, List[AlertRecord]]]]]:
+    """[(severity, plant_key, [(metric, plant_key, alerts)])] — CRITICAL
+    plants first, plants alphabetical, metrics alphabetical, inverters in
+    order. One entry per (severity, plant). Pure."""
+    tree: Dict[Tuple[int, str], Dict[str, List[AlertRecord]]] = {}
+    for a in alerts:
+        sev = (a.severity or "").upper()
+        tree.setdefault((_RANK.get(sev, 2), a.plant_key or ""), {}).setdefault(a.metric, []).append(a)
+    out = []
+    for (rank, pk) in sorted(tree):
+        sev = "CRITICAL" if rank == 0 else "WARNING" if rank == 1 else "INFO"
+        mets = [(m, pk, sorted(items, key=lambda a: (a.inverter_sn, a.alert_id)))
+                for m, items in sorted(tree[(rank, pk)].items())]
+        out.append((sev, pk, mets))
+    return out
+
+
+def still_open_lines(records: Sequence[AlertRecord], exclude_ids: set, n,
+                     now_utc: Optional[dt.datetime]) -> Tuple[int, int, List[str]]:
+    """(n_critical, n_warning, ['Plastic Omnium: inverter running hot ×4 (12 d)',
+    ...]) for OPEN WARNING/CRITICAL alerts that are not in this mail —
+    the reminder that silence means all clear (v223, replaces the
+    daily_digest pseudo-alert). Pure."""
+    rows = [r for r in records if r.state == AlertState.OPEN and r.metric != DIGEST_METRIC
+            and (r.severity or "").upper() in ("WARNING", "CRITICAL") and r.alert_id not in exclude_ids]
+    n_crit = sum(1 for r in rows if (r.severity or "").upper() == "CRITICAL")
+    groups: Dict[Tuple[int, str, str], List[AlertRecord]] = {}
+    for r in rows:
+        groups.setdefault((_RANK.get((r.severity or "").upper(), 2), r.plant_key, r.metric), []).append(r)
+    lines = []
+    for (rank, pk, metric), items in sorted(groups.items()):
+        from argia.alerts import naming
+        age = max(_age_days(r, now_utc) for r in items)
+        who = ", ".join(n.inverter(pk, r.inverter_sn) for r in items if r.inverter_sn)
+        lines.append(f"{'CRITICAL' if rank == 0 else 'WARNING'} · {n.plant(pk)}: {naming.phrase(metric)}"
+                     + (f" ({who})" if who else "") + f" — {age} d")
+    return n_crit, len(rows) - n_crit, lines
+
+
+def glossary(alerts: Sequence[AlertRecord]) -> List[Tuple[str, str]]:
+    """[(phrase, explanation)] once per issue type in the mail. Pure."""
+    from argia.alerts import explanations, naming
+    seen: Dict[str, str] = {}
+    for a in alerts:
+        if a.metric not in seen:
+            seen[a.metric] = explanations.explain(a.metric) or ""
+    return [(naming.phrase(m), txt) for m, txt in seen.items() if txt]
+
+
+def render_mail(alerts: Sequence[AlertRecord], labels=None,
+                still_open: Sequence[AlertRecord] = (),
+                when_mx: str = "", now_utc: Optional[dt.datetime] = None) -> Tuple[str, str, str]:
+    """(subject, text, html) — the one mail format (v223). ``alerts`` are
+    the new ones; ``still_open`` the ledger (or the recipient's view of
+    it) for the reminder section. Pure."""
+    import html as _h
+    from argia.alerts import naming
+    n = _names(labels)
+    e = lambda x: _h.escape(str(x))  # noqa: E731
+    n_crit = sum(1 for a in alerts if (a.severity or "").upper() == "CRITICAL")
+    n_warn = sum(1 for a in alerts if (a.severity or "").upper() == "WARNING")
+    ids = {a.alert_id for a in alerts}
+    so_crit, so_warn, so_lines = still_open_lines(still_open, ids, n, now_utc)
+    plants = sorted({n.plant(a.plant_key) for a in alerts})
+    day = ""
+    try:
+        d0 = dt.date.fromisoformat(when_mx.split(" ")[0])
+        day = f"{d0.day} {d0.strftime('%b')}"
+    except ValueError:
+        pass
+    head = f"{SUBJECT_PREFIX} {day} — " if day else f"{SUBJECT_PREFIX} "
+    if alerts:
+        parts = ([f"{n_crit} critical"] if n_crit else []) + ([f"{n_warn} warning{'s' if n_warn != 1 else ''}"] if n_warn else [])
+        subject = head + ", ".join(parts) + f" ({', '.join(plants)})"
+    else:
+        subject = head + f"nothing new — {so_crit} critical still open"
+    # ---- text
+    t = [f"ARGIA monitoring — {when_mx} MX" if when_mx else "ARGIA monitoring", ""]
+    cur_sev = None
+    for sev, pk, mets in grouped(alerts):
+        if sev != cur_sev:
+            t.append(f"{sev} — new" if sev in ("CRITICAL", "WARNING") else sev)
+            cur_sev = sev
+        t.append(f"  {n.plant_full(pk)}")
+        for metric, _pk, items in mets:
+            who = ", ".join(n.inverter(pk, a.inverter_sn) for a in items if a.inverter_sn)
+            t.append(f"    {naming.phrase(metric)}" + (f" — {who}" if who else ""))
+            for a in items:
+                lab = n.inverter(pk, a.inverter_sn) + ": " if a.inverter_sn else ""
+                t.append(f"      {lab}{clean_message(a, n)}  ({a.alert_id})")
+        t.append("")
+    if so_lines:
+        t.append(f"Still open from previous days: {so_crit} critical / {so_warn} warning")
+        t.extend(f"  {ln}" for ln in so_lines)
+        t.append("")
+    gl = glossary(alerts)
+    if gl:
+        t.append("What these mean")
+        t.extend(f"  {ph}: {txt}" for ph, txt in gl)
+        t.append("")
+    t.append("Portal: https://portal.argia.com.mx/monitoring/")
+    text = "\n".join(t)
+    # ---- html
+    h = ['<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a19;max-width:720px">',
+         f'<div style="color:#5f6368;font-size:12px;margin-bottom:8px">ARGIA monitoring — {e(when_mx)} MX</div>' if when_mx else ""]
+    cur_sev = None
+    for sev, pk, mets in grouped(alerts):
+        fg, bg = _SEV_COLOR.get(sev, ("#5f6368", "#eceef0"))
+        if sev != cur_sev:
+            h.append(f'<div style="margin:16px 0 6px;padding:6px 12px;border-left:6px solid {fg};background:{bg};'
+                     f'font-weight:700;font-size:15px;color:{fg}">{e(sev)}<span style="font-weight:400;color:#5f6368;margin-left:8px">new</span></div>')
+            cur_sev = sev
+        h.append(f'<div style="margin:8px 0 2px 12px;font-weight:700">{e(n.plant_full(pk))}</div>')
+        for metric, _pk, items in mets:
+            who = ", ".join(n.inverter(pk, a.inverter_sn) for a in items if a.inverter_sn)
+            h.append(f'<div style="margin:2px 0 0 24px">'
+                     f'<span style="display:inline-block;padding:0 7px;border-radius:10px;font-size:11px;font-weight:700;color:{fg};background:{bg}">{e(sev)}</span> '
+                     f'<b>{e(naming.phrase(metric))}</b>' + (f' — {e(who)}' if who else "") + '</div>')
+            for a in items:
+                lab = n.inverter(pk, a.inverter_sn) + ": " if a.inverter_sn else ""
+                h.append(f'<div style="margin:0 0 2px 36px;color:#5f6368;font-size:12px">{e(lab)}{e(clean_message(a, n))}'
+                         f' <span style="color:#b0b4b8">{e(a.alert_id)}</span></div>')
+    if so_lines:
+        h.append(f'<div style="margin:18px 0 4px;font-weight:700">Still open from previous days '
+                 f'<span style="font-weight:400;color:#5f6368">{so_crit} critical / {so_warn} warning</span></div>')
+        for ln in so_lines:
+            c = _SEV_COLOR["CRITICAL"][0] if ln.startswith("CRITICAL") else "#5f6368"
+            h.append(f'<div style="margin:0 0 2px 12px;font-size:12px;color:{c}">{e(ln)}</div>')
+    if gl:
+        h.append('<div style="margin:18px 0 4px;font-weight:700;color:#5f6368">What these mean</div>')
+        for ph, txt in gl:
+            h.append(f'<div style="margin:0 0 6px 12px;font-size:12px;color:#5f6368"><b>{e(ph)}</b> — {e(txt)}</div>')
+    h.append('<p style="color:#9aa0a6;font-size:11px;margin-top:16px">ARGIA Monitoring · '
+             'portal: https://portal.argia.com.mx/monitoring/ · CRITICAL = energy being lost or a unit off; '
+             'WARNING = data, heat or a flag without a measured loss</p></div>')
+    return subject, text, "".join(h)
 
 
 def _names(labels):
@@ -59,117 +237,7 @@ def _names(labels):
     return naming.Names(labels or {})
 
 
-def subject_for(r: AlertRecord, labels=None) -> str:
-    """'[ARGIA] WARNING — Budenheim: new string diagnostic flag' (v217:
-    the plant by name, the metric as a phrase; codes live in the body)."""
-    from argia.alerts import naming
-    n = _names(labels)
-    return (f"{SUBJECT_PREFIX} {r.severity or 'ALERT'} — {n.plant(r.plant_key)}: "
-            f"{naming.phrase(r.metric)}").strip()
-
-
-def body_for(r: AlertRecord, labels=None) -> str:
-    from argia.alerts import naming
-    n = _names(labels)
-    inv = f"\nInverter:   {n.inverter_full(r.plant_key, r.inverter_sn)}" if r.inverter_sn else ""
-    val = "" if r.value is None else r.value
-    thr = "" if r.threshold is None else r.threshold
-    return (f"Alert:      {r.alert_id}\n"
-            f"Plant:      {n.plant_full(r.plant_key)}{inv}\n"
-            f"Issue:      {naming.phrase(r.metric)} ({r.metric})\n"
-            f"Severity:   {r.severity}\n"
-            f"Opened UTC: {r.opened_utc}\n"
-            f"Value:      {val} (threshold {thr})\n\n"
-            f"{n.text(r.message, r.plant_key, r.inverter_sn)}\n\n{r.explanation}".rstrip() + "\n")
-
-
-def _plant_title(plant_key: str, labels) -> str:
-    return _names(labels).plant_full(plant_key)
-
-
-def by_plant(alerts: Sequence[AlertRecord]) -> List[Tuple[str, List[AlertRecord]]]:
-    """[(plant_key, alerts)] — CRITICAL plants first, then by key; inside a
-    plant CRITICAL first, then by inverter. PORTFOLIO (digest) last. Pure."""
-    groups: Dict[str, List[AlertRecord]] = {}
-    for a in alerts:
-        groups.setdefault(a.plant_key or "", []).append(a)
-    rank = {"CRITICAL": 0, "WARNING": 1}
-
-    def key(item):
-        pk, items = item
-        worst = min(rank.get(a.severity, 2) for a in items)
-        return (pk == "PORTFOLIO", worst, pk)
-    out = []
-    for pk, items in sorted(groups.items(), key=key):
-        items.sort(key=lambda a: (rank.get(a.severity, 2), a.inverter_sn, a.alert_id))
-        out.append((pk, items))
-    return out
-
-
-def digest_body(alerts: Sequence[AlertRecord],
-                labels: Optional[Dict[str, str]] = None) -> Tuple[str, str]:
-    """Several alerts for one recipient view -> one mail (subject, text
-    body). v204: grouped by plant with a header per plant (Tomasz: "divided
-    by plants visually easier to recognize")."""
-    n = _names(labels)
-    if len(alerts) == 1:
-        return subject_for(alerts[0], n), body_for(alerts[0], n)
-    worst = "CRITICAL" if any(a.severity == "CRITICAL" for a in alerts) else \
-            "WARNING" if any(a.severity == "WARNING" for a in alerts) else "INFO"
-    plants = sorted({n.plant(a.plant_key) for a in alerts})
-    subject = f"{SUBJECT_PREFIX} {worst} — {len(alerts)} new alerts ({', '.join(plants)})"
-    blocks = []
-    for pk, items in by_plant(alerts):
-        n_crit = sum(1 for a in items if a.severity == "CRITICAL")
-        head = f"{_plant_title(pk, labels)}  —  {len(items)} alert(s)" + \
-               (f", {n_crit} critical" if n_crit else "")
-        bar = "=" * max(len(head), 40)
-        blocks.append(f"{bar}\n{head}\n{bar}\n\n"
-                      + "\n\n- - - - -\n\n".join(body_for(a, n) for a in items))
-    return subject, "\n\n\n".join(blocks) + "\n"
-
-
 _SEV_COLOR = {"CRITICAL": ("#c5221f", "#fde7e9"), "WARNING": ("#a05c00", "#fdf0dc")}
-
-
-def digest_html(alerts: Sequence[AlertRecord],
-                labels: Optional[Dict[str, str]] = None) -> str:
-    """HTML alternative of digest_body: one section per plant with a
-    coloured header bar, one card per alert. Pure, no external assets."""
-    import html as _h
-    from argia.alerts import naming
-    n = _names(labels)
-
-    def e(x):
-        return _h.escape(str(x))
-    out = ['<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;'
-           'color:#1a1a19;max-width:720px">']
-    for pk, items in by_plant(alerts):
-        n_crit = sum(1 for a in items if a.severity == "CRITICAL")
-        fg, bg = _SEV_COLOR["CRITICAL" if n_crit else "WARNING"]
-        out.append(f'<div style="margin:18px 0 6px;padding:8px 12px;border-left:6px solid {fg};'
-                   f'background:{bg};font-weight:700;font-size:15px">{e(_plant_title(pk, labels))}'
-                   f'<span style="font-weight:400;color:#5f6368;margin-left:10px">{len(items)} alert(s)'
-                   f'{", " + str(n_crit) + " critical" if n_crit else ""}</span></div>')
-        for a in items:
-            sfg, sbg = _SEV_COLOR.get(a.severity, ("#5f6368", "#eceef0"))
-            inv = f" · {e(n.inverter_full(a.plant_key, a.inverter_sn))}" if a.inverter_sn else ""
-            val = "" if a.value is None else f" · value {e(a.value)}" + \
-                  ("" if a.threshold is None else f" (threshold {e(a.threshold)})")
-            out.append(
-                f'<div style="margin:0 0 8px 12px;padding:8px 12px;border:1px solid #e3e3e0;'
-                f'border-radius:6px;background:#fff">'
-                f'<span style="display:inline-block;padding:1px 8px;border-radius:10px;'
-                f'font-size:11px;font-weight:700;color:{sfg};background:{sbg}">{e(a.severity)}</span> '
-                f'<b>{e(naming.phrase(a.metric))}</b>{inv}{val}'
-                f'<div style="margin-top:4px">{e(n.text(a.message, a.plant_key, a.inverter_sn))}</div>'
-                + (f'<div style="margin-top:4px;color:#5f6368;font-size:13px">{e(a.explanation)}</div>'
-                   if a.explanation else "")
-                + f'<div style="margin-top:4px;color:#9aa0a6;font-size:11px">{e(a.alert_id)} · opened {e(a.opened_utc)} UTC</div>'
-                '</div>')
-    out.append('<p style="color:#9aa0a6;font-size:11px;margin-top:16px">ARGIA Monitoring · '
-               'portal: https://portal.argia.com.mx/monitoring/</p></div>')
-    return "".join(out)
 
 
 def group_views(alerts: Sequence[AlertRecord],
@@ -218,15 +286,24 @@ def recipients():
 
 
 def mail_new_alerts(records: Sequence[AlertRecord],
-                    dry_run: bool = False) -> List[AlertRecord]:
-    """Mail every unmailed OPEN alert to its subscribers; return the
-    records with 'email' marked on the ones that went out. Never raises
+                    dry_run: bool = False,
+                    severities: Sequence[str] = MAILED_SEVERITIES,
+                    morning: bool = False,
+                    when_mx: str = "",
+                    now_utc: Optional[dt.datetime] = None) -> List[AlertRecord]:
+    """Mail every unmailed OPEN alert of ``severities`` to its subscribers;
+    return the records with 'email' marked on the ones that went out.
+    ``morning`` (the 06:30 daily run) adds the still-open reminder and
+    sends even without news when a CRITICAL is still open. Never raises
     — alerting must not crash the engine run."""
     from argia.alerts import emailer, subscriptions
     excluded = subscriptions.load_excluded_plants()
-    cands = [r for r in unmailed(records)
+    cands = [r for r in unmailed(records, severities)
              if subscriptions.is_mailable(r.plant_key, excluded)][:MAX_PER_RUN]
-    if not cands:
+    open_crit = [r for r in records if r.state == AlertState.OPEN and r.metric != DIGEST_METRIC
+                 and (r.severity or "").upper() == "CRITICAL"
+                 and subscriptions.is_mailable(r.plant_key, excluded)]
+    if not cands and not (morning and open_crit):
         return list(records)
     try:
         rcpts = recipients()
@@ -239,11 +316,14 @@ def mail_new_alerts(records: Sequence[AlertRecord],
                     "unmailed (subscribe in /setup/)", CHANNEL, len(cands))
         return list(records)
     views = group_views(cands, rcpts)
-    if not views:
+    if not views and cands:
         LOG.info("ledger mail: %d new alert(s), no subscriber sees them — "
                  "marking as handled", len(cands))
         # nobody to mail: don't retry forever, the ledger is the record
         return mark_mailed(records, {a.alert_id for a in cands})
+    if not views:                       # morning reminder without news
+        views = [([email for email, _ in rcpts], [])]
+    mailable_open = [r for r in records if subscriptions.is_mailable(r.plant_key, excluded)] if morning else []
     cfg = None if dry_run else emailer.load_smtp()
     if cfg is None and not dry_run:
         LOG.warning("ledger mail: no SMTP config — %d alert(s) stay unmailed",
@@ -251,14 +331,18 @@ def mail_new_alerts(records: Sequence[AlertRecord],
         return list(records)
     mailed: set = set()
     labels = plant_labels()
+    scope_of = {email: scope for email, scope in rcpts}
     for emails, alerts in views:
-        subject, body = digest_body(alerts, labels)
+        scope = scope_of.get(emails[0]) if emails else None
+        so = [r for r in mailable_open if scope is None or r.plant_key.upper() in scope]
+        if not alerts and not any((r.severity or "").upper() == "CRITICAL" and r.state == AlertState.OPEN for r in so):
+            continue                    # this view has nothing to say
+        subject, body, html = render_mail(alerts, labels, still_open=so, when_mx=when_mx, now_utc=now_utc)
         if dry_run:
             LOG.info("[DRY RUN] would mail %s: %s (%d alert(s))",
                      ", ".join(emails), subject, len(alerts))
             continue
-        msg = emailer.build_html_email(subject, body, digest_html(alerts, labels),
-                                       cfg["SMTP_USER"], emails)
+        msg = emailer.build_html_email(subject, body, html, cfg["SMTP_USER"], emails)
         if emailer.send(msg, cfg):
             LOG.info("ledger mail: %s -> %s (%d alert(s))", subject,
                      ", ".join(emails), len(alerts))

@@ -167,10 +167,12 @@ def _t(h, m=0, day=30):
 
 
 class TestDataStale:
-    def test_no_rows_is_critical(self):
+    def test_no_rows_is_a_warning_about_data(self):
+        # v223: no telemetry is a DATA problem — CRITICAL is for a measured loss or a unit off
         b = evaluate_data_stale({}, ["SLP1"], "2026-06-30")
         assert len(b) == 1
-        assert b[0].severity.value == "CRITICAL" and b[0].gap_hours is None
+        assert b[0].severity.value == "WARNING" and b[0].gap_hours is None
+        assert "production unknown" in b[0].message
 
     def test_june30_trailing_hole_fires_warning(self):
         # Real failure: last sample 13:18 -> 6.7 h hole to 20:00 daylight end.
@@ -195,4 +197,4 @@ class TestDataStale:
         c = candidate_from_stale_breach(b)
         assert c.metric == "data_stale"
         assert c.alert_key == "slp1:plant:data_stale"
-        assert c.severity == "CRITICAL"
+        assert c.severity == "WARNING"

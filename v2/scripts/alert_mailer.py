@@ -1,10 +1,18 @@
-"""Team email alerts for plants / server / infrastructure (pio06 only).
+"""Infrastructure / monitoring-internal email alerts (pio06 only).
 
 Every 30 minutes (argia-mailer.timer): gathers facts, evaluates the
 pure conditions in argia.alerts.monitor, deduplicates via alert_state,
-and emails the 'maintenance' channel of mail_subscription (managed in
-/setup/, portal users only) as service@argia.com.mx. New alerts mail
-immediately, active ones re-mail every 6 h, recoveries mail once.
+and emails as service@argia.com.mx. New alerts mail immediately,
+active ones re-mail every 6 h, recoveries mail once.
+
+v223: the PLANT conditions (plant dark / stale, inverter silent) left
+this mailer — they duplicated the alert ledger's own rules (acute
+``data_stale`` / ``plant_offline`` / ``inverter_silent``, the daily
+tier) with worse evidence and no explanation, and at 06:07 MX they
+called a plant that had not woken up yet "CRITICAL", twice (Tomasz,
+2026-09-07). What is left here is the administrator's watch: failed
+jobs, disk, PostgreSQL, reconciliation, sensor drift, CFE pipeline,
+status-quo drift.
 Since v176 each subscriber can be scoped to specific plants: he then
 receives only alerts about those plants. Infrastructure and
 monitoring-internal alerts (disk, failed jobs, reconciliation, sensor
@@ -59,27 +67,6 @@ CREATE TABLE IF NOT EXISTS alert_state (
     psql_exec(subscriptions.ENSURE_SQL)
 
 
-def gather_freshness() -> Dict[str, Optional[float]]:
-    """{plant: minutes since last usable sample today, None = dark}."""
-    out: Dict[str, Optional[float]] = {}
-    for r in psql_rows("SELECT plant_key FROM plant WHERE active;"):
-        if r and r[0]:
-            out[r[0]] = None
-    for r in psql_rows(
-            "SELECT plant_key, extract(epoch FROM now() - max(ts_utc))/60"
-            " FROM telemetry"
-            " WHERE (ts_utc AT TIME ZONE 'America/Mexico_City')::date"
-            " = (now() AT TIME ZONE 'America/Mexico_City')::date"
-            " AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
-            " GROUP BY 1;"):
-        if len(r) >= 2 and r[0] in out:
-            try:
-                out[r[0]] = float(r[1])
-            except ValueError:
-                pass
-    return out
-
-
 def gather_failed_units() -> List[Tuple[str, str]]:
     out: List[Tuple[str, str]] = []
     for u in UNITS:
@@ -99,24 +86,6 @@ def gather_failed_units() -> List[Tuple[str, str]]:
                         f"{result} (exit {status}) at "
                         f"{props.get('ExecMainExitTimestamp', '?')}"))
     return out
-
-
-def gather_silent_inverters() -> List[Tuple[str, str, str]]:
-    """Configured-active inverters with no usable sample today while
-    their plant DOES report (a fully-dark plant is the plant alert's
-    job, not a per-inverter storm)."""
-    mx_day = ("(ts_utc AT TIME ZONE 'America/Mexico_City')::date"
-              " = (now() AT TIME ZONE 'America/Mexico_City')::date")
-    usable = "(etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
-    return [(r[0], r[1], r[2]) for r in psql_rows(
-        "SELECT i.plant_key, i.inverter_sn,"
-        " coalesce(i.inverter_label, i.inverter_sn) FROM inverter i"
-        " WHERE i.active"
-        " AND EXISTS (SELECT 1 FROM telemetry t"
-        f"  WHERE t.plant_key = i.plant_key AND {mx_day} AND {usable})"
-        " AND NOT EXISTS (SELECT 1 FROM telemetry t"
-        f"  WHERE t.inverter_sn = i.inverter_sn AND {mx_day} AND {usable});")
-        if len(r) >= 3]
 
 
 def gather_satellite_drift() -> List[Tuple[str, str, str, str]]:
@@ -189,12 +158,17 @@ def load_state() -> Tuple[Dict[str, tuple], Dict[str, str]]:
 
 def persist(active: List[monitor.Alert], sent_keys: List[str],
             recovered: List[str]) -> None:
+    """v223: the INSERT branch also stamps last_sent — before, a key seen
+    for the first time was mailed, inserted WITHOUT last_sent, and
+    mailed again on the next tick as "never sent" (SAG 06:07 + 06:37,
+    2026-09-07)."""
     stmts = []
     for a in active:
-        sent = ", last_sent = now()" if a.key in sent_keys else ""
+        mailed = a.key in sent_keys
+        sent = ", last_sent = now()" if mailed else ""
         stmts.append(
-            f"INSERT INTO alert_state (key, severity) VALUES"
-            f" ({_txt(a.key)}, {_txt(a.severity)})"
+            f"INSERT INTO alert_state (key, severity, last_sent) VALUES"
+            f" ({_txt(a.key)}, {_txt(a.severity)}, {'now()' if mailed else 'NULL'})"
             f" ON CONFLICT (key) DO UPDATE SET last_seen = now(),"
             f" active = true, severity = EXCLUDED.severity,"
             f" first_seen = CASE WHEN alert_state.active"
@@ -262,7 +236,6 @@ def main(argv=None) -> int:
         LOG.info("test mail to %s: %s", emails, "SENT" if ok else "FAILED")
         return 0 if ok else 1
 
-    in_window = 6 <= now_mx.hour < 20
     try:
         pg_ok = bool(psql_rows("SELECT 1;"))
     except RuntimeError:
@@ -280,16 +253,13 @@ def main(argv=None) -> int:
             " OR end_ts >= now());")}
     except RuntimeError:
         in_maint = set()
-    p_alerts = [a for a in monitor.plant_alerts(gather_freshness(),
-                                                in_window)
-                if a.key.split(":", 1)[1] not in in_maint]
-    i_alerts = [a for a in monitor.inverter_alerts(
-                    gather_silent_inverters(), in_window)
-                if a.key.split(":")[1] not in in_maint]
+    # v223: no plant-dark / plant-stale / inverter-silent here any more —
+    # the alert ledger (alerts_snapshot / alerts_daily) owns plant and
+    # inverter conditions, with the vendor counter as evidence
     s_alerts = [a for a in monitor.satellite_alerts(
                     gather_satellite_drift())
                 if a.key.split(":")[1] not in in_maint]
-    active = (p_alerts + i_alerts + s_alerts
+    active = (s_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
               + monitor.recon_alerts(gather_recon_fails())
               + monitor.cfe_alerts(gather_cfe_status(),
@@ -355,6 +325,10 @@ def main(argv=None) -> int:
                          len(g_alerts))
                 if ok:
                     sent_keys.extend(a.key for a in g_alerts)
+            # a held alert (portfolio filter) is handled by the decision
+            # not to mail it — stamp it like a send so it follows the
+            # normal cadence instead of being re-decided every tick
+            sent_keys.extend(a.key for a in dropped)
             persist(active, sorted(set(sent_keys)), recovered)
         else:
             LOG.warning("alerts pending but mail not configured "
@@ -362,7 +336,7 @@ def main(argv=None) -> int:
                         "no mail", bool(cfg), len(rcpt))
             persist(active, [], recovered)
     elif not args.dry_run:
-        persist(active, [], recovered)
+        persist(active, [a.key for a in dropped], recovered)
     return 0
 
 

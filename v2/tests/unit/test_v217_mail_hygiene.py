@@ -159,33 +159,24 @@ class TestNames:
 
 
 class TestLedgerMailNames:
-    def test_single_alert_subject_and_body(self):
-        r = rec()
-        assert LM.subject_for(r, NAMES) == "[ARGIA] WARNING — Budenheim: new string diagnostic flag"
-        body = LM.body_for(r, NAMES)
-        assert "Plant:      Budenheim (NL2)" in body
-        assert "Inverter:   Inverter 1 · SN JJM4D4P017" in body
-        assert "Issue:      new string diagnostic flag (string_fault)" in body
-        assert "\nNEW string-diagnostic bit(s)" in body
-        assert "NL2 JJM4D4P017:" not in body
+    def test_single_alert_names_first_codes_as_detail(self):
+        subj, body, html = LM.render_mail([rec()], NAMES, when_mx="2026-09-06 06:30")
+        assert subj == "[ARGIA] 6 Sep — 1 warning (Budenheim)"
+        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1\n      Inverter 1: NEW string-diagnostic bit(s)" in body
+        assert "NL2 JJM4D4P017:" not in body and "NL2 JJM4D4P017:" not in html
+        assert "Inverter 1" in html and "new string diagnostic flag" in html
 
     def test_digest_subject_names_plants(self):
-        subj, body = LM.digest_body([rec(aid="ALT-1"), rec(sn="JJM4D4P01C", aid="ALT-2"),
-                                     rec(plant="GTO1", sn="SN9", metric="inverter_temp_high", aid="ALT-3")],
-                                    NAMES)
-        assert subj == "[ARGIA] WARNING — 3 new alerts (Budenheim, Taigene)"
-        assert "Budenheim (NL2)  —  2 alert(s)" in body
-        assert "Taigene (GTO1)  —  1 alert(s)" in body
+        subj, body, _ = LM.render_mail([rec(aid="ALT-1"), rec(sn="JJM4D4P01C", aid="ALT-2"),
+                                        rec(plant="GTO1", sn="SN9", metric="inverter_temp_high", aid="ALT-3")],
+                                       NAMES, when_mx="2026-09-06 06:30")
+        assert subj == "[ARGIA] 6 Sep — 3 warnings (Budenheim, Taigene)"
+        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1, inverter JJM4D4P01C" in body
+        assert "  Taigene (GTO1)\n    inverter running hot — Inverter 3" in body
         assert re.search(r"^NL2\b", body, re.M) is None
 
-    def test_html_uses_names_and_phrases(self):
-        h = LM.digest_html([rec()], NAMES)
-        assert "Budenheim (NL2)" in h and "new string diagnostic flag" in h
-        assert "Inverter 1 · SN JJM4D4P017" in h
-        assert "NL2 JJM4D4P017:" not in h
-
     def test_old_label_dict_still_accepted(self):
-        subj, _ = LM.digest_body([rec(aid="1"), rec(aid="2", sn="X")], {"NL2": "Budenheim"})
+        subj, _, _ = LM.render_mail([rec(aid="1"), rec(aid="2", sn="X")], {"NL2": "Budenheim"})
         assert "(Budenheim)" in subj
 
     def test_mailer_loads_the_naming_layer(self):
@@ -328,7 +319,7 @@ class TestSourceInvariants:
     def test_no_mailer_renders_a_bare_plant_key_header(self):
         lm = (V2 / "argia/alerts/ledger_mail.py").read_text(encoding="utf-8")
         assert 'f"{plant_key} · {name}" if name else plant_key' not in lm
-        assert "return _names(labels).plant_full(plant_key)" in lm
+        assert "n.plant_full(pk)" in lm
 
 
 class TestV217_1PiFollowUp:

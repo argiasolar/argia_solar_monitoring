@@ -1,5 +1,12 @@
 """Daily open-alerts digest.
 
+v223: retired as an ALERT — a CRITICAL row called "daily digest" inflated
+every morning mail and read as one more problem (Tomasz 2026-09-07). The
+reminder now lives in the morning mail's "still open" section; the
+script calls ``resolve_digest_rows`` so the last digest row closes.
+``apply_daily_digest`` and ``summarize_open_alerts`` stay as pure,
+tested helpers (the portal's counts use ``reportable_alerts``).
+
 WHY (design gap, 2026-07-06): every alert e-mails exactly ONCE (the
 Alert_Notifications dedupe — the right call against flapping). But that
 means ongoing issues go silent: three GTO1 inverters sat in FAULT for
@@ -89,6 +96,20 @@ class DigestResult:
             out.append(f"DIGEST open    {self.opened.alert_id}  "
                        f"{self.opened.message}")
         return out
+
+
+def resolve_digest_rows(records: List[AlertRecord],
+                        now_utc: dt.datetime) -> DigestResult:
+    """v223: the digest pseudo-alert is retired — the morning mail carries
+    the still-open reminder itself (ledger_mail.still_open_lines). This
+    closes whatever digest rows are still open and opens nothing."""
+    res = DigestResult()
+    for i, rec in enumerate(records):
+        if rec.metric == DIGEST_METRIC and rec.is_open():
+            records[i] = resolve_alert(rec, now_utc)
+            res.resolved_ids.append(rec.alert_id)
+            res.changed = True
+    return res
 
 
 def apply_daily_digest(records: List[AlertRecord],

@@ -14,6 +14,13 @@ siblings' counters per rated kW over the same window:
     never came back that day          -> unconfirmed, treat as OFF
 
 PURE: rows in, breaches out.
+
+v223: a gap that the WHOLE fleet shares is the collector's (2026-09-06
+13:55-14:35 MX: PostgreSQL on pio06 was unreachable for 35 min and every
+Growatt plant went blank at once — the rule then blamed seven
+inverters at two plants for a "silent" spell they never had). Such
+windows come from ``collector_windows`` and are excluded before an
+inverter is judged.
 """
 from __future__ import annotations
 
@@ -81,17 +88,85 @@ def _gaps(rows: Sequence[Sample], sn: str, day_end_utc: dt.datetime
     return out
 
 
+SLOT_MIN = 5
+COLLECTOR_SHARE = 0.5
+"""A 5-minute slot in which fewer than this share of the plants that
+reported that day delivered a sample is a collector slot (our side or
+the vendor cloud), not a site event."""
+COLLECTOR_OVERLAP = 0.8
+"""An inverter gap that lies at least this much inside collector
+windows is not the inverter's silence."""
+
+
+def collector_windows(ts_by_plant: Dict[str, Sequence[dt.datetime]],
+                      slot_min: int = SLOT_MIN,
+                      share: float = COLLECTOR_SHARE) -> List[Tuple[dt.datetime, dt.datetime]]:
+    """Windows [start, end) in which the fleet as a whole went blank:
+    consecutive slots where fewer than ``share`` of the day's reporting
+    plants have any sample, between the first and last slot with data.
+    Pure."""
+    plants = [pk for pk, ts in ts_by_plant.items() if ts]
+    if len(plants) < 2:
+        return []
+    step = dt.timedelta(minutes=slot_min)
+
+    def slot(t: dt.datetime) -> dt.datetime:
+        return t.replace(minute=(t.minute // slot_min) * slot_min, second=0, microsecond=0)
+    present: Dict[dt.datetime, set] = {}
+    for pk in plants:
+        for t in ts_by_plant[pk]:
+            if t is not None:
+                present.setdefault(slot(t), set()).add(pk)
+    if not present:
+        return []
+    need = share * len(plants)
+    out: List[Tuple[dt.datetime, dt.datetime]] = []
+    t, last = min(present), max(present)
+    cur: Optional[dt.datetime] = None
+    while t <= last:
+        blank = len(present.get(t, ())) < need
+        if blank and cur is None:
+            cur = t
+        elif not blank and cur is not None:
+            out.append((cur, t))
+            cur = None
+        t += step
+    if cur is not None:
+        out.append((cur, last + step))
+    return out
+
+
+def inside_collector_windows(a: dt.datetime, b: dt.datetime,
+                             windows: Sequence[Tuple[dt.datetime, dt.datetime]],
+                             min_overlap: float = COLLECTOR_OVERLAP) -> bool:
+    """True when at least ``min_overlap`` of [a, b] lies inside the
+    collector windows (a slot of tolerance on each side). Pure."""
+    total = (b - a).total_seconds()
+    if total <= 0 or not windows:
+        return False
+    tol = dt.timedelta(minutes=SLOT_MIN)
+    covered = 0.0
+    for s, e in windows:
+        lo, hi = max(a, s - tol), min(b, e + tol)
+        if hi > lo:
+            covered += (hi - lo).total_seconds()
+    return covered / total >= min_overlap
+
+
 def evaluate_silent_gaps(
     plant_key: str,
     rows: Sequence[Sample],
     rated_kw: Dict[str, float],
     day_end_utc: dt.datetime,
     configured: Optional[Sequence[str]] = None,
+    collector: Sequence[Tuple[dt.datetime, dt.datetime]] = (),
 ) -> List[SilentBreach]:
     """One plant, one day. ``day_end_utc`` = end of the production window
     (a gap that runs to it is 'never came back'). Only gaps that START
     inside the 09-17 MX window and during which a sibling produced count;
-    one breach per inverter (its longest gap)."""
+    one breach per inverter (its longest gap). ``collector`` windows
+    (v223, from ``collector_windows``) are the fleet-wide blanks that are
+    never an inverter's fault."""
     sns = sorted(set(configured or []) | {r[1] for r in rows})
     out: List[SilentBreach] = []
     for sn in sns:
@@ -106,6 +181,8 @@ def evaluate_silent_gaps(
                 continue
             end = b or day_end_utc
             gap_min = (end - a).total_seconds() / 60.0
+            if inside_collector_windows(a, end, collector):
+                continue         # the whole fleet was blank: our collector, not this unit
             sib_in_gap = [r for r in rows if r[1] != sn and a < r[0] < end
                           and (r[3] or 0) > 0]
             if len(sib_in_gap) < MIN_SIBLING_SAMPLES:

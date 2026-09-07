@@ -58,21 +58,27 @@ class TestStrings:
         assert EV.peer_ratio(self.READINGS, "MEX1", "Z") is None                 # no peers
         assert EV.peer_ratio(self.READINGS, "GTO1", "Q") is None                 # not in the day
 
-    def test_weak_strings(self):
-        rows = [("s1", 40.0), ("s2", 41.0), ("s3", 0.5), ("s4", 39.0), ("s5", None)]
-        weak, med = EV.weak_strings(rows)
-        assert med == 39.5 and weak == [("s3", pytest_approx(0.0127, 0.001))]
-        assert EV.weak_strings([("s1", 0.2), ("s2", 0.3)]) == ([], 0.25)           # no sun: nothing weak
-        assert EV.weak_strings([]) == ([], None)
+    def test_weak_strings_against_their_own_history(self):
+        base = {"s1": [0.5, 0.49, 0.51], "s2": [0.5, 0.51, 0.49], "s3": [0.0, 0.0, 0.0], "s4": [1.0, 1.0, 1.0]}
+        today = [("s1", 0.02), ("s2", 0.98), ("s3", 0.0), ("s4", 1.0)]
+        weak, judged = EV.weak_strings(today, base)
+        assert weak == [("s1", pytest_approx(0.04, 0.001))] and judged == 3
+        # s3 never carried current (an empty input) -> never "weak"; s4 alone in its pair stays 1.0
+        assert EV.weak_strings([("s1", 0.5), ("s3", 0.0)], base) == ([], 1)      # s3 is not judged at all
+        # too little history -> nothing judged
+        assert EV.weak_strings([("s1", 0.0)], {"s1": [0.5, 0.5]}) == ([], None)
+        # no current at all today (night / no data) -> nothing judged
+        assert EV.weak_strings([("s1", 0.0), ("s2", None)], base) == ([], None)
+        assert EV.weak_strings([], {}) == ([], None)
 
     def test_string_severity(self):
         S = EV.string_severity
-        sev, ev = S(0.99, [("s3", 0.01)], 39.5)
-        assert sev == "WARNING" and "string s3 at 1%" in ev and "inverter at 99% of plant peers" in ev
-        sev, ev = S(0.80, [], 39.5)
+        sev, ev = S(0.99, [("s3", 0.01)], 8)
+        assert sev == "WARNING" and "string s3 at 1% of its own usual current" in ev and "inverter at 99% of plant peers" in ev
+        sev, ev = S(0.80, [], 8)
         assert sev == "WARNING" and "inverter at 80% of plant peers" in ev
-        sev, ev = S(0.99, [], 39.5)
-        assert sev == "INFO" and ev.startswith("no measurable loss") and "normal spread" in ev
+        sev, ev = S(0.99, [], 8)
+        assert sev == "INFO" and ev.startswith("no measurable loss") and "all 8 strings within their usual current" in ev
         sev, ev = S(0.99, [], None)
         assert sev == "INFO" and "string currents not available" in ev
         assert S(None, [], None) == ("INFO", "no production data to confirm a loss")
@@ -82,7 +88,7 @@ class TestWiring:
     def test_daily_script_reads_evidence_and_builds_string_candidates(self):
         src = (V2 / "scripts/alerts_daily.py").read_text(encoding="utf-8")
         assert "FROM thermal_daily WHERE prod_date = DATE" in src
-        assert "FROM string_daily" in src and "kind = 'string'" in src
+        assert "FROM string_daily" in src and "kind = 'string'" in src and "STRING_BASELINE_DAYS" in src
         assert "string_candidate_with_evidence(b, per_inverter_kwh, string_rows or {})" in src
 
     def test_string_candidate_severity_and_message(self):
@@ -93,9 +99,10 @@ class TestWiring:
         from argia.core.thresholds import Severity
         b = StringBitBreach("GTO1", "A", "break:15", Severity.WARNING,
                             "GTO1 A: NEW string-diagnostic bit(s) [break:15] not seen in prior 14 days [WARNING]")
-        c = AD.string_candidate_with_evidence(b, self_readings(), {("GTO1", "A"): [("s1", 40.0), ("s2", 0.0), ("s3", 41.0)]})
+        base = {"s1": [0.5] * 5, "s2": [0.5] * 5, "s3": [0.0] * 5}
+        c = AD.string_candidate_with_evidence(b, self_readings(), {("GTO1", "A"): {"today": [("s1", 1.0), ("s2", 0.0), ("s3", 0.0)], "base": base}})
         assert c.severity == "WARNING" and "string s2 at 0%" in c.message and c.message.endswith("[WARNING]")
-        c = AD.string_candidate_with_evidence(b, self_readings(), {("GTO1", "A"): [("s1", 40.0), ("s2", 39.0), ("s3", 41.0)]})
+        c = AD.string_candidate_with_evidence(b, self_readings(), {("GTO1", "A"): {"today": [("s1", 0.5), ("s2", 0.5), ("s3", 0.0)], "base": base}})
         assert c.severity == "INFO" and "no measurable loss" in c.message and c.message.endswith("[INFO]")
         assert "NEW string-diagnostic bit(s) [break:15]" in c.message
 

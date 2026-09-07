@@ -239,23 +239,30 @@ def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay
     return out
 
 
-def _read_string_evidence(date_iso: str) -> Dict[Tuple[str, str], List[Tuple[str, Optional[float]]]]:
-    """string_daily rows of the day (kind='string'): (channel, q_ah) per
-    inverter — the per-string amp-hours behind a string flag (v220)."""
+def _read_string_evidence(date_iso: str) -> Dict[Tuple[str, str], dict]:
+    """string_daily (kind='string') for the day and its trailing baseline:
+    per inverter {"today": [(channel, share)], "base": {channel: [share…]}}
+    — each string against its own history (v220)."""
     from argia.store.pgq import psql_rows
-    out: Dict[Tuple[str, str], List[Tuple[str, Optional[float]]]] = {}
+    out: Dict[Tuple[str, str], dict] = {}
     try:
-        rows = psql_rows("SELECT plant_key, inverter_sn, channel, q_ah FROM string_daily"
-                         f" WHERE prod_date = DATE '{date_iso}' AND kind = 'string';")
+        rows = psql_rows("SELECT plant_key, inverter_sn, prod_date::text, channel, share FROM string_daily"
+                         f" WHERE prod_date BETWEEN DATE '{date_iso}' - {STRING_BASELINE_DAYS}"
+                         f" AND DATE '{date_iso}' AND kind = 'string';")
     except Exception as e:  # noqa: BLE001
         log.warning("string evidence unreadable (%s) — string flags without current data", e)
         return out
     for r in rows:
-        if len(r) >= 4 and r[0] and r[1]:
+        if len(r) >= 5 and r[0] and r[1]:
             try:
-                out.setdefault((r[0], r[1].strip()), []).append((r[2], float(r[3]) if r[3] else None))
+                share = float(r[4]) if r[4] not in (None, "") else None
             except ValueError:
                 continue
+            ent = out.setdefault((r[0], r[1].strip()), {"today": [], "base": {}})
+            if r[2] == date_iso:
+                ent["today"].append((r[3], share))
+            else:
+                ent["base"].setdefault(r[3], []).append(share)
     return out
 
 
@@ -265,8 +272,9 @@ def string_candidate_with_evidence(b, readings, string_rows) -> Candidate:
     below its plant peers); otherwise INFO — kept in the ledger and on
     the portal, never mailed. The message carries the numbers."""
     ratio = EV.peer_ratio(readings, b.plant_key, b.inverter_sn)
-    weak, med = EV.weak_strings(string_rows.get((b.plant_key, b.inverter_sn), []))
-    sev, evidence = EV.string_severity(ratio, weak, med)
+    ent = string_rows.get((b.plant_key, b.inverter_sn)) or {"today": [], "base": {}}
+    weak, judged = EV.weak_strings(ent["today"], ent["base"])
+    sev, evidence = EV.string_severity(ratio, weak, judged)
     c = candidate_from_string_breach(b)
     msg = c.message.rsplit(" [", 1)[0] + f" — {evidence} [{sev}]"
     return Candidate(alert_key=c.alert_key, plant_key=c.plant_key, inverter_sn=c.inverter_sn,

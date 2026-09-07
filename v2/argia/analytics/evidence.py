@@ -10,8 +10,8 @@ So a hot inverter is CRITICAL only when its own output is measurably
 below its cooler peers (acute: kW per rated kW at the same minute; daily:
 the thermal_daily derating evidence), and a new string-diagnostic bit
 becomes a WARNING only when the day's data shows a loss — a string far
-below its siblings on the same inverter, or the inverter below the plant
-peers. Without evidence the flag is INFO: recorded in the ledger and on
+below its own usual current (its share of the MPPT pair over the previous
+days), or the inverter below the plant peers. Without evidence the flag is INFO: recorded in the ledger and on
 the portal, never mailed. Pure functions; the scripts feed them rows.
 """
 from __future__ import annotations
@@ -29,13 +29,19 @@ THERMAL_DAY_DERATING_MIN = 60
 """… or the unit spent at least this many minutes in suspected derating."""
 
 STRING_WEAK_RATIO = 0.5
-"""A string at or below this share of the inverter's median string
-(amp-hours over the day) is a measurable string loss."""
+"""A string at or below this fraction of ITS OWN trailing share of the
+MPPT pair (median of the previous days) is a measurable string loss —
+against its own history, not its siblings: half the string inputs of a
+MAX inverter can be legitimately empty (verified 2026-09-07: sibling
+comparison called every unused input "weak")."""
+STRING_BASE_MIN_SHARE = 0.10
+"""A string whose trailing share is below this never carried current —
+an unused input, not a string that broke."""
+STRING_BASE_MIN_DAYS = 3
+"""Days of history a string needs before its drop counts as evidence."""
 STRING_PEER_RATIO = 0.90
 """… or the whole inverter below this share of its plant peers' specific
 production (kWh per rated kW)."""
-STRING_MIN_Q_AH = 1.0
-"""Median string amp-hours below this: no sun to judge by."""
 
 
 def median(xs: Sequence[float]) -> Optional[float]:
@@ -133,34 +139,52 @@ def peer_ratio(readings: Iterable, plant_key: str, sn: str) -> Optional[float]:
     return float(mine) / float(ref)
 
 
-def weak_strings(string_rows: Sequence[Tuple[str, Optional[float]]],
+def weak_strings(today: Sequence[Tuple[str, Optional[float]]],
+                 baseline: Dict[str, Sequence[float]],
                  weak_ratio: float = STRING_WEAK_RATIO,
-                 min_q_ah: float = STRING_MIN_Q_AH) -> Tuple[List[Tuple[str, float]], Optional[float]]:
-    """From the day's string_daily rows of ONE inverter ((channel, q_ah) …
-    kind='string'): the strings at or below ``weak_ratio`` of the median
-    string, as (channel, share) — and the median itself (None = no sun)."""
-    vals = [(c, float(q)) for c, q in string_rows if q is not None]
-    med = median([q for _, q in vals])
-    if not med or med < min_q_ah:
-        return [], med
-    return sorted((c, q / med) for c, q in vals if q / med <= weak_ratio), med
+                 min_share: float = STRING_BASE_MIN_SHARE,
+                 min_days: int = STRING_BASE_MIN_DAYS) -> Tuple[List[Tuple[str, float]], Optional[float]]:
+    """``today``: (channel, share-of-MPPT-pair) rows of ONE inverter from
+    string_daily (kind='string'); ``baseline``: channel -> that string's
+    shares on the previous days. Returns the strings whose share today is
+    at or below ``weak_ratio`` of their own trailing median (only strings
+    that used to carry current, with enough history), as (channel,
+    today/baseline) — and the number of strings judged (None = nothing
+    to judge: no history, or no current at all today)."""
+    judged = 0
+    weak: List[Tuple[str, float]] = []
+    any_current = any(s is not None and s > 0 for _, s in today)
+    for c, share in today:
+        hist = [float(x) for x in baseline.get(c, []) if x is not None]
+        if len(hist) < min_days:
+            continue
+        base = median(hist)
+        if base is None or base < min_share:
+            continue                      # an input that never carried current
+        judged += 1
+        ratio = (float(share) if share is not None else 0.0) / base
+        if ratio <= weak_ratio:
+            weak.append((c, ratio))
+    if not judged or not any_current:
+        return [], None
+    return sorted(weak), float(judged)
 
 
-def string_severity(ratio: Optional[float], weak: Sequence[Tuple[str, float]], median_q: Optional[float],
+def string_severity(ratio: Optional[float], weak: Sequence[Tuple[str, float]], judged: Optional[float],
                     peer_ratio_min: float = STRING_PEER_RATIO) -> Tuple[str, str]:
     """(severity, evidence): WARNING when the day's data shows a loss,
     INFO when the flag is alone."""
     parts = []
     if weak:
-        parts.append("string " + ", ".join(f"{c} at {s * 100:.0f}% of the inverter's median string" for c, s in weak))
+        parts.append("string " + ", ".join(f"{c} at {s * 100:.0f}% of its own usual current" for c, s in weak))
     if ratio is not None:
         parts.append(f"inverter at {ratio * 100:.0f}% of plant peers")
     if weak or (ratio is not None and ratio < peer_ratio_min):
         return "WARNING", "; ".join(parts)
     if not parts:
         return "INFO", "no production data to confirm a loss"
-    if median_q is None:
+    if judged is None:
         parts.append("string currents not available")
-    elif not weak:
-        parts.append("all strings within the inverter's normal spread")
+    else:
+        parts.append(f"all {int(judged)} strings within their usual current")
     return "INFO", "no measurable loss — " + "; ".join(parts)

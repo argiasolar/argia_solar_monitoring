@@ -737,7 +737,8 @@ def get_thermal_health(rows: Rows, date_from: Any, date_to: Any, plant: Any = No
     for r in rows("SELECT plant_key, inverter_sn, count(*), max(peak_c), sum(minutes_over_65),"
                   " sum(minutes_over_70), sum(events), max(dt_peer_peak_c), max(dt_ambient_peak_c),"
                   " sum(derating_minutes), sum(lost_kwh), count(*) FILTER (WHERE cooling_health='POOR'),"
-                  " count(*) FILTER (WHERE cooling_health='WATCH') FROM thermal_daily"
+                  " count(*) FILTER (WHERE cooling_health='WATCH'), sum(coalesce(vendor_derating_minutes, 0))"
+                  " FROM thermal_daily"
                   f" WHERE prod_date BETWEEN DATE {_q(a)} AND DATE {_q(b)}{where}"
                   " GROUP BY 1, 2 ORDER BY 11 DESC NULLS LAST, 1, 2 /*tag:thermal*/;"):
         if len(r) >= 13:
@@ -746,7 +747,8 @@ def get_thermal_health(rows: Rows, date_from: Any, date_to: Any, plant: Any = No
                         "hours_over_70": _r((_f(r[5]) or 0) / 60), "events": _i(r[6]),
                         "dt_peer_peak_c": _f(r[7]), "dt_ambient_peak_c": _f(r[8]),
                         "derating_hours": _r((_f(r[9]) or 0) / 60), "lost_kwh": _r(_f(r[10])),
-                        "band": TH.band(_f(r[3])), "poor_days": _i(r[11]), "watch_days": _i(r[12])})
+                        "band": TH.band(_f(r[3])), "poor_days": _i(r[11]), "watch_days": _i(r[12]),
+                        "vendor_derating_hours": _r(((_f(r[13]) if len(r) > 13 else 0) or 0) / 60)})
     curve = None
     if k:
         bins = TH.merge_bins((float(x[1]), int(x[2]), float(x[3])) for x in rows(
@@ -758,13 +760,16 @@ def get_thermal_health(rows: Rows, date_from: Any, date_to: Any, plant: Any = No
             "totals": {"inverters": len(out), "hours_over_65": _r(sum(x["hours_over_65"] or 0 for x in out)),
                        "events": sum(x["events"] or 0 for x in out),
                        "derating_hours": _r(sum(x["derating_hours"] or 0 for x in out)),
-                       "lost_kwh": _r(sum(x["lost_kwh"] or 0 for x in out))},
+                       "lost_kwh": _r(sum(x["lost_kwh"] or 0 for x in out)),
+                       "vendor_derating_hours": _r(sum(x["vendor_derating_hours"] or 0 for x in out))},
             "derating_curve": curve,
             "note": "ARGIA operational bands on internal inverter temperature (not warranty limits): "
                     "normal <50, watch 50-60, warning 60-65, high 65-70, critical >=70 C. dt_peer = the "
                     "unit minus the median of its plant peers (a cooling problem when >=5, POOR >=10). "
                     "lost_kwh = suspected thermal derating: intervals >=65 C where the unit, >=5 C hotter "
-                    "than cooler peers, produced >=3% less per rated kW than they did. The derating curve "
+                    "than cooler peers, produced >=3% less per rated kW than they did. vendor_derating_hours = hours "
+                    "the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) "
+                    "- the vendor's own confirmation; Huawei/SolarEdge publish no such register. The derating curve "
                     "(actual/expected by temperature bin, knee_c) is measured from the fleet's own data. "
                     "Manufacturer manuals require ventilation and state derating on heat without quantifying it.",
             "source": {"tables": ["thermal_daily", "thermal_bins"], **_freshness(rows)}}

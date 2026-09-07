@@ -225,7 +225,8 @@ def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay
     out: Dict[Tuple[str, str], EV.ThermalDay] = {}
     try:
         rows = psql_rows("SELECT plant_key, inverter_sn, coalesce(derating_minutes,0), coalesce(lost_kwh,0),"
-                         f" energy_kwh FROM thermal_daily WHERE prod_date = DATE '{date_iso}';")
+                         " energy_kwh, coalesce(vendor_derating_minutes,0)"
+                         f" FROM thermal_daily WHERE prod_date = DATE '{date_iso}';")
     except Exception as e:  # noqa: BLE001
         log.warning("thermal evidence unreadable (%s) — temperature alerts stay WARNING", e)
         return out
@@ -233,7 +234,8 @@ def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay
         if len(r) >= 5 and r[0] and r[1]:
             try:
                 out[(r[0], r[1].strip())] = EV.ThermalDay(int(float(r[2])), float(r[3]),
-                                                          float(r[4]) if r[4] else None)
+                                                          float(r[4]) if r[4] else None,
+                                                          int(float(r[5])) if len(r) > 5 and r[5] else 0)
             except ValueError:
                 continue
     return out

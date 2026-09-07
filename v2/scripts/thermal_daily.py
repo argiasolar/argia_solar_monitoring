@@ -1,7 +1,9 @@
 """Nightly inverter thermal health (v216): evaluates every plant-day's
 5-minute telemetry with argia.analytics.thermal and stores thermal_daily
 (per inverter: peak, hours hot, events, ΔT vs peers / ambient, suspected
-derating minutes, lost kWh, cooling health) and thermal_bins (the
+derating minutes, lost kWh, cooling health, and since v222 the minutes
+the inverter ITSELF reported thermal derating — Growatt DeratingMode
+Tinv/Tboost out of telemetry_detail) and thermal_bins (the
 temperature-binned actual/expected ratios behind the derating curve).
 
     thermal_daily.py                      # yesterday MX
@@ -49,16 +51,19 @@ def baseline(plant_key: str, date_iso: str) -> Dict[str, float]:
     return TH.baseline_from_history((r[0], float(r[1])) for r in rows if len(r) >= 2 and r[1])
 
 
-def samples(plant_key: str, date_iso: str) -> List[TH.Sample]:
-    out: List[TH.Sample] = []
+def samples(plant_key: str, date_iso: str) -> List[tuple]:
+    """(ts, sn, power_w, temperature_c, ambient_c, derating_mode) per row;
+    the vendor mode is '' -> None where telemetry_detail has no row."""
+    out: List[tuple] = []
     for r in psql_rows(TH.telemetry_sql(plant_key, date_iso)):
         if len(r) < 5:
             continue
         ts = TH.parse_ts(r[0])
         if ts is None:
             continue
+        mode = r[5].strip() if len(r) > 5 and r[5] and r[5].strip() else None
         out.append((ts, r[1], float(r[2]) if r[2] else None, float(r[3]) if r[3] else None,
-                    float(r[4]) if r[4] else None))
+                    float(r[4]) if r[4] else None, mode))
     return out
 
 
@@ -72,9 +77,11 @@ def run_day(date_iso: str, rated: Dict[str, Dict[str, float]], dry_run: bool) ->
         hot = [d for d in days.values() if d.samples and d.peak_c is not None and d.peak_c >= TH.T_HOT]
         for d in sorted(days.values(), key=lambda x: x.sn):
             if d.samples:
-                LOG.info("thermal %s %s %s: peak %.1f C (%s) hot %d min, dT peer %s, derating %d min, lost %.1f kWh, cooling %s",
+                LOG.info("thermal %s %s %s: peak %.1f C (%s) hot %d min, dT peer %s, derating %d min, lost %.1f kWh,"
+                         " vendor derating %d min, cooling %s",
                          date_iso, pk, d.sn, d.peak_c, d.band, d.minutes_over_65,
-                         d.dt_peer_peak_c, d.derating_minutes, d.lost_kwh, d.cooling_health)
+                         d.dt_peer_peak_c, d.derating_minutes, d.lost_kwh, d.vendor_derating_minutes,
+                         d.cooling_health)
         if not dry_run:
             for sql in TH.build_upsert_sql(pk, date_iso, days):
                 psql_exec(sql)
@@ -101,11 +108,12 @@ def report(plant_key: str, days_back: int = 30) -> None:
         for p in c["points"]:
             print(f"   {p['bin_c']:5.1f} C  n={p['n']:5d}  ratio={p['ratio']:.3f}")
     tot = psql_rows("SELECT inverter_sn, sum(minutes_over_65), sum(events), sum(derating_minutes), sum(lost_kwh),"
-                    " max(peak_c), max(dt_peer_peak_c) FROM thermal_daily"
+                    " max(peak_c), max(dt_peer_peak_c), sum(coalesce(vendor_derating_minutes, 0)) FROM thermal_daily"
                     f" WHERE plant_key = '{plant_key}' AND prod_date >= DATE '{d0}' GROUP BY 1 ORDER BY 1;")
     for r in tot:
         print(f"{plant_key} {r[0]}: {int(float(r[1] or 0))//60} h >= 65 C, {r[2]} events, "
               f"{int(float(r[3] or 0))//60} h suspected derating, lost {float(r[4] or 0):.1f} kWh, "
+              f"vendor-confirmed derating {int(float(r[7] or 0))} min, "
               f"peak {r[5]} C, dT peer {r[6]} C")
 
 

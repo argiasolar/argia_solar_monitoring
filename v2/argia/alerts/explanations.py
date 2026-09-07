@@ -78,8 +78,10 @@ _CATALOG: Dict[str, Dict[str, str]] = {
             "heat shortens its lifetime. WARNING from 65 degC; CRITICAL "
             "only when the unit is at least 70 degC, hotter than its "
             "plant peers AND measurably producing less than the cooler "
-            "ones — the alert states the measured shortfall. Heat with "
-            "normal output is a warning, not an emergency."),
+            "ones — the alert states the measured shortfall — or when the "
+            "inverter itself reports a temperature derating mode (Growatt "
+            "Tinv/Tboost), which the alert quotes. Heat with normal output "
+            "is a warning, not an emergency."),
         "check": (
             "Check ventilation: blocked or dirty fans/heatsink, direct "
             "sun on the enclosure, or dead cooling. If several units at "

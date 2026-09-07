@@ -210,3 +210,26 @@ def read_string_flags(first_mx_date: str, last_mx_date: str) -> List[tuple]:
                  for i, c in enumerate(STRING_FLAG_COLS)}
         out.append((ts, r[1], r[2], flags))
     return out
+
+
+# ------------------------------------------------------------- v222 reader
+def read_derating_modes(since_utc) -> List[tuple]:
+    """(ts_utc, plant_key, inverter_sn, derating_mode) for every detail
+    row since ``since_utc`` that carries the Growatt DeratingMode
+    register (0 included — a unit back at 0 is no longer derating).
+    The acute tier reduces it with ``acute.vendor_thermal_state``."""
+    from argia.core.time_utils import parse_pg_ts
+    from argia.store.pgq import psql_rows
+    stamp = since_utc.strftime("%Y-%m-%d %H:%M:%S+00")
+    sql = ("SELECT ts_utc, plant_key, inverter_sn, derating_mode FROM telemetry_detail"
+           f" WHERE ts_utc >= '{stamp}' AND derating_mode IS NOT NULL ORDER BY ts_utc;")
+    out = []
+    for r in psql_rows(sql):
+        if len(r) < 4:
+            continue
+        try:
+            ts = parse_pg_ts(r[0])
+        except ValueError:
+            continue
+        out.append((ts, r[1], r[2], r[3]))
+    return out

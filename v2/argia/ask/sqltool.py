@@ -46,7 +46,7 @@ TABLE_NOTES: Dict[str, str] = {
     "cfe_tariff": "CFE tariffs: tariff_code (GDMTH...), region, month, charge_type, unit, value_mxn, source (cfe_scrape = CFE-verified)",
     "knowledge": "ARGIA Golden Standard slides (doc='AGS', lang en/es/cz, n, title, body) — prefer search_standard",
     "sync_run": "every job run: script, status, started_at, error",
-    "thermal_daily": "nightly inverter thermal health per inverter-day: peak_c, minutes_over_65/70, events, dt_peer_peak_c (vs plant peers), dt_ambient_peak_c, derating_minutes, lost_kwh (suspected thermal derating vs cooler peers), cooling_health GOOD/WATCH/POOR — prefer get_thermal_health",
+    "thermal_daily": "nightly inverter thermal health per inverter-day: peak_c, minutes_over_65/70, events, dt_peer_peak_c (vs plant peers), dt_ambient_peak_c, derating_minutes, lost_kwh (suspected thermal derating vs cooler peers), vendor_derating_minutes (the inverter's own Tinv/Tboost derating mode, Growatt only), cooling_health GOOD/WATCH/POOR — prefer get_thermal_health",
     "thermal_bins": "temperature-binned actual/expected ratios behind the derating curve (bin_c, n, ratio_sum)",
 }
 MAX_ROWS = 200

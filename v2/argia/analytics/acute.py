@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 
 from argia.analytics import evidence as EV
 from argia.analytics.inverter_health import Severity
+from argia.analytics.thermal import INTERVAL_MIN, vendor_thermal_mode
 from argia.analytics.vendor_flags import MIN_FAULT_SAMPLES, fault_tokens
 from argia.core.time_utils import utc_to_mx
 
@@ -65,7 +66,10 @@ inverter that is not so hot, keep it a warning". Plant-wide heat and a
 hot unit without a measured loss stay WARNING whatever the temperature
 (TEMP_CRIT_C is now only the top band label). The message always states
 the evidence: the peer deviation and the measured shortfall, or that no
-cooler peer exists to measure it."""
+cooler peer exists to measure it. v222: when the inverter's own
+DeratingMode (Growatt, telemetry_detail) is Tinv/Tboost in its newest
+fresh sample, that is quoted first and makes a >= 70 unit CRITICAL —
+the device confirming the loss beats any peer comparison."""
 
 ACUTE_STALE_MIN = 120
 """No sample for a plant in this many daylight minutes -> acute data gap.
@@ -83,6 +87,26 @@ SIBLING_MIN_W = 5000.0
 
 DAYLIGHT_START_HOUR = 6
 DAYLIGHT_END_HOUR = 20
+
+
+def vendor_thermal_state(rows, interval_min: int = INTERVAL_MIN) -> Dict[Tuple[str, str], Tuple[dt.datetime, str, int]]:
+    """Reduce (ts_utc, plant_key, inverter_sn, derating_mode) rows of the
+    telemetry_detail tail to {(plant, sn): (newest ts, mode label, minutes
+    in a thermal mode over the tail)} — only for units whose NEWEST
+    sample is in a thermal mode (Tinv/Tboost); a unit that has already
+    left the mode is not derating now. Pure."""
+    newest: Dict[Tuple[str, str], Tuple[dt.datetime, Optional[str]]] = {}
+    minutes: Dict[Tuple[str, str], int] = {}
+    for ts, plant, sn, mode in rows:
+        if ts is None:
+            continue
+        key = (str(plant).strip(), str(sn).strip())
+        label = vendor_thermal_mode(mode)
+        if label:
+            minutes[key] = minutes.get(key, 0) + interval_min
+        if key not in newest or ts > newest[key][0]:
+            newest[key] = (ts, label)
+    return {k: (ts, label, minutes.get(k, 0)) for k, (ts, label) in newest.items() if label}
 
 
 @dataclass(frozen=True)
@@ -122,6 +146,7 @@ def evaluate_acute(
     absent_gap_hours: Optional[float] = None,
     configured_inverters: Optional[Dict[str, List[str]]] = None,
     rated_kw: Optional[Dict] = None,
+    vendor_thermal: Optional[Dict[Tuple[str, str], Tuple[dt.datetime, str, int]]] = None,
 ) -> List[AcuteBreach]:
     """Evaluate the acute conditions against the newest samples.
 
@@ -132,6 +157,9 @@ def evaluate_acute(
 
     ``samples`` is [(timestamp_utc, plant_key, inverter_sn, power_w,
     temperature_c, status, fault_code), ...] — the recent tail of telemetry.
+    ``vendor_thermal`` ({(plant, sn): (ts, "Tinv"|"Tboost", minutes)},
+    from ``vendor_thermal_state``) is the inverter's own derating word;
+    it is used only when its sample is inside the freshness window.
     Pure function — no I/O.
     """
     now_mx = utc_to_mx(now_utc)
@@ -204,7 +232,10 @@ def evaluate_acute(
                       and float(v[4]) <= float(temp) - TEMP_PEER_DT_C
                       and (rated.get((plant, o)) or rated.get(o) or 0) > 0]
             short = EV.thermal_shortfall_pct(pw, rk, cooler)
-            sev_name, why, evidence = EV.thermal_severity(float(temp), TEMP_WARN_C, TEMP_HIGH_C, hotter, short)
+            vt = (vendor_thermal or {}).get((plant, sn))
+            v_mode, v_min = (vt[1], vt[2]) if vt and vt[0] >= fresh_cut else (None, None)
+            sev_name, why, evidence = EV.thermal_severity(float(temp), TEMP_WARN_C, TEMP_HIGH_C, hotter, short,
+                                                          vendor_mode=v_mode, vendor_minutes=v_min)
             sev = Severity[sev_name]
             detail = (f", {dt_peer:+.1f} degC vs peers" if dt_peer is not None else "") + ", " + evidence
             breaches.append(AcuteBreach(

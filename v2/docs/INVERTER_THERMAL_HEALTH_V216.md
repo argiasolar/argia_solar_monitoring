@@ -38,6 +38,15 @@ Cases the model refuses to over-read: no cooler peer (whole plant hot, single-in
 ## 4. First real numbers
 Filled in after the 90-day backfill on pio06 (see the deploy log / next session note). Fleet temperature data: every plant reports internal temperature; ambient is on every row (weather feed); peaks in the last 30 days: NL1 82 °C, MEX1 76, TAM1 76, SLP1 75, GTO1 71 — NL1 (Plastic Omnium, four identical 124 kW MAX units) is the natural first case.
 
+## 4b. The vendor's own word (v222, 2026-09-07)
+Growatt MAX inverters publish a **DeratingMode** register (Modbus 104: 0 no derate, 1 PV, 3 Vac, 4 Fac, **5 Tboost, 6 Tinv**, 7 Control, 9 OverBackByTime) which the detail mirror stores as `telemetry_detail.derating_mode` (since 2026-09-05). A fleet-wide sweep found no W407/E408 anywhere, but **mode 6 (Tinv) on Plastic Omnium inverters 1 and 4 on 2026-09-05 — 95 and 60 minutes at 71–82 °C**, the two units the peer-counterfactual analysis had already singled out; no other inverter has ever reported a thermal mode. Since v222:
+
+- `thermal_daily.vendor_derating_minutes` — minutes per inverter-day in Tinv/Tboost, computed by the nightly job from a LEFT JOIN on `telemetry_detail` (NULL/0 for Huawei and SolarEdge, which publish no such register, and for days before the mirror existed). ≥30 min makes cooling health POOR on its own.
+- Thermal cards: the daily card gains a **Vendor derating** column, the 30-day report card **Vendor h**; Ask ARGIA `get_thermal_health` returns `vendor_derating_hours`.
+- Alerts: the acute rule reads the tail of `telemetry_detail`; when a unit's newest fresh sample is in a thermal mode the message quotes it first ("Growatt reports Tinv derating (45 min); …") and a ≥70 °C unit is CRITICAL on the device's word alone — the inverter confirming that it limits power is abnormal production by definition. The daily day-peak rule does the same with ≥60 vendor minutes. A unit that has already left the mode carries no word.
+
+The measured loss (peer counterfactual) and the vendor minutes are kept as **separate columns** on purpose: one is ARGIA's estimate of kWh, the other is the manufacturer's confirmation that derating happened — quote both to the installer.
+
 ## 5. How to use it in O&M
 1. Sort the report's thermal card by MXN: that is the cooling-work priority list, with its payback.
 2. A unit with POOR cooling health and a knee ≥65 °C is a cooling-system defect (heat sink, fan, clearance, sun exposure) — not the weather; that is the case to put to the installer / for warranty conditions.

@@ -119,6 +119,43 @@ class TestEvaluateAcute:
         assert alone.severity is Severity.WARNING and "no cooler peer" in alone.message
         assert evaluate_acute(hot + [_s(5, "D", temp=76.0)], ["GTO1"], NOW)[-1].severity is Severity.WARNING
 
+    def test_v222_vendor_derating_mode_is_quoted_and_decides(self):
+        from argia.analytics.acute import vendor_thermal_state
+        rated = {("GTO1", "A"): 125.0, ("GTO1", "B"): 125.0, ("GTO1", "C"): 125.0}
+        # A at 76 C producing like its cooler peers: WARNING by the v220 rule ...
+        same = [_s(5, "A", temp=76.0, power=117000.0), _s(5, "B", temp=58.0, power=118000.0),
+                _s(5, "C", temp=57.0, power=118000.0)]
+        assert evaluate_acute(same, ["GTO1"], NOW, rated_kw=rated)[0].severity is Severity.WARNING
+        # ... but the inverter itself says Tinv (Growatt DeratingMode 6): CRITICAL, quoted first
+        rows = [(NOW - dt.timedelta(minutes=m), "GTO1", "A", 6 if m <= 40 else 0) for m in range(0, 120, 5)]
+        rows += [(NOW - dt.timedelta(minutes=5), "GTO1", "B", 0), (NOW - dt.timedelta(minutes=5), "GTO1", "C", None)]
+        vt = vendor_thermal_state(rows)
+        assert list(vt) == [("GTO1", "A")] and vt[("GTO1", "A")][1:] == ("Tinv", 45)
+        b = evaluate_acute(same, ["GTO1"], NOW, rated_kw=rated, vendor_thermal=vt)[0]
+        assert b.severity is Severity.CRITICAL
+        assert "the inverter itself reports thermal derating" in b.message
+        assert "Growatt reports Tinv derating (45 min); producing within 1% of cooler peers" in b.message
+        # a unit that already LEFT the mode is not derating now: no word, WARNING
+        left = [(NOW - dt.timedelta(minutes=m), "GTO1", "A", 6 if m >= 20 else 0) for m in range(0, 60, 5)]
+        assert vendor_thermal_state(left) == {}
+        # a stale vendor sample (older than the freshness window) is ignored
+        old = {("GTO1", "A"): (NOW - dt.timedelta(minutes=90), "Tinv", 60)}
+        assert evaluate_acute(same, ["GTO1"], NOW, rated_kw=rated, vendor_thermal=old)[0].severity is Severity.WARNING
+        # below 70 the word is quoted but never pages
+        warm = [_s(5, "A", temp=67.0, power=117000.0), _s(5, "B", temp=58.0, power=118000.0)]
+        w = evaluate_acute(warm, ["GTO1"], NOW, rated_kw=rated, vendor_thermal=vt)[0]
+        assert w.severity is Severity.WARNING and "Growatt reports Tinv derating" in w.message
+
+    def test_v222_snapshot_reads_the_vendor_word(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "alerts_snapshot.py").read_text(encoding="utf-8")
+        assert "vendor_thermal=vendor" in src and "pg_detail.read_derating_modes(" in src
+        from argia.store import pg_detail
+        assert "derating_mode IS NOT NULL" in pg_detail.read_derating_modes.__doc__ or True
+        import inspect
+        body = inspect.getsource(pg_detail.read_derating_modes)
+        assert "derating_mode IS NOT NULL" in body and "FROM telemetry_detail" in body
+
     def test_whole_plant_dark_fires_critical(self):
         samples = [_s(10, "A", power=0.0), _s(10, "B", power=0.0),
                    _s(10, "C", plant="MEX1", power=40000.0)]

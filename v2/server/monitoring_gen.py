@@ -362,13 +362,14 @@ THERMAL_DATES = {}  # plant -> [dates desc]
 try:
     for r in q("SELECT plant_key, prod_date::text, inverter_sn, peak_c, minutes_over_65, events,"
                " dt_peer_peak_c, dt_ambient_peak_c, derating_minutes, lost_kwh, band, cooling_health,"
-               " minutes_over_70 FROM thermal_daily"
+               " minutes_over_70, coalesce(vendor_derating_minutes, 0) FROM thermal_daily"
                f" WHERE prod_date >= DATE '{TODAY}' - 31 ORDER BY prod_date DESC, inverter_sn;"):
-        if len(r) >= 13:
+        if len(r) >= 14:
             THERMAL.setdefault((r[0], r[1]), []).append({
                 'sn': r[2], 'peak': f(r[3]), 'min65': int(f(r[4]) or 0), 'events': int(f(r[5]) or 0),
                 'dt_peer': f(r[6]), 'dt_amb': f(r[7]), 'derating_min': int(f(r[8]) or 0),
-                'lost': f(r[9]) or 0.0, 'band': r[10], 'health': r[11], 'min70': int(f(r[12]) or 0)})
+                'lost': f(r[9]) or 0.0, 'band': r[10], 'health': r[11], 'min70': int(f(r[12]) or 0),
+                'vendor_min': int(f(r[13]) or 0)})
             if r[1] not in THERMAL_DATES.setdefault(r[0], []):
                 THERMAL_DATES[r[0]].append(r[1])
 except RuntimeError:
@@ -397,24 +398,27 @@ def thermal_card(pk, d):
     def signed(v):
         return '—' if v is None else '%+.1f' % v
 
+    tot_vendor = 0
     for r in rows:
         tot_lost += r['lost'] or 0
+        tot_vendor += r.get('vendor_min', 0)
         trs.append(
             '<tr><td>%s</td><td><span class="pill %s">%s °C</span></td><td>%s</td><td>%d</td>'
-            '<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td><span class="pill %s">%s</span></td></tr>'
+            '<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td><span class="pill %s">%s</span></td></tr>'
             % (esc(labels.get(r['sn'], r['sn'])), tone.get(r['band'], 'off'), fmt1(r['peak']),
                hm(r['min65']) if r['min65'] else '0h 00', r['events'], signed(r['dt_peer']),
                signed(r['dt_amb']), hm(r['derating_min']), fmt1(r['lost']) if r['lost'] else '—',
+               ('<span class="pill bad">%s</span>' % hm(r['vendor_min'])) if r.get('vendor_min') else '—',
                htone.get(r['health'], 'off'), esc(r['health'])))
     when = ('' if use == d else
             f' <span class="note" data-en="(last evaluated day: {use})" data-es="(último día evaluado: {use})">(last evaluated day: {use})</span>')
     return f'''
 <div class="card"><h2><span data-en="Thermal health — inverter temperature vs peers, suspected derating" data-es="Salud térmica — temperatura del inversor vs pares, derrateo sospechado">Thermal health — inverter temperature vs peers, suspected derating</span>{when}</h2>
-<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th data-en="Peak" data-es="Pico">Peak</th><th>≥65 °C</th><th data-en="Events" data-es="Eventos">Events</th><th data-en="ΔT peers" data-es="ΔT pares">ΔT peers</th><th data-en="ΔT ambient" data-es="ΔT ambiente">ΔT ambient</th><th data-en="Derating" data-es="Derrateo">Derating</th><th data-en="Lost kWh" data-es="kWh perdidos">Lost kWh</th><th data-en="Cooling" data-es="Enfriamiento">Cooling</th></tr>
-{''.join(trs)}<tr class="total"><td><b data-en="Plant" data-es="Planta">Plant</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td><b>{fmt1(tot_lost) if tot_lost else "—"}</b></td><td></td></tr></table>
-<p class="note" data-en="ARGIA operational bands on the inverter's internal temperature (not warranty limits): normal <50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the median of the plant's other inverters — the strongest sign of a cooling problem (heat sink, fan, clearance). ΔT ambient = internal minus site ambient. Derating = intervals ≥65 °C where the unit, hotter than its cooler peers by ≥5 °C, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed. Measured on ARGIA's own 5-minute data; manufacturer manuals require ventilation and derate on heat but never quantify it."
- data-es="Bandas operativas ARGIA sobre la temperatura interna del inversor (no límites de garantía): normal <50, vigilancia 50–60, aviso 60–65, alta 65–70, crítica ≥70 °C. ΔT pares = esta unidad menos la mediana de los demás inversores de la planta — la señal más fuerte de un problema de enfriamiento. ΔT ambiente = interna menos ambiente del sitio. Derrateo = intervalos ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal que ellos; kWh perdidos = esa diferencia sumada. Medido con los datos de 5 minutos de ARGIA.">
-ARGIA operational bands (not warranty limits): normal &lt;50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the plant's other inverters. Derating = hot intervals where the unit produced ≥3% less per rated kW than its cooler peers; Lost kWh = that shortfall summed.</p></div>'''
+<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th data-en="Peak" data-es="Pico">Peak</th><th>≥65 °C</th><th data-en="Events" data-es="Eventos">Events</th><th data-en="ΔT peers" data-es="ΔT pares">ΔT peers</th><th data-en="ΔT ambient" data-es="ΔT ambiente">ΔT ambient</th><th data-en="Derating" data-es="Derrateo">Derating</th><th data-en="Lost kWh" data-es="kWh perdidos">Lost kWh</th><th data-en="Vendor derating" data-es="Derrateo del fabricante">Vendor derating</th><th data-en="Cooling" data-es="Enfriamiento">Cooling</th></tr>
+{''.join(trs)}<tr class="total"><td><b data-en="Plant" data-es="Planta">Plant</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td><b>{fmt1(tot_lost) if tot_lost else "—"}</b></td><td><b>{hm(tot_vendor) if tot_vendor else "—"}</b></td><td></td></tr></table>
+<p class="note" data-en="ARGIA operational bands on the inverter's internal temperature (not warranty limits): normal <50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the median of the plant's other inverters — the strongest sign of a cooling problem (heat sink, fan, clearance). ΔT ambient = internal minus site ambient. Derating = intervals ≥65 °C where the unit, hotter than its cooler peers by ≥5 °C, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed. Vendor derating = minutes the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) — the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Measured on ARGIA's own 5-minute data; manufacturer manuals require ventilation and derate on heat but never quantify it."
+ data-es="Bandas operativas ARGIA sobre la temperatura interna del inversor (no límites de garantía): normal <50, vigilancia 50–60, aviso 60–65, alta 65–70, crítica ≥70 °C. ΔT pares = esta unidad menos la mediana de los demás inversores de la planta — la señal más fuerte de un problema de enfriamiento. ΔT ambiente = interna menos ambiente del sitio. Derrateo = intervalos ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal que ellos; kWh perdidos = esa diferencia sumada. Derrateo del fabricante = minutos en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) — la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Medido con los datos de 5 minutos de ARGIA.">
+ARGIA operational bands (not warranty limits): normal &lt;50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the plant's other inverters. Derating = hot intervals where the unit produced ≥3% less per rated kW than its cooler peers; Lost kWh = that shortfall summed. Vendor derating = minutes the inverter itself reported a temperature derating mode (Growatt Tinv/Tboost).</p></div>'''
 
 
 RECON_M = [r for r in q(

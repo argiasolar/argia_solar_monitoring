@@ -6,7 +6,9 @@ conditions that are evidence from a SINGLE sample surface within one cycle
 instead of tomorrow morning:
 
     inverter_fault       >=2 fault samples in the last 35 min (look-back)
-    inverter_temp_high   latest internal temperature >= 65/75 degC
+    inverter_temp_high   latest internal temperature >= 65 (CRITICAL >= 70 only
+                         with a measured loss or the inverter's own Tinv/Tboost
+                         derating mode, v222)
     plant_offline        the WHOLE plant at 0 W mid-daylight
     data_stale           plant's newest sample older than 2 h of daylight
 
@@ -45,6 +47,7 @@ from argia.analytics.acute import (
     DAYLIGHT_END_HOUR,
     DAYLIGHT_START_HOUR,
     evaluate_acute,
+    vendor_thermal_state,
 )
 from argia.core.alerts_state import (
     create_alerts_tab_if_missing,
@@ -141,6 +144,26 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     return samples, span_h
 
 
+def _read_vendor_thermal(now_utc: dt.datetime):
+    """{(plant, sn): (ts, mode, minutes)} for units whose newest detail
+    sample is in a thermal derating mode; empty when the detail mirror
+    is off or unreadable (the thermal rule then judges by peers only)."""
+    from argia.store import pg_detail
+    from argia.telemetry import pg_source
+    if pg_source.source() != "pg" or not pg_detail.enabled():
+        return {}
+    try:
+        rows = pg_detail.read_derating_modes(now_utc - dt.timedelta(hours=TAIL_HOURS_PG))
+    except Exception as e:  # noqa: BLE001
+        log.warning("vendor derating modes unreadable (%s) — thermal rule judges by peers only", e)
+        return {}
+    state = vendor_thermal_state(rows)
+    for (plant, sn), (ts, mode, minutes) in sorted(state.items()):
+        log.info("vendor derating %s %s: %s, %d min in the last %d h (last %s)",
+                 plant, sn, mode, minutes, TAIL_HOURS_PG, ts.strftime("%H:%M UTC"))
+    return state
+
+
 @instrument("alerts_snapshot")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
@@ -173,10 +196,13 @@ def main(argv=None) -> int:
     # shortfall of a hot unit against its cooler peers
     rated = {(p.plant_key, str(i.inverter_sn).strip()): float(i.rated_kw or 0)
              for p in portfolio.active_plants() for i in portfolio.inverters_for(p.plant_key)}
+    # v222: the inverter's own derating word (Growatt DeratingMode in
+    # telemetry_detail) over the same tail — quoted in the thermal alert
+    vendor = _read_vendor_thermal(now_utc)
     breaches = evaluate_acute(
         samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
         absent_gap_hours=span_h if span_h >= 2.0 else None,
-        configured_inverters=configured, rated_kw=rated)
+        configured_inverters=configured, rated_kw=rated, vendor_thermal=vendor)
     candidates = [candidate_from_acute_breach(b) for b in breaches]
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)

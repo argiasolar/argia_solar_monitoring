@@ -104,6 +104,53 @@ class TestDerating:
         assert d.events == 2 and d.minutes_over_65 == 75 and d.cooling_health == "n/a"
 
 
+class TestVendorDerating:
+    """v222 — the inverter's own DeratingMode (Growatt register 104: 5 Tboost,
+    6 Tinv) counted per inverter-day next to ARGIA's measured loss."""
+
+    def test_mode_labels(self):
+        assert TH.vendor_thermal_mode(6) == "Tinv" and TH.vendor_thermal_mode("6") == "Tinv"
+        assert TH.vendor_thermal_mode(5) == "Tboost"
+        assert TH.vendor_thermal_mode(0) is None and TH.vendor_thermal_mode(1) is None      # no derate / PV
+        assert TH.vendor_thermal_mode(None) is None and TH.vendor_thermal_mode("") is None
+        assert TH.vendor_thermal_mode("x") is None and TH.vendor_thermal_mode(18) is None   # undocumented codes seen
+
+    def test_minutes_counted_from_the_sixth_element(self):
+        # NL1 2026-09-05: inverter 4 in Tinv for 12 intervals while hot, the peers never
+        smp = []
+        for ts, sn, kw, t, a in day():
+            mode = 6 if (sn == "INV4" and t >= 72.0 and ts.minute % 15 != 0) else (0 if sn == "INV4" else None)
+            smp.append((ts, sn, kw, t, a, mode))
+        days = TH.evaluate_day(smp, RATED)
+        n_tinv = sum(1 for s in smp if s[5] == 6)
+        assert days["INV4"].vendor_derating_minutes == 5 * n_tinv > 0
+        assert all(days[sn].vendor_derating_minutes == 0 for sn in ("INV1", "INV2", "INV3"))
+        # five-element samples (the pre-v222 shape) still evaluate, vendor minutes 0
+        assert TH.evaluate_day(day(), RATED)["INV4"].vendor_derating_minutes == 0
+
+    def test_vendor_confirmed_derating_is_a_cooling_problem_even_without_a_loss(self):
+        # producing like its peers (no measured loss) but the device says Tinv for 30 min
+        base = day(derate_pct=0.0, hot_peak=68.0)
+        last = max(s[0] for s in base)                      # the day's final interval
+        def tinv_last(n):                                   # Tinv on INV4 for the last n intervals
+            return [(ts, sn, kw, t, a, 6 if (sn == "INV4" and ts > last - dt.timedelta(minutes=5 * n)) else 0)
+                    for ts, sn, kw, t, a in base]
+        d = TH.evaluate_day(tinv_last(6), RATED)["INV4"]
+        assert d.lost_kwh == 0 and d.vendor_derating_minutes == 30 and d.cooling_health == "POOR"
+        assert TH.evaluate_day(tinv_last(2), RATED)["INV4"].vendor_derating_minutes == 10
+
+    def test_sql_carries_the_column(self):
+        assert "vendor_derating_minutes int" in TH.ENSURE_SQL
+        assert "ALTER TABLE thermal_daily ADD COLUMN IF NOT EXISTS vendor_derating_minutes int;" in TH.ENSURE_SQL
+        smp = [(ts, sn, kw, t, a, 6 if sn == "INV4" else 0) for ts, sn, kw, t, a in day()]
+        sql = TH.build_upsert_sql("NL1", "2026-09-05", TH.evaluate_day(smp, RATED))[0]
+        assert "vendor_derating_minutes) VALUES" in sql and "vendor_derating_minutes=EXCLUDED.vendor_derating_minutes" in sql
+        assert ",'critical','POOR',300)" in sql            # 60 intervals x 5 min
+        q = TH.telemetry_sql("NL1", "2026-09-05")
+        assert "LEFT JOIN telemetry_detail d" in q and "d.derating_mode" in q
+        assert "d.plant_key = t.plant_key AND d.inverter_sn = t.inverter_sn AND d.ts_utc = t.ts_utc" in q
+
+
 class TestCurve:
     def test_knee_and_loss_above_65(self):
         days = TH.evaluate_day(day(), RATED)
@@ -173,13 +220,17 @@ class TestAskTool:
                 return self.data.get(m.group(1), [])
         db = FakeDB({"plants": [["NL1", "Plastic Omnium", "GROWATT", "500.0", "PPA", "t", "2.1", "0.8"]],
                      "freshness": [["2026-09-04 16:05:00+00", "2026-09-03"]],
-                     "thermal": [["NL1", "INV4", "30", "76.3", "4404", "600", "126", "13.1", "38.0", "4404", "812.4", "12", "5"],
-                                 ["NL1", "INV1", "30", "61.0", "0", "0", "0", "1.2", "26.0", "0", "0", "0", "0"]],
+                     "thermal": [["NL1", "INV4", "30", "76.3", "4404", "600", "126", "13.1", "38.0", "4404", "812.4", "12", "5", "150"],
+                                 ["NL1", "INV1", "30", "61.0", "0", "0", "0", "1.2", "26.0", "0", "0", "0", "0", "0"]],
                      "thermal_bins": [["INV4", "60.0", "40", "39.6"], ["INV4", "67.5", "30", "26.1"], ["INV4", "70.0", "25", "21.5"]]})
         out = T.run_tool(db, "get_thermal_health", {"plant": "NL1", "date_from": "2026-08-06", "date_to": "2026-09-05"})
         assert out["inverters"][0]["inverter_sn"] == "INV4" and out["inverters"][0]["band"] == "critical"
         assert out["inverters"][0]["hours_over_65"] == 73.4 and out["inverters"][0]["lost_kwh"] == 812.4
-        assert out["totals"] == {"inverters": 2, "hours_over_65": 73.4, "events": 126, "derating_hours": 73.4, "lost_kwh": 812.4}
+        assert out["totals"] == {"inverters": 2, "hours_over_65": 73.4, "events": 126, "derating_hours": 73.4, "lost_kwh": 812.4,
+                                 "vendor_derating_hours": 2.5}
+        assert out["inverters"][0]["vendor_derating_hours"] == 2.5 and out["inverters"][1]["vendor_derating_hours"] == 0
+        assert "vendor_derating_hours" in out["note"]
+        assert any("sum(coalesce(vendor_derating_minutes, 0))" in q and "/*tag:thermal*/" in q for q in db.sql)
         assert out["derating_curve"]["knee_c"] == 67.5 and out["derating_curve"]["loss_above_65_pct"] == pytest.approx(13.0, abs=0.5)
         assert "not warranty limits" in out["note"]
 
@@ -218,3 +269,14 @@ class TestJobWiring:
         assert "for back in range(a.days_back - 1, -1, -1):" in src
         assert 'ap.add_argument("--report"' in src and "TH.derating_curve(TH.merge_bins(lst))" in src
         assert "BASELINE_DAYS = 30" in src
+        assert "vendor derating %d min" in src and "d.vendor_derating_minutes" in src
+
+    def test_pages_show_the_vendor_column(self):
+        import pathlib
+        v2 = pathlib.Path(__file__).resolve().parents[2]
+        mg = (v2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
+        assert "coalesce(vendor_derating_minutes, 0) FROM thermal_daily" in mg and 'data-en="Vendor derating"' in mg
+        rg = (v2 / "server" / "bundle" / "report_gen.py").read_text(encoding="utf-8")
+        assert "sum(coalesce(vendor_derating_minutes, 0))" in rg and 't("Vendor h","Fabricante h")' in rg
+        from argia.ask import sqltool as S
+        assert "vendor_derating_minutes" in S.TABLE_NOTES["thermal_daily"]

@@ -8,7 +8,11 @@ went down, or at least some data supporting this".
 
 So a hot inverter is CRITICAL only when its own output is measurably
 below its cooler peers (acute: kW per rated kW at the same minute; daily:
-the thermal_daily derating evidence), and a new string-diagnostic bit
+the thermal_daily derating evidence) — or, since v222, when the inverter
+ITSELF says so: Growatt's DeratingMode register in Tinv/Tboost is the
+vendor's confirmation that power is being limited for temperature, and
+it is quoted as evidence next to the measured shortfall — and a new
+string-diagnostic bit
 becomes a WARNING only when the day's data shows a loss — a string far
 below its own usual current (its share of the MPPT pair over the previous
 days), or the inverter below the plant peers. Without evidence the flag is INFO: recorded in the ledger and on
@@ -66,22 +70,39 @@ def thermal_shortfall_pct(power_w: Optional[float], rated_kw: Optional[float],
     return (1.0 - (float(power_w) / float(rated_kw)) / ref) * 100.0
 
 
+def vendor_evidence(mode: Optional[str], minutes: Optional[int] = None, vendor: str = "Growatt") -> str:
+    """The vendor's own word, quoted: 'Growatt reports Tinv derating (95 min today)'."""
+    if not mode:
+        return ""
+    txt = f"{vendor} reports {mode} derating"
+    return txt + (f" ({int(minutes)} min)" if minutes else "")
+
+
 def thermal_severity(temp_c: float, warn_c: float, high_c: float, hotter_than_peers: Optional[bool],
                      shortfall_pct: Optional[float],
-                     loss_crit_pct: float = THERMAL_LOSS_CRIT_PCT) -> Tuple[str, str, str]:
+                     loss_crit_pct: float = THERMAL_LOSS_CRIT_PCT,
+                     vendor_mode: Optional[str] = None,
+                     vendor_minutes: Optional[int] = None) -> Tuple[str, str, str]:
     """(severity, why, evidence) for the acute rule.
 
     CRITICAL needs three things: >= high_c, hotter than the peers (or no
     peer to compare — a lone unit is judged on itself) AND a measured
-    shortfall >= loss_crit_pct against the cooler peers. Everything else
-    hot is WARNING with the evidence stated either way."""
+    shortfall >= loss_crit_pct against the cooler peers — or (v222) the
+    inverter's own DeratingMode in a temperature mode (``vendor_mode``
+    "Tinv"/"Tboost"): the device confirming it limits power for heat is
+    abnormal production by definition, peers or not. Everything else hot
+    is WARNING with the evidence stated either way."""
     if shortfall_pct is None:
         evidence = "no cooler peer to measure the loss against"
     elif shortfall_pct >= 3.0:
         evidence = f"producing {shortfall_pct:.0f}% below cooler peers"
     else:
         evidence = f"producing within {max(0.0, shortfall_pct):.0f}% of cooler peers"
+    if vendor_mode:
+        evidence = vendor_evidence(vendor_mode, vendor_minutes) + "; " + evidence
     hot = temp_c >= high_c
+    if hot and vendor_mode:
+        return "CRITICAL", f">= {high_c:.0f}, the inverter itself reports thermal derating", evidence
     if hot and (hotter_than_peers is None or hotter_than_peers) and shortfall_pct is not None \
             and shortfall_pct >= loss_crit_pct:
         return "CRITICAL", f">= {high_c:.0f}, hotter than its peers and losing output", evidence
@@ -97,14 +118,16 @@ class ThermalDay:
     derating_minutes: int
     lost_kwh: float
     energy_kwh: Optional[float]
+    vendor_derating_minutes: int = 0      # v222: minutes the inverter itself reported Tinv/Tboost
 
 
 def thermal_day_severity(peak_c: float, crit_c: float, ev: Optional[ThermalDay],
                          loss_pct: float = THERMAL_DAY_LOSS_PCT,
                          derating_min: int = THERMAL_DAY_DERATING_MIN) -> Tuple[str, str]:
     """(severity, evidence) for the daily day-peak rule. CRITICAL only when
-    the nightly thermal evaluation measured a loss; a hot day without a
-    measured loss is WARNING."""
+    the nightly thermal evaluation measured a loss — or (v222) the
+    inverter itself reported thermal derating for at least
+    ``derating_min`` minutes; a hot day without either is WARNING."""
     if ev is None:
         return "WARNING", "no thermal evaluation for the day"
     total = (ev.energy_kwh or 0.0) + ev.lost_kwh
@@ -114,7 +137,10 @@ def thermal_day_severity(peak_c: float, crit_c: float, ev: Optional[ThermalDay],
                     f" ({share:.0f}% of the day) vs cooler peers")
     else:
         evidence = "no output loss vs cooler peers measured"
-    if peak_c >= crit_c and (share >= loss_pct or ev.derating_minutes >= derating_min):
+    vendor = int(ev.vendor_derating_minutes or 0)
+    if vendor > 0:
+        evidence = vendor_evidence("thermal (Tinv/Tboost)", vendor) + "; " + evidence
+    if peak_c >= crit_c and (share >= loss_pct or ev.derating_minutes >= derating_min or vendor >= derating_min):
         return "CRITICAL", evidence
     return "WARNING", evidence
 

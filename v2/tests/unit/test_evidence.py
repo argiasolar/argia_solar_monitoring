@@ -49,6 +49,28 @@ class TestThermal:
         assert D(76.0, 70, EV.ThermalDay(70, 5.0, 300.0))[0] == "CRITICAL"      # an hour of derating
         assert D(68.0, 70, EV.ThermalDay(95, 41.0, 300.0))[0] == "WARNING"      # below 70 never critical
 
+    def test_v222_vendor_word_in_the_acute_rule(self):
+        S = EV.thermal_severity
+        # the inverter itself reports Tinv: CRITICAL at >= 70 whatever the peers say
+        sev, why, ev = S(71.0, 65, 70, True, 1.0, vendor_mode="Tinv", vendor_minutes=45)
+        assert sev == "CRITICAL" and "the inverter itself reports thermal derating" in why
+        assert ev == "Growatt reports Tinv derating (45 min); producing within 1% of cooler peers"
+        assert S(71.0, 65, 70, False, None, vendor_mode="Tboost")[0] == "CRITICAL"       # plant-wide heat, still the device's word
+        assert S(71.0, 65, 70, None, None, vendor_mode="Tinv")[2].startswith("Growatt reports Tinv derating; no cooler peer")
+        assert S(66.0, 65, 70, True, 0.0, vendor_mode="Tinv")[0] == "WARNING"            # below 70 never critical
+        assert S(71.0, 65, 70, True, 1.0, vendor_mode=None)[0] == "WARNING"              # no word -> as before
+        assert EV.vendor_evidence(None) == "" and EV.vendor_evidence("Tinv") == "Growatt reports Tinv derating"
+
+    def test_v222_vendor_minutes_in_the_daily_rule(self):
+        D = EV.thermal_day_severity
+        # no measured loss vs peers, but the device reported Tinv for 95 min (NL1 inverter 1, 2026-09-05)
+        sev, ev = D(81.6, 70, EV.ThermalDay(0, 0.0, 700.0, vendor_derating_minutes=95))
+        assert sev == "CRITICAL" and ev.startswith("Growatt reports thermal (Tinv/Tboost) derating (95 min); ")
+        assert "no output loss vs cooler peers measured" in ev
+        assert D(81.6, 70, EV.ThermalDay(0, 0.0, 700.0, vendor_derating_minutes=25))[0] == "WARNING"   # under an hour
+        assert D(68.0, 70, EV.ThermalDay(0, 0.0, 700.0, vendor_derating_minutes=95))[0] == "WARNING"   # below 70
+        assert EV.ThermalDay(0, 0.0, 700.0).vendor_derating_minutes == 0      # default keeps the v220 callers
+
 
 class TestStrings:
     READINGS = [R("GTO1", "A", 500.0), R("GTO1", "B", 520.0), R("GTO1", "C", 510.0), R("MEX1", "Z", 1.0)]

@@ -28,6 +28,15 @@ exclusions for insufficient ventilation) but never says "65 °C internal
   temperature-binned ratio actual/expected; the knee is the first bin
   from which the median ratio stays below 1 − LOSS_MIN_PCT. Measured,
   per inverter, from ARGIA's own data.
+* **Vendor-confirmed derating** (v222) — Growatt MAX inverters publish
+  a DeratingMode register (telemetry_detail.derating_mode): 5 = Tboost,
+  6 = Tinv mean the inverter ITSELF is limiting power because of its
+  temperature. Minutes in those modes are counted per inverter-day as a
+  separate column next to ARGIA's measured loss: the device's own word,
+  independent of the peer comparison (2026-09-05: Plastic Omnium
+  inverters 1 and 4, 95 and 60 min of Tinv — the only fleet units ever
+  in a thermal mode; the fleet never showed W407/E408). Huawei and
+  SolarEdge publish no such register — their column stays 0.
 
 Pure functions over sample tuples; the nightly job (scripts/
 thermal_daily.py) feeds them and stores thermal_daily / thermal_bins.
@@ -54,8 +63,23 @@ BIN_C = 2.5
 BIN_MIN, BIN_MAX = 40.0, 90.0
 KNEE_MIN_N = 20        # samples a bin needs before it can be the knee
 
-# (ts_utc, inverter_sn, power_w, temperature_c, ambient_c)
+# (ts_utc, inverter_sn, power_w, temperature_c, ambient_c[, derating_mode])
+# — the sixth element is optional (v222): the Growatt DeratingMode code
 Sample = Tuple[dt.datetime, str, Optional[float], Optional[float], Optional[float]]
+
+# Growatt MAX Modbus register 104 "DeratingMode": 0 no derate, 1 PV,
+# 3 Vac, 4 Fac, 5 Tboost, 6 Tinv, 7 Control, 9 OverBackByTime. The two
+# temperature modes are the vendor's own confirmation of thermal derating.
+VENDOR_THERMAL_MODES: Dict[int, str] = {5: "Tboost", 6: "Tinv"}
+
+
+def vendor_thermal_mode(code) -> Optional[str]:
+    """Label of a Growatt derating mode when it is a temperature mode
+    (Tinv / Tboost), None for no derating, other modes, missing values."""
+    try:
+        return VENDOR_THERMAL_MODES.get(int(code)) if code is not None and str(code).strip() != "" else None
+    except (TypeError, ValueError):
+        return None
 
 
 def band(temp_c: Optional[float]) -> str:
@@ -89,6 +113,7 @@ class IntervalEval:
     dt_ambient_c: Optional[float]
     derating: bool = False
     lost_kw: float = 0.0
+    vendor_mode: Optional[str] = None   # "Tinv" / "Tboost" when the inverter itself reports thermal derating
 
 
 @dataclass
@@ -104,6 +129,7 @@ class InverterDay:
     dt_ambient_peak_c: Optional[float] = None
     derating_minutes: int = 0
     lost_kwh: float = 0.0
+    vendor_derating_minutes: int = 0   # minutes the inverter itself reported Tinv/Tboost derating (Growatt)
     energy_kwh: float = 0.0            # actual energy over evaluated intervals
     cool_ratio: Optional[float] = None  # median ratio while < T_HOT-5 (the DC-size baseline)
     band: str = "unknown"
@@ -124,8 +150,10 @@ def evaluate_intervals(samples: Iterable[Sample], rated_kw: Dict[str, float],
     running >= REF_MIN_SP; ``baseline`` (sn -> its usual ratio to the
     peers when cool, default 1) corrects for unequal DC fields."""
     baseline = baseline or {}
-    by_ts: Dict[dt.datetime, Dict[str, Tuple[float, float, Optional[float]]]] = {}
-    for ts, sn, p_w, t_c, amb in samples:
+    by_ts: Dict[dt.datetime, Dict[str, tuple]] = {}
+    for s in samples:
+        ts, sn, p_w, t_c, amb = s[0], s[1], s[2], s[3], s[4]
+        mode = vendor_thermal_mode(s[5]) if len(s) > 5 else None
         if ts is None or t_c is None or p_w is None:
             continue
         sn = str(sn).strip()
@@ -134,11 +162,11 @@ def evaluate_intervals(samples: Iterable[Sample], rated_kw: Dict[str, float],
         b = _bucket(ts)
         cur = by_ts.setdefault(b, {})
         if sn not in cur or ts > cur[sn][3]:          # newest sample in the bucket
-            cur[sn] = (float(p_w) / 1000.0, float(t_c), amb, ts)  # type: ignore[assignment]
+            cur[sn] = (float(p_w) / 1000.0, float(t_c), amb, ts, mode)
     out: List[IntervalEval] = []
     for b in sorted(by_ts):
         rows = by_ts[b]
-        for sn, (kw, t_c, amb, _ts) in rows.items():
+        for sn, (kw, t_c, amb, _ts, mode) in rows.items():
             sp = kw / rated_kw[sn]
             peers = [(o, v) for o, v in rows.items() if o != sn]
             peer_t = _median([v[1] for _, v in peers])
@@ -151,7 +179,7 @@ def evaluate_intervals(samples: Iterable[Sample], rated_kw: Dict[str, float],
                 expected = ref_sp * rated_kw[sn] * baseline.get(sn, 1.0)
                 ratio = kw / expected if expected > 0 else None
             ev = IntervalEval(b, sn, t_c, kw, sp, expected, ratio, dt_peer,
-                              (t_c - float(amb)) if amb is not None else None)
+                              (t_c - float(amb)) if amb is not None else None, vendor_mode=mode)
             if (ratio is not None and t_c >= T_HOT and dt_peer is not None
                     and dt_peer >= DT_PEER_MIN and ratio < 1 - LOSS_MIN_PCT / 100.0):
                 ev.derating = True
@@ -183,6 +211,7 @@ def summarise_day(evals: Sequence[IntervalEval], rated_kw: Dict[str, float]) -> 
         d.dt_ambient_peak_c = round(max(das), 1) if das else None
         d.derating_minutes = sum(INTERVAL_MIN for e in lst if e.derating)
         d.lost_kwh = round(sum(e.lost_kw * h for e in lst if e.derating), 2)
+        d.vendor_derating_minutes = sum(INTERVAL_MIN for e in lst if e.vendor_mode)
         # the unit's own standing against cooler peers while NOT hot (< 65 C):
         # a unit with more DC than its peers sits above 1 here, and the
         # nightly baseline (median of these over 30 days) divides it out
@@ -199,7 +228,8 @@ def summarise_day(evals: Sequence[IntervalEval], rated_kw: Dict[str, float]) -> 
         d.band = band(d.peak_c)
         if d.dt_peer_peak_c is None:
             d.cooling_health = "n/a"
-        elif d.dt_peer_peak_c >= DT_PEER_POOR or (d.derating_minutes >= 30 and d.lost_kwh > 0):
+        elif (d.dt_peer_peak_c >= DT_PEER_POOR or (d.derating_minutes >= 30 and d.lost_kwh > 0)
+              or d.vendor_derating_minutes >= 30):
             d.cooling_health = "POOR"
         elif d.dt_peer_peak_c >= DT_PEER_MIN:
             d.cooling_health = "WATCH"
@@ -290,9 +320,11 @@ ENSURE_SQL = """CREATE TABLE IF NOT EXISTS thermal_daily (
     cool_ratio       numeric(6,3),
     band             text,
     cooling_health   text,
+    vendor_derating_minutes int,
     computed_at      timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (plant_key, inverter_sn, prod_date)
 );
+ALTER TABLE thermal_daily ADD COLUMN IF NOT EXISTS vendor_derating_minutes int;
 CREATE TABLE IF NOT EXISTS thermal_bins (
     plant_key   text NOT NULL,
     inverter_sn text NOT NULL,
@@ -321,14 +353,15 @@ def build_upsert_sql(plant_key: str, date_iso: str, days: Dict[str, InverterDay]
         vals.append(f"({_txt(plant_key)},{_txt(sn)},DATE '{date_iso}',{d.samples},{_num(d.peak_c)},{_num(d.mean_c)},"
                     f"{d.minutes_over_65},{d.minutes_over_70},{d.events},{_num(d.dt_peer_peak_c)},"
                     f"{_num(d.dt_ambient_peak_c)},{d.derating_minutes},{_num(d.lost_kwh)},{_num(d.energy_kwh)},"
-                    f"{_num(d.cool_ratio)},{_txt(d.band)},{_txt(d.cooling_health)})")
+                    f"{_num(d.cool_ratio)},{_txt(d.band)},{_txt(d.cooling_health)},{d.vendor_derating_minutes})")
         for b, (n, s, mn) in d.bins.items():
             bins.append(f"({_txt(plant_key)},{_txt(sn)},DATE '{date_iso}',{b},{n},{_num(s)},{_num(mn)})")
     if not vals:
         return out
     out.append("INSERT INTO thermal_daily (plant_key, inverter_sn, prod_date, samples, peak_c, mean_c,"
                " minutes_over_65, minutes_over_70, events, dt_peer_peak_c, dt_ambient_peak_c,"
-               " derating_minutes, lost_kwh, energy_kwh, cool_ratio, band, cooling_health) VALUES\n"
+               " derating_minutes, lost_kwh, energy_kwh, cool_ratio, band, cooling_health,"
+               " vendor_derating_minutes) VALUES\n"
                + ",\n".join(vals) +
                "\nON CONFLICT (plant_key, inverter_sn, prod_date) DO UPDATE SET samples=EXCLUDED.samples,"
                " peak_c=EXCLUDED.peak_c, mean_c=EXCLUDED.mean_c, minutes_over_65=EXCLUDED.minutes_over_65,"
@@ -336,7 +369,8 @@ def build_upsert_sql(plant_key: str, date_iso: str, days: Dict[str, InverterDay]
                " dt_peer_peak_c=EXCLUDED.dt_peer_peak_c, dt_ambient_peak_c=EXCLUDED.dt_ambient_peak_c,"
                " derating_minutes=EXCLUDED.derating_minutes, lost_kwh=EXCLUDED.lost_kwh,"
                " energy_kwh=EXCLUDED.energy_kwh, cool_ratio=EXCLUDED.cool_ratio, band=EXCLUDED.band,"
-               " cooling_health=EXCLUDED.cooling_health, computed_at=now();")
+               " cooling_health=EXCLUDED.cooling_health,"
+               " vendor_derating_minutes=EXCLUDED.vendor_derating_minutes, computed_at=now();")
     out.append(f"DELETE FROM thermal_bins WHERE plant_key={_txt(plant_key)} AND prod_date=DATE '{date_iso}';")
     if bins:
         out.append("INSERT INTO thermal_bins (plant_key, inverter_sn, prod_date, bin_c, n, ratio_sum, ratio_min) VALUES\n"
@@ -345,11 +379,16 @@ def build_upsert_sql(plant_key: str, date_iso: str, days: Dict[str, InverterDay]
 
 
 def telemetry_sql(plant_key: str, date_iso: str) -> str:
-    """The day's samples for one plant (MX date), newest telemetry columns."""
-    return ("SELECT ts_utc::text, inverter_sn, power_w, temperature_c, ambient_temp_c FROM telemetry"
-            f" WHERE plant_key = {_txt(plant_key)}"
-            f" AND (ts_utc AT TIME ZONE 'America/Mexico_City')::date = DATE '{date_iso}'"
-            " AND temperature_c IS NOT NULL AND power_w IS NOT NULL ORDER BY ts_utc /*tag:thermal_samples*/;")
+    """The day's samples for one plant (MX date) with the vendor's
+    derating mode from telemetry_detail (same key: plant, sn, ts_utc;
+    NULL for vendors without the register and for samples before the
+    detail mirror existed)."""
+    return ("SELECT t.ts_utc::text, t.inverter_sn, t.power_w, t.temperature_c, t.ambient_temp_c, d.derating_mode"
+            " FROM telemetry t LEFT JOIN telemetry_detail d"
+            " ON d.plant_key = t.plant_key AND d.inverter_sn = t.inverter_sn AND d.ts_utc = t.ts_utc"
+            f" WHERE t.plant_key = {_txt(plant_key)}"
+            f" AND (t.ts_utc AT TIME ZONE 'America/Mexico_City')::date = DATE '{date_iso}'"
+            " AND t.temperature_c IS NOT NULL AND t.power_w IS NOT NULL ORDER BY t.ts_utc /*tag:thermal_samples*/;")
 
 
 def parse_ts(s: str) -> Optional[dt.datetime]:

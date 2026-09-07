@@ -478,3 +478,38 @@ class TestV235Tooltips:
     def test_empty_ticket_list_keeps_the_card_padding(self):
         ma = (BUNDLE / "maint_app.py").read_text(encoding="utf-8")
         assert '<p class="muted" style="margin:0;padding:16px 20px">No tickets.</p>' in ma
+
+
+class TestV236ReferenceLanguage:
+    """v236 (Tomasz): the Reference button on the live pages opened the
+    Spanish sheet whatever the interface language."""
+
+    def _mg(self):
+        import re
+        src = (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
+        ns = {}
+        exec(compile(src[src.index("REF_LINKS = {"):src.index("# Vendor monitoring portals")], "mg_seg", "exec"), ns)
+        return ns
+
+    def test_both_languages_derive_from_one_table(self):
+        ns = self._mg()
+        assert ns["ref_link"]("GTO1", "es") == "https://argia.com.mx/es/references/-guanajuato-taigene"
+        assert ns["ref_link"]("GTO1", "en") == "https://argia.com.mx/en/references/-guanajuato-taigene"
+        assert ns["ref_link"]("NL1", "en") == "/monitoring/assets/refs/ARGIA_SOLAR_ref_Plastic_Omnium_EN.pdf"
+        assert ns["ref_link"]("NL1", "es").endswith("_ES.pdf") and ns["ref_link"]("ZZZ") == ""
+        # every EN sheet the table implies exists in the repo
+        for pk in ("NL1", "QRO1", "TAM1"):
+            for lang in ("en", "es"):
+                assert (V2 / "server" / "assets" / "refs" / ns["ref_link"](pk, lang).rsplit("/", 1)[1]).exists()
+
+    def test_button_carries_both_and_shows_english_first(self):
+        ns = self._mg()
+        b = ns["ref_button"]("SLP2")
+        assert 'href="https://argia.com.mx/en/references/holiday-inn"' in b
+        assert 'data-href-en="https://argia.com.mx/en/references/holiday-inn"' in b and 'data-href-es="https://argia.com.mx/es/references/holiday-inn"' in b
+        assert ns["ref_button"]("ZZZ") == ""
+        assert "ref_btn = ref_button(pk)" in (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
+
+    def test_set_lang_swaps_the_href(self):
+        css = (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
+        assert "document.querySelectorAll('a[data-href-en]').forEach(a=>{a.href=(l==='es'&&a.dataset.hrefEs)?a.dataset.hrefEs:a.dataset.hrefEn;});" in css

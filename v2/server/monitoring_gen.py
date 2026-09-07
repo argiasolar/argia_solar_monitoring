@@ -115,9 +115,12 @@ for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
 # Public reference pages on argia.com.mx. NL1 and QRO1 have no page on
 # the website, so their references are the official PDF sheets, hosted
 # under /monitoring/assets/refs/ (repo v2/server/assets/refs/, both
-# languages; the button links the ES one like every other /es/ link).
-# TAM1 (Ryder) joined in v177.3. A missing entry simply renders
-# without the link/photo, never a broken one.
+# languages). TAM1 (Ryder) joined in v177.3. A missing entry simply
+# renders without the link/photo, never a broken one.
+# v236 (Tomasz): the button follows the interface language — the table
+# holds the ES address, ref_link() derives the EN one (/en/ pages and
+# _EN.pdf sheets all exist, checked 2026-09-07) and the anchor carries
+# both so portal_chrome.setLang can swap the href.
 REF_LINKS = {
     'NL1': '/monitoring/assets/refs/'
            'ARGIA_SOLAR_ref_Plastic_Omnium_ES.pdf',
@@ -136,6 +139,28 @@ REF_LINKS = {
     'SLP1': 'https://argia.com.mx/es/references/coyoacan',
     'SLP2': 'https://argia.com.mx/es/references/holiday-inn',
 }
+
+
+
+def ref_link(pk, lang='en'):
+    """The reference address in one language ('' when the plant has none)."""
+    es = REF_LINKS.get(pk, '')
+    if not es or lang == 'es':
+        return es
+    return es.replace('/es/references/', '/en/references/').replace('_ES.pdf', '_EN.pdf')
+
+
+def ref_button(pk):
+    """The '⧉ Reference ↗' button, both addresses aboard (EN shown first —
+    the portal's default language); '' without a reference."""
+    en, es = ref_link(pk, 'en'), ref_link(pk, 'es')
+    if not es:
+        return ''
+    return (f'<a class="btn" href="{en}" data-href-en="{en}" data-href-es="{es}" target="_blank" rel="noopener" '
+            'title="Project reference on argia.com.mx" '
+            'data-en="⧉ Reference ↗" data-es="⧉ Referencia ↗">'
+            '⧉ Reference ↗</a>')
+
 
 # Vendor monitoring portals — clicking an inverter Status pill opens the
 # brand's own portal in a new tab (login is the vendor's, not ours).
@@ -1138,11 +1163,7 @@ def plant_page(pk, d, skin='old'):
 </div>'''
         sub = f'{pk} · {meta["kwp"]:,.1f} kWp · {esc(meta["brand"])} · {d} (archived day)'
 
-    ref = REF_LINKS.get(pk)
-    ref_btn = (f'<a class="btn" href="{ref}" target="_blank" rel="noopener" '
-               'title="Project reference on argia.com.mx" '
-               'data-en="⧉ Reference ↗" data-es="⧉ Referencia ↗">'
-               '⧉ Reference ↗</a>') if ref else ''
+    ref_btn = ref_button(pk)
     ph = photo_uri(pk)
     photo = (f'<img class="pphoto" src="{ph}" alt="{esc(meta["customer"])}"'
              ' loading="lazy">') if ph and live else ''

@@ -289,6 +289,7 @@ document.addEventListener('click',()=>{const m=document.getElementById('umenu');
 function argiaLogout(){fetch('/logout',{method:'POST',credentials:'same-origin'}).finally(()=>{location.href='/logged-out.html';});}
 function setLang(l,save){
  document.querySelectorAll('[data-en]').forEach(e=>{e.textContent=e.dataset[l]||e.dataset.en;});
+ document.querySelectorAll('a[data-href-en]').forEach(a=>{a.href=(l==='es'&&a.dataset.hrefEs)?a.dataset.hrefEs:a.dataset.hrefEn;});   /* v236: links follow the language too */
  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.l===l));
  document.documentElement.lang=l==='es'?'es':'en';
  try{localStorage.setItem('argia_lang',l);}catch(e){}

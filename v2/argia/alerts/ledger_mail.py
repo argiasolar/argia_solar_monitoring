@@ -90,10 +90,21 @@ def _age_days(r: AlertRecord, now_utc: Optional[dt.datetime]) -> int:
     return max(0, (now_utc.date() - opened.date()).days)
 
 
-def grouped(alerts: Sequence[AlertRecord]) -> List[Tuple[str, str, List[Tuple[str, str, List[AlertRecord]]]]]:
+def _inv_sort(n):
+    """Sort key: 'Inverter 10' after 'Inverter 2' (natural), label first, SN as tie-break."""
+    def key(a: AlertRecord):
+        lab = n.inverter(a.plant_key, a.inverter_sn) if a.inverter_sn else ""
+        parts = re.split(r"(\d+)", lab)
+        return ([(int(x) if x.isdigit() else x.lower()) for x in parts], a.inverter_sn, a.alert_id)
+    return key
+
+
+def grouped(alerts: Sequence[AlertRecord], n=None) -> List[Tuple[str, str, List[Tuple[str, str, List[AlertRecord]]]]]:
     """[(severity, plant_key, [(metric, plant_key, alerts)])] — CRITICAL
     plants first, plants alphabetical, metrics alphabetical, inverters in
-    order. One entry per (severity, plant). Pure."""
+    label order (Inverter 1, 2, … 10). One entry per (severity, plant).
+    Pure."""
+    n = n or _names(None)
     tree: Dict[Tuple[int, str], Dict[str, List[AlertRecord]]] = {}
     for a in alerts:
         sev = (a.severity or "").upper()
@@ -101,7 +112,7 @@ def grouped(alerts: Sequence[AlertRecord]) -> List[Tuple[str, str, List[Tuple[st
     out = []
     for (rank, pk) in sorted(tree):
         sev = "CRITICAL" if rank == 0 else "WARNING" if rank == 1 else "INFO"
-        mets = [(m, pk, sorted(items, key=lambda a: (a.inverter_sn, a.alert_id)))
+        mets = [(m, pk, sorted(items, key=_inv_sort(n)))
                 for m, items in sorted(tree[(rank, pk)].items())]
         out.append((sev, pk, mets))
     return out
@@ -169,7 +180,7 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
     # ---- text
     t = [f"ARGIA monitoring — {when_mx} MX" if when_mx else "ARGIA monitoring", ""]
     cur_sev = None
-    for sev, pk, mets in grouped(alerts):
+    for sev, pk, mets in grouped(alerts, n):
         if sev != cur_sev:
             t.append(f"{sev} — new" if sev in ("CRITICAL", "WARNING") else sev)
             cur_sev = sev
@@ -196,7 +207,7 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
     h = ['<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a19;max-width:720px">',
          f'<div style="color:#5f6368;font-size:12px;margin-bottom:8px">ARGIA monitoring — {e(when_mx)} MX</div>' if when_mx else ""]
     cur_sev = None
-    for sev, pk, mets in grouped(alerts):
+    for sev, pk, mets in grouped(alerts, n):
         fg, bg = _SEV_COLOR.get(sev, ("#5f6368", "#eceef0"))
         if sev != cur_sev:
             h.append(f'<div style="margin:16px 0 6px;padding:6px 12px;border-left:6px solid {fg};background:{bg};'

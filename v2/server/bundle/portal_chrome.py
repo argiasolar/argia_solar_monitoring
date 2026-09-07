@@ -161,17 +161,19 @@ a{color:var(--teal2);text-decoration:none}a:hover{color:var(--deep)}
 .mono{font:600 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em}
 .muted{color:var(--muted)}
 .sn{font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:11px;color:var(--muted);letter-spacing:.2px;white-space:nowrap}   /* v230: the serial beside every inverter label */
-/* v233: the per-inverter production chart (report_gen.inverter_chart_svg) */
-.invchart{position:relative;padding:0 8px 0 0}
+/* v233/v234: the per-inverter production chart and the generic chart hover box (argiaChartHover) */
+.card>.invchart,.card>.hchart,.card>p.note{margin-left:20px;margin-right:20px}
+.invchart,.hchart{position:relative;padding:0 8px 0 0}
 .invlegs{margin:6px 0 14px 54px;display:flex;flex-wrap:wrap;gap:6px 18px}
 .invleg{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;color:var(--ink)}
 .invleg input{margin:0;accent-color:var(--teal)}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none}
-.invtip{position:absolute;z-index:20;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgba(26,29,35,.12);pointer-events:none;white-space:nowrap}
-.invtip .sw{margin-right:6px;vertical-align:middle}.invtip .muted{color:var(--muted)}
+.chtip{position:absolute;z-index:20;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgba(26,29,35,.12);pointer-events:none;white-space:nowrap}
+.chtip .sw{margin-right:6px;vertical-align:middle}.chtip .muted{color:var(--muted)}
+.chguide{stroke:#9aa0a6;stroke-dasharray:3 3}
 .tkpill{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:10px;background:#e6f6f5;color:#0b7d78;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap}
 .tkpill:hover{background:#cdeeec}
-.card{background:#fff;border:1px solid var(--line);border-radius:12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;position:relative}   /* v234: the h2 'i' tooltips anchor here */
 .kicker{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal2);font-weight:800}
 h1.pt{font-size:28px;line-height:1.1;margin:0;color:var(--deep);font-weight:800;letter-spacing:-.01em}
 h2.ct{font-size:15px;margin:0;font-weight:700}
@@ -212,7 +214,7 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .tile{position:relative;padding:16px 18px;display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:12px}
 .tile.good{background:#e6f7f5;border-color:#b8e6e1}.tile.warn{background:#fff4e0;border-color:#f3dcae}.tile.bad{background:#fdeaea;border-color:#f3b9b9}
 .tlabel{font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center}
-.tval{font-size:24px;line-height:1.05;font-weight:800;letter-spacing:-.01em;color:var(--ink)}.tval .unit{font-size:13px;font-weight:600;color:var(--muted);margin-left:4px}   /* v233: 24px (was 30) — fits a 218px tile on one line */
+.tval{font-size:clamp(15px,1.4vw,20px);line-height:1.15;font-weight:700;color:var(--ink);white-space:nowrap}.tval .unit{font-size:12px;font-weight:600;color:var(--muted);margin-left:4px}   /* v234: the Map tile look (Tomasz) — was 30px/800 */
 .tsub{font-size:12.5px;color:var(--muted)}
 .ti{display:inline-flex;width:15px;height:15px;border-radius:50%;border:1.5px solid #b6bec8;color:var(--muted);font-weight:800;font-size:10px;align-items:center;justify-content:center;margin-left:6px;cursor:help}
 .tipbox{display:none;position:absolute;left:10px;right:10px;top:44px;z-index:30;background:#fffdf4;border:1px solid #e8dfa8;border-radius:8px;padding:10px 12px;font-size:12px;color:#3a4049;box-shadow:0 8px 24px rgba(26,29,35,.12)}
@@ -253,7 +255,7 @@ tr.total td{border-top:2px solid var(--line2);background:#fafbfd}
 /* legacy fragment classes (plant page from report_gen.plant_parts) */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px;margin:16px 0}
 .tile.flip .face.front{position:relative}.tile.flip.good .face{background:#e6f7f5;border-color:#b8e6e1}.tile.flip.warn .face{background:#fff4e0;border-color:#f3dcae}.tile.flip.bad .face{background:#fdeaea;border-color:#f3b9b9}
-.tile .thero{font-size:24px;font-weight:800}
+.tile .thero{font-size:clamp(15px,1.4vw,20px);font-weight:700}
 .card h2{font-size:15px;font-weight:700;margin:0 0 6px}.card>h2,.card>.note,.card>.legend,.card>table,.card>svg,.card>div#dchart{margin-left:20px;margin-right:20px}.card>h2{padding-top:16px}.card>table{width:calc(100% - 40px);margin-bottom:16px}.card>svg,.card>#dchart{margin-bottom:16px;max-width:calc(100% - 40px)}
 .card td .pill{font-size:inherit;padding:1px 9px}
 .card>.tscroll{margin:0 20px 16px;max-width:calc(100% - 40px)}.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.tscroll>table{width:100%;margin:0}
@@ -291,6 +293,31 @@ function setLang(l,save){
  try{localStorage.setItem('argia_lang',l);}catch(e){}
  if(save){fetch('/session/lang',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:l})}).catch(()=>{});}
 }
+function argiaChartHover(ev,svg){
+ /* v234: one hover box for every chart — the wrapper carries data-chart JSON:
+    {W, xs:[x per column in viewBox units], labels:[...], series:[{label,color,vals:[...],unit,dec,sn}]}.
+    Series whose legend checkbox (input[data-sn]) is unticked are left out. */
+ const box=svg.closest('[data-chart]');if(!box)return;
+ const d=box._d||(box._d=JSON.parse(box.getAttribute('data-chart')));
+ const r=svg.getBoundingClientRect(),x=(ev.clientX-r.left)*d.W/r.width;
+ let i=0,best=1e9;d.xs.forEach((xx,k)=>{const dd=Math.abs(xx-x);if(dd<best){best=dd;i=k;}});
+ const gx=d.xs[i],g=svg.querySelector('.chguide');if(g){g.setAttribute('x1',gx);g.setAttribute('x2',gx);g.style.display='';}
+ const off={};box.querySelectorAll('input[data-sn]').forEach(c=>{if(!c.checked)off[c.getAttribute('data-sn')]=1;});
+ let h='<b>'+d.labels[i]+'</b>';
+ d.series.forEach(s=>{if(s.sn&&off[s.sn])return;const v=s.vals[i];if(v==null)return;
+  const dec=s.dec==null?0:s.dec;
+  h+='<div><span class="sw" style="background:'+s.color+'"></span>'+s.label+(s.sn?' <span class="sn">'+s.sn+'</span>':'')
+   +' <b>'+Number(v).toLocaleString(undefined,{minimumFractionDigits:dec,maximumFractionDigits:dec})+(s.unit?' '+s.unit:'')+'</b>'
+   +(s.extra&&s.extra[i]?' <span class="muted">'+s.extra[i]+'</span>':'')+'</div>';});
+ let tip=box.querySelector('.chtip');if(!tip){tip=document.createElement('div');tip.className='chtip';box.appendChild(tip);}
+ tip.innerHTML=h;tip.style.display='';
+ const px=gx*r.width/d.W;let left=px+14;if(left+tip.offsetWidth>box.clientWidth)left=px-tip.offsetWidth-14;
+ tip.style.left=Math.max(0,left)+'px';tip.style.top=(r.top-box.getBoundingClientRect().top+10)+'px';
+}
+function argiaChartLeave(svg){const box=svg.closest('[data-chart]');if(!box)return;
+ const tip=box.querySelector('.chtip');if(tip)tip.style.display='none';const g=svg.querySelector('.chguide');if(g)g.style.display='none';}
+function argiaInvToggle(cb){const box=cb.closest('.invchart'),svg=box.querySelector('svg');
+ svg.querySelectorAll('.ser').forEach(g=>{if(g.getAttribute('data-sn')===cb.getAttribute('data-sn'))g.style.display=cb.checked?'':'none';});}
 function argiaFit(){
  /* v224: a table wider than its card scrolls inside the card — the page never scrolls sideways.
     v228: wrapped only while it overflows (a scroll box clips the tooltips inside it); re-checked on resize */

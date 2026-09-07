@@ -205,17 +205,19 @@ class TestInverterChart:
         assert svg.count('<circle class="pt"') == 5          # v233: visible dots on every point
         # v232: each series is a toggleable group, the legend has a checkbox per unit, the last label has room
         assert svg.count('<g class="ser" data-sn=') == 2 and svg.count('<input type="checkbox" checked data-sn=') == 2
-        assert 'onchange="argiaInvToggle(this)"' in svg and "function argiaInvToggle" in svg
+        assert 'onchange="argiaInvToggle(this)"' in svg          # the toggle lives in the chrome since v234
         assert 'x2="860"' in svg          # plot ends 40 px before the edge (was 12)
         assert "tkpill" not in svg        # tickets live in the table, never in the legend (v233)
         # v233: the day box — the series ride along as JSON, the hover JS and the guide line are there
         import json as _json, html as _html
         data = _json.loads(_html.unescape(svg.split('data-chart="', 1)[1].split('"', 1)[0]))
-        assert data["days"] == ["2026-09-01", "2026-09-02", "2026-09-03"] and data["x0"] == 54 and data["W"] == 900
+        assert data["labels"] == ["2026-09-01", "2026-09-02", "2026-09-03"] and data["xs"] == [54.0, 457.0, 860.0] and data["W"] == 900
         assert [s_["label"] for s_ in data["series"]] == ["Inverter 1", "Inverter 2"]
-        assert data["series"][1]["vals"] == [500.0, None, 520.0] and data["series"][0]["rated"] == 124.0
-        assert 'onmousemove="argiaInvHover(event,this)"' in svg and 'class="invguide"' in svg and 'class="invtip"' in svg
-        assert "function argiaInvHover" in svg and "function argiaInvLeave" in svg
+        assert data["series"][1]["vals"] == [500.0, None, 520.0] and data["series"][0]["extra"][1] == "5.24 kWh/kW"
+        assert data["series"][0]["sn"] == "A" and data["series"][0]["unit"] == "kWh"
+        # v234: the hover is the chrome's generic one (argiaChartHover), shared with the daily and monthly charts
+        assert 'onmousemove="argiaChartHover(event,this)"' in svg and 'class="chguide"' in svg
+        assert "function argiaInvHover" not in svg and "<script>" not in svg
         # nothing to draw: one day only, or all zero
         assert fns["inverter_chart_svg"]({"A": {"daily": {"2026-09-01": 5.0}}}, {}) == ""
         assert fns["inverter_chart_svg"]({"A": {"daily": {"d1": 0.0, "d2": 0.0}}}, {}) == ""
@@ -257,14 +259,48 @@ class TestInverterChart:
         assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})" in SRC
         # the chart's CSS lives in the portal chrome — report_gen's own stylesheet never reaches the portal pages
         chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
-        for rule in (".invchart{position:relative", ".invlegs{", ".invleg{", ".invtip{", ".tkpill{", ".sw{"):
+        for rule in (".invchart,.hchart{position:relative", ".invlegs{", ".invleg{", ".chtip{", ".chguide{", ".tkpill{", ".sw{",
+                     ".card>.invchart,.card>.hchart,.card>p.note{margin-left:20px;margin-right:20px}"):
             assert rule in chrome, rule
+        for fn in ("function argiaChartHover", "function argiaChartLeave", "function argiaInvToggle"):
+            assert fn in chrome, fn
+        assert ".card{background:#fff;border:1px solid var(--line);border-radius:12px;position:relative}" in chrome   # h2 tooltips anchor
 
     def test_tile_values_fit_one_line(self):
-        """v233 (Tomasz: the big bold numbers wrap inside the tiles) — 24px like the Map cards."""
+        """v233/v234 (Tomasz: the big bold numbers wrap inside the tiles) — the Map tile look:
+        clamp(15px,1.4vw,20px), weight 700, one line."""
         chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
-        assert ".tval{font-size:24px" in chrome and ".tile .thero{font-size:24px" in chrome
+        assert ".tval{font-size:clamp(15px,1.4vw,20px);line-height:1.15;font-weight:700;color:var(--ink);white-space:nowrap}" in chrome
+        assert ".tile .thero{font-size:clamp(15px,1.4vw,20px);font-weight:700}" in chrome
         assert ".kpi .v{font-size:24px" in (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
+
+    def test_daily_and_monthly_charts_carry_the_hover_box(self):
+        """v234: hover a day / a month -> actual, contract or expected, expected from weather, money."""
+        assert "s+='<line class=\"chguide\" x1=\"'+pl+'\"" in SRC and 'onmousemove="argiaChartHover(event,this)"' in SRC
+        assert "return '<div class=\"hchart\" data-chart=\"'+data+'\">'+s+'</div>';}" in SRC
+        assert "const ser=[{label:CH_L.actual,color:'#05b1a9',vals:vals,unit:unit" in SRC
+        assert "+ 'const CH_L=' + json.dumps({'actual': 'actual', 'contract': 'contract' if is_ppa else 'expected'," in SRC
+        import html, json, math
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math, "json": json,
+              "MONTH_EN": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+              "MONTH_ES": ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]}
+        seg = SRC[SRC.index("def yticks"):]
+        exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)
+        seg = SRC[SRC.index("def monthly_svg"):]
+        exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)
+        pairs = [("2026-07", "111000"), ("2026-08", "133000"), ("2026-09", "26000"), ("2026-10", "84000")]
+        out = ns["monthly_svg"](pairs, [0, 0, 2, 1], contract_mwh=[95, 98, 84, 84], revenue_kmxn=[220, 260, 50, 165],
+                                cur_expected_kwh=83000)
+        assert out.startswith('<div class="hchart" data-chart="') and out.endswith("</svg></div>")
+        d = json.loads(html.unescape(out.split('data-chart="', 1)[1].split('"', 1)[0]))
+        assert d["labels"] == ["Jul 2026", "Aug 2026", "Sep 2026", "Oct 2026"] and len(d["xs"]) == 4
+        by = {s_["label"]: s_ for s_ in d["series"]}
+        assert by["actual"]["vals"] == [111.0, 133.0, 26.0, None]          # a forecast month has no actual
+        assert by["expected"]["vals"] == [None, None, 83.0, 84.0]          # in-progress month: the full-month expectation
+        assert by["contract baseline"]["vals"] == [95, 98, 84, 84] and by["revenue"]["unit"] == "k MXN"
+        assert "money_label='revenue' if is_ppa else 'savings'" in SRC
+        assert '<p class="note" style="margin:0 20px 4px">' in SRC        # the chart note keeps the card\'s 20 px margin
+        assert 'class="chguide"' in out and 'onmousemove="argiaChartHover(event,this)"' in out
         assert "+ chart +" in SRC and "Daily kWh per inverter, each from its own counter" in SRC
         assert "Inverters — last 30 days" in SRC
         assert "specific yield ÷ the plant median" in SRC

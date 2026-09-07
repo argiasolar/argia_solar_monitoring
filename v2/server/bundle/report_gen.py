@@ -626,7 +626,8 @@ function colsvg(labs,vals,revs,unit,runit,cl,wx){
  const n=vals.length; if(!n)return '<p class="note">—</p>';
  const wxv=(wx||[]).filter(v=>v!=null);
  const vmax=Math.max.apply(null,vals.concat(cl||[]).concat(wxv))||1, tk=yt(vmax), top=tk[tk.length-1];
- let s='<svg viewBox="0 0 '+W+' '+H+'" role="img">';
+ let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" onmousemove="argiaChartHover(event,this)" onmouseleave="argiaChartLeave(this)">';
+ s+='<line class="chguide" x1="'+pl+'" y1="'+pt+'" x2="'+pl+'" y2="'+(pt+ph)+'" style="display:none"/>';
  tk.forEach(v=>{const y=pt+ph*(1-v/top);
   s+='<line x1="'+pl+'" y1="'+y.toFixed(1)+'" x2="'+(W-pr)+'" y2="'+y.toFixed(1)+'" class="grid"/>';
   s+='<text x="'+(pl-6)+'" y="'+(y+4).toFixed(1)+'" class="tick" text-anchor="end">'+nf(v)+'</text>';});
@@ -656,7 +657,14 @@ function colsvg(labs,vals,revs,unit,runit,cl,wx){
  for(let i=0;i<n;i+=ev){s+='<text x="'+(pl+i*slot+slot/2).toFixed(1)+'" y="'+(H-8)+
    '" class="tick" text-anchor="middle">'+labs[i]+'</text>';}
  s+='<line x1="'+pl+'" y1="'+(pt+ph)+'" x2="'+(W-pr)+'" y2="'+(pt+ph)+'" class="axis"/></svg>';
- return s;}
+ /* v234: the day box — every series of the day in one hover (portal_chrome.argiaChartHover) */
+ const xs=[];for(let i=0;i<n;i++)xs.push(+(pl+i*slot+slot/2).toFixed(1));
+ const ser=[{label:CH_L.actual,color:'#05b1a9',vals:vals,unit:unit,dec:unit==='MWh'?2:0}];
+ if(cl&&cl.some(v=>v>0))ser.push({label:CH_L.contract,color:'#eb6834',vals:cl,unit:unit,dec:unit==='MWh'?2:0});
+ if(wx&&wx.some(v=>v!=null&&v>0))ser.push({label:CH_L.weather,color:'#eab308',vals:wx,unit:unit,dec:unit==='MWh'?2:0});
+ if(revs&&revs.some(v=>v>0))ser.push({label:CH_L.money,color:'#1e8e3e',vals:revs,unit:runit,dec:0});
+ const data=JSON.stringify({W:W,xs:xs,labels:labs,series:ser}).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+ return '<div class="hchart" data-chart="'+data+'">'+s+'</div>';}
 function compute(){
  const d0=$('d0').value, d1=$('d1').value; if(!d0||!d1||d0>d1)return;
  const days=Math.round((new Date(d1)-new Date(d0))/864e5)+1;
@@ -910,7 +918,7 @@ def columns_svg(pairs, unit, scale=1.0, width=980, height=240, lab_fmt=None,
 
 
 def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
-                width=980, height=280, cur_expected_kwh=None):
+                width=980, height=280, cur_expected_kwh=None, money_label='revenue'):
     """12-month plant chart: MWh bars (grey = expected), optional orange
     contract-baseline polyline (left axis) and green revenue line (right axis,
     k MXN, its own scale). flags[i] == 2 marks the in-progress month:
@@ -931,7 +939,8 @@ def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
     n = len(pairs)
     slot = pw / n
     bw = min(52, max(6, slot - 10))
-    out = [f'<svg viewBox="0 0 {W} {H}" role="img">']
+    out = [f'<svg viewBox="0 0 {W} {H}" role="img" onmousemove="argiaChartHover(event,this)" onmouseleave="argiaChartLeave(this)">',
+           f'<line class="chguide" x1="{pad_l}" y1="{pad_t}" x2="{pad_l}" y2="{pad_t+ph}" style="display:none"/>']
     for tk in tks:
         y = pad_t + ph * (1 - tk / top)
         out.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{W-pad_r}" y2="{y:.1f}" class="grid"/>')
@@ -987,7 +996,19 @@ def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
         out.append(f'<path class="line rev" d="{d}"><title>Revenue (k MXN)</title></path>')
     out.append(f'<line x1="{pad_l}" y1="{pad_t+ph}" x2="{W-pad_r}" y2="{pad_t+ph}" class="axis"/>')
     out.append('</svg>')
-    return ''.join(out)
+    # v234: the month box — actual / expected / contract / money in one hover (portal_chrome.argiaChartHover)
+    labels = [f'{MONTH_EN[int(m[5:7]) - 1]} {m[:4]}' for m, _ in pairs]
+    xs = [round(pad_l + i * slot + slot / 2, 1) for i in range(n)]
+    series = [{'label': 'actual', 'color': '#05b1a9', 'unit': 'MWh', 'dec': 1,
+               'vals': [None if (flags[i] == 1) else vals[i] for i in range(n)]},
+              {'label': 'expected', 'color': '#9aa0a6', 'unit': 'MWh', 'dec': 1,
+               'vals': [vals[i] if flags[i] == 1 else (cur_exp if (flags[i] == 2 and cur_exp > 0) else None) for i in range(n)]}]
+    if cv:
+        series.append({'label': 'contract baseline', 'color': '#eb6834', 'unit': 'MWh', 'dec': 1, 'vals': [c or None for c in cv]})
+    if rv:
+        series.append({'label': money_label, 'color': '#1e8e3e', 'unit': 'k MXN', 'dec': 0, 'vals': [r or None for r in rv]})
+    data = html.escape(json.dumps({'W': W, 'xs': xs, 'labels': labels, 'series': series}, separators=(',', ':')), quote=True)
+    return f'<div class="hchart" data-chart="{data}">' + ''.join(out) + '</div>'
 
 
 def lines2_svg(mlist, s1v, s2v, n1, n2, unit, scale=1.0, width=980, height=240):
@@ -1070,8 +1091,8 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
     own counter over the rolling 30 days. ``stats`` = inv30[plant]
     ({sn: {..., 'daily': {date: kwh}}}), ``meta`` = {sn: (label,
     rated_kw)}. v233: hovering a day shows every inverter's kWh for
-    that day in one box (the JS reads the series from data-attributes;
-    without JS the point titles still answer); a checkbox per inverter
+    that day in one box (portal_chrome.argiaChartHover reads the series from
+    data-chart; without JS the point titles still answer); a checkbox per inverter
     in the legend includes or excludes its line; tickets stay in the
     table (``tickets`` is accepted for compatibility, not drawn).
     Pure; '' when there is nothing to draw."""
@@ -1090,12 +1111,12 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
 
     def pt(i, v):
         return (pad_l + pw * i / (n - 1), pad_t + ph * (1 - v / tks[-1]))
-    out = [f'<svg viewBox="0 0 {W} {H}" role="img" style="width:100%;height:auto;display:block" onmousemove="argiaInvHover(event,this)" onmouseleave="argiaInvLeave(this)">']
+    out = [f'<svg viewBox="0 0 {W} {H}" role="img" style="width:100%;height:auto;display:block" onmousemove="argiaChartHover(event,this)" onmouseleave="argiaChartLeave(this)">']
     for tk in tks:
         y = pad_t + ph * (1 - tk / tks[-1])
         out.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{W-pad_r}" y2="{y:.1f}" class="grid"/>')
         out.append(f'<text x="{pad_l-6}" y="{y+4:.1f}" class="tick" text-anchor="end">{int(tk):,}</text>')
-    out.append(f'<line class="invguide" x1="{pad_l}" y1="{pad_t}" x2="{pad_l}" y2="{pad_t+ph}" style="display:none;stroke:#9aa0a6;stroke-dasharray:3 3"/>')
+    out.append(f'<line class="chguide" x1="{pad_l}" y1="{pad_t}" x2="{pad_l}" y2="{pad_t+ph}" style="display:none"/>')
     legend, series = [], []
     for j, sn in enumerate(order):
         label, rated = meta.get(sn) or ('', 0)
@@ -1115,39 +1136,19 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
         out.append('</g>')
         legend.append(f'<label class="invleg"><input type="checkbox" checked data-sn="{sid}" onchange="argiaInvToggle(this)">'
                       f'<span class="sw" style="background:{color}"></span>{who} <span class="sn">{sid}</span></label>')
-        series.append({'sn': sn, 'label': label or sn, 'color': color, 'rated': rated or 0,
-                       'vals': [round(daily[d], 1) if d in daily else None for d in days]})
+        series.append({'sn': sn, 'label': label or sn, 'color': color, 'unit': 'kWh', 'dec': 0,
+                       'vals': [round(daily[d], 1) if d in daily else None for d in days],
+                       'extra': [f'{daily[d] / rated:,.2f} kWh/kW' if (d in daily and rated) else '' for d in days]})
     ev = max(1, n // 8)
     for i, d in enumerate(days):
         if i % ev == 0:
             out.append(f'<text x="{pad_l+pw*i/(n-1):.1f}" y="{H-8}" class="tick" text-anchor="middle">{d[5:]}</text>')
     out.append(f'<line x1="{pad_l}" y1="{pad_t+ph}" x2="{W-pad_r}" y2="{pad_t+ph}" class="axis"/>')
     out.append('</svg>')
-    data = html.escape(json.dumps({'days': days, 'x0': pad_l, 'pw': pw, 'W': W, 'series': series}, separators=(',', ':')), quote=True)
+    xs = [round(pad_l + pw * i / (n - 1), 1) for i in range(n)]
+    data = html.escape(json.dumps({'W': W, 'xs': xs, 'labels': days, 'series': series}, separators=(',', ':')), quote=True)
     return (f'<div class="invchart" data-chart="{data}">' + ''.join(out)
-            + '<div class="invtip" style="display:none"></div>'
-            + '<div class="invlegs">' + ''.join(legend) + '</div>' + INV_CHART_JS + '</div>')
-
-
-INV_CHART_JS = (
-    '<script>'
-    'function argiaInvToggle(cb){var box=cb.closest(".invchart"),svg=box.querySelector("svg");'
-    'svg.querySelectorAll(".ser").forEach(function(g){if(g.getAttribute("data-sn")===cb.getAttribute("data-sn"))'
-    'g.style.display=cb.checked?"":"none";});}'
-    'function argiaInvHover(ev,svg){var box=svg.closest(".invchart"),d=box._d||(box._d=JSON.parse(box.getAttribute("data-chart")));'
-    'var r=svg.getBoundingClientRect(),x=(ev.clientX-r.left)*d.W/r.width,n=d.days.length;'
-    'var i=Math.round((x-d.x0)/d.pw*(n-1));if(i<0)i=0;if(i>n-1)i=n-1;'
-    'var gx=d.x0+d.pw*i/(n-1),g=svg.querySelector(".invguide");g.setAttribute("x1",gx);g.setAttribute("x2",gx);g.style.display="";'
-    'var off={};box.querySelectorAll(".invleg input").forEach(function(c){if(!c.checked)off[c.getAttribute("data-sn")]=1;});'
-    'var h="<b>"+d.days[i]+"</b>";d.series.forEach(function(s){if(off[s.sn])return;var v=s.vals[i];'
-    'h+="<div><span class=sw style=\'background:"+s.color+"\'></span>"+s.label+" <span class=sn>"+s.sn+"</span> <b>"+(v==null?"—":Math.round(v).toLocaleString()+" kWh")+"</b>"'
-    '+(v!=null&&s.rated?" <span class=muted>"+(v/s.rated).toFixed(2)+" kWh/kW</span>":"")+"</div>";});'
-    'var tip=box.querySelector(".invtip");tip.innerHTML=h;tip.style.display="";'
-    'var px=gx*r.width/d.W,left=px+14;if(left+tip.offsetWidth>box.clientWidth)left=px-tip.offsetWidth-14;'
-    'tip.style.left=Math.max(0,left)+"px";tip.style.top=(r.top-box.getBoundingClientRect().top+10)+"px";}'
-    'function argiaInvLeave(svg){var box=svg.closest(".invchart");box.querySelector(".invtip").style.display="none";'
-    'svg.querySelector(".invguide").style.display="none";}'
-    '</script>')
+            + '<div class="invlegs">' + ''.join(legend) + '</div></div>')
 
 
 def inverter_card(k):
@@ -1192,7 +1193,7 @@ def inverter_card(k):
              "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba — júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
     chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})
     if chart:
-        chart = (f'<p class="note" style="margin:0 0 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
+        chart = (f'<p class="note" style="margin:0 20px 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
                  + chart)
     return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Inverters — last 30 days","Inversores — últimos 30 días")}{tip}</h2>'
             + chart +
@@ -1431,7 +1432,8 @@ def plant_parts(k):
     legend += '</div>'
     parts['monthly'] = (f'<div class="card"><h2>{t("Monthly production","Producción mensual")} · {asof[:4]}</h2>'
                         + legend + monthly_svg(y12, yfl, contract_mwh=cml, revenue_kmxn=rml,
-                                               cur_expected_kwh=cur_exp) + '</div>')
+                                               cur_expected_kwh=cur_exp,
+                                               money_label='revenue' if is_ppa else 'savings') + '</div>')
     body.append(parts['monthly'])
 
     vs_lab = 'vs contract' if is_ppa else 'vs expected'
@@ -1444,7 +1446,10 @@ def plant_parts(k):
                 + f';const VSL="{vs_lab}";const CO2F={co2_factor(None, k)};'
                 + ';const CO2Y=' + json.dumps(co2_factors_js(k)) + ';'
                 + f'const SLA={plant_sla};const TARIFF={p["tariff"] if is_ppa else 0};'
-                + f'const ASOF="{asof}";</script>' + PLANT_JS)
+                + f'const ASOF="{asof}";'
+                + 'const CH_L=' + json.dumps({'actual': 'actual', 'contract': 'contract' if is_ppa else 'expected',
+                                             'weather': 'expected from weather', 'money': 'revenue' if is_ppa else 'savings'})
+                + ';</script>' + PLANT_JS)
     body.append(parts['script'])
 
     parts['months'] = ''

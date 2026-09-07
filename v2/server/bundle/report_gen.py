@@ -494,6 +494,12 @@ th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--grid);}
 th{color:var(--ink2);font-weight:600;font-size:12px;}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 .sn{font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:10px;color:#80868b;letter-spacing:.2px;white-space:nowrap;}
+.invchart{padding:0 8px 0 0;}
+.invlegs{margin:4px 0 12px 54px;display:flex;flex-wrap:wrap;gap:6px 16px;}
+.invleg{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;}
+.invleg input{margin:0;accent-color:#05b1a9;}
+.tkpill{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:#e6f6f5;color:#0b7d78;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;}
+.tkpill:hover{background:#cdeeec;}
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;font-size:12px;
  background:var(--green-bg);color:var(--green-tx);}
 .badge.laas{background:var(--laas-bg);color:var(--laas-tx);}
@@ -1030,8 +1036,32 @@ def _median(vals):
 
 INV_COLORS = ('#1a73e8', '#d93025', '#188038', '#f9ab00', '#9334e6', '#12b5cb', '#e8710a', '#5f6368')
 
+# v232: the open maintenance ticket on an inverter — {(plant, sn): (number, status, priority)};
+# empty before the ticket tables exist
+TICKET_BY_INVERTER = {}
+try:
+    for r in q("SELECT plant_key, coalesce(inverter_sn,''), number, status, priority FROM ticket"
+               " WHERE status IN ('NEW','IN_PROGRESS','WAITING','VERIFICATION') AND coalesce(inverter_sn,'') <> ''"
+               " ORDER BY updated_at DESC;"):
+        if len(r) >= 5 and (r[0], r[1]) not in TICKET_BY_INVERTER:
+            TICKET_BY_INVERTER[(r[0], r[1])] = (r[2], r[3], r[4])
+except RuntimeError:
+    TICKET_BY_INVERTER = {}
+TICKET_STATUS = {'NEW': ('New', 'Nuevo'), 'IN_PROGRESS': ('In progress', 'En curso'), 'WAITING': ('Waiting', 'En espera'),
+                 'VERIFICATION': ('Verification', 'Verificación')}
 
-def inverter_chart_svg(stats, meta, width=900, height=230):
+
+def ticket_pill(tk):
+    """A small link to the open ticket on a unit: 'TK-NL1-0002 · In progress'. Pure."""
+    if not tk:
+        return ''
+    number, status, prio = tk
+    lab = TICKET_STATUS.get(status, (status, status))
+    return (f'<a href="/maintenance/t/{html.escape(number)}/" class="tkpill" title="{html.escape(prio)} · {html.escape(lab[0])}">'
+            f'{html.escape(number)} · {t(lab[0], lab[1])}</a>')
+
+
+def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
     """v231 (Tomasz: 'a graph like the Growatt server shows — inverter
     production over time'): one line per inverter, daily kWh from its
     own counter over the rolling 30 days. ``stats`` = inv30[plant]
@@ -1046,7 +1076,7 @@ def inverter_chart_svg(stats, meta, width=900, height=230):
     if vmax <= 0:
         return ''
     tks = yticks(vmax)
-    pad_l, pad_b, pad_t, pad_r = 54, 28, 12, 12
+    pad_l, pad_b, pad_t, pad_r = 54, 28, 12, 40      # v232: room for the last date label
     W, H = width, height
     pw, ph = W - pad_l - pad_r, H - pad_t - pad_b
     n = len(days)
@@ -1067,22 +1097,28 @@ def inverter_chart_svg(stats, meta, width=900, height=230):
         d_attr = ' '.join(f'{"M" if k == 0 or pts[k-1][0] != i - 1 else "L"}{pt(i, v)[0]:.1f},{pt(i, v)[1]:.1f}'
                           for k, (i, v) in enumerate(pts))
         who = html.escape(label or sn)
-        out.append(f'<path class="line" style="stroke:{color}" d="{d_attr}"><title>{who}</title></path>')
+        sid = html.escape(sn)
+        out.append(f'<g class="ser" data-sn="{sid}"><path class="line" style="stroke:{color}" d="{d_attr}"><title>{who}</title></path>')
         for i, v in pts:
             x, y = pt(i, v)
             per_kw = f' · {v / rated:,.2f} kWh/kW' if rated else ''
             out.append(f'<circle class="hit" cx="{x:.1f}" cy="{y:.1f}" r="7">'
-                       f'<title>{days[i]} · {who} ({html.escape(sn)}): {v:,.0f} kWh{per_kw}</title></circle>')
-        legend.append(f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:12.5px">'
+                       f'<title>{days[i]} · {who} ({sid}): {v:,.0f} kWh{per_kw}</title></circle>')
+        out.append('</g>')
+        tk = ticket_pill((tickets or {}).get(sn))
+        legend.append(f'<label class="invleg"><input type="checkbox" checked data-sn="{sid}" onchange="argiaInvToggle(this)">'
                       f'<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{color}"></span>'
-                      f'{who} <span class="sn">{html.escape(sn)}</span></span>')
+                      f'{who} <span class="sn">{sid}</span>{tk}</label>')
     ev = max(1, n // 8)
     for i, d in enumerate(days):
         if i % ev == 0:
             out.append(f'<text x="{pad_l+pw*i/(n-1):.1f}" y="{H-8}" class="tick" text-anchor="middle">{d[5:]}</text>')
     out.append(f'<line x1="{pad_l}" y1="{pad_t+ph}" x2="{W-pad_r}" y2="{pad_t+ph}" class="axis"/>')
     out.append('</svg>')
-    return ''.join(out) + '<div style="margin:4px 0 12px 54px">' + ''.join(legend) + '</div>'
+    js = ('<script>function argiaInvToggle(cb){var svg=cb.closest(".invchart").querySelector("svg");'
+          'svg.querySelectorAll(".ser").forEach(function(g){if(g.getAttribute("data-sn")===cb.getAttribute("data-sn"))'
+          'g.style.display=cb.checked?"":"none";});}</script>')
+    return ('<div class="invchart">' + ''.join(out) + '<div class="invlegs">' + ''.join(legend) + '</div>' + js + '</div>')
 
 
 def inverter_card(k):
@@ -1116,14 +1152,16 @@ def inverter_card(k):
         sub = html.escape(sn) + (f' · {rated:,.0f} kW' if rated else '')
         sy_txt = f'{sy:,.1f}' if sy is not None else '—'
         av_txt = f'{av*100:,.1f}%' if av is not None else '—'
-        rows.append(f'<tr><td>{name}<br><span class="sub">{sub}</span></td>'
+        tkp = ticket_pill(tickets.get(sn))
+        rows.append(f'<tr><td>{name}<br><span class="sub">{sub}</span>' + (f'<br>{tkp}' if tkp else '') + '</td>'
                     f'<td class="num">{a["kwh"]:,.0f}</td>'
                     f'<td class="num">{sy_txt}</td>'
                     f'<td class="num">{pill}</td>'
                     f'<td class="num">{av_txt}</td></tr>')
     tip = ti("Rolling 30 days ending at the data edge (fixed window — the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) — same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher — judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
              "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba — júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
-    chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})
+    tickets = {sn: TICKET_BY_INVERTER.get((k, sn)) for sn in stats}
+    chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats}, tickets=tickets)
     if chart:
         chart = (f'<p class="note" style="margin:0 0 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
                  + chart)

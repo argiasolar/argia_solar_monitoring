@@ -144,7 +144,7 @@ class TestInverter30d:
     def _fns(self):
         ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0}
         _exec_seg("def _inverter_30d", "inv30 = _inverter_30d", ns)
-        _exec_seg("def _median", "def inverter_card", ns)
+        _exec_seg("def _median", "INV_COLORS = ", ns)
         return ns
 
     def test_energy_sums_daily_counter_maxima(self):
@@ -181,7 +181,8 @@ class TestInverterChart:
 
     def _fns(self):
         import html, math
-        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math}
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math,
+              "q": lambda sql: [], "t": lambda en, es: en}
         seg = SRC[SRC.index("def yticks"):]
         exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)      # yticks alone
         _exec_seg("def _inverter_30d", "inv30 = _inverter_30d", ns)
@@ -202,12 +203,27 @@ class TestInverterChart:
         b_path = [seg for seg in svg.split('<path class="line"') if "Inverter 2" in seg][0]
         assert b_path.count("M") == 2 and "L" not in b_path.split('d="')[1].split('"')[0]
         assert svg.count("<circle") == 5
+        # v232: each series is a toggleable group, the legend has a checkbox per unit, the last label has room
+        assert svg.count('<g class="ser" data-sn=') == 2 and svg.count('<input type="checkbox" checked data-sn=') == 2
+        assert 'onchange="argiaInvToggle(this)"' in svg and "function argiaInvToggle" in svg
+        assert 'x2="860"' in svg          # plot ends 40 px before the edge (was 12)
+        assert "tkpill" not in svg        # no open ticket -> no pill
         # nothing to draw: one day only, or all zero
         assert fns["inverter_chart_svg"]({"A": {"daily": {"2026-09-01": 5.0}}}, {}) == ""
         assert fns["inverter_chart_svg"]({"A": {"daily": {"d1": 0.0, "d2": 0.0}}}, {}) == ""
 
+    def test_open_ticket_shows_in_legend_and_table_row(self):
+        fns = self._fns()
+        rows = [["P", "A", "2026-09-01", "600", "10", "10"], ["P", "A", "2026-09-02", "650", "10", "10"]]
+        stats = fns["_inverter_30d"](rows)["P"]
+        svg = fns["inverter_chart_svg"](stats, {"A": ("Inverter 1", 124.0)}, tickets={"A": ("TK-NL1-0002", "IN_PROGRESS", "P2")})
+        assert '<a href="/maintenance/t/TK-NL1-0002/" class="tkpill" title="P2 · In progress">TK-NL1-0002 · In progress</a>' in svg
+        assert fns["ticket_pill"](None) == ""
+        assert "tkp = ticket_pill(tickets.get(sn))" in SRC and "(f'<br>{tkp}' if tkp else '')" in SRC
+        assert "TICKET_BY_INVERTER.get((k, sn))" in SRC
+
     def test_card_embeds_the_chart_above_the_table(self):
-        assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})" in SRC
+        assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats}, tickets=tickets)" in SRC
         assert "+ chart +" in SRC and "Daily kWh per inverter, each from its own counter" in SRC
         assert "Inverters — last 30 days" in SRC
         assert "specific yield ÷ the plant median" in SRC

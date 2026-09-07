@@ -161,7 +161,7 @@ class TestInverter30d:
                 ["P", "B", "d1", "10", "10", "10"],
                 ["P", "A", "d2", "10", "12", "12"]]
         out = fns["_inverter_30d"](rows)
-        assert out["P"]["A"] == {"kwh": 20.0, "on": 22, "plant_slots": 22}
+        assert out["P"]["A"] == {"kwh": 20.0, "on": 22, "plant_slots": 22, "daily": {"d1": 10.0, "d2": 10.0}}
         assert out["P"]["B"]["on"] == 10          # 10 of 22 -> ~45%
         assert out["P"]["B"]["plant_slots"] == 22
 
@@ -173,6 +173,42 @@ class TestInverter30d:
 
     def test_card_uses_directors_thresholds_and_median(self):
         assert "idx >= 0.96 else 'warn' if idx >= 0.90" in SRC
+
+
+class TestInverterChart:
+    """v231: the per-inverter daily production chart in the 30-day card
+    (Tomasz: 'a graph like the Growatt server shows')."""
+
+    def _fns(self):
+        import html, math
+        ns = {"f": lambda v: float(v) if v not in ("", None) else 0.0, "html": html, "math": math}
+        seg = SRC[SRC.index("def yticks"):]
+        exec(compile(seg[:seg.index("\n\n\n")], "report_gen_seg", "exec"), ns)      # yticks alone
+        _exec_seg("def _inverter_30d", "inv30 = _inverter_30d", ns)
+        _exec_seg("INV_COLORS = ", "def inverter_card", ns)
+        return ns
+
+    def test_one_line_per_inverter_with_serial_and_kwh_per_kw(self):
+        fns = self._fns()
+        rows = [["P", "A", "2026-09-01", "600", "10", "10"], ["P", "A", "2026-09-02", "650", "10", "10"],
+                ["P", "A", "2026-09-03", "640", "10", "10"],
+                ["P", "B", "2026-09-01", "500", "10", "10"], ["P", "B", "2026-09-03", "520", "10", "10"]]   # B missed a day
+        stats = fns["_inverter_30d"](rows)["P"]
+        svg = fns["inverter_chart_svg"](stats, {"A": ("Inverter 1", 124.0), "B": ("Inverter 2", 124.0)})
+        assert svg.count('<path class="line"') == 2
+        assert '<title>2026-09-02 · Inverter 1 (A): 650 kWh · 5.24 kWh/kW</title>' in svg
+        assert 'Inverter 2 <span class="sn">B</span>' in svg and 'Inverter 1 <span class="sn">A</span>' in svg
+        # B's gap breaks its line instead of drawing through the missing day
+        b_path = [seg for seg in svg.split('<path class="line"') if "Inverter 2" in seg][0]
+        assert b_path.count("M") == 2 and "L" not in b_path.split('d="')[1].split('"')[0]
+        assert svg.count("<circle") == 5
+        # nothing to draw: one day only, or all zero
+        assert fns["inverter_chart_svg"]({"A": {"daily": {"2026-09-01": 5.0}}}, {}) == ""
+        assert fns["inverter_chart_svg"]({"A": {"daily": {"d1": 0.0, "d2": 0.0}}}, {}) == ""
+
+    def test_card_embeds_the_chart_above_the_table(self):
+        assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})" in SRC
+        assert "+ chart +" in SRC and "Daily kWh per inverter, each from its own counter" in SRC
         assert "Inverters — last 30 days" in SRC
         assert "specific yield ÷ the plant median" in SRC
         # fixed window disclosure — the date picker does not move it

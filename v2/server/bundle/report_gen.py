@@ -189,10 +189,11 @@ def _inverter_30d(rows):
         k, sn, d = r[0], r[1], r[2]
         kwh, on, slots = f(r[3]), int(f(r[4])), int(f(r[5]))
         per.setdefault(k, {}).setdefault(sn, {'kwh': 0.0, 'on': 0,
-                                              'days': {}})
+                                              'days': {}, 'daily': {}})
         per[k][sn]['kwh'] += kwh
         per[k][sn]['on'] += on
         per[k][sn]['days'][d] = slots
+        per[k][sn]['daily'][d] = round(per[k][sn]['daily'].get(d, 0.0) + kwh, 1)   # v231: the chart's series
         day_slots[(k, d)] = max(day_slots.get((k, d), 0), slots)
     out = {}
     for k, sns in per.items():
@@ -201,7 +202,7 @@ def _inverter_30d(rows):
         out[k] = {}
         for sn, a in sns.items():
             out[k][sn] = {'kwh': round(a['kwh'], 1), 'on': a['on'],
-                          'plant_slots': plant_total_slots}
+                          'plant_slots': plant_total_slots, 'daily': a['daily']}
     return out
 
 
@@ -1027,6 +1028,63 @@ def _median(vals):
     return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
 
 
+INV_COLORS = ('#1a73e8', '#d93025', '#188038', '#f9ab00', '#9334e6', '#12b5cb', '#e8710a', '#5f6368')
+
+
+def inverter_chart_svg(stats, meta, width=900, height=230):
+    """v231 (Tomasz: 'a graph like the Growatt server shows — inverter
+    production over time'): one line per inverter, daily kWh from its
+    own counter over the rolling 30 days. ``stats`` = inv30[plant]
+    ({sn: {..., 'daily': {date: kwh}}}), ``meta`` = {sn: (label,
+    rated_kw)}. Hover a point for the day, the unit and its kWh/kW.
+    Pure; '' when there is nothing to draw."""
+    days = sorted({d for a in stats.values() for d in (a.get('daily') or {})})
+    if len(days) < 2:
+        return ''
+    order = sorted(stats, key=lambda sn: (meta.get(sn) or (sn, 0))[0] or sn)
+    vmax = max((v for a in stats.values() for v in (a.get('daily') or {}).values()), default=0)
+    if vmax <= 0:
+        return ''
+    tks = yticks(vmax)
+    pad_l, pad_b, pad_t, pad_r = 54, 28, 12, 12
+    W, H = width, height
+    pw, ph = W - pad_l - pad_r, H - pad_t - pad_b
+    n = len(days)
+
+    def pt(i, v):
+        return (pad_l + pw * i / (n - 1), pad_t + ph * (1 - v / tks[-1]))
+    out = [f'<svg viewBox="0 0 {W} {H}" role="img" style="width:100%;height:auto;display:block">']
+    for tk in tks:
+        y = pad_t + ph * (1 - tk / tks[-1])
+        out.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{W-pad_r}" y2="{y:.1f}" class="grid"/>')
+        out.append(f'<text x="{pad_l-6}" y="{y+4:.1f}" class="tick" text-anchor="end">{int(tk):,}</text>')
+    legend = []
+    for j, sn in enumerate(order):
+        label, rated = meta.get(sn) or ('', 0)
+        color = INV_COLORS[j % len(INV_COLORS)]
+        daily = stats[sn].get('daily') or {}
+        pts = [(i, daily[d]) for i, d in enumerate(days) if d in daily]
+        d_attr = ' '.join(f'{"M" if k == 0 or pts[k-1][0] != i - 1 else "L"}{pt(i, v)[0]:.1f},{pt(i, v)[1]:.1f}'
+                          for k, (i, v) in enumerate(pts))
+        who = html.escape(label or sn)
+        out.append(f'<path class="line" style="stroke:{color}" d="{d_attr}"><title>{who}</title></path>')
+        for i, v in pts:
+            x, y = pt(i, v)
+            per_kw = f' · {v / rated:,.2f} kWh/kW' if rated else ''
+            out.append(f'<circle class="hit" cx="{x:.1f}" cy="{y:.1f}" r="7">'
+                       f'<title>{days[i]} · {who} ({html.escape(sn)}): {v:,.0f} kWh{per_kw}</title></circle>')
+        legend.append(f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:12.5px">'
+                      f'<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{color}"></span>'
+                      f'{who} <span class="sn">{html.escape(sn)}</span></span>')
+    ev = max(1, n // 8)
+    for i, d in enumerate(days):
+        if i % ev == 0:
+            out.append(f'<text x="{pad_l+pw*i/(n-1):.1f}" y="{H-8}" class="tick" text-anchor="middle">{d[5:]}</text>')
+    out.append(f'<line x1="{pad_l}" y1="{pad_t+ph}" x2="{W-pad_r}" y2="{pad_t+ph}" class="axis"/>')
+    out.append('</svg>')
+    return ''.join(out) + '<div style="margin:4px 0 12px 54px">' + ''.join(legend) + '</div>'
+
+
 def inverter_card(k):
     """Per-inverter rolling-30d table: energy, specific yield, index vs
     plant median, availability. The solar director's inverter view,
@@ -1065,7 +1123,12 @@ def inverter_card(k):
                     f'<td class="num">{av_txt}</td></tr>')
     tip = ti("Rolling 30 days ending at the data edge (fixed window — the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) — same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher — judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
              "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba — júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
+    chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})
+    if chart:
+        chart = (f'<p class="note" style="margin:0 0 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
+                 + chart)
     return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Inverters — last 30 days","Inversores — últimos 30 días")}{tip}</h2>'
+            + chart +
             f'<table><tr><th>{t("Inverter","Inversor")}</th>'
             f'<th class="num">kWh</th>'
             f'<th class="num">{t("kWh/kW","kWh/kW")}</th>'

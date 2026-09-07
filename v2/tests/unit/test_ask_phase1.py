@@ -160,6 +160,19 @@ class TestNewTools:
         empty = T.run_tool(FakeDB(dict(BASE, knowledge_search=[])), "search_standard", {"query": "zzz"})
         assert empty["hits"] == [] and "nothing in the standard" in empty["note"]
 
+    def test_v219_standard_follows_the_answer_language_and_links_the_slide(self):
+        db = FakeDB(dict(BASE, knowledge_search=[["12", "String sizing", "…", "0.6"]]))
+        # the model omitted lang -> the answer language is used
+        out = T.run_tool(db, "search_standard", {"query": "MPPT"}, lang="es")
+        assert "lang='es'" in db.sql[-1] and out["lang"] == "es"
+        assert out["hits"][0]["link"] == "https://portal.argia.com.mx/ags/#lang=es&slide=12"
+        assert "#lang=es" in out["note"]
+        # an explicit lang from the model wins (it may look at the other deck)
+        out = T.run_tool(db, "search_standard", {"query": "MPPT", "lang": "cz"}, lang="en")
+        assert "lang='cz'" in db.sql[-1]
+        assert out["hits"][0]["link"].endswith("#lang=cs&slide=12")      # the deck's code for Czech
+        assert T.slide_link(None, "en") == "https://portal.argia.com.mx/ags/#lang=en"
+
     def test_reconciliation_and_monthly_close(self):
         db = FakeDB(dict(BASE, recon_daily=[
             ["GTO1", "2026-09-02", "1800", "1843", "1843", "61.1", "-2.33", "REVIEW", "completeness 61.1% < 95%", "1843", "vendor_plant_daily"],

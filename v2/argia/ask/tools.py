@@ -816,6 +816,17 @@ def get_cfe_tariffs(rows: Rows, tariff: Any = "GDMTH", region: Any = None,
 
 
 # ------------------------------------------------------- knowledge (AGS)
+AGS_PAGE = "https://portal.argia.com.mx/ags/"
+
+
+def slide_link(slide: Optional[int], lang: str) -> str:
+    """Deep link into the Golden Standard deck in the answer's language
+    (v219): ``/ags/#slide=281&lang=en``. The deck's own language code for
+    Czech is ``cs`` (the knowledge table stores ``cz``)."""
+    code = {"cz": "cs"}.get((lang or "en").lower(), (lang or "en").lower())
+    return f"{AGS_PAGE}#lang={code}" + (f"&slide={int(slide)}" if slide else "")
+
+
 def search_standard(rows: Rows, query: Any, lang: Any = "en", limit: Any = 5) -> dict:
     """Full-text search over the ARGIA Golden Standard slides."""
     from argia.ask import knowledge as K
@@ -832,11 +843,12 @@ def search_standard(rows: Rows, query: Any, lang: Any = "en", limit: Any = 5) ->
     for r in rows(K.search_sql(q, lang, lim)):
         if len(r) >= 4:
             hits.append({"slide": _i(r[0]), "title": r[1], "excerpt": K.excerpt(r[2], q),
-                         "rank": _f(r[3]), "ref": f"AGS slide {r[0]}" + (f" — {r[1]}" if r[1] else "")})
+                         "rank": _f(r[3]), "ref": f"AGS slide {r[0]}" + (f" — {r[1]}" if r[1] else ""),
+                         "link": slide_link(_i(r[0]), lang)})
     return {"query": q, "lang": lang, "hits": hits,
             "totals": {"hits": len(hits)},
             "note": ("cite the slide as 'ARGIA Golden Standard, slide N — title'; "
-                     "the deck is at https://portal.argia.com.mx/ags/" if hits else
+                     f"the deck is at {slide_link(None, lang)}" if hits else
                      f"nothing in the standard matches {q!r} — try other words or the other language"),
             "source": {"tables": ["knowledge"], "doc": "AGS"}}
 
@@ -1021,7 +1033,7 @@ _PLANT_LISTS = ("plants", "days", "months", "inverters", "alarms", "maintenance"
 
 
 def run_tool(rows: Rows, name: str, params: Optional[dict],
-             scope: Optional[set] = None) -> dict:
+             scope: Optional[set] = None, lang: Optional[str] = None) -> dict:
     """Dispatch one call. Unknown tools and bad inputs come back as
     ``{"error": ...}`` so the model can recover; anything else raises.
 
@@ -1036,6 +1048,8 @@ def run_tool(rows: Rows, name: str, params: Optional[dict],
     allowed = set(next(t for t in TOOLS if t["name"] == name)
                   ["input_schema"]["properties"])
     params = {k: v for k, v in (params or {}).items() if k in allowed}
+    if name == "search_standard" and lang and not params.get("lang"):
+        params["lang"] = lang            # v219: the standard in the answer language
     if scope is not None:
         if name in INTERNAL_ONLY:
             return {"error": f"{name} is not available for this account"}

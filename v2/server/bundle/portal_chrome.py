@@ -432,7 +432,10 @@ def pill(cls, en, es=None):
 def redirect_page(to, en, es=None):
     """A sub-tab that still lives on the old site: send the browser
     there, but say so (parity phase — nothing is dropped)."""
+    # v219: forward the fragment (#lang=es&slide=281 — Ask ARGIA citations)
+    # with a script; the meta refresh is the no-JS fallback and drops it.
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-            f'<meta http-equiv="refresh" content="0;url={to}">'
+            f'<script>location.replace({to!r}+location.hash);</script>'
+            f'<noscript><meta http-equiv="refresh" content="0;url={to}"></noscript>'
             '<meta name="robots" content="noindex,nofollow"><title>ARGIA</title></head>'
             f'<body style="font-family:sans-serif;padding:40px">{t(en, es)} → <a href="{to}">{to}</a></body></html>')

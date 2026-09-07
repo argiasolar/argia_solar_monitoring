@@ -210,7 +210,9 @@ const log=document.getElementById('log'),f=document.getElementById('f'),q=docume
 let history=[];
 function el(cls,txt){const d=document.createElement('div');d.className='msg '+cls;d.textContent=txt;log.appendChild(d);window.scrollTo(0,document.body.scrollHeight);return d;}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');}
+let ALANG='en';/* v219: language of the answer being rendered — citations link to that deck language */
+function slideLink(n){return '/ags/#lang='+ALANG+'&slide='+n;}
+function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\b(slide|diapositiva)\s+(\d{1,3})\b/gi,(m,w,n)=>'<a href="'+slideLink(n)+'" target="_blank" rel="noopener">'+w+' '+n+'</a>');}
 function md(text){/* markdown-lite: paragraphs, **bold**, `code`, pipe tables, - bullets; headings become plain lines */
  const out=[];const lines=text.replace(/\\r/g,'').split('\\n');let i=0;
  while(i<lines.length){let ln=lines[i];
@@ -226,7 +228,8 @@ function md(text){/* markdown-lite: paragraphs, **bold**, `code`, pipe tables, -
   out.push('<p>'+para.map(inline).join('<br>')+'</p>');}
  return out.join('');}
 function fmt(v){if(v===null||v===undefined)return '—';if(typeof v==='number')return Number.isInteger(v)?v.toString():v.toFixed(Math.abs(v)<10?2:1);if(Array.isArray(v))return v.length?v.join(', '):'—';if(typeof v==='object')return JSON.stringify(v);return String(v);}
-function table(rows){if(!rows.length||typeof rows[0]!=='object')return null;const cols=Object.keys(rows[0]);const t=document.createElement('table');t.innerHTML='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+fmt(r[c]).replace(/</g,'&lt;')+'</td>').join('')+'</tr>').join('');return t;}
+function cell(c,v){const s=fmt(v).replace(/</g,'&lt;');return (c==='link'&&/^https:\/\/portal\.argia\.com\.mx\//.test(s))?'<a href="'+s+'" target="_blank" rel="noopener">open</a>':s;}
+function table(rows){if(!rows.length||typeof rows[0]!=='object')return null;const cols=Object.keys(rows[0]);const t=document.createElement('table');t.innerHTML='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+cell(c,r[c])+'</td>').join('')+'</tr>').join('');return t;}
 function render(call){const d=document.createElement('details');const args=Object.entries(call.input).map(([k,v])=>k+'='+v).join(', ');
  const s=document.createElement('summary');s.textContent=call.name+'('+args+')'+(call.result&&call.result.error?' — error':'');d.appendChild(s);
  const r=call.result||{};let shown=false;
@@ -237,7 +240,7 @@ f.onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text)retur
  try{const res=await fetch('/ask/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,history,lang:LANG})});
   const j=await res.json();wait.remove();
   if(!res.ok||j.error){el('a err',(j.error||('HTTP '+res.status))+(j.answer?'\\n'+j.answer:''));}
-  else{const d=el('a','');d.innerHTML=md(j.answer||'(no answer)');const src=document.createElement('div');src.className='src';
+  else{ALANG=(j.lang==='es')?'es':'en';const d=el('a','');d.innerHTML=md(j.answer||'(no answer)');const src=document.createElement('div');src.className='src';
    const used=(j.tool_calls||[]).map(c=>c.name);const fr=(j.tool_calls||[]).map(c=>c.result&&c.result.source).find(s=>s)||{};
    src.textContent='Sources: '+(used.length?used.join(', '):'none')+(fr.telemetry_latest_utc?' · telemetry '+fr.telemetry_latest_utc+' UTC':'')+(fr.daily_kpi_latest_date?' · daily KPI through '+fr.daily_kpi_latest_date:'')+' · '+j.model+' · '+j.latency_ms+' ms';
    d.appendChild(src);(j.tool_calls||[]).forEach(c=>d.appendChild(render(c)));
@@ -306,7 +309,7 @@ def api():
         app.logger.warning('ask_log not written: %s', e)
     out = ans.as_dict()
     out['user'] = user
-    out['lang'] = lang
+    out['lang'] = ans.lang or lang           # v219: the language the question was asked in
     return jsonify(out), (200 if not ans.error else 502)
 
 

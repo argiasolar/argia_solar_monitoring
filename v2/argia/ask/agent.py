@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -79,6 +80,33 @@ say so if asked about others. Fleet totals and money are not available."""
 
 
 LANGUAGES = {"en": "English", "es": "Spanish"}
+
+# v219 (Tomasz: "when I use English my reference links must point to the EN
+# version"): the answer language follows the QUESTION, the interface
+# language is only the tiebreaker. Cheap, deterministic word evidence.
+_ES_WORDS = frozenset("el la los las de del que qué cuánto cuánta cuántos cuántas cuál cuáles cómo dónde cuándo por para con "
+                      "planta plantas energía hoy ayer mes semana año este esta estos estas fue son está están hay "
+                      "producción rendimiento inversor inversores alerta alertas norma estándar dice sobre entre y o "
+                      "muestra muéstrame dame lista cuanto cual como donde cuando produccion energia".split())
+_EN_WORDS = frozenset("the a an of what which how much many where when why is are was were does do did show list give me "
+                      "plant plants energy today yesterday month week year this these those and or for with about "
+                      "production yield inverter inverters alert alerts standard says between last total please".split())
+_WORD = re.compile(r"[a-záéíóúñü]+", re.I)
+
+
+def detect_lang(question: str, fallback: str = "en") -> str:
+    """'en' or 'es' from the words of the question; ``fallback`` (the
+    interface language) only when the evidence is equal. Pure."""
+    fb = (fallback or "en").lower()
+    fb = fb if fb in LANGUAGES else "en"
+    q = question or ""
+    es = sum(1 for w in _WORD.findall(q.lower()) if w in _ES_WORDS) + q.count("¿") + q.count("¡")
+    en = sum(1 for w in _WORD.findall(q.lower()) if w in _EN_WORDS)
+    if es > en:
+        return "es"
+    if en > es:
+        return "en"
+    return fb
 
 
 def build_system(rows: Callable[[str], List[List[str]]],
@@ -173,6 +201,7 @@ class Answer:
     latency_ms: int = 0
     turns: int = 0
     error: Optional[str] = None
+    lang: str = "en"           # v219: the language the answer was asked for
 
     def tools_used(self) -> List[str]:
         return [c["name"] for c in self.tool_calls]
@@ -183,7 +212,7 @@ class Answer:
                 "input_tokens": self.input_tokens,
                 "output_tokens": self.output_tokens,
                 "latency_ms": self.latency_ms, "turns": self.turns,
-                "error": self.error}
+                "error": self.error, "lang": self.lang}
 
 
 def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
@@ -197,7 +226,8 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
     keeps its context without replaying every tool payload.
     """
     t0 = time.monotonic()
-    ans = Answer(question=question, model=getattr(llm, "model", ""))
+    lang = detect_lang(question, lang)          # v219: the question decides
+    ans = Answer(question=question, model=getattr(llm, "model", ""), lang=lang)
     system = system or build_system(rows, lang=lang, scope=scope)
     messages: List[dict] = [m for m in (history or [])
                             if m.get("role") in ("user", "assistant")
@@ -224,7 +254,7 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
                 break
             results = []
             for b in uses:
-                result = run_tool(rows, b.get("name", ""), b.get("input") or {}, scope=scope)
+                result = run_tool(rows, b.get("name", ""), b.get("input") or {}, scope=scope, lang=lang)
                 ans.tool_calls.append({"name": b.get("name"), "input": b.get("input") or {},
                                        "result": result})
                 results.append({"type": "tool_result", "tool_use_id": b.get("id"),

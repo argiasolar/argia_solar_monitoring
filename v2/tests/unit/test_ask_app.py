@@ -210,3 +210,50 @@ class TestAllowFile:
     def test_missing_file_is_not_an_error(self, app):
         assert app.allow_file_entries("/nonexistent/x") == set()
         assert app.app.test_client().get("/ask/", headers=hdr("tomasz")).status_code == 200
+
+
+class TestV219QuestionLanguage:
+    """Tomasz: "when I use English my reference links must point to the EN
+    version of the references, currently they point to Spanish." The
+    question decides the language; the interface language only breaks ties;
+    the standard is searched and cited in that language with a deep link."""
+
+    def test_detect_lang(self):
+        from argia.ask import agent as A
+        assert A.detect_lang("What does the standard say about string sizing?", "es") == "en"
+        assert A.detect_lang("¿Qué dice la norma sobre el dimensionamiento de strings?", "en") == "es"
+        assert A.detect_lang("Cuánto produjo Taigene ayer", "en") == "es"
+        assert A.detect_lang("Show me yesterday's production for Taigene", "es") == "en"
+        assert A.detect_lang("GTO1?", "es") == "es"              # no evidence -> interface language
+        assert A.detect_lang("", "de") == "en"
+
+    def test_english_question_under_spanish_ui_answers_in_english(self, app):
+        llm = ScriptedLLM([final("Taigene was the worst.")])
+        app.app.config["LLM"] = llm
+        r = app.app.test_client().post("/ask/api",
+                                       json={"question": "Which plant was the worst yesterday?", "lang": "es"},
+                                       headers=hdr("tomasz"))
+        assert r.get_json()["lang"] == "en"
+        assert "answer in English" in llm.requests[0]["system"]
+
+    def test_spanish_question_under_english_ui_answers_in_spanish(self, app):
+        llm = ScriptedLLM([final("Taigene fue la peor.")])
+        app.app.config["LLM"] = llm
+        r = app.app.test_client().post("/ask/api",
+                                       json={"question": "¿Cuál planta fue la peor ayer?", "lang": "en"},
+                                       headers=hdr("tomasz"))
+        assert r.get_json()["lang"] == "es"
+        assert "answer in Spanish" in llm.requests[0]["system"]
+
+    def test_page_links_citations_to_the_deck_in_the_answer_language(self, app):
+        html = app.app.test_client().get("/ask/", headers=hdr("tomasz")).get_data(as_text=True)
+        assert "ALANG=(j.lang==='es')?'es':'en'" in html
+        assert "'/ags/#lang='+ALANG+'&slide='+n" in html
+        assert "(slide|diapositiva)" in html
+        assert "c==='link'" in html
+
+    def test_ags_redirect_forwards_the_hash(self):
+        import portal_chrome as PC
+        page = PC.redirect_page(PC.AGS_URL, "ARGIA Golden Standard")
+        assert "location.replace(" in page and "+location.hash" in page
+        assert "<noscript><meta http-equiv=\"refresh\"" in page

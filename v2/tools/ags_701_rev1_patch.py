@@ -257,6 +257,32 @@ QUIZ = {
         "R3 se spouští automaticky na prazích monitoru — 85 / 70 % očekávané energie, dvojčecí elektrárna, sousední střídače, nové příznaky stringů, tepelný derating, tma / stará data — a při měsíční uzávěrce, když fakturovatelná energie klesne pod nasmlouvanou; kořenová příčina se hledá, nikdy neakceptuje."),
 }
 
+DEEPLINK_MARK = "AGS deep-links v3"
+DEEPLINK_JS = """<script>
+/* AGS deep-links v3 (2026-09-07, v219): #lang=es&slide=281 opens slide 281 in
+   Spanish; #lang=en&ags=AGS-701 opens the chapter in English. Ask ARGIA
+   cites 'slide N' and links here in the language of the answer, so an
+   English question never lands on a Spanish slide. Zero impact without a
+   hash. Slide numbers are 1-based as printed on the page. */
+(function(){
+  function apply(){
+    try{
+      var h=decodeURIComponent(location.hash||"").replace(/^#/,"");
+      if(!h||h.indexOf("=")<0) return;
+      var kv={}; h.split("&").forEach(function(p){var i=p.indexOf("="); if(i>0) kv[p.slice(0,i).toLowerCase()]=p.slice(i+1);});
+      var l=(kv.lang||"").toLowerCase(); if(l==="cz") l="cs";
+      if(l&&DATA[l]&&typeof setLang==="function") setLang(l);
+      if(kv.slide){ var n=parseInt(kv.slide,10); if(n>=1&&n<=slides.length) show(n-1); }
+      else if(kv.ags){ setTimeout(function(){ location.replace("#ags="+kv.ags); },0); }  /* the v2 chapter jump takes over */
+    }catch(e){}
+  }
+  window.addEventListener("hashchange",apply);
+  apply();
+})();
+</script>
+"""
+
+
 def apply():
     page = open(SRC, encoding="utf-8").read()
     m = re.search(r"const\s+DATA\s*=\s*", page)
@@ -276,6 +302,12 @@ def apply():
         ch["quiz"][1] = {"q": q, "options": opts, "correct": correct, "explain": expl}
     blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     out = page[:m.end()] + blob + page[end:]
+    # v219 deep links: #lang=es&slide=281 (Ask ARGIA citations) on top of the
+    # existing #ags=AGS-701 chapter jump — language first, then the slide.
+    if DEEPLINK_MARK not in out:
+        anchor = "</body>"
+        assert out.count(anchor) == 1
+        out = out.replace(anchor, DEEPLINK_JS + anchor)
     with open(OUT, "w", encoding="utf-8") as fh:
         fh.write(out)
     print("slides changed:", changed, "bytes:", len(out.encode("utf-8")))

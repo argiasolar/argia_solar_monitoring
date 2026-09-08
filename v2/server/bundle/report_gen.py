@@ -128,16 +128,34 @@ _cfgf = {r[0]: f(r[1]) for r in q(
     " expected_kwh / nullif(irradiance_kwh_m2,0)) FROM daily_production"
     " WHERE expected_kwh > 0 AND irradiance_kwh_m2 > 0"
     " GROUP BY plant_key;")}          # config factor x kwp, per plant
-_medpr = {r[0]: f(r[1]) for r in q(
-    f"SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY pr)"
+# v241: the median needs a SAMPLE — Ryder had exactly one full day, a
+# snapshot-undercounted sun gave it PR 0.996, and one day is not a
+# calibration (the expected line would have run 33% high). Under
+# MIN_CAL_DAYS the config factor stands alone.
+MIN_CAL_DAYS = 10
+MIN_PR_DAYS = 7      # a 30-day PR tile from fewer days than this is not a 30-day PR
+_medpr_raw = {r[0]: (f(r[1]), int(f(r[2]))) for r in q(
+    f"SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY pr), count(*)"
     f" FROM daily_production WHERE pr IS NOT NULL AND data_class = 'full'"
     f" AND prod_date > date '{asof}' - 90 GROUP BY plant_key;")}
 
+
+def per_irr_factor(cfg_factor, med_pr, n_full_days, kwp, min_days=MIN_CAL_DAYS):
+    """kWh per kWh/m2 for the weather-expected line: the config factor,
+    lifted to the plant's own trailing median PR only when that median
+    rests on at least ``min_days`` full days. Pure."""
+    cfg = cfg_factor or 0.0
+    if med_pr and n_full_days >= min_days:
+        return max(cfg, med_pr * (kwp or 0.0))
+    return cfg
+
+
+_medpr = {k: v[0] for k, v in _medpr_raw.items()}
 exp_d = {}     # (key, 'YYYY-MM-DD') -> weather-expected kWh (calibrated)
 for (k, d), irr in irr_d.items():
     kwp = plants.get(k, {}).get('kwp') or 0
-    per_irr = max(_cfgf.get(k) or 0.0,
-                  (_medpr.get(k) or 0.0) * kwp)   # kWh per kWh/m2
+    mp, nfull = _medpr_raw.get(k) or (0.0, 0)
+    per_irr = per_irr_factor(_cfgf.get(k), mp, nfull, kwp)   # kWh per kWh/m2
     if per_irr > 0:
         exp_d[(k, d)] = round(per_irr * irr, 1)
 
@@ -149,11 +167,11 @@ for r in q("SELECT plant_key, prod_date, data_class FROM daily_production "
 
 pr30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr) FROM daily_production WHERE source='v2' AND pr IS NOT NULL "
-    f"AND prod_date > date '{asof}' - 30 GROUP BY plant_key;")}
+    f"AND prod_date > date '{asof}' - 30 GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}
 prstc30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr_stc) FROM daily_production WHERE source='v2'"
     f" AND pr_stc IS NOT NULL AND prod_date > date '{asof}' - 30"
-    f" GROUP BY plant_key;")}   # temperature-normalized PR (25 degC cell)
+    f" GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}   # temperature-normalized PR (25 degC cell)
 last_seen = {r[0]: r[1] for r in q(
     "SELECT plant_key, max(prod_date) FROM daily_production GROUP BY plant_key;")}
 
@@ -623,7 +641,7 @@ function yt(m){if(m<=0)return[0,1];let s=Math.pow(10,Math.floor(Math.log10(m)));
  if(o[o.length-1]<m)o.push(o[o.length-1]+s);return o;}
 function colsvg(labs,vals,revs,unit,runit,cl,wx){
  const W=980,H=250,pl=52,pr=revs?60:8,pt=14,pb=28,pw=W-pl-pr,ph=H-pt-pb;
- const n=vals.length; if(!n)return '<p class="note">—</p>';
+ const n=vals.length; if(!n)return '<p class="note nodata">'+T('No data in the selected range.','Sin datos en el rango elegido.')+'</p>';
  const wxv=(wx||[]).filter(v=>v!=null);
  const vmax=Math.max.apply(null,vals.concat(cl||[]).concat(wxv))||1, tk=yt(vmax), top=tk[tk.length-1];
  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" onmousemove="argiaChartHover(event,this)" onmouseleave="argiaChartLeave(this)">';
@@ -665,68 +683,109 @@ function colsvg(labs,vals,revs,unit,runit,cl,wx){
  if(revs&&revs.some(v=>v>0))ser.push({label:CH_L.money,color:'#1e8e3e',vals:revs,unit:runit,dec:0});
  const data=JSON.stringify({W:W,xs:xs,labels:labs,series:ser}).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  return '<div class="hchart" data-chart="'+data+'">'+s+'</div>';}
+/* v241: the range engine's own bilingual span — the tile texts it writes
+   are swapped by setLang like everything else on the page */
+const LANG=()=>{try{return localStorage.getItem('argia_lang')||'en';}catch(e){return 'en';}};
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const T=(en,es)=>'<span data-en="'+esc(en)+'" data-es="'+esc(es)+'">'+esc(LANG()==='es'?es:en)+'</span>';
 function compute(){
  const d0=$('d0').value, d1=$('d1').value; if(!d0||!d1||d0>d1)return;
  const days=Math.round((new Date(d1)-new Date(d0))/864e5)+1;
  let idx=[];for(let i=0;i<D.length;i++)if(D[i]>=d0&&D[i]<=d1)idx.push(i);
- let prod=0,rev=0,ctr=0,avs=[],dqn=0,dqf=0,avloss=0,xsum=0,exsum=0,co2=0;
+ /* v241 (Tomasz: 'in Tetra Pak we do not have data, everything should be
+    in red with errors'): the calendar days the plant OWES us in this
+    range — from its first row to the fleet's data edge — and, among
+    them, the DARK days: no row at all, or a row with no telemetry and
+    no energy. Dark days count as unavailable and as zero coverage; a
+    day with vendor energy but no telemetry (a backfilled month) stays
+    out of availability — the plant did produce, we just were not
+    watching. An empty range is NO DATA: red, said in words. */
+ const LAST=D.length?D[D.length-1]:ASOF;
+ const dEnd=d1<ASOF?d1:ASOF, dStart=(D.length&&d0<D[0])?D[0]:d0;
+ const span=dStart<=dEnd?Math.round((new Date(dEnd)-new Date(dStart))/864e5)+1:0;
+ const norow=Math.max(0,span-idx.length);
+ const dark=idx.filter(i=>AV[D[i]]==null&&E[i]<=0).map(i=>D[i]);
+ const darkN=dark.length+norow;
+ const nodata=idx.length===0;
+ let prod=0,rev=0,ctr=0,avs=[],dqf=0,avloss=0,xsum=0,exsum=0,co2=0;
  idx.forEach(i=>{prod+=E[i];if(RV)rev+=RV[i];if(C)ctr+=C[i];
   co2+=E[i]/1000*((CO2Y&&CO2Y[D[i].slice(0,4)])||CO2F);
   const a=AV[D[i]];if(a!=null)avs.push(a);
-  if(a!=null&&X&&X[i]!=null&&a<1)avloss+=X[i]*(1-a);
+  if(X&&X[i]!=null){if(a!=null&&a<1)avloss+=X[i]*(1-a);else if(a==null&&E[i]<=0)avloss+=X[i];}
   if(X&&X[i]!=null){xsum+=X[i];exsum+=E[i];}
-  const dq=DQ[D[i]];if(dq!=null){dqn++;dqf+=dq;}});
- $('r_prod').textContent=nf(prod/1000,2);
- if($('r_rev')){if(rev>=1e6){$('r_rev').textContent=nf(rev/1e6,2);$('r_rev_u').textContent='M MXN';}
+  const dq=DQ[D[i]];if(dq!=null){dqf+=dq;}});
+ const dqn=span;
+ $('r_prod').textContent=nodata?'—':nf(prod/1000,2);
+ if($('r_rev')){if(nodata){$('r_rev').textContent='—';$('r_rev_u').textContent='MXN';}
+  else if(rev>=1e6){$('r_rev').textContent=nf(rev/1e6,2);$('r_rev_u').textContent='M MXN';}
   else{$('r_rev').textContent=nf(rev);$('r_rev_u').textContent='MXN';}}
- const av=avs.length?avs.reduce((x,y)=>x+y,0)/avs.length:null;
+ const avN=avs.length+darkN;
+ const av=avN?avs.reduce((x,y)=>x+y,0)/avN:null;
  $('r_avail').textContent=av!=null?(100*av).toFixed(1)+'%':'—';
  const rr=$('r_range');rr.textContent=d0+' – '+d1;
  document.querySelectorAll('.rdays').forEach(e=>e.textContent=days+' d');
  const semTile=(id,cls)=>{const e=$(id);if(!e)return;
   e.classList.remove('good','warn','bad');if(cls)e.classList.add(cls);};
- $('r_co2').textContent=co2.toFixed(1);
- // diagnostic "why" for colored tiles (numbers+dates, EN only) — the
- // text lives on the tile's BACK face; .haswhy arms the hover flip
- const why=(id,txt)=>{const e=$(id);if(!e)return;
-  e.textContent=txt?'⚠ '+txt:'';
-  const tl=e.closest('.tile');if(tl)tl.classList.toggle('haswhy',!!txt);};
+ $('r_co2').textContent=nodata?'—':co2.toFixed(1);
+ // diagnostic "why" for colored tiles (numbers+dates) — the text lives
+ // on the tile's BACK face; .haswhy arms the hover flip
+ const why=(id,html)=>{const e=$(id);if(!e)return;
+  e.innerHTML=html?'⚠ '+html:'';
+  const tl=e.closest('.tile');if(tl)tl.classList.toggle('haswhy',!!html);};
+ const darkTxt=darkN?T(darkN+' day(s) with no telemetry and no energy — the plant went dark; data ends '+LAST,
+                      darkN+' día(s) sin telemetría ni energía — la planta quedó a oscuras; datos hasta '+LAST):'';
+ const noneTxt=span>0?T('nothing arrived for the '+span+' selected day(s) — the last data is from '+LAST,
+                        'no llegó nada en los '+span+' día(s) elegidos — el último dato es del '+LAST)
+                     :T('no data in the selected range','sin datos en el rango elegido');
  const wxPct=xsum>0?100*exsum/xsum:null;
- if(C&&ctr>0){const pct=prod/ctr;
+ if(nodata){$('r_vsctr').textContent='';semTile('t_prod','bad');why('r_prodwhy',noneTxt);}
+ else if(C&&ctr>0){const pct=prod/ctr;
   $('r_vsctr').textContent=' · '+(100*pct).toFixed(0)+'% '+VSL;
   semTile('t_prod',pct>=0.95?'good':pct>=0.8?'warn':'bad');
+  let w='';
   if(pct<0.95&&wxPct!=null&&wxPct>=97)
-   why('r_prodwhy','resource, not performance: output matched the weather expectation ('+wxPct.toFixed(0)+'%) — the sun fell short of the contract assumption');
+   w=T('resource, not performance: output matched the weather expectation ('+wxPct.toFixed(0)+'%) — the sun fell short of the contract assumption',
+       'recurso, no desempeño: la producción igualó la expectativa por clima ('+wxPct.toFixed(0)+'%) — el sol quedó por debajo del supuesto contractual');
   else if(pct<0.95&&wxPct!=null)
-   why('r_prodwhy','below contract AND weather expectation ('+wxPct.toFixed(0)+'% of weather) — see the inverter table');
-  else why('r_prodwhy','');
- }else{$('r_vsctr').textContent='';semTile('t_prod','');why('r_prodwhy','');}
- if(av!=null){
+   w=T('below contract AND weather expectation ('+wxPct.toFixed(0)+'% of weather) — see the inverter table',
+       'por debajo del contrato Y de la expectativa por clima ('+wxPct.toFixed(0)+'% del clima) — vea la tabla de inversores');
+  if(darkN)w=(w?w+' · ':'')+darkTxt;
+  why('r_prodwhy',w);
+ }else{$('r_vsctr').textContent='';semTile('t_prod',darkN?'bad':'');why('r_prodwhy',darkN?darkTxt:'');}
+ if(nodata){$('r_avail').textContent='—';$('r_sla').innerHTML=T('NO DATA','SIN DATOS');semTile('t_avail','bad');why('r_avwhy',noneTxt);}
+ else if(av!=null){
   // below-target availability with energy that still met the weather
-  // expectation = telemetry gap, not proven downtime -> REVIEW
-  const ranFine=xsum>0&&exsum>=0.97*xsum;
-  const worst=idx.filter(i=>AV[D[i]]!=null&&AV[D[i]]<0.95)
-   .map(i=>[D[i],AV[D[i]]]).sort((a,b)=>a[1]-b[1]).slice(0,2)
+  // expectation = telemetry gap, not proven downtime -> REVIEW. A dark
+  // day is never 'produced through the gap'.
+  const ranFine=xsum>0&&exsum>=0.97*xsum&&!darkN;
+  const worst=idx.filter(i=>AV[D[i]]!=null&&AV[D[i]]<0.95).map(i=>[D[i],AV[D[i]]])
+   .concat(dark.map(d=>[d,0])).sort((a,b)=>a[1]-b[1]).slice(0,2)
    .map(w=>w[0].slice(5)+': '+(100*w[1]).toFixed(0)+'%').join(', ');
+  const worstTxt=T('Worst days: ','Peores días: ')+(worst||'—');
   if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail','good');why('r_avwhy','');}
   else if(ranFine){$('r_sla').textContent='REVIEW';semTile('t_avail','warn');
-   why('r_avwhy','produced through the gap (energy at '+(wxPct||0).toFixed(0)+'% of weather expectation) — telemetry loss, not proven downtime. Worst days: '+(worst||'—'));}
+   why('r_avwhy',T('produced through the gap (energy at '+(wxPct||0).toFixed(0)+'% of weather expectation) — telemetry loss, not proven downtime. ',
+                   'produjo durante el hueco (energía al '+(wxPct||0).toFixed(0)+'% de la expectativa por clima) — pérdida de telemetría, no una parada comprobada. ')+worstTxt);}
   else{$('r_sla').textContent='BREACH';
    semTile('t_avail',av>=SLA-0.03?'warn':'bad');
-   why('r_avwhy','low-availability days with energy missing too — check grid/site events. Worst days: '+(worst||'—'));}
+   why('r_avwhy',(darkN?darkTxt+' · ':'')+T('low-availability days with energy missing too — check grid/site events. ',
+                   'días de baja disponibilidad con energía faltante — revise eventos de red/sitio. ')+worstTxt);}
  }else{$('r_sla').textContent='—';semTile('t_avail','');why('r_avwhy','');}
  const ls=$('r_loss');
- if(ls){const lsub=$('r_loss_sub');
-  if(avloss>=1){const kwh=avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';
+ if(ls){const lsub=$('r_loss_sub');semTile('t_loss','');
+  if(nodata){ls.textContent='—';semTile('t_loss','bad');
+   if(lsub)lsub.innerHTML=T('unknown — nothing was measured','desconocida — no se midió nada');}
+  else if(avloss>=1){const kwh=avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';
+   const ub=T('upper bound — comms gaps count as loss','cota superior — los huecos de comunicación cuentan como pérdida');
    if(TARIFF>0){ls.textContent='≤ ~$'+nf(avloss*TARIFF)+' MXN';
-    if(lsub)lsub.textContent=kwh+' · upper bound — comms gaps count as loss';}
+    if(lsub)lsub.innerHTML=kwh+' · '+ub;}
    else{ls.textContent='≤ '+kwh;
-    if(lsub)lsub.textContent='upper bound — comms gaps count as loss';}
+    if(lsub)lsub.innerHTML=ub;}
   }else{ls.textContent='≈ 0';
-   if(lsub)lsub.textContent='no measurable exposure in range';}}
+   if(lsub)lsub.innerHTML=T('no measurable exposure in range','sin exposición medible en el rango');}}
  if(dqn){const q2=dqf/dqn;$('r_dq').textContent=(100*q2).toFixed(0)+'%';}
  else{$('r_dq').textContent='—';}
- semTile('t_dq','');
+ semTile('t_dq',nodata?'bad':'');
  let labs,vals,revs=null,cexp=null,wexp=null,unit,runit;
  if(days>92){const g={},gr={},gc={},gx={};
   idx.forEach(i=>{const m=D[i].slice(0,7);g[m]=(g[m]||0)+E[i];
@@ -1306,8 +1365,8 @@ def plant_parts(k):
                  + f'</div><div class="tval" id="r_loss">—</div>'
                  f'<div class="tsub" id="r_loss_sub">{t("upper bound","cota superior")}</div></div>')
     tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Telemetry coverage, selected range","Cobertura de telemetría, rango elegido")}'
-                 + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Informational — never colored.",
-                      "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Informativo — nunca en color.")
+                 + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Days with no telemetry at all count as zero. Informational — red only when the range holds no data at all.",
+                      "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Los días sin telemetría cuentan como cero. Informativo — en rojo solo cuando el rango no tiene ningún dato.")
                  + f'</div><div class="tval" id="r_dq">—</div>'
                  f'<div class="tsub">{t("full-coverage days","días con cobertura completa")}</div></div>')
     if pr:
@@ -1362,8 +1421,12 @@ def plant_parts(k):
 
     warn = ''
     if stale:
-        warn = (f'<div class="card" style="border-color:var(--warn)"><b>'
-                f'{t("Data ends " + last_seen.get(k, "?") + " — collection for this plant is currently interrupted.", "Datos hasta " + last_seen.get(k, "?") + " — la captura de datos de esta planta está interrumpida.")}'
+        # v241: a dark plant is an ERROR state, not a footnote — red card,
+        # the number of silent days in words (Tetra Pak sat on a neutral
+        # page for six weeks)
+        silent = (dt.date.fromisoformat(asof) - dt.date.fromisoformat(last_seen.get(k, asof))).days
+        warn = (f'<div class="card bad" style="padding:14px 20px;border-color:#f3b9b9;background:#fdeaea;color:#c2554e"><b>'
+                f'{t("No data since " + last_seen.get(k, "?") + " — " + str(silent) + " day(s) without any telemetry or energy. Collection for this plant is interrupted — check the site and the vendor portal.", "Sin datos desde " + last_seen.get(k, "?") + " — " + str(silent) + " día(s) sin telemetría ni energía. La captura de datos de esta planta está interrumpida — revise el sitio y el portal del fabricante.")}'
                 '</b></div>')
 
     # Three groups instead of nine loose buttons: the dates you type,

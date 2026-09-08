@@ -139,6 +139,26 @@ def build_dense_web_client():
     return client
 
 
+def dark_plant_stamps(dense_web, plant, date_iso, design):
+    """What a plant WITHOUT telemetry can still get for the day: the
+    weather device's irradiance (dense history — the same call the
+    lit plants use), the expected kWh it implies, and the design
+    baseline. None when there is no dense client, no device, or the
+    device gave nothing usable. Never raises (try_dense_irradiance
+    swallows fetch/parse problems)."""
+    if dense_web is None or not getattr(plant, "datalogger_sn", None):
+        return None
+    dense = try_dense_irradiance(dense_web, plant, date_iso)
+    if dense is None or not dense.kwh_m2:
+        return None
+    out = {"irradiance_kwh_m2": round(float(dense.kwh_m2), 4),
+           "irradiance_source": dense.source.value}
+    out["expected_kwh"] = compute_expected_kwh(
+        plant.kwp_dc, dense.kwh_m2, plant.expected_factor)
+    out["design_kwh"] = design_kwh_for_day(design, plant.plant_key, date_iso)
+    return out
+
+
 from argia.core.job_log import instrument
 
 
@@ -216,12 +236,32 @@ def main(argv=None) -> int:
     energy_by_plant: Dict[str, float] = {}   # v91: for billable = energy + deemed
     plants_with_data = 0
     plants_without = 0
+    irr_stamps: Dict[Tuple[str, str], float] = {}
+    irrsrc_stamps: Dict[Tuple[str, str], str] = {}
     for plant in portfolio.active_plants():
         rows = bundle.rows_for_plant(plant.plant_key)
         if not rows:
             log.info("[%s] no telemetry for %s — skipping",
                      plant.plant_key, date_iso)
             plants_without += 1
+            # v241: a dark plant still owes the page its weather
+            # expectation — the sun shone on it, and the weather device
+            # (often another plant's ShineMaster: Ryder reads Plastic
+            # Omnium's) keeps answering. Irradiance + expected_kwh land
+            # on the day's row (recon created it); energy/PR stay as
+            # they are, so the deficit is visible instead of blank.
+            dark = dark_plant_stamps(dense_web, plant, date_iso, design)
+            if dark:
+                irr_stamps[(date_iso, plant.plant_key)] = dark["irradiance_kwh_m2"]
+                irrsrc_stamps[(date_iso, plant.plant_key)] = dark["irradiance_source"]
+                if dark.get("expected_kwh") is not None:
+                    expected_stamps[(date_iso, plant.plant_key)] = dark["expected_kwh"]
+                if dark.get("design_kwh") is not None:
+                    design_stamps[(date_iso, plant.plant_key)] = dark["design_kwh"]
+                log.info("[%s] dark, but the weather device answered: irradiance %.3f"
+                         " (%s) -> expected %s kWh stamped", plant.plant_key,
+                         dark["irradiance_kwh_m2"], dark["irradiance_source"],
+                         dark.get("expected_kwh"))
             continue
         plants_with_data += 1
 
@@ -363,6 +403,15 @@ def main(argv=None) -> int:
                                dry_run=args.dry_run)
         log.info("Stamped %d cloud_coverage_pct cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
+
+    # v241: irradiance for the dark plants (see dark_plant_stamps).
+    if irr_stamps:
+        stamped = stamp_column(sheets, "irradiance_kwh_m2", irr_stamps,
+                               dry_run=args.dry_run)
+        log.info("Stamped %d irradiance_kwh_m2 cell(s) on dark plants%s",
+                 stamped, " (dry-run)" if args.dry_run else "")
+        stamp_column(sheets, "irradiance_source", irrsrc_stamps,
+                     dry_run=args.dry_run)
 
     # Stamp expected_kwh (kwp x irradiance x expected_factor).
     if expected_stamps:

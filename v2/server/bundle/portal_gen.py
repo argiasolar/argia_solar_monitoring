@@ -225,7 +225,7 @@ def plant_report(k):
     pf = p['portfolio']
     head = f'''
 <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
- <div class="card" style="width:64px;height:64px;display:flex;align-items:center;justify-content:center;padding:8px">{logo(k, "clogo color")}</div>
+ <div class="card logocard">{logo(k, "clogo color")}</div>
  <div style="display:flex;flex-direction:column;gap:2px">
   <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h1 class="pt">{html.escape(name(k))}</h1><span class="pill {"ok" if pf == "PPA" else "off"}">{pf}</span></div>
   <div class="muted">{html.escape(C.location_of(p["customer"]))} · {p["kwp"]:,.1f} kWp DC · {html.escape(str(p.get("brand") or ""))} · {t("data", "datos")} → {parts["last_seen"]} · <span class="mono">{k}</span></div>
@@ -236,7 +236,8 @@ def plant_report(k):
 </div>'''
     # the range bar's own "Live monitoring" button would duplicate the header's
     controls = parts['controls'].replace(f'<a class="btn live" href="/monitoring/{k.lower()}/">', '<a class="btn live" style="display:none" href="#">')
-    body = head + controls + parts['tiles'] + parts['warn'] + ''.join(parts['body']) + parts['footer']
+    # v241: the dark-plant warning goes ABOVE the tiles — it explains them
+    body = head + controls + parts['warn'] + parts['tiles'] + ''.join(parts['body']) + parts['footer']
     return C.page(name(k), body, 'report', 'plants')
 
 # ------------------------------------------------------------- financial

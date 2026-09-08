@@ -51,8 +51,9 @@ class TestTileTooltips:
         assert "Telemetry coverage, selected range" in SRC
         assert "Data quality, selected range" not in SRC
         assert "NOT lost revenue" in SRC
-        # JS: coverage tile never gets a good/warn/bad class any more
-        assert "semTile('t_dq','')" in SRC
+        # JS: coverage tile never gets a good/warn/bad class from its
+        # value (v241: red only when the whole range is empty)
+        assert "semTile('t_dq',nodata?'bad':'')" in SRC
         assert "semTile('t_dq',q2" not in SRC
 
     def test_tooltips_are_bilingual_and_hidden_in_print(self):
@@ -74,7 +75,8 @@ class TestWeatherExpectedLine:
         # against its own illness
         assert "percentile_cont(0.5)" in SRC
         assert "data_class = 'full'" in SRC
-        assert "max(_cfgf.get(k) or 0.0" in SRC
+        assert "per_irr = per_irr_factor(_cfgf.get(k), mp, nfull, kwp)" in SRC
+        assert "return max(cfg, med_pr * (kwp or 0.0))" in SRC
 
     def test_sla_verdict_reviews_instead_of_breach_when_energy_ok(self):
         # director's NL1 case: 93.6% availability, 102% of contract —
@@ -331,7 +333,7 @@ class TestColoredTilesSayWhy:
     def test_reasons_live_on_the_flip_side(self):
         # Tomasz round 2: the reason sits on the BACK of the tile and
         # the tile flips on hover — only when armed (.haswhy)
-        assert "tl.classList.toggle('haswhy',!!txt)" in SRC
+        assert "tl.classList.toggle('haswhy',!!html)" in SRC
         assert ".tile.haswhy:hover .flipin" in SRC
         assert "rotateY(180deg)" in SRC
         assert "backface-visibility:hidden" in SRC

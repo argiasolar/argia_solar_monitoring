@@ -225,13 +225,20 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .flipin{position:relative;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.4,.1,.2,1) .12s;min-height:100%}
 .tile.haswhy:hover .flipin,.tile.haswhy:focus-within .flipin{transform:rotateY(180deg)}
 .face{backface-visibility:hidden;padding:16px 18px;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;background:#fff;min-height:118px}
-.face.back{position:absolute;inset:0;transform:rotateY(180deg)}
+/* v241: the back face is as tall as its TEXT (min the tile) — a long reason grows past the tile edge over
+   whatever sits below instead of being cut (Tomasz: 'the tool tip for issue in plastic omnium has too big
+   font or the tile is a bit too small'); inset:0 pinned it to the front's height */
+.face.back{position:absolute;left:0;right:0;top:0;min-height:100%;transform:rotateY(180deg);padding:14px 16px;gap:4px;justify-content:center}
 .face.warn{background:#fff4e0;border-color:#f3dcae}.face.bad{background:#fdeaea;border-color:#f3b9b9}.face.good{background:#e6f7f5;border-color:#b8e6e1}
-.bwhy{font-size:12px;color:var(--muted);font-weight:600}.twhy{font-size:13px;font-weight:600;color:#b26a00}.face.bad .twhy{color:#c2554e}
+.bwhy{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase}.twhy{font-size:12.5px;line-height:1.4;font-weight:500;color:#b26a00}.face.bad .twhy,.tile.bad .twhy{color:#c2554e}
 /* logos & photos */
 .clogo{height:22px;width:auto;max-width:110px;object-fit:contain;display:block;filter:grayscale(1);opacity:.75;transition:filter .25s,opacity .25s}
 .lcell{display:flex;align-items:center;gap:12px;color:var(--ink)}.lcell .lbox{width:84px;flex:0 0 84px;display:flex;align-items:center}.lcell .lbox .clogo{height:18px;max-width:80px}
 .pcard:hover .clogo,.clogo.color,tr:hover .clogo{filter:none;opacity:1}
+/* v241: the report header's logo card — wide marks (Hirschmann 4.7:1, Budenheim, SMS, Ryder) spilled out of a
+   fixed 64px square; the card now grows with the mark and the image is fitted inside it */
+.logocard{min-width:64px;height:64px;padding:10px 14px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.logocard .clogo{height:36px;max-height:100%;width:auto;max-width:150px;object-fit:contain;filter:none;opacity:1}
 .tphoto{width:100%;height:96px;object-fit:cover;border-radius:8px}
 /* tables */
 table{border-collapse:collapse;width:100%}th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}

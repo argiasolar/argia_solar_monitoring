@@ -32,6 +32,73 @@ def full_rows(n_months=12):
     return rows
 
 
+ADDERS_H1 = [R(charge="TRANSMISION", value="0.1801"), R(charge="CENACE", value="0.0076"),
+             R(charge="SERVICIOS CONEXOS NO MEM", value="0.0069")]
+
+
+class TestEnergyBasis:
+    """v239 — the engine memo of 2026-09-08: scraped energy cells are
+    CFE's integrated price, the seed is decomposed; the overlay must be
+    on one basis and say which."""
+
+    def test_real_jalisco_june_cell(self):
+        # GDMTH/JALISCO 2026-06 on pio06: BASE 0.9995 scraped, adders 0.1801/0.0076/0.0069 seeded
+        rows = [R(region="JALISCO", charge="TRANSMISION", ym="2026-06", value="0.1801"),
+                R(region="JALISCO", charge="CENACE", ym="2026-06", value="0.0076"),
+                R(region="JALISCO", charge="SERVICIOS CONEXOS NO MEM", ym="2026-06", value="0.0069"),
+                R(region="JALISCO", charge="ENERGIA BASE", ym="2026-06", value="0.9995", source="cfe_scrape")]
+        ov = cep.build_overlay(rows, 2026)
+        assert ov["data"]["GDMTH"]["JALISCO"]["ENERGIA BASE"]["2026-06"] == 0.8049
+        assert ov["data"]["GDMTH"]["JALISCO"]["TRANSMISION"]["2026-06"] == 0.1801     # adders untouched
+
+    def test_pdbt_also_strips_distribucion_and_capacidad(self):
+        # PDBT/JALISCO 2026-08 on pio06: BASE 4.255 scraped; 0.1809 + 0.0065 + 0.0062 + 1.3951 + 1.21 = 2.7987
+        rows = [R(code="PDBT", region="JALISCO", charge=c, ym="2026-08", value=v) for c, v in
+                (("TRANSMISION", "0.1809"), ("CENACE", "0.0065"), ("SERVICIOS CONEXOS NO MEM", "0.0062"),
+                 ("DISTRIBUCION", "1.3951"), ("CAPACIDAD", "1.21"))]
+        rows.append(R(code="PDBT", region="JALISCO", charge="ENERGIA BASE", ym="2026-08", value="4.255", source="cfe_scrape"))
+        ov = cep.build_overlay(rows, 2026)
+        assert ov["data"]["PDBT"]["JALISCO"]["ENERGIA BASE"]["2026-08"] == 1.4563
+        # GDMTH must NOT strip the demand charges (they are per kW there)
+        rows2 = ADDERS_H1 + [R(charge="CAPACIDAD", value="384.86"), R(charge="ENERGIA BASE", value="0.9995", source="cfe_scrape")]
+        assert cep.build_overlay(rows2, 2026)["data"]["GDMTH"]["BAJIO"]["ENERGIA BASE"]["2026-01"] == 0.8049
+
+    def test_master_cells_are_left_alone(self):
+        rows = ADDERS_H1 + [R(charge="ENERGIA BASE", value="0.81", source="master_db_10")]
+        ov = cep.build_overlay(rows, 2026)
+        assert ov["data"]["GDMTH"]["BAJIO"]["ENERGIA BASE"]["2026-01"] == 0.81 and ov["basis"]["decomposed"] == 0
+
+    def test_missing_adders_keep_the_master_value_or_drop(self):
+        rows = [R(charge="ENERGIA BASE", value="0.81", source="master_db_10"),
+                R(charge="ENERGIA BASE", value="0.9995", source="cfe_scrape")]          # no adders at all
+        ov = cep.build_overlay(rows, 2026)
+        assert ov["data"]["GDMTH"]["BAJIO"]["ENERGIA BASE"]["2026-01"] == 0.81 and ov["basis"]["kept_master"] == 1
+        ov = cep.build_overlay([R(charge="ENERGIA BASE", value="0.9995", source="cfe_scrape")], 2026)
+        assert "ENERGIA BASE" not in ov["data"]["GDMTH"]["BAJIO"] and ov["basis"]["dropped"] == 1
+
+    def test_a_decomposed_cell_inside_a_scraped_block_is_not_made_negative(self):
+        # engine §6: PDBT/BAJA CALIFORNIA/ENERGIA BASE/2026-07 = 0.734 sits among ~2.45 integrated peers
+        rows = [R(code="PDBT", region="BAJA CALIFORNIA", charge=c, ym="2026-07", value=v) for c, v in
+                (("TRANSMISION", "0.1809"), ("CENACE", "0.0065"), ("SERVICIOS CONEXOS NO MEM", "0.0062"),
+                 ("DISTRIBUCION", "1.3951"), ("CAPACIDAD", "1.21"))]
+        rows.append(R(code="PDBT", region="BAJA CALIFORNIA", charge="ENERGIA BASE", ym="2026-07", value="0.734", source="cfe_scrape"))
+        ov = cep.build_overlay(rows, 2026)
+        assert "ENERGIA BASE" not in ov["data"]["PDBT"]["BAJA CALIFORNIA"] and ov["basis"]["dropped"] == 1
+
+    def test_decompose_arithmetic(self):
+        assert cep.decompose(0.9995, [0.1801, 0.0076, 0.0069]) == 0.8049
+        assert cep.decompose(0.19, [0.1801, 0.0076, 0.0069]) is None          # not a positive price
+        assert cep.decompose(1.0, [0.18, None, 0.0069]) is None
+        assert cep.adders_for("PDBT") == cep.ADDERS_PDBT and cep.adders_for("GDMTH") == cep.ADDERS
+
+    def test_validation_requires_the_basis_and_the_stats_stay_home(self):
+        ov = cep.build_overlay(full_rows(), 2026)
+        assert cep.validate_overlay(ov) == []
+        ov2 = dict(ov); ov2.pop("energyBasis")
+        assert any("energyBasis" in e for e in cep.validate_overlay(ov2))
+        assert "if k != \"basis\"" in SRC and '"energyBasis": ENERGY_BASIS' in SRC
+
+
 class TestBuildOverlay:
     def test_folds_and_counts(self):
         ov = cep.build_overlay(full_rows(), 2026)
@@ -41,12 +108,14 @@ class TestBuildOverlay:
             == 1.1
 
     def test_scrape_beats_master_when_folded_last(self):
-        rows = [R(value="1.0", source="master_db_10"),
-                R(value="2.0", source="cfe_scrape")]   # scrape LAST
+        rows = ADDERS_H1 + [R(value="1.0", source="master_db_10"),
+                            R(value="2.0", source="cfe_scrape")]   # scrape LAST
         ov = cep.build_overlay(rows, 2026)
+        # v239: the scraped (integrated) 2.0 goes out decomposed: 2.0 - (0.1801 + 0.0076 + 0.0069)
         assert ov["data"]["GDMTH"]["BAJIO"]["ENERGIA PUNTA"]["2026-01"] \
-            == 2.0
+            == 1.8054
         assert ov["sourceThrough"] == "2026-01"
+        assert ov["energyBasis"] == "decomposed" and ov["basis"] == {"decomposed": 1, "kept_master": 0, "dropped": 0}
 
     def test_no_scrape_means_null_through(self):
         assert cep.build_overlay([R()], 2026)["sourceThrough"] is None

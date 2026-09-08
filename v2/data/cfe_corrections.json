@@ -1,0 +1,65 @@
+{
+  "_doc": "Cell-level corrections to cfe_tariff (the CFE tariff table on pio06), fixed AT SOURCE so every consumer — the report pages, the tariff explorer, the engine overlay — reads the same value. Each entry names the cells, the correct value, who confirmed it and on what basis. scripts/cfe_corrections.py --apply writes them (idempotent, only rows whose value differs); --check reports drift and runs inside drift_check every morning. Entries with \"status\": \"proposed\" are listed but NOT applied.",
+  "corrections": [
+    {
+      "id": "D-4a",
+      "tariff_code": "GDMTO", "region": "NORTE", "charge_type": "SERVICIOS CONEXOS NO MEM",
+      "months": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"],
+      "value": 0.0069, "was": 0.069,
+      "status": "confirmed", "confirmed_by": "Arturo Gonzalez", "confirmed_on": "2026-09-07",
+      "basis": "H1-2026 SCnMEM is 0.0069 nationally; 16 peer regions agree (decimal slip in the seed)"
+    },
+    {
+      "id": "D-4b-dec",
+      "tariff_code": "DIST", "region": "BAJA CALIFORNIA", "charge_type": "CAPACIDAD",
+      "months": ["2026-12"],
+      "value": 401.23, "was": 1.0709,
+      "status": "confirmed", "confirmed_by": "Arturo Gonzalez", "confirmed_on": "2026-09-07",
+      "basis": "acuerdo DIC-2025 (MXN/kW-month); 1.0709 is not a capacity charge"
+    },
+    {
+      "id": "D-4b-nov",
+      "tariff_code": "DIST", "region": "BAJA CALIFORNIA", "charge_type": "CAPACIDAD",
+      "months": ["2026-11"],
+      "value": 374.56, "was": 1.0709,
+      "status": "confirmed", "confirmed_by": "Arturo Gonzalez", "confirmed_on": "2026-09-07",
+      "basis": "no acuerdo NOV-2025 -> previous month (OCT 374.56) carried, Arturo's rule 3"
+    },
+    {
+      "id": "N-1",
+      "tariff_code": "GDBT", "region": "VALLE DE MEXICO NORTE", "charge_type": "TRANSMISION",
+      "months": ["2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"],
+      "value": 0.1809, "was": 0.1769,
+      "status": "confirmed", "confirmed_by": "national-charge rule (engine memo 2026-09-08)", "confirmed_on": "2026-09-08",
+      "basis": "CRE sets one TRANSMISION value per month for every tariff and region: 101 of 102 rows for 2026-07 say 0.1809, this lone row said 0.1769"
+    },
+    {
+      "id": "N-2",
+      "tariff_code": "RAMT", "region": "CENTRO OCCIDENTE", "charge_type": "TRANSMISION",
+      "months": ["2026-10", "2026-11", "2026-12"],
+      "value": 0.1809, "was": 0.1769,
+      "status": "confirmed", "confirmed_by": "national-charge rule (engine memo 2026-09-08)", "confirmed_on": "2026-09-08",
+      "basis": "same wrong number as N-1 on a different row (copy slip); every other row says 0.1809"
+    },
+    {
+      "id": "N-3",
+      "tariff_code": "GDBT", "region": "BAJA CALIFORNIA", "charge_type": "CENACE",
+      "months": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"],
+      "value": 0.0076, "was": 0.0073,
+      "status": "confirmed", "confirmed_by": "national-charge rule (engine memo 2026-09-08)", "confirmed_on": "2026-09-08",
+      "basis": "H1-2026 CENACE is 0.0076 in 101 of 102 rows"
+    },
+    {
+      "id": "N-4",
+      "tariff_code": "GDMTH", "region": "BAJA CALIFORNIA", "charge_type": "CENACE",
+      "months": ["2026-09", "2026-10", "2026-11", "2026-12"],
+      "value": 0.0065, "was": 0.0106,
+      "status": "confirmed", "confirmed_by": "national-charge rule (engine memo 2026-09-08)", "confirmed_on": "2026-09-08",
+      "basis": "H2-2026 CENACE is 0.0065 everywhere else, including JUL-AUG of this very row"
+    }
+  ],
+  "open_questions": [
+    "Q-1 H2 adder step month: the seed steps TRANSMISION/CENACE/SCnMEM at JUL (0.1801->0.1809, 0.0076->0.0065, 0.0069->0.0062); a real JUL-2026 GDMTH bill (TST, BAJIO) still shows the H1 adders. Needs an AUG or SEP 2026 recibo to settle; until then JUL scraped cells decompose with the JUL seed adders (0.001 MXN/kWh uncertainty on JUL only).",
+    "Q-2 OCT-DIC vintage: the seed carries the 2025 acuerdos for 2026-10..12 (GDMTH CAPACIDAD 446.06/432.66/411.03 vs 386.37 official JUL-SEP 2026). Arturo's rule 2 (last year's data) vs rule 3 (carry the previous month) - his call; the overlay does not label the vintage yet."
+  ]
+}

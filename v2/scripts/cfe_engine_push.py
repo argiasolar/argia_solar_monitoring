@@ -79,6 +79,34 @@ def load_config(path: str = CONFIG_PATH) -> Optional[Dict[str, str]]:
     return None
 
 
+# v239 — energy basis. app.cfe.mx publishes INTEGRATED energy prices
+# (generación + transmisión + CENACE + servicios conexos; PDBT also +
+# distribución + capacidad, which are per-kWh in that tariff), while
+# master_db_10 rows are DECOMPOSED (generación only) and the engine adds
+# the adders itself. Pushing scraped cells as-is double-counted
+# 0.1946 MXN/kWh on every scraped energy cell (engine memo 2026-09-08,
+# CFE_UPSTREAM_DEFECTS_FOR_MONITORING). The overlay now carries every
+# energy cell on the decomposed basis and says so.
+ENERGY_PRICES = ("ENERGIA BASE", "ENERGIA INTERMEDIA", "ENERGIA PUNTA")
+ADDERS = ("TRANSMISION", "CENACE", "SERVICIOS CONEXOS NO MEM")
+ADDERS_PDBT = ADDERS + ("DISTRIBUCION", "CAPACIDAD")
+ENERGY_BASIS = "decomposed"
+
+
+def adders_for(code: str) -> Tuple[str, ...]:
+    return ADDERS_PDBT if code == "PDBT" else ADDERS
+
+
+def decompose(integrated: float, adders: Sequence[Optional[float]]) -> Optional[float]:
+    """Integrated price minus the adders, 4 dp; None when an adder is
+    missing or the result is not a positive price (a decomposed cell
+    that slipped into a scraped block would go negative here). Pure."""
+    if any(a is None for a in adders):
+        return None
+    v = round(integrated - sum(float(a) for a in adders), 4)
+    return v if v > 0 else None
+
+
 def build_overlay(rows: Sequence[Tuple[str, str, str, str, str, str]],
                   year: int,
                   now: Optional[dt.datetime] = None) -> dict:
@@ -86,8 +114,17 @@ def build_overlay(rows: Sequence[Tuple[str, str, str, str, str, str]],
     engine overlay. Later rows win per key — feed rows ordered with
     cfe_scrape LAST (the contract SQL does) so scrape beats master.
     Unknown codes/charges (SEMIPUNTA included) and bad months/values
-    are dropped, mirroring the reference generator. Pure."""
+    are dropped, mirroring the reference generator.
+
+    v239: a scraped ENERGIA cell is integrated, so it is decomposed
+    with the adders of the same tariff/region/month before it goes out;
+    when the adders are missing or the arithmetic gives no positive
+    price the master (decomposed) value is kept instead, or the cell is
+    dropped when there is none. ``basis`` in the result counts what
+    happened. Pure."""
     data: dict = {}
+    master: dict = {}
+    origin: dict = {}
     scrape_months = set()
     for code, region, charge, ym, value, source in rows:
         if code not in ENGINE_CODES or charge not in ENGINE_CHARGES:
@@ -102,14 +139,40 @@ def build_overlay(rows: Sequence[Tuple[str, str, str, str, str, str]],
             continue
         data.setdefault(code, {}).setdefault(region, {}) \
             .setdefault(charge, {})[ym] = v
+        origin[(code, region, charge, ym)] = source
+        if source == "master_db_10":
+            master[(code, region, charge, ym)] = v
         if source == "cfe_scrape":
             scrape_months.add(ym)
+    stats = {"decomposed": 0, "kept_master": 0, "dropped": 0}
+    for code, regions in data.items():
+        for region, charges in regions.items():
+            for charge in ENERGY_PRICES:
+                months = charges.get(charge) or {}
+                for ym in list(months):
+                    if origin.get((code, region, charge, ym)) != "cfe_scrape":
+                        continue
+                    adders = [charges.get(a, {}).get(ym) for a in adders_for(code)]
+                    dv = decompose(months[ym], adders)
+                    if dv is not None:
+                        months[ym] = dv
+                        stats["decomposed"] += 1
+                    elif (code, region, charge, ym) in master:
+                        months[ym] = master[(code, region, charge, ym)]
+                        stats["kept_master"] += 1
+                    else:
+                        del months[ym]
+                        stats["dropped"] += 1
+                if not months and charge in charges:
+                    del charges[charge]
     now = now or dt.datetime.now(dt.timezone.utc)
     return {
         "year": int(year),
         "sourceThrough": max(scrape_months) if scrape_months else None,
         "generated": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "energyBasis": ENERGY_BASIS,
         "data": data,
+        "basis": stats,
     }
 
 
@@ -134,6 +197,8 @@ def validate_overlay(ov: dict) -> List[str]:
     st = ov.get("sourceThrough")
     if st is not None and not _YM.match(str(st)):
         errors.append(f"sourceThrough not YYYY-MM: {st!r}")
+    if ov.get("energyBasis") != ENERGY_BASIS:
+        errors.append(f"energyBasis must be {ENERGY_BASIS!r}: {ov.get('energyBasis')!r}")
     n = 0
     for code, regions in (ov.get("data") or {}).items():
         if code not in ENGINE_CODES:
@@ -190,7 +255,8 @@ def push(cfg: Dict[str, str], overlay: dict, timeout: int = 60
          ) -> Tuple[int, dict]:
     """POST the overlay. Returns (status, parsed body). The secret is
     sent as a header and never logged."""
-    body = json.dumps(overlay, separators=(",", ":")).encode()
+    body = json.dumps({k: v for k, v in overlay.items() if k != "basis"},
+                      separators=(",", ":")).encode()
     req = urllib.request.Request(
         cfg["CFE_PUSH_URL"], data=body, method="POST",
         headers={"Content-Type": "application/json",
@@ -232,6 +298,11 @@ def main(argv=None) -> int:
     LOG.info("overlay %d: tariffs=%d tariff*regions=%d values=%d"
              " through=%s", args.year, tariffs, combos, values,
              overlay["sourceThrough"])
+    b = overlay.get("basis") or {}
+    LOG.info("energy basis %s: %d scraped cells decomposed, %d kept the"
+             " master value (adders missing / non-positive), %d dropped",
+             overlay.get("energyBasis"), b.get("decomposed", 0),
+             b.get("kept_master", 0), b.get("dropped", 0))
     errors = validate_overlay(overlay)
     if errors:
         for e in errors[:10]:
@@ -241,7 +312,7 @@ def main(argv=None) -> int:
         return 1
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(overlay, fh, separators=(",", ":"))
+            json.dump({k: v for k, v in overlay.items() if k != "basis"}, fh, separators=(",", ":"))
         LOG.info("wrote %s", args.out)
     if args.dry_run:
         LOG.info("dry-run: valid, nothing pushed")

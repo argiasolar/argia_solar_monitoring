@@ -229,6 +229,12 @@ def registry_findings(repo: str) -> List[str]:
         out = [f"file: {b}" for b in R.validate(reg)]
         out += R.compare(reg, IR.table_rows(psql_rows))
         out += IR.live_findings(reg, psql_rows)
+        # v239: cfe_tariff vs the corrections register (the same morning finding)
+        from argia.core import cfe_corrections as CC
+        import cfe_corrections as CS
+        creg = CC.load(os.path.join(repo, "v2", "data", "cfe_corrections.json"))
+        out += [f"cfe register: {b}" for b in CC.validate(creg)]
+        out += [f"cfe_tariff: {x}" for x in CC.compare(creg, CS.table_rows(psql_rows, creg))]
         return out
     except Exception as e:  # noqa: BLE001
         return [f"check failed: {type(e).__name__}: {e}"]

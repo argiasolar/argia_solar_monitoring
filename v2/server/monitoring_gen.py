@@ -1545,7 +1545,7 @@ RECON_JS = """<script>
  ['rf_plant','rf_status'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',apply);});})();
 </script>"""
 
-RECON_NOTE_CSS = '<style>.recnote{white-space:normal;max-width:520px;min-width:260px;line-height:1.4}</style>'
+RECON_NOTE_CSS = '<style>.recnote{white-space:normal;max-width:520px;min-width:260px;line-height:1.4;text-align:left}</style>'
 
 
 def recon_page(skin='old'):

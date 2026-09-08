@@ -10,8 +10,9 @@ to CFE directly.
 
     venv/          python venv with playwright (+ its arm64 chromium;
                    the distro chromium/firefox builds SIGILL on Pi 4)
-    cfe_scrape.py  scraper (copy of v2/pi/cfe/cfe_scrape.py)
-    cfe_daily.sh   daily cron job (copy of v2/pi/cfe/cfe_daily.sh)
+    (cfe_scrape.py / cfe_daily.sh: since v240 both run from the
+     checkout ~/argia_v2/v2/pi/cfe/ — deploy.sh keeps them current;
+     the copies here are only a fallback and can be deleted)
     divmap.json    division -> (estado, municipio) select values,
                    built once by `cfe_scrape.py --discover`
     state/         probe.csv, sent_YYYY-MM markers, heartbeat.json
@@ -20,7 +21,7 @@ to CFE directly.
 
 ## Schedule (zemel's crontab)
 
-    10 8 * * *  /home/zemel/cfe/cfe_daily.sh
+    10 8 * * *  bash /home/zemel/argia_v2/v2/pi/cfe/cfe_daily.sh
 
 Daily: probe (GDMTH, current month, 17 divisions) -> between day 3
 and 27 fetch the full month once (10 tariffs x 17 divisions) and
@@ -42,6 +43,18 @@ CSV / month not updated by day 10.
   are not published there; the scraper never touches them.
 - cfe_load upsert: cfe_scrape overwrites seed; seed never overwrites
   cfe_scrape.
+
+## Gap-fill (v240)
+
+A monthly fetch can miss a cell (the portal serves no table that day;
+PDBT/BAJA CALIFORNIA 2026-07 sat on the seed value for six weeks). Every
+day after a good probe, `cfe_scrape.py --gapfill outbox/ --state
+state/gaps.json` re-reads the manifests in outbox/, retries exactly the
+cells that errored (months ≤ 6 back, ≤ 5 attempts per cell) and pushes
+`cfe_gapfill_YYYYMMDD.csv` when it got anything. One-off:
+
+    ./venv/bin/python cfe_scrape.py --cells "PDBT/BAJA CALIFORNIA/2026-07" \
+        --out outbox/cfe_gapfill_manual.csv && rsync -t outbox/cfe_gapfill_manual.csv argia-cfe:
 
 ## Manual runs
 

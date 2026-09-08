@@ -240,3 +240,36 @@ class TestSemipuntaAndGlow:
         # health = fresh heartbeat + probe ok + nothing rejected
         assert "interval '48 hours'" in src
         assert "!= 'rejected'" in src
+
+
+class TestGapFill:
+    """v240 — the Pi retries the cells a monthly fetch missed."""
+
+    def test_parse_key(self):
+        assert cfe_scrape.parse_key("PDBT/BAJA CALIFORNIA/2026-07") == ("PDBT", "BAJA CALIFORNIA", (2026, 7))
+        assert cfe_scrape.parse_key("XXXX/BAJIO/2026-07") is None and cfe_scrape.parse_key("PDBT/NOWHERE/2026-07") is None
+        assert cfe_scrape.parse_key("PDBT/BAJIO/2026-7") is None and cfe_scrape.parse_key("PDBT") is None
+
+    def test_gap_keys_from_manifests(self):
+        manifests = [{"errors": ["PDBT/BAJA CALIFORNIA/2026-07: no table", "GDMTH/BAJIO/2026-07: month tag JUN-26 != JUL-26",
+                                 "DIT/NORTE/2025-11: no table", "GDMTH: gave up after 5 fruitless browser restarts",
+                                 "APMT/BOGUS/2026-07: no table"]},
+                     {"errors": [], "scraped": ["GDMTH/BAJIO/2026-07"]}]          # a later run got BAJIO back
+        today = dt.date(2026, 9, 8)
+        assert cfe_scrape.gap_keys(manifests, {}, today) == ["PDBT/BAJA CALIFORNIA/2026-07"]   # 2025-11 is too old, BOGUS unknown
+        assert cfe_scrape.gap_keys(manifests, {"done": ["PDBT/BAJA CALIFORNIA/2026-07"]}, today) == []
+        assert cfe_scrape.gap_keys(manifests, {"attempts": {"PDBT/BAJA CALIFORNIA/2026-07": 5}}, today) == []
+        assert cfe_scrape.gap_keys(manifests, {"attempts": {"PDBT/BAJA CALIFORNIA/2026-07": 4}}, today) == ["PDBT/BAJA CALIFORNIA/2026-07"]
+
+    def test_state_after_a_run(self):
+        st = cfe_scrape.gap_state_after({"attempts": {"A/B/2026-01": 1}}, ["PDBT/BAJA CALIFORNIA/2026-07", "GDMTH/BAJIO/2026-07"],
+                                        ["GDMTH/BAJIO/2026-07"])
+        assert st == {"done": ["GDMTH/BAJIO/2026-07"], "attempts": {"A/B/2026-01": 1, "PDBT/BAJA CALIFORNIA/2026-07": 1}}
+
+    def test_daily_job_and_cli_wired(self):
+        sh = (ROOT / "pi/cfe/cfe_daily.sh").read_text(encoding="utf-8")
+        assert "--gapfill $CFE/outbox" in sh and "--state $CFE/state/gaps.json" in sh and "cfe_gapfill_" in sh
+        assert sh.index("# --- 2b) gap-fill") < sh.index("# --- 3) heartbeat")
+        src = (ROOT / "pi/cfe/cfe_scrape.py").read_text(encoding="utf-8")
+        assert 'ap.add_argument("--cells"' in src and 'ap.add_argument("--gapfill"' in src
+        assert 'manifest["scraped"] = sorted(seen)' in src and "only is not None and key not in only" in src

@@ -89,7 +89,7 @@ class TestRetryWithoutRescraping:
         block = SRC[i:i + 1200]
         assert '[ -s "$FULL" ]' in block, "no reuse of the scraped CSV"
         j = block.index('[ -s "$FULL" ]')
-        k = block.index("cfe_scrape.py", j)
+        k = block.index("$SCRAPER", j)          # v240: the scraper runs from the checkout
         # the re-push must come before the re-scrape in that branch
         assert block.index('push "$FULL"', j) < k
 

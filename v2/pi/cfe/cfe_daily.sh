@@ -9,6 +9,11 @@
 set -u
 CFE=~/cfe
 PY=$CFE/venv/bin/python
+# v240: the scraper runs FROM THE REPO CHECKOUT (deploy.sh keeps it
+# current — the v217.1 rule); ~/cfe keeps only venv, divmap, state,
+# outbox, logs. The old copy is a fallback for a Pi without a checkout.
+SCRAPER=$HOME/argia_v2/v2/pi/cfe/cfe_scrape.py
+[ -f "$SCRAPER" ] || SCRAPER=$CFE/cfe_scrape.py
 # Bare ssh-config alias, NOT user@host: rsync only consults the Host
 # block in ~/.ssh/config when the target has no explicit user@, and the
 # alias is what carries the IdentityFile for the rrsync-restricted key.
@@ -36,7 +41,7 @@ push() {  # push file to pio06 inbox; rrsync jail = /opt/argia/cfe_inbox
 
 # --- 1) probe ---------------------------------------------------------
 PROBE_STATUS=fail
-if timeout 900 $PY $CFE/cfe_scrape.py --months "$YM" --tariffs GDMTH \
+if timeout 900 $PY $SCRAPER --months "$YM" --tariffs GDMTH \
         --out $CFE/state/probe.csv; then
     PROBE_STATUS=ok
 fi
@@ -56,13 +61,33 @@ if [ "$PROBE_STATUS" = ok ] && [ ! -f "$MARK" ] \
         push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
     else
         echo "monthly fetch for $YM starting"
-        if timeout 7200 $PY $CFE/cfe_scrape.py --months "$YM" \
+        if timeout 7200 $PY $SCRAPER --months "$YM" \
                 --out "$FULL"; then
             push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
         else
             echo "monthly fetch FAILED (see manifest)"
             [ -f "$FULL.manifest.json" ] && push "$FULL.manifest.json"
         fi
+    fi
+fi
+
+# --- 2b) gap-fill (v240) ----------------------------------------------
+# A cell the portal failed to serve on fetch day used to stay missing
+# for good. Retry the errored cells of the last months (from the
+# manifests in outbox/), at most 5 attempts per cell, and push the
+# small CSV; the loader upserts it like any other.
+if [ "$PROBE_STATUS" = ok ]; then
+    GAP=$CFE/outbox/cfe_gapfill_$(date +%Y%m%d).csv
+    if timeout 1800 $PY $SCRAPER --gapfill $CFE/outbox \
+            --state $CFE/state/gaps.json --out "$GAP"; then
+        if [ -s "$GAP" ] && [ "$(wc -l < "$GAP")" -gt 1 ]; then
+            push "$GAP" && push "$GAP.manifest.json"
+        else
+            rm -f "$GAP" "$GAP.manifest.json"
+        fi
+    else
+        echo "gap-fill: some cells still missing (see $GAP.manifest.json)"
+        [ -s "$GAP" ] && [ "$(wc -l < "$GAP")" -gt 1 ] && push "$GAP" && push "$GAP.manifest.json"
     fi
 fi
 

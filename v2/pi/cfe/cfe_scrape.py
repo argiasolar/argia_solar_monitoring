@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import time
+import datetime as dt
 import unicodedata
 
 BASE = "https://app.cfe.mx/Aplicaciones/CCFE/Tarifas/"
@@ -355,13 +356,18 @@ def _fatal(ex) -> bool:
     return "crash" in s or "targetclosed" in s or "browser" in s
 
 
-def scrape(pw, months, tariffs, divmap, writer, manifest):
+def scrape(pw, months, tariffs, divmap, writer, manifest, only=None):
     """Fresh chromium every few divisions: long ASPX sessions crash
-    the page on the Pi, so recycling is cheaper than recovering."""
+    the page on the Pi, so recycling is cheaper than recovering.
+    ``only`` (v240): a set of 'CODE/DIVISION/YYYY-MM' keys — scrape
+    exactly those cells (the gap-fill), skipping every other
+    tariff/division/month."""
     BATCH = 4
     seen = set()      # cells already scraped (skip after a recycle)
     for code in tariffs:
         divs = sorted(divmap.items())
+        if only is not None:
+            divs = [d for d in divs if any(k.startswith(f"{code}/{d[0]}/") for k in only)]
         di, fail_streak = 0, 0
         while di < len(divs) and fail_streak < 5:
             start_di = di
@@ -376,7 +382,7 @@ def scrape(pw, months, tariffs, divmap, writer, manifest):
                     located = False
                     for (y, m) in months:
                         key = f"{code}/{div}/{y}-{m:02d}"
-                        if key in seen:
+                        if key in seen or (only is not None and key not in only):
                             continue
                         try:
                             before = manifest["cells"]
@@ -408,6 +414,82 @@ def scrape(pw, months, tariffs, divmap, writer, manifest):
             manifest["errors"].append(f"{code}: gave up after "
                                       f"5 fruitless browser restarts")
         time.sleep(1)
+    manifest["scraped"] = sorted(seen)
+
+
+# ------------------------------------------------------------ gap-fill
+# v240 (Tomasz: "is the Pi scheduled to update the gap?" — it was not:
+# each month was fetched once and a cell the portal failed to serve
+# that day stayed missing for good; PDBT/BAJA CALIFORNIA/2026-07 sat
+# on the seed value until the engine's shape guard noticed). The daily
+# job now re-reads the manifests in outbox/, collects the cells that
+# errored, and retries exactly those — up to MAX_ATTEMPTS per cell,
+# months no older than GAP_MONTHS — pushing a small gap-fill CSV the
+# loader upserts like any other.
+GAP_MONTHS = 6
+MAX_ATTEMPTS = 5
+KEY_RE = re.compile(r"^([A-Z]+)/([A-Z ]+)/(\d{4}-\d{2}):")
+
+
+def parse_key(key):
+    """'PDBT/BAJA CALIFORNIA/2026-07' -> (code, division, (y, m)) or None."""
+    parts = key.split("/")
+    if len(parts) != 3:
+        return None
+    code, div, ym = parts
+    m = re.match(r"^(\d{4})-(\d{2})$", ym)
+    if not m or code not in TARIFF_URLS or div not in KNOWN_REGIONS:
+        return None
+    return code, div, (int(m.group(1)), int(m.group(2)))
+
+
+def gap_keys(manifests, state, today):
+    """Cells still worth retrying: every 'CODE/DIV/YYYY-MM: error' in
+    the manifests, keyed once, not marked done in ``state``, fewer than
+    MAX_ATTEMPTS attempts, month within GAP_MONTHS of today. Pure."""
+    done = set(state.get("done") or [])
+    attempts = state.get("attempts") or {}
+    out = set()
+    for mf in manifests:
+        for err in mf.get("errors") or []:
+            m = KEY_RE.match(err)
+            if not m:
+                continue
+            key = f"{m.group(1)}/{m.group(2)}/{m.group(3)}"
+            if key in done or attempts.get(key, 0) >= MAX_ATTEMPTS:
+                continue
+            parsed = parse_key(key)
+            if parsed is None:
+                continue
+            y, mo = parsed[2]
+            age = (today.year - y) * 12 + (today.month - mo)
+            if 0 <= age <= GAP_MONTHS:
+                out.add(key)
+        for key in mf.get("scraped") or []:
+            done.add(key)              # a later run already got it
+    return sorted(k for k in out if k not in done)
+
+
+def gap_state_after(state, wanted, scraped):
+    """Update the state after a gap-fill run: scraped keys become done,
+    the rest count one more attempt. Pure."""
+    st = {"done": sorted(set(state.get("done") or []) | set(scraped)),
+          "attempts": dict(state.get("attempts") or {})}
+    for k in wanted:
+        if k not in scraped:
+            st["attempts"][k] = st["attempts"].get(k, 0) + 1
+    return st
+
+
+def load_manifests(outbox):
+    out = []
+    for fn in sorted(os.listdir(outbox)):
+        if fn.endswith(".manifest.json"):
+            try:
+                out.append(json.load(open(os.path.join(outbox, fn))))
+            except (OSError, ValueError):
+                continue
+    return out
 
 
 def main():
@@ -416,6 +498,10 @@ def main():
     ap.add_argument("--months")
     ap.add_argument("--tariffs", default=",".join(TARIFF_URLS))
     ap.add_argument("--out")
+    ap.add_argument("--cells", help="exact cells CODE/DIVISION/YYYY-MM, comma separated")
+    ap.add_argument("--gapfill", metavar="OUTBOX",
+                    help="retry the cells that errored in OUTBOX/*.manifest.json")
+    ap.add_argument("--state", help="gap-fill state file (json)")
     args = ap.parse_args()
     from playwright.sync_api import sync_playwright
 
@@ -423,6 +509,27 @@ def main():
         if args.discover:
             discover_divmap(pw)
             return 0
+        only = None
+        if args.cells or args.gapfill:
+            if args.gapfill:
+                state = {}
+                if args.state and os.path.exists(args.state):
+                    state = json.load(open(args.state))
+                keys = gap_keys(load_manifests(args.gapfill), state,
+                                dt.date.today())
+            else:
+                keys = [k.strip() for k in args.cells.split(",") if k.strip()]
+                state = None
+            parsed = [parse_key(k) for k in keys]
+            bad = [k for k, pk in zip(keys, parsed) if pk is None]
+            if bad:
+                ap.error(f"unknown cells: {bad}")
+            if not keys:
+                print("gap-fill: nothing to retry")
+                return 0
+            only = set(keys)
+            args.months = ",".join(sorted({f"{y}-{m:02d}" for _c, _d, (y, m) in parsed}))
+            args.tariffs = ",".join(sorted({c for c, _d, _ym in parsed}))
         if not (args.months and args.out):
             ap.error("--months and --out required (or --discover)")
         if not os.path.exists(DIVMAP_PATH):
@@ -434,7 +541,7 @@ def main():
         # pure CFE divisions the tariff table is keyed by
         divmap = {k: v for k, v in divmap.items()
                   if k in KNOWN_REGIONS}
-        months = month_range(args.months)
+        months = [ym for spec in args.months.split(",") for ym in month_range(spec)]
         tariffs = [t for t in args.tariffs.split(",") if t]
         bad = [t for t in tariffs if t not in TARIFF_URLS]
         if bad:
@@ -446,10 +553,13 @@ def main():
             w = csv.writer(fh)
             w.writerow(["tariff_code", "region", "month", "charge_type",
                         "unit", "value_mxn"])
-            scrape(pw, months, tariffs, divmap, w, manifest)
+            scrape(pw, months, tariffs, divmap, w, manifest, only=only)
         json.dump(manifest, open(args.out + ".manifest.json", "w"),
                   indent=1)
-        expected = len(months) * len(tariffs) * len(divmap)
+        expected = len(only) if only is not None else len(months) * len(tariffs) * len(divmap)
+        if args.gapfill and args.state:
+            json.dump(gap_state_after(state, sorted(only), manifest["scraped"]),
+                      open(args.state, "w"), indent=1)
         print(f"cells {manifest['cells']}/{expected}, rows "
               f"{manifest['rows']}, errors {len(manifest['errors'])}")
         return 0 if manifest["cells"] == expected else 1

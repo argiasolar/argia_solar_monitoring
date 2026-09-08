@@ -23,8 +23,8 @@
 # off-site backups — nightly pull of the DB dump, auth DB, portfolio snapshot, report PDFs
 0 22 * * * bash /home/zemel/argia_v2/v2/pi/db_backups/pull_backup.sh >> /home/zemel/argia_logs/db_backup_pull.log 2>&1
 
-# CFE tariff fetcher (its own tree in ~/cfe — see pi/cfe/README.md)
-10 8 * * * /home/zemel/cfe/cfe_daily.sh
+# CFE tariff fetcher — job and scraper from the checkout (v240); ~/cfe keeps venv/divmap/state/outbox/logs
+10 8 * * * bash /home/zemel/argia_v2/v2/pi/cfe/cfe_daily.sh
 
 # log hygiene — SD cards die of log diarrhea
 17 3 * * * find /home/zemel/argia_logs -name '*.log' -size +5M -exec truncate -s 1M {} \;

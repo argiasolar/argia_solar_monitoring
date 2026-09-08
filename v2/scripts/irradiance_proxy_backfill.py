@@ -20,8 +20,10 @@ Rules (all enforced in the pure functions below, tested):
     datalogger_sn, never a plant of our choosing;
   * expected_kwh = kwp_dc x irradiance x expected_factor (the KPI job's
     own formula), only where expected_kwh is NULL too;
-  * writes go through kpi_write.stamp — existing rows only, CLOSED
-    months frozen, protected columns untouched;
+  * writes are kpi_mirror.build_fill_nulls_sql — UPDATE ... SET col =
+    COALESCE(stored, new): a NULL is filled, a value is never touched,
+    and a CLOSED month keeps that guarantee (filling a NULL changes no
+    invoiced figure, which is why that path may cross the freeze);
   * irradiance_source = 'proxy:<donor>' so the provenance is on the row.
 """
 from __future__ import annotations
@@ -31,6 +33,7 @@ import sys
 from typing import Dict, Iterable, List, Optional, Tuple
 
 Row = Tuple[str, str, str]           # (prod_date, irradiance | '', expected | '')
+FILL_COLS = ("irradiance_kwh_m2", "irradiance_source", "expected_kwh")
 
 
 def donor_for(plant_key: str, plants: Iterable[Tuple[str, str, str]]) -> Optional[str]:
@@ -94,7 +97,6 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     import datetime as dt
     from argia.core.time_utils import now_mx
-    from argia.store import kpi_write
     from argia.store.pgq import psql_rows
 
     pk = a.plant.strip().upper()
@@ -129,13 +131,21 @@ def main(argv=None) -> int:
     if not a.apply:
         print("dry run — add --apply to write")
         return 0
-    date_key = lambda s: s    # noqa: E731 — ISO in, ISO out
-    n = kpi_write.stamp("irradiance_kwh_m2", {(d, pk): r["irradiance_kwh_m2"] for d, r in todo.items()}, date_key)
-    kpi_write.stamp("irradiance_source", {(d, pk): f"proxy:{donor}" for d in todo}, date_key)
-    exp = {(d, pk): r["expected_kwh"] for d, r in todo.items() if "expected_kwh" in r}
-    m = kpi_write.stamp("expected_kwh", exp, date_key) if exp else 0
-    print(f"applied: irradiance on {n} row(s), expected_kwh on {m} row(s)")
+    from argia.store.pgq import psql_exec
+    sql = fill_sql(pk, donor, todo)
+    psql_exec("SET statement_timeout='60s';\n" + sql)
+    after = [tuple(r[:3]) for r in psql_rows("SET statement_timeout='20s'; " + select_target_sql(pk, d0, d1))]
+    left = sum(1 for _, irr, _e in after if str(irr).strip() == "")
+    print(f"applied: {len(todo)} row(s) written; {left} row(s) still without irradiance")
     return 0
+
+
+def fill_sql(plant_key: str, donor: str, todo: Dict[str, Dict[str, float]]) -> str:
+    """The UPDATEs for ``plan``'s output — NULL cells only, by construction."""
+    from argia.store.kpi_mirror import build_fill_nulls_sql
+    rows = [{"plant_key": plant_key, "prod_date": d, "irradiance_source": f"proxy:{donor}", **rec}
+            for d, rec in sorted(todo.items())]
+    return build_fill_nulls_sql(rows, cols=FILL_COLS) or ""
 
 
 if __name__ == "__main__":

@@ -352,5 +352,19 @@ class TestProxyBackfill:
     def test_dry_run_is_the_default(self):
         src = (V2 / "scripts/irradiance_proxy_backfill.py").read_text(encoding="utf-8")
         assert 'ap.add_argument("--apply", action="store_true"' in src
-        assert "kpi_write.stamp(" in src               # existing rows only, closed months frozen
-        assert 'f"proxy:{donor}"' in src
+        assert "build_fill_nulls_sql" in src           # COALESCE(stored, new): NULLs only
+
+    def test_fill_sql_touches_null_cells_only(self):
+        m = self._mod()
+        sql = m.fill_sql("TAM1", "NL1", {"2026-08-01": {"irradiance_kwh_m2": 7.0, "expected_kwh": 1914.41},
+                                         "2026-08-03": {"irradiance_kwh_m2": 6.0}})
+        stmts = [x for x in sql.splitlines() if x.strip()]
+        assert len(stmts) == 2
+        assert "irradiance_kwh_m2 = COALESCE(daily_production.irradiance_kwh_m2, 7.0)" in stmts[0]
+        assert "irradiance_source = COALESCE(daily_production.irradiance_source, 'proxy:NL1')" in stmts[0]
+        assert "expected_kwh = COALESCE(daily_production.expected_kwh, 1914.41)" in stmts[0]
+        assert "expected_kwh = COALESCE" not in stmts[1]
+        assert "WHERE plant_key = 'TAM1' AND prod_date = DATE '2026-08-01'" in stmts[0]
+        assert "irradiance_kwh_m2 IS NULL OR irradiance_source IS NULL OR expected_kwh IS NULL" in stmts[0]
+        # never an INSERT, never a bare SET
+        assert "INSERT" not in sql and "SET energy_kwh" not in sql and "pr =" not in sql

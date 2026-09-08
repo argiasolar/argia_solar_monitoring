@@ -1,0 +1,24 @@
+[Unit]
+# v244: a stand-in for api.savio.mx serving the committed demo fixtures
+# with the real API's shapes, loopback only (127.0.0.1:8530). Lets
+# fin_ingest --savio run end to end before Savio issues an API key;
+# never proxied by nginx. Stop and disable it when the real key is in
+# /root/.argia_savio and ARGIA_SAVIO_BASE points at api.savio.mx.
+Description=ARGIA Savio API mock (127.0.0.1:8530, demo fixtures)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_SAVIO_MOCK_PORT=8530
+ExecStart=/usr/bin/python3 /opt/argia/bundle/savio_mock.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

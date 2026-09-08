@@ -1,0 +1,16 @@
+{
+ "id": "evt_demo_0001",
+ "type": "payment.applied",
+ "created_at": "2026-08-28T16:05:00Z",
+ "data": {
+  "payment_id": "pay_demo_9002",
+  "invoice_id": "inv_demo_0102",
+  "customer_id": "cus_demo_003",
+  "date": "2026-08-28",
+  "amount": "2737600.00",
+  "currency": "MXN",
+  "method": "SPEI",
+  "reference": "DEMO-TX-0828A",
+  "status": "applied"
+ }
+}

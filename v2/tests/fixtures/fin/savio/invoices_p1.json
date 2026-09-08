@@ -1,0 +1,149 @@
+{
+ "data": [
+  {
+   "invoice_id": "inv_demo_0101",
+   "customer_id": "cus_demo_002",
+   "series": "A",
+   "folio": "1000",
+   "issue_date": "2026-05-19",
+   "due_date": "2026-06-18",
+   "currency": "MXN",
+   "subtotal": "2172000.00",
+   "tax": "347520.00",
+   "total": "2519520.00",
+   "status": "paid",
+   "paid_amount": "2519520.00",
+   "updated_at": "2026-09-01T08:10:00Z",
+   "custom_fields": {
+    "argia_project_id": "ARG9001",
+    "argia_plant_key": "",
+    "argia_milestone": "M2"
+   },
+   "cfdis": [
+    {
+     "uuid": "852673B6-1D94-5E32-9446-D2879B874276",
+     "type": "I",
+     "status": "valid",
+     "stamped_at": "2026-05-19T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "ARG9001 · M2",
+     "quantity": 1,
+     "unit_price": "2172000.00",
+     "amount": "2172000.00"
+    }
+   ]
+  },
+  {
+   "invoice_id": "inv_demo_0102",
+   "customer_id": "cus_demo_003",
+   "series": "A",
+   "folio": "1001",
+   "issue_date": "2026-08-05",
+   "due_date": "2026-09-19",
+   "currency": "MXN",
+   "subtotal": "4720000.00",
+   "tax": "755200.00",
+   "total": "5475200.00",
+   "status": "partially_paid",
+   "paid_amount": "2737600.00",
+   "updated_at": "2026-09-02T08:11:00Z",
+   "custom_fields": {
+    "argia_project_id": "ARG9003",
+    "argia_plant_key": "",
+    "argia_milestone": "M2"
+   },
+   "cfdis": [
+    {
+     "uuid": "EC544C5E-8C67-5B1C-9064-C33180F4F343",
+     "type": "I",
+     "status": "valid",
+     "stamped_at": "2026-08-05T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "ARG9003 · M2",
+     "quantity": 1,
+     "unit_price": "4720000.00",
+     "amount": "4720000.00"
+    }
+   ]
+  },
+  {
+   "invoice_id": "inv_demo_0103",
+   "customer_id": "cus_demo_001",
+   "series": "A",
+   "folio": "1002",
+   "issue_date": "2026-07-02",
+   "due_date": "2026-08-01",
+   "currency": "MXN",
+   "subtotal": "820000.00",
+   "tax": "131200.00",
+   "total": "951200.00",
+   "status": "open",
+   "paid_amount": "0.00",
+   "updated_at": "2026-09-03T08:12:00Z",
+   "custom_fields": {
+    "argia_project_id": "ARG9002",
+    "argia_plant_key": "",
+    "argia_milestone": "M1"
+   },
+   "cfdis": [
+    {
+     "uuid": "99434599-9806-50DD-A248-87E6EB1EEF26",
+     "type": "I",
+     "status": "valid",
+     "stamped_at": "2026-07-02T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "ARG9002 · M1",
+     "quantity": 1,
+     "unit_price": "820000.00",
+     "amount": "820000.00"
+    }
+   ]
+  },
+  {
+   "invoice_id": "inv_demo_0104",
+   "customer_id": "cus_demo_001",
+   "series": "A",
+   "folio": "1003",
+   "issue_date": "2026-08-29",
+   "due_date": "2026-09-28",
+   "currency": "MXN",
+   "subtotal": "560000.00",
+   "tax": "89600.00",
+   "total": "649600.00",
+   "status": "open",
+   "paid_amount": "0.00",
+   "updated_at": "2026-09-04T08:13:00Z",
+   "custom_fields": {
+    "argia_project_id": "ARG9005",
+    "argia_plant_key": "",
+    "argia_milestone": "M3"
+   },
+   "cfdis": [
+    {
+     "uuid": "ADF423FC-64F1-5E4B-889C-6727DB3D1FD7",
+     "type": "I",
+     "status": "valid",
+     "stamped_at": "2026-08-29T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "ARG9005 · M3",
+     "quantity": 1,
+     "unit_price": "560000.00",
+     "amount": "560000.00"
+    }
+   ]
+  }
+ ],
+ "nextCursor": "cur_demo_page2"
+}

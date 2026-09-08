@@ -1,0 +1,702 @@
+{
+ "entities": [
+  {
+   "entity_id": "DEMO-MX",
+   "name": "ARGIA DEMO MEXICO SA DE CV",
+   "rfc": "DEM150101AB1",
+   "currency": "MXN"
+  },
+  {
+   "entity_id": "DEMO-CZ",
+   "name": "ARGIA DEMO CZ s.r.o.",
+   "rfc": null,
+   "currency": "EUR"
+  }
+ ],
+ "accounts": [
+  {
+   "account_id": "DEMO-BBVA-MXN",
+   "entity_id": "DEMO-MX",
+   "bank": "BBVA",
+   "currency": "MXN",
+   "clabe_last4": "4455",
+   "purpose": "operations",
+   "clabe": "012180001122334455"
+  },
+  {
+   "account_id": "DEMO-BANORTE-USD",
+   "entity_id": "DEMO-MX",
+   "bank": "Banorte",
+   "currency": "USD",
+   "clabe_last4": "7788",
+   "purpose": "USD suppliers",
+   "clabe": "072180009988776677"
+  },
+  {
+   "account_id": "DEMO-CZ-EUR",
+   "entity_id": "DEMO-CZ",
+   "bank": "Fio",
+   "currency": "EUR",
+   "clabe_last4": "0100",
+   "purpose": "CZ operations",
+   "clabe": "CZ6520100000002600000100"
+  }
+ ],
+ "cost_codes": [
+  {
+   "code": "1",
+   "parent": null,
+   "name_en": "Development",
+   "name_es": "Desarrollo"
+  },
+  {
+   "code": "1.1",
+   "parent": "1",
+   "name_en": "Studies",
+   "name_es": "Estudios"
+  },
+  {
+   "code": "1.2",
+   "parent": "1",
+   "name_en": "Permits",
+   "name_es": "Permisos"
+  },
+  {
+   "code": "1.3",
+   "parent": "1",
+   "name_en": "Interconnection",
+   "name_es": "Interconexión"
+  },
+  {
+   "code": "2",
+   "parent": null,
+   "name_en": "Engineering",
+   "name_es": "Ingeniería"
+  },
+  {
+   "code": "2.1",
+   "parent": "2",
+   "name_en": "Design",
+   "name_es": "Diseño"
+  },
+  {
+   "code": "2.2",
+   "parent": "2",
+   "name_en": "Structural",
+   "name_es": "Estructural"
+  },
+  {
+   "code": "3",
+   "parent": null,
+   "name_en": "Supply",
+   "name_es": "Suministro"
+  },
+  {
+   "code": "3.1",
+   "parent": "3",
+   "name_en": "Modules",
+   "name_es": "Módulos"
+  },
+  {
+   "code": "3.2",
+   "parent": "3",
+   "name_en": "Inverters / BESS",
+   "name_es": "Inversores / BESS"
+  },
+  {
+   "code": "3.3",
+   "parent": "3",
+   "name_en": "Structure",
+   "name_es": "Estructura"
+  },
+  {
+   "code": "3.4",
+   "parent": "3",
+   "name_en": "Electrical BOS",
+   "name_es": "BOS eléctrico"
+  },
+  {
+   "code": "3.5",
+   "parent": "3",
+   "name_en": "Monitoring / comms",
+   "name_es": "Monitoreo / comunicaciones"
+  },
+  {
+   "code": "4",
+   "parent": null,
+   "name_en": "Construction",
+   "name_es": "Construcción"
+  },
+  {
+   "code": "4.1",
+   "parent": "4",
+   "name_en": "Civil",
+   "name_es": "Civil"
+  },
+  {
+   "code": "4.2",
+   "parent": "4",
+   "name_en": "Mechanical",
+   "name_es": "Mecánica"
+  },
+  {
+   "code": "4.3",
+   "parent": "4",
+   "name_en": "Electrical",
+   "name_es": "Eléctrica"
+  },
+  {
+   "code": "4.4",
+   "parent": "4",
+   "name_en": "Site services",
+   "name_es": "Servicios de obra"
+  },
+  {
+   "code": "4.5",
+   "parent": "4",
+   "name_en": "Safety",
+   "name_es": "Seguridad"
+  },
+  {
+   "code": "5",
+   "parent": null,
+   "name_en": "Commissioning",
+   "name_es": "Puesta en marcha"
+  },
+  {
+   "code": "5.1",
+   "parent": "5",
+   "name_en": "Testing",
+   "name_es": "Pruebas"
+  },
+  {
+   "code": "5.2",
+   "parent": "5",
+   "name_en": "CFE / utility",
+   "name_es": "CFE"
+  },
+  {
+   "code": "5.3",
+   "parent": "5",
+   "name_en": "Handover",
+   "name_es": "Entrega"
+  },
+  {
+   "code": "6",
+   "parent": null,
+   "name_en": "Project overhead",
+   "name_es": "Indirectos"
+  },
+  {
+   "code": "6.1",
+   "parent": "6",
+   "name_en": "Project management",
+   "name_es": "Gestión"
+  },
+  {
+   "code": "6.2",
+   "parent": "6",
+   "name_en": "Insurance",
+   "name_es": "Seguros"
+  },
+  {
+   "code": "6.3",
+   "parent": "6",
+   "name_en": "Logistics",
+   "name_es": "Logística"
+  },
+  {
+   "code": "6.4",
+   "parent": "6",
+   "name_en": "Contingency",
+   "name_es": "Contingencia"
+  },
+  {
+   "code": "7",
+   "parent": null,
+   "name_en": "O&M",
+   "name_es": "O&M"
+  },
+  {
+   "code": "7.1",
+   "parent": "7",
+   "name_en": "Preventive",
+   "name_es": "Preventivo"
+  },
+  {
+   "code": "7.2",
+   "parent": "7",
+   "name_en": "Corrective",
+   "name_es": "Correctivo"
+  },
+  {
+   "code": "7.3",
+   "parent": "7",
+   "name_en": "Warranty",
+   "name_es": "Garantía"
+  },
+  {
+   "code": "8",
+   "parent": null,
+   "name_en": "Finance",
+   "name_es": "Finanzas"
+  },
+  {
+   "code": "8.1",
+   "parent": "8",
+   "name_en": "Fees",
+   "name_es": "Comisiones"
+  },
+  {
+   "code": "8.2",
+   "parent": "8",
+   "name_en": "FX",
+   "name_es": "Tipo de cambio"
+  }
+ ],
+ "suppliers": [
+  {
+   "rfc": "ELE010101AB1",
+   "name": "ELECTRO SUMINISTROS DEMO SA DE CV",
+   "entity_id": "DEMO-MX",
+   "terms_days": 30,
+   "clabe": "014180000011112222"
+  },
+  {
+   "rfc": "EST020202CD2",
+   "name": "ESTRUCTURAS DEL BAJIO DEMO SA DE CV",
+   "entity_id": "DEMO-MX",
+   "terms_days": 45,
+   "clabe": "021180000033334444"
+  },
+  {
+   "rfc": "MOD030303EF3",
+   "name": "MODULOS SOLARES DEMO SA DE CV",
+   "entity_id": "DEMO-MX",
+   "terms_days": 60,
+   "clabe": "044180000055556666"
+  },
+  {
+   "rfc": "ING040404GH4",
+   "name": "INGENIERIA DEMO SC",
+   "entity_id": "DEMO-MX",
+   "terms_days": 15,
+   "clabe": "058180000077778888"
+  }
+ ],
+ "customers": [
+  {
+   "rfc": "TAI050505IJ5",
+   "name": "TAIGENE DEMO SA DE CV",
+   "savio_customer_id": "cus_demo_001",
+   "terms_days": 30
+  },
+  {
+   "rfc": "HOT060606KL6",
+   "name": "HOTELES DEMO SLP SA DE CV",
+   "savio_customer_id": "cus_demo_002",
+   "terms_days": 30
+  },
+  {
+   "rfc": "LOG070707MN7",
+   "name": "LOGISTICA DEMO DEL NORTE SA DE CV",
+   "savio_customer_id": "cus_demo_003",
+   "terms_days": 45
+  },
+  {
+   "rfc": "PLA080808OP8",
+   "name": "PLASTICOS DEMO SA DE CV",
+   "savio_customer_id": "cus_demo_004",
+   "terms_days": 30
+  }
+ ],
+ "projects": [
+  {
+   "project_id": "ARG9001",
+   "entity_id": "DEMO-MX",
+   "customer_rfc": "HOT060606KL6",
+   "name": "Hotel SLP 417 kWp + BESS",
+   "site": "San Luis Potosí, SLP",
+   "project_type": "EPC",
+   "kwp_dc": 417.0,
+   "status": "active",
+   "pm_user": "tomasz",
+   "offer_ref": "OFF-2026-031",
+   "contract_value": 7240000,
+   "contract_ccy": "MXN",
+   "phase": "3_execution"
+  },
+  {
+   "project_id": "ARG9002",
+   "entity_id": "DEMO-MX",
+   "customer_rfc": "TAI050505IJ5",
+   "name": "Taigene roof extension 300 kWp",
+   "site": "León, GTO",
+   "project_type": "PPA",
+   "kwp_dc": 300.0,
+   "status": "active",
+   "pm_user": "juan",
+   "offer_ref": "OFF-2026-018",
+   "contract_value": 4100000,
+   "contract_ccy": "MXN",
+   "phase": "2_preparation"
+  },
+  {
+   "project_id": "ARG9003",
+   "entity_id": "DEMO-MX",
+   "customer_rfc": "LOG070707MN7",
+   "name": "Logística Norte carport 650 kWp",
+   "site": "Nuevo Laredo, TAM",
+   "project_type": "CAPEX",
+   "kwp_dc": 650.0,
+   "status": "active",
+   "pm_user": "juan",
+   "offer_ref": "OFF-2026-022",
+   "contract_value": 11800000,
+   "contract_ccy": "MXN",
+   "phase": "3_execution"
+  },
+  {
+   "project_id": "ARG9004",
+   "entity_id": "DEMO-MX",
+   "customer_rfc": "PLA080808OP8",
+   "name": "Plásticos Demo LaaS lighting",
+   "site": "Monterrey, NL",
+   "project_type": "LAAS",
+   "kwp_dc": null,
+   "status": "on_hold",
+   "pm_user": "arturo",
+   "offer_ref": "OFF-2026-009",
+   "contract_value": 140000,
+   "contract_ccy": "USD",
+   "phase": "8_on hold"
+  },
+  {
+   "project_id": "ARG9005",
+   "entity_id": "DEMO-MX",
+   "customer_rfc": "TAI050505IJ5",
+   "name": "Taigene BESS 200 kW / 430 kWh",
+   "site": "León, GTO",
+   "project_type": "CAPEX",
+   "kwp_dc": 0.0,
+   "status": "commissioned",
+   "pm_user": "tomasz",
+   "offer_ref": "OFF-2025-077",
+   "contract_value": 5600000,
+   "contract_ccy": "MXN",
+   "phase": "5_review"
+  },
+  {
+   "project_id": "ARG9006",
+   "entity_id": "DEMO-CZ",
+   "customer_rfc": null,
+   "name": "Prologis CZ monitoring pilot",
+   "site": "Prague, CZ",
+   "project_type": "OTHER",
+   "kwp_dc": 0.0,
+   "status": "draft",
+   "pm_user": "vit",
+   "offer_ref": "OFF-2026-040",
+   "contract_value": 38000,
+   "contract_ccy": "EUR",
+   "phase": "1_specification"
+  }
+ ],
+ "purchase_orders": [
+  {
+   "po_number": "PO-2026-0007",
+   "supplier_rfc": "ELE010101AB1",
+   "project_id": "ARG9001",
+   "cost_code": "3.2",
+   "currency": "MXN",
+   "subtotal": "100000.00",
+   "tax": "16000.00",
+   "total": "116000.00",
+   "status": "approved",
+   "created_by": "juan",
+   "approvals": [
+    [
+     "pm",
+     "juan"
+    ],
+    [
+     "director",
+     "tomasz"
+    ]
+   ],
+   "received": "116000.00",
+   "expected_delivery": "2026-08-12"
+  },
+  {
+   "po_number": "PO-2026-0009",
+   "supplier_rfc": "EST020202CD2",
+   "project_id": "ARG9001",
+   "cost_code": "3.3",
+   "currency": "MXN",
+   "subtotal": "600000.00",
+   "tax": "96000.00",
+   "total": "696000.00",
+   "status": "partially_received",
+   "created_by": "juan",
+   "approvals": [
+    [
+     "pm",
+     "juan"
+    ],
+    [
+     "director",
+     "tomasz"
+    ],
+    [
+     "board",
+     "arturo"
+    ]
+   ],
+   "received": "556800.00",
+   "expected_delivery": "2026-09-15"
+  },
+  {
+   "po_number": "PO-2026-0011",
+   "supplier_rfc": "MOD030303EF3",
+   "project_id": "ARG9003",
+   "cost_code": "3.1",
+   "currency": "USD",
+   "subtotal": "210000.00",
+   "tax": "33600.00",
+   "total": "243600.00",
+   "status": "approved",
+   "created_by": "juan",
+   "approvals": [
+    [
+     "pm",
+     "juan"
+    ],
+    [
+     "director",
+     "tomasz"
+    ],
+    [
+     "board",
+     "arturo"
+    ]
+   ],
+   "received": "243600.00",
+   "expected_delivery": "2026-08-01"
+  },
+  {
+   "po_number": "PO-2026-0012",
+   "supplier_rfc": "ING040404GH4",
+   "project_id": "ARG9002",
+   "cost_code": "2.1",
+   "currency": "MXN",
+   "subtotal": "60000.00",
+   "tax": "9600.00",
+   "total": "69600.00",
+   "status": "approved",
+   "created_by": "tomasz",
+   "approvals": [
+    [
+     "pm",
+     "tomasz"
+    ],
+    [
+     "director",
+     "arturo"
+    ]
+   ],
+   "received": "69600.00",
+   "expected_delivery": "2026-08-20"
+  },
+  {
+   "po_number": "PO-2026-0013",
+   "supplier_rfc": "EST020202CD2",
+   "project_id": "ARG9003",
+   "cost_code": "3.3",
+   "currency": "MXN",
+   "subtotal": "1200000.00",
+   "tax": "192000.00",
+   "total": "1392000.00",
+   "status": "submitted",
+   "created_by": "juan",
+   "approvals": [
+    [
+     "pm",
+     "juan"
+    ]
+   ],
+   "received": "0.00",
+   "expected_delivery": "2026-10-10"
+  },
+  {
+   "po_number": "PO-2026-0014",
+   "supplier_rfc": "ELE010101AB1",
+   "project_id": "ARG9005",
+   "cost_code": "7.2",
+   "currency": "MXN",
+   "subtotal": "18000.00",
+   "tax": "2880.00",
+   "total": "20880.00",
+   "status": "cancelled",
+   "created_by": "arturo",
+   "approvals": [],
+   "received": "0.00",
+   "expected_delivery": "2026-07-30"
+  }
+ ],
+ "budgets": {
+  "ARG9001": [
+   {
+    "version": 1,
+    "status": "superseded",
+    "lines": {
+     "2.1": 250000,
+     "3.1": 2100000,
+     "3.2": 700000,
+     "3.3": 620000,
+     "3.4": 380000,
+     "4.2": 520000,
+     "4.3": 460000,
+     "5.1": 90000,
+     "6.1": 300000,
+     "6.4": 190000
+    }
+   },
+   {
+    "version": 2,
+    "status": "approved",
+    "lines": {
+     "2.1": 250000,
+     "3.1": 2100000,
+     "3.2": 700000,
+     "3.3": 720000,
+     "3.4": 380000,
+     "4.2": 520000,
+     "4.3": 460000,
+     "5.1": 90000,
+     "6.1": 300000,
+     "6.4": 190000
+    }
+   }
+  ],
+  "ARG9002": [
+   {
+    "version": 1,
+    "status": "approved",
+    "lines": {
+     "2.1": 120000,
+     "3.1": 1500000,
+     "3.2": 420000,
+     "3.3": 380000,
+     "3.4": 260000,
+     "4.2": 300000,
+     "4.3": 280000,
+     "6.1": 150000,
+     "6.4": 100000
+    }
+   }
+  ],
+  "ARG9003": [
+   {
+    "version": 1,
+    "status": "approved",
+    "lines": {
+     "2.1": 300000,
+     "3.1": 4200000,
+     "3.2": 1300000,
+     "3.3": 1450000,
+     "3.4": 700000,
+     "4.1": 600000,
+     "4.2": 900000,
+     "4.3": 750000,
+     "6.1": 400000,
+     "6.4": 350000
+    }
+   }
+  ],
+  "ARG9004": [
+   {
+    "version": 1,
+    "status": "approved",
+    "lines": {
+     "3.5": 60000,
+     "4.3": 30000,
+     "6.1": 10000
+    }
+   }
+  ],
+  "ARG9005": [
+   {
+    "version": 1,
+    "status": "approved",
+    "lines": {
+     "3.2": 3600000,
+     "3.4": 400000,
+     "4.3": 500000,
+     "5.1": 150000,
+     "6.1": 200000,
+     "6.4": 150000
+    }
+   }
+  ],
+  "ARG9006": []
+ },
+ "change_orders": [
+  {
+   "project_id": "ARG9001",
+   "ref": "CO-1",
+   "status": "pending",
+   "revenue_impact": 620000,
+   "cost_impact": 480000,
+   "note": "30 kW BESS expansion"
+  },
+  {
+   "project_id": "ARG9001",
+   "ref": "CO-2",
+   "status": "approved",
+   "revenue_impact": 0,
+   "cost_impact": 100000,
+   "note": "structure change (supplier)"
+  },
+  {
+   "project_id": "ARG9003",
+   "ref": "CO-1",
+   "status": "approved",
+   "revenue_impact": 350000,
+   "cost_impact": 210000,
+   "note": "extra 20 carport bays"
+  },
+  {
+   "project_id": "ARG9003",
+   "ref": "CO-2",
+   "status": "rejected",
+   "revenue_impact": 90000,
+   "cost_impact": 95000,
+   "note": "EV chargers (declined)"
+  }
+ ],
+ "uuids": {
+  "ELE-A-1021": "B7044A80-37BE-5021-9175-4168ED258339",
+  "ELE-NC-12": "03DB586E-7B32-5F0F-9060-6A4583A60356",
+  "ELE-P-3": "67508E28-58A1-5993-A0B2-7B1DF053E550",
+  "EST-B-77": "457543FB-9EF3-528C-82AD-6592146EB87A",
+  "EST-B-90": "717FFA45-B7EE-50FC-8EBA-7C5D3CD28864",
+  "FOR-Z-9": "5BC96F8A-A4FF-558F-BBCB-9CA2A8236CC9",
+  "ING-C-5": "47DFF802-6997-5EDF-83CF-80C97A00F9EE",
+  "MOD-M-310": "956CEC2B-BC83-5441-B8E9-86209DB5033E",
+  "SAV-0101": "852673B6-1D94-5E32-9446-D2879B874276",
+  "SAV-0102": "EC544C5E-8C67-5B1C-9064-C33180F4F343",
+  "SAV-0103": "99434599-9806-50DD-A248-87E6EB1EEF26",
+  "SAV-0104": "ADF423FC-64F1-5E4B-889C-6727DB3D1FD7",
+  "SAV-0105": "B192B883-5626-5540-950D-62BF46CBC7DB",
+  "SAV-0106": "4E60AF7B-850F-5A2E-A0FD-3EA4C8B44187",
+  "SAV-0107": "EE7EEBF4-DDA9-53AE-A52A-4F3BA344BEE7",
+  "TAM-X-1": "4F45D537-12A1-53E2-8917-3D9778286A5F"
+ },
+ "our_rfcs": [
+  "DEM150101AB1"
+ ],
+ "fx": {
+  "USD/MXN": "18.42",
+  "EUR/MXN": "19.95"
+ }
+}

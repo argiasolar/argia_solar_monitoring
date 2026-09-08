@@ -1,0 +1,10 @@
+{
+ "id": "evt_demo_0002",
+ "type": "cfdi.canceled",
+ "created_at": "2026-06-12T10:00:00Z",
+ "data": {
+  "invoice_id": "inv_demo_0106",
+  "uuid": "4E60AF7B-850F-5A2E-A0FD-3EA4C8B44187",
+  "reason": "02"
+ }
+}

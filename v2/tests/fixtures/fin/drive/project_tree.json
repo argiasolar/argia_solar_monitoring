@@ -1,0 +1,227 @@
+{
+ "root_folder_id": "1DEMO_PROJECTS_ROOT",
+ "projects": [
+  {
+   "project_id": "ARG9001",
+   "folder_id": "1DEMO_F_ARG9001",
+   "folder_name": "ARG9001 Hotel SLP 417 kWp + BESS",
+   "subfolders": {
+    "01_offer": "1DEMO_F_ARG9001_01",
+    "02_contract": "1DEMO_F_ARG9001_02",
+    "03_design": "1DEMO_F_ARG9001_03",
+    "04_procurement": "1DEMO_F_ARG9001_04",
+    "05_construction": "1DEMO_F_ARG9001_05",
+    "06_commissioning": "1DEMO_F_ARG9001_06",
+    "07_closeout": "1DEMO_F_ARG9001_07"
+   },
+   "files": [
+    {
+     "file_id": "1DEMO_F_ARG9001_c1",
+     "name": "Contrato ARG9001 firmado.pdf",
+     "folder": "02_contract",
+     "mime": "application/pdf",
+     "modified": "2026-03-10T12:00:00Z",
+     "size": 482113,
+     "kind": "contract"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9001_o1",
+     "name": "OFF-2026-031 propuesta.pdf",
+     "folder": "01_offer",
+     "mime": "application/pdf",
+     "modified": "2026-02-20T12:00:00Z",
+     "size": 1120033,
+     "kind": "offer"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9001_p7",
+     "name": "PO-2026-0007 Electro inversores.pdf",
+     "folder": "04_procurement",
+     "mime": "application/pdf",
+     "modified": "2026-07-30T12:00:00Z",
+     "size": 88012,
+     "kind": "po"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9001_i1",
+     "name": "A-1021 ELECTRO.xml",
+     "folder": "04_procurement",
+     "mime": "application/xml",
+     "modified": "2026-08-14T12:00:00Z",
+     "size": 6120,
+     "kind": "invoice"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9002",
+   "folder_id": "1DEMO_F_ARG9002",
+   "folder_name": "ARG9002 Taigene roof extension 300 kWp",
+   "subfolders": {
+    "01_offer": "1DEMO_F_ARG9002_01",
+    "02_contract": "1DEMO_F_ARG9002_02",
+    "03_design": "1DEMO_F_ARG9002_03",
+    "04_procurement": "1DEMO_F_ARG9002_04",
+    "05_construction": "1DEMO_F_ARG9002_05",
+    "06_commissioning": "1DEMO_F_ARG9002_06",
+    "07_closeout": "1DEMO_F_ARG9002_07"
+   },
+   "files": [
+    {
+     "file_id": "1DEMO_F_ARG9002_c1",
+     "name": "Contrato ARG9002 firmado.pdf",
+     "folder": "02_contract",
+     "mime": "application/pdf",
+     "modified": "2026-03-10T12:00:00Z",
+     "size": 482113,
+     "kind": "contract"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9002_o1",
+     "name": "OFF-2026-018 propuesta.pdf",
+     "folder": "01_offer",
+     "mime": "application/pdf",
+     "modified": "2026-02-20T12:00:00Z",
+     "size": 1120033,
+     "kind": "offer"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9003",
+   "folder_id": "1DEMO_F_ARG9003",
+   "folder_name": "ARG9003 Logística Norte carport 650 kWp",
+   "subfolders": {
+    "01_offer": "1DEMO_F_ARG9003_01",
+    "02_contract": "1DEMO_F_ARG9003_02",
+    "03_design": "1DEMO_F_ARG9003_03",
+    "04_procurement": "1DEMO_F_ARG9003_04",
+    "05_construction": "1DEMO_F_ARG9003_05",
+    "06_commissioning": "1DEMO_F_ARG9003_06",
+    "07_closeout": "1DEMO_F_ARG9003_07"
+   },
+   "files": [
+    {
+     "file_id": "1DEMO_F_ARG9003_c1",
+     "name": "Contrato ARG9003 firmado.pdf",
+     "folder": "02_contract",
+     "mime": "application/pdf",
+     "modified": "2026-03-10T12:00:00Z",
+     "size": 482113,
+     "kind": "contract"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9003_o1",
+     "name": "OFF-2026-022 propuesta.pdf",
+     "folder": "01_offer",
+     "mime": "application/pdf",
+     "modified": "2026-02-20T12:00:00Z",
+     "size": 1120033,
+     "kind": "offer"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9004",
+   "folder_id": "1DEMO_F_ARG9004",
+   "folder_name": "ARG9004 Plásticos Demo LaaS lighting",
+   "subfolders": {
+    "01_offer": "1DEMO_F_ARG9004_01",
+    "02_contract": "1DEMO_F_ARG9004_02",
+    "03_design": "1DEMO_F_ARG9004_03",
+    "04_procurement": "1DEMO_F_ARG9004_04",
+    "05_construction": "1DEMO_F_ARG9004_05",
+    "06_commissioning": "1DEMO_F_ARG9004_06",
+    "07_closeout": "1DEMO_F_ARG9004_07"
+   },
+   "files": [
+    {
+     "file_id": "1DEMO_F_ARG9004_c1",
+     "name": "Contrato ARG9004 firmado.pdf",
+     "folder": "02_contract",
+     "mime": "application/pdf",
+     "modified": "2026-03-10T12:00:00Z",
+     "size": 482113,
+     "kind": "contract"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9004_o1",
+     "name": "OFF-2026-009 propuesta.pdf",
+     "folder": "01_offer",
+     "mime": "application/pdf",
+     "modified": "2026-02-20T12:00:00Z",
+     "size": 1120033,
+     "kind": "offer"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9005",
+   "folder_id": "1DEMO_F_ARG9005",
+   "folder_name": "ARG9005 Taigene BESS 200 kW / 430 kWh",
+   "subfolders": {
+    "01_offer": "1DEMO_F_ARG9005_01",
+    "02_contract": "1DEMO_F_ARG9005_02",
+    "03_design": "1DEMO_F_ARG9005_03",
+    "04_procurement": "1DEMO_F_ARG9005_04",
+    "05_construction": "1DEMO_F_ARG9005_05",
+    "06_commissioning": "1DEMO_F_ARG9005_06",
+    "07_closeout": "1DEMO_F_ARG9005_07"
+   },
+   "files": [
+    {
+     "file_id": "1DEMO_F_ARG9005_c1",
+     "name": "Contrato ARG9005 firmado.pdf",
+     "folder": "02_contract",
+     "mime": "application/pdf",
+     "modified": "2026-03-10T12:00:00Z",
+     "size": 482113,
+     "kind": "contract"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9005_o1",
+     "name": "OFF-2025-077 propuesta.pdf",
+     "folder": "01_offer",
+     "mime": "application/pdf",
+     "modified": "2026-02-20T12:00:00Z",
+     "size": 1120033,
+     "kind": "offer"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9006",
+   "folder_id": "1DEMO_F_ARG9006",
+   "folder_name": "ARG9006 Prologis CZ monitoring pilot",
+   "subfolders": {
+    "01_offer": "1DEMO_F_ARG9006_01",
+    "02_contract": "1DEMO_F_ARG9006_02",
+    "03_design": "1DEMO_F_ARG9006_03",
+    "04_procurement": "1DEMO_F_ARG9006_04",
+    "05_construction": "1DEMO_F_ARG9006_05",
+    "06_commissioning": "1DEMO_F_ARG9006_06",
+    "07_closeout": "1DEMO_F_ARG9006_07"
+   },
+   "files": [
+    {
+     "file_id": "1DEMO_F_ARG9006_c1",
+     "name": "Contrato ARG9006 firmado.pdf",
+     "folder": "02_contract",
+     "mime": "application/pdf",
+     "modified": "2026-03-10T12:00:00Z",
+     "size": 482113,
+     "kind": "contract"
+    },
+    {
+     "file_id": "1DEMO_F_ARG9006_o1",
+     "name": "OFF-2026-040 propuesta.pdf",
+     "folder": "01_offer",
+     "mime": "application/pdf",
+     "modified": "2026-02-20T12:00:00Z",
+     "size": 1120033,
+     "kind": "offer"
+    }
+   ]
+  }
+ ]
+}

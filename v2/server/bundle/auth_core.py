@@ -55,6 +55,10 @@ PREFIX_AREA = {
     # Ask ARGIA (v187): any signed-in user passes nginx; ask_app then
     # allow-lists by e-mail and answers 403 to everyone else.
     '/ask/': ALL,
+    # v244: finance + projects — fin_app allow-lists by e-mail (Tomasz only
+    # while the modules are built); nginx only asks for a session
+    '/finance/': ALL,
+    '/projects/': ALL,
     '/financial/': 'financial',
     # invoice annexes carry PPA tariffs and revenue — same audience as
     # the financial report (v155, monthly-close feature 2026-09-01)

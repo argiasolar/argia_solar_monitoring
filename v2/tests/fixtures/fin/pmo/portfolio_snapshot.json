@@ -1,0 +1,705 @@
+{
+ "generated_at": "2026-09-08T06:00:00-06:00",
+ "engine": "V8.1-demo",
+ "master_sheet": "1DEMO_MASTER",
+ "projects": [
+  {
+   "project_id": "ARG9001",
+   "name": "Hotel SLP 417 kWp + BESS",
+   "customer": "HOTELES DEMO SLP SA DE CV",
+   "site": "San Luis Potosí, SLP",
+   "type": "EPC",
+   "phase": "3_execution",
+   "pm": "tomasz",
+   "sheet_id": "1DEMO_ARG9001",
+   "progress_pct": 62.5,
+   "milestones": [
+    {
+     "ref": "M1",
+     "name": "Engineering release",
+     "kind": "technical",
+     "baseline": "2026-04-15",
+     "planned": "2026-04-15",
+     "actual": "2026-04-14",
+     "billable": false,
+     "amount": 0,
+     "depends_on": []
+    },
+    {
+     "ref": "M2",
+     "name": "Modules on site",
+     "kind": "commercial",
+     "baseline": "2026-05-20",
+     "planned": "2026-05-20",
+     "actual": "2026-05-18",
+     "billable": true,
+     "amount": 2172000,
+     "depends_on": [
+      "M1"
+     ]
+    },
+    {
+     "ref": "M3",
+     "name": "Mechanical complete",
+     "kind": "technical",
+     "baseline": "2026-06-30",
+     "planned": "2026-07-21",
+     "actual": null,
+     "billable": false,
+     "amount": 0,
+     "depends_on": [
+      "M2"
+     ]
+    },
+    {
+     "ref": "M4",
+     "name": "Interconnection",
+     "kind": "commercial",
+     "baseline": "2026-07-31",
+     "planned": "2026-09-30",
+     "actual": null,
+     "billable": true,
+     "amount": 4344000,
+     "depends_on": [
+      "M3"
+     ]
+    },
+    {
+     "ref": "M5",
+     "name": "Commissioning",
+     "kind": "commercial",
+     "baseline": "2026-08-15",
+     "planned": "2026-10-15",
+     "actual": null,
+     "billable": true,
+     "amount": 724000,
+     "depends_on": [
+      "M4"
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "ARG9001-T11",
+     "name": "Engineering release — prepare",
+     "phase": "3_execution",
+     "start": "2026-03-26",
+     "end": "2026-04-02",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9001-T12",
+     "name": "Engineering release — execute",
+     "phase": "3_execution",
+     "start": "2026-04-03",
+     "end": "2026-04-10",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9001-T21",
+     "name": "Modules on site — prepare",
+     "phase": "3_execution",
+     "start": "2026-04-30",
+     "end": "2026-05-07",
+     "progress_pct": 100,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9001-T22",
+     "name": "Modules on site — execute",
+     "phase": "3_execution",
+     "start": "2026-05-08",
+     "end": "2026-05-15",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9001-T31",
+     "name": "Mechanical complete — prepare",
+     "phase": "3_execution",
+     "start": "2026-07-01",
+     "end": "2026-07-08",
+     "progress_pct": 60,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9001-T32",
+     "name": "Mechanical complete — execute",
+     "phase": "3_execution",
+     "start": "2026-07-09",
+     "end": "2026-07-16",
+     "progress_pct": 15,
+     "resource": "eng. office"
+    },
+    {
+     "task_id": "ARG9001-T41",
+     "name": "Interconnection — prepare",
+     "phase": "3_execution",
+     "start": "2026-09-10",
+     "end": "2026-09-17",
+     "progress_pct": 60,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9001-T42",
+     "name": "Interconnection — execute",
+     "phase": "3_execution",
+     "start": "2026-09-18",
+     "end": "2026-09-25",
+     "progress_pct": 15,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9001-T51",
+     "name": "Commissioning — prepare",
+     "phase": "3_execution",
+     "start": "2026-09-25",
+     "end": "2026-10-02",
+     "progress_pct": 60,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9001-T52",
+     "name": "Commissioning — execute",
+     "phase": "3_execution",
+     "start": "2026-10-03",
+     "end": "2026-10-10",
+     "progress_pct": 15,
+     "resource": "crew A"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9002",
+   "name": "Taigene roof extension 300 kWp",
+   "customer": "TAIGENE DEMO SA DE CV",
+   "site": "León, GTO",
+   "type": "PPA",
+   "phase": "2_preparation",
+   "pm": "juan",
+   "sheet_id": "1DEMO_ARG9002",
+   "progress_pct": 53.1,
+   "milestones": [
+    {
+     "ref": "M1",
+     "name": "Contract signed",
+     "kind": "commercial",
+     "baseline": "2026-07-01",
+     "planned": "2026-07-01",
+     "actual": "2026-07-01",
+     "billable": true,
+     "amount": 820000,
+     "depends_on": []
+    },
+    {
+     "ref": "M2",
+     "name": "Design approved",
+     "kind": "technical",
+     "baseline": "2026-08-15",
+     "planned": "2026-09-05",
+     "actual": null,
+     "billable": false,
+     "amount": 0,
+     "depends_on": [
+      "M1"
+     ]
+    },
+    {
+     "ref": "M3",
+     "name": "Construction start",
+     "kind": "technical",
+     "baseline": "2026-09-15",
+     "planned": "2026-10-01",
+     "actual": null,
+     "billable": false,
+     "amount": 0,
+     "depends_on": [
+      "M2"
+     ]
+    },
+    {
+     "ref": "M4",
+     "name": "COD",
+     "kind": "commercial",
+     "baseline": "2026-12-15",
+     "planned": "2027-01-15",
+     "actual": null,
+     "billable": true,
+     "amount": 3280000,
+     "depends_on": [
+      "M3"
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "ARG9002-T11",
+     "name": "Contract signed — prepare",
+     "phase": "2_preparation",
+     "start": "2026-06-11",
+     "end": "2026-06-18",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9002-T12",
+     "name": "Contract signed — execute",
+     "phase": "2_preparation",
+     "start": "2026-06-19",
+     "end": "2026-06-26",
+     "progress_pct": 100,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9002-T21",
+     "name": "Design approved — prepare",
+     "phase": "2_preparation",
+     "start": "2026-08-16",
+     "end": "2026-08-23",
+     "progress_pct": 60,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9002-T22",
+     "name": "Design approved — execute",
+     "phase": "2_preparation",
+     "start": "2026-08-24",
+     "end": "2026-08-31",
+     "progress_pct": 15,
+     "resource": "eng. office"
+    },
+    {
+     "task_id": "ARG9002-T31",
+     "name": "Construction start — prepare",
+     "phase": "2_preparation",
+     "start": "2026-09-11",
+     "end": "2026-09-18",
+     "progress_pct": 60,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9002-T32",
+     "name": "Construction start — execute",
+     "phase": "2_preparation",
+     "start": "2026-09-19",
+     "end": "2026-09-26",
+     "progress_pct": 15,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9002-T41",
+     "name": "COD — prepare",
+     "phase": "2_preparation",
+     "start": "2026-12-26",
+     "end": "2027-01-02",
+     "progress_pct": 60,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9002-T42",
+     "name": "COD — execute",
+     "phase": "2_preparation",
+     "start": "2027-01-03",
+     "end": "2027-01-10",
+     "progress_pct": 15,
+     "resource": "eng. office"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9003",
+   "name": "Logística Norte carport 650 kWp",
+   "customer": "LOGISTICA DEMO DEL NORTE SA DE CV",
+   "site": "Nuevo Laredo, TAM",
+   "type": "CAPEX",
+   "phase": "3_execution",
+   "pm": "juan",
+   "sheet_id": "1DEMO_ARG9003",
+   "progress_pct": 62.5,
+   "milestones": [
+    {
+     "ref": "M1",
+     "name": "Civil complete",
+     "kind": "technical",
+     "baseline": "2026-06-30",
+     "planned": "2026-06-30",
+     "actual": "2026-07-03",
+     "billable": false,
+     "amount": 0,
+     "depends_on": []
+    },
+    {
+     "ref": "M2",
+     "name": "Modules delivered",
+     "kind": "commercial",
+     "baseline": "2026-08-01",
+     "planned": "2026-08-01",
+     "actual": "2026-08-04",
+     "billable": true,
+     "amount": 4720000,
+     "depends_on": [
+      "M1"
+     ]
+    },
+    {
+     "ref": "M3",
+     "name": "Structure complete",
+     "kind": "technical",
+     "baseline": "2026-09-10",
+     "planned": "2026-09-25",
+     "actual": null,
+     "billable": false,
+     "amount": 0,
+     "depends_on": [
+      "M2"
+     ]
+    },
+    {
+     "ref": "M4",
+     "name": "Energisation",
+     "kind": "commercial",
+     "baseline": "2026-11-15",
+     "planned": "2026-11-30",
+     "actual": null,
+     "billable": true,
+     "amount": 5900000,
+     "depends_on": [
+      "M3"
+     ]
+    },
+    {
+     "ref": "M5",
+     "name": "Handover",
+     "kind": "commercial",
+     "baseline": "2026-12-15",
+     "planned": "2026-12-20",
+     "actual": null,
+     "billable": true,
+     "amount": 1180000,
+     "depends_on": [
+      "M4"
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "ARG9003-T11",
+     "name": "Civil complete — prepare",
+     "phase": "3_execution",
+     "start": "2026-06-10",
+     "end": "2026-06-17",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9003-T12",
+     "name": "Civil complete — execute",
+     "phase": "3_execution",
+     "start": "2026-06-18",
+     "end": "2026-06-25",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9003-T21",
+     "name": "Modules delivered — prepare",
+     "phase": "3_execution",
+     "start": "2026-07-12",
+     "end": "2026-07-19",
+     "progress_pct": 100,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9003-T22",
+     "name": "Modules delivered — execute",
+     "phase": "3_execution",
+     "start": "2026-07-20",
+     "end": "2026-07-27",
+     "progress_pct": 100,
+     "resource": "eng. office"
+    },
+    {
+     "task_id": "ARG9003-T31",
+     "name": "Structure complete — prepare",
+     "phase": "3_execution",
+     "start": "2026-09-05",
+     "end": "2026-09-12",
+     "progress_pct": 60,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9003-T32",
+     "name": "Structure complete — execute",
+     "phase": "3_execution",
+     "start": "2026-09-13",
+     "end": "2026-09-20",
+     "progress_pct": 15,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9003-T41",
+     "name": "Energisation — prepare",
+     "phase": "3_execution",
+     "start": "2026-11-10",
+     "end": "2026-11-17",
+     "progress_pct": 60,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9003-T42",
+     "name": "Energisation — execute",
+     "phase": "3_execution",
+     "start": "2026-11-18",
+     "end": "2026-11-25",
+     "progress_pct": 15,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9003-T51",
+     "name": "Handover — prepare",
+     "phase": "3_execution",
+     "start": "2026-11-30",
+     "end": "2026-12-07",
+     "progress_pct": 60,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9003-T52",
+     "name": "Handover — execute",
+     "phase": "3_execution",
+     "start": "2026-12-08",
+     "end": "2026-12-15",
+     "progress_pct": 15,
+     "resource": "eng. office"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9004",
+   "name": "Plásticos Demo LaaS lighting",
+   "customer": "PLASTICOS DEMO SA DE CV",
+   "site": "Monterrey, NL",
+   "type": "LAAS",
+   "phase": "8_on hold",
+   "pm": "arturo",
+   "sheet_id": "1DEMO_ARG9004",
+   "progress_pct": 68.8,
+   "milestones": [
+    {
+     "ref": "M1",
+     "name": "Survey",
+     "kind": "technical",
+     "baseline": "2026-03-01",
+     "planned": "2026-03-01",
+     "actual": "2026-03-02",
+     "billable": false,
+     "amount": 0,
+     "depends_on": []
+    },
+    {
+     "ref": "M2",
+     "name": "Install",
+     "kind": "commercial",
+     "baseline": "2026-05-01",
+     "planned": "2026-11-01",
+     "actual": null,
+     "billable": true,
+     "amount": 140000,
+     "depends_on": [
+      "M1"
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "ARG9004-T11",
+     "name": "Survey — prepare",
+     "phase": "8_on hold",
+     "start": "2026-02-09",
+     "end": "2026-02-16",
+     "progress_pct": 100,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9004-T12",
+     "name": "Survey — execute",
+     "phase": "8_on hold",
+     "start": "2026-02-17",
+     "end": "2026-02-24",
+     "progress_pct": 100,
+     "resource": "eng. office"
+    },
+    {
+     "task_id": "ARG9004-T21",
+     "name": "Install — prepare",
+     "phase": "8_on hold",
+     "start": "2026-10-12",
+     "end": "2026-10-19",
+     "progress_pct": 60,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9004-T22",
+     "name": "Install — execute",
+     "phase": "8_on hold",
+     "start": "2026-10-20",
+     "end": "2026-10-27",
+     "progress_pct": 15,
+     "resource": "crew B"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9005",
+   "name": "Taigene BESS 200 kW / 430 kWh",
+   "customer": "TAIGENE DEMO SA DE CV",
+   "site": "León, GTO",
+   "type": "CAPEX",
+   "phase": "5_review",
+   "pm": "tomasz",
+   "sheet_id": "1DEMO_ARG9005",
+   "progress_pct": 100.0,
+   "milestones": [
+    {
+     "ref": "M1",
+     "name": "BESS delivered",
+     "kind": "commercial",
+     "baseline": "2026-02-10",
+     "planned": "2026-02-10",
+     "actual": "2026-02-09",
+     "billable": true,
+     "amount": 2800000,
+     "depends_on": []
+    },
+    {
+     "ref": "M2",
+     "name": "Commissioned",
+     "kind": "commercial",
+     "baseline": "2026-05-30",
+     "planned": "2026-05-30",
+     "actual": "2026-06-02",
+     "billable": true,
+     "amount": 2240000,
+     "depends_on": [
+      "M1"
+     ]
+    },
+    {
+     "ref": "M3",
+     "name": "Final acceptance",
+     "kind": "commercial",
+     "baseline": "2026-08-30",
+     "planned": "2026-08-30",
+     "actual": "2026-08-28",
+     "billable": true,
+     "amount": 560000,
+     "depends_on": [
+      "M2"
+     ]
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "ARG9005-T11",
+     "name": "BESS delivered — prepare",
+     "phase": "5_review",
+     "start": "2026-01-21",
+     "end": "2026-01-28",
+     "progress_pct": 100,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9005-T12",
+     "name": "BESS delivered — execute",
+     "phase": "5_review",
+     "start": "2026-01-29",
+     "end": "2026-02-05",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9005-T21",
+     "name": "Commissioned — prepare",
+     "phase": "5_review",
+     "start": "2026-05-10",
+     "end": "2026-05-17",
+     "progress_pct": 100,
+     "resource": "eng. office"
+    },
+    {
+     "task_id": "ARG9005-T22",
+     "name": "Commissioned — execute",
+     "phase": "5_review",
+     "start": "2026-05-18",
+     "end": "2026-05-25",
+     "progress_pct": 100,
+     "resource": "crew B"
+    },
+    {
+     "task_id": "ARG9005-T31",
+     "name": "Final acceptance — prepare",
+     "phase": "5_review",
+     "start": "2026-08-10",
+     "end": "2026-08-17",
+     "progress_pct": 100,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9005-T32",
+     "name": "Final acceptance — execute",
+     "phase": "5_review",
+     "start": "2026-08-18",
+     "end": "2026-08-25",
+     "progress_pct": 100,
+     "resource": "crew A"
+    }
+   ]
+  },
+  {
+   "project_id": "ARG9006",
+   "name": "Prologis CZ monitoring pilot",
+   "customer": "Prologis CZ",
+   "site": "Prague, CZ",
+   "type": "OTHER",
+   "phase": "1_specification",
+   "pm": "vit",
+   "sheet_id": "1DEMO_ARG9006",
+   "progress_pct": 37.5,
+   "milestones": [
+    {
+     "ref": "M1",
+     "name": "Kick-off",
+     "kind": "technical",
+     "baseline": "2026-10-01",
+     "planned": "2026-10-01",
+     "actual": null,
+     "billable": false,
+     "amount": 0,
+     "depends_on": []
+    }
+   ],
+   "tasks": [
+    {
+     "task_id": "ARG9006-T11",
+     "name": "Kick-off — prepare",
+     "phase": "1_specification",
+     "start": "2026-09-11",
+     "end": "2026-09-18",
+     "progress_pct": 60,
+     "resource": "crew A"
+    },
+    {
+     "task_id": "ARG9006-T12",
+     "name": "Kick-off — execute",
+     "phase": "1_specification",
+     "start": "2026-09-19",
+     "end": "2026-09-26",
+     "progress_pct": 15,
+     "resource": "crew A"
+    }
+   ]
+  }
+ ]
+}

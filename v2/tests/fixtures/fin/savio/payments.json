@@ -1,0 +1,27 @@
+{
+ "data": [
+  {
+   "payment_id": "pay_demo_9001",
+   "invoice_id": "inv_demo_0101",
+   "customer_id": "cus_demo_002",
+   "date": "2026-06-15",
+   "amount": "2519520.00",
+   "currency": "MXN",
+   "method": "SPEI",
+   "reference": "DEMO-TX-0615A",
+   "status": "applied"
+  },
+  {
+   "payment_id": "pay_demo_9002",
+   "invoice_id": "inv_demo_0102",
+   "customer_id": "cus_demo_003",
+   "date": "2026-08-28",
+   "amount": "2737600.00",
+   "currency": "MXN",
+   "method": "SPEI",
+   "reference": "DEMO-TX-0828A",
+   "status": "applied"
+  }
+ ],
+ "nextCursor": null
+}

@@ -1,0 +1,9 @@
+{
+ "id": "evt_demo_0003",
+ "type": "invoice.status.updated",
+ "created_at": "2026-09-02T09:00:00Z",
+ "data": {
+  "invoice_id": "inv_demo_0102",
+  "status": "partially_paid"
+ }
+}

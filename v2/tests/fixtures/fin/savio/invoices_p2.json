@@ -1,0 +1,113 @@
+{
+ "data": [
+  {
+   "invoice_id": "inv_demo_0105",
+   "customer_id": "cus_demo_001",
+   "series": "A",
+   "folio": "1004",
+   "issue_date": "2026-09-01",
+   "due_date": "2026-10-01",
+   "currency": "MXN",
+   "subtotal": "268855.20",
+   "tax": "43016.83",
+   "total": "311872.03",
+   "status": "open",
+   "paid_amount": "0.00",
+   "updated_at": "2026-09-05T08:14:00Z",
+   "custom_fields": {
+    "argia_project_id": "",
+    "argia_plant_key": "GTO1",
+    "argia_milestone": ""
+   },
+   "cfdis": [
+    {
+     "uuid": "B192B883-5626-5540-950D-62BF46CBC7DB",
+     "type": "I",
+     "status": "valid",
+     "stamped_at": "2026-09-01T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "GTO1 · PPA energy",
+     "quantity": 1,
+     "unit_price": "268855.20",
+     "amount": "268855.20"
+    }
+   ]
+  },
+  {
+   "invoice_id": "inv_demo_0106",
+   "customer_id": "cus_demo_004",
+   "series": "A",
+   "folio": "1005",
+   "issue_date": "2026-06-10",
+   "due_date": "2026-07-10",
+   "currency": "USD",
+   "subtotal": "140000.00",
+   "tax": "22400.00",
+   "total": "162400.00",
+   "status": "cancelled",
+   "paid_amount": "0.00",
+   "updated_at": "2026-09-06T08:15:00Z",
+   "custom_fields": {
+    "argia_project_id": "ARG9004",
+    "argia_plant_key": "",
+    "argia_milestone": "M2"
+   },
+   "cfdis": [
+    {
+     "uuid": "4E60AF7B-850F-5A2E-A0FD-3EA4C8B44187",
+     "type": "I",
+     "status": "cancelled",
+     "stamped_at": "2026-06-10T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "ARG9004 · M2",
+     "quantity": 1,
+     "unit_price": "140000.00",
+     "amount": "140000.00"
+    }
+   ]
+  },
+  {
+   "invoice_id": "inv_demo_0107",
+   "customer_id": "cus_demo_002",
+   "series": "A",
+   "folio": "1006",
+   "issue_date": "2026-04-20",
+   "due_date": "2026-05-20",
+   "currency": "MXN",
+   "subtotal": "150000.00",
+   "tax": "24000.00",
+   "total": "174000.00",
+   "status": "open",
+   "paid_amount": "0.00",
+   "updated_at": "2026-09-07T08:16:00Z",
+   "custom_fields": {
+    "argia_project_id": "ARG9001",
+    "argia_plant_key": "",
+    "argia_milestone": ""
+   },
+   "cfdis": [
+    {
+     "uuid": "EE7EEBF4-DDA9-53AE-A52A-4F3BA344BEE7",
+     "type": "I",
+     "status": "valid",
+     "stamped_at": "2026-04-20T12:00:00Z"
+    }
+   ],
+   "items": [
+    {
+     "description": "ARG9001 · PPA energy",
+     "quantity": 1,
+     "unit_price": "150000.00",
+     "amount": "150000.00"
+    }
+   ]
+  }
+ ],
+ "nextCursor": null
+}

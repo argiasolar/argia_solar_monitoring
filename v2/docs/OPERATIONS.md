@@ -46,7 +46,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-ags-ingest | Sun 04:20 | Golden Standard page → `knowledge` (Ask ARGIA) |
 | argia-ticket-mail | every 10 min | replies to `[TK-…]` mails → ticket comments (v227; idle until `IMAP_HOST/IMAP_USER/IMAP_PASS` are in `/root/.argia_mail`) |
 
-Services (always on): `argia-auth` 8512 (login/session), `argia-setup` 8511 (admin), `argia-ask` 8513 (Ask ARGIA), `argia-maint` 8514 (maintenance tickets, v226; attachments in `/opt/argia/tickets/`, root-only); nginx in front. Every job runs through `pi/run_job.sh <name> <script>` (venv, secrets, flock, log `/root/argia_logs/<name>.log`).
+Services (always on): `argia-auth` 8512 (login/session), `argia-setup` 8511 (admin), `argia-ask` 8513 (Ask ARGIA), `argia-maint` 8514 (maintenance tickets, v226; attachments in `/opt/argia/tickets/`, root-only), `argia-fin` 8515 (finance + projects pages, v244 — **private preview**: only the e-mails in `ARGIA_FIN_EMAILS`/`/opt/argia/auth/fin_allow.txt`, default tomasz.zemelka@argia.com.mx, get past the 403; everyone else also never sees the landing cards), `argia-savio-mock` 8530 (loopback-only fake of the Savio API serving `tests/fixtures/fin/savio/`; no timer — the finance ingest is run by hand for the demo, see §7); nginx in front. Every job runs through `pi/run_job.sh <name> <script>` (venv, secrets, flock, log `/root/argia_logs/<name>.log`).
 
 Pi cron (`pi/crontab.example` is byte-for-byte the live table): `deploy.sh` every 10 min (follows main), `report_watch.sh` every 5 min (portal probe → ntfy `argia-reportwatch-x9k24fq7`), `ppa_watch.sh` every 30 min 08–19 (acts only while the server is down), `pull_backup.sh` 22:00 (dumps + `portfolio.json`), `cfe_daily.sh` 08:10.
 
@@ -59,7 +59,7 @@ cd /root/argia_v2 && git fetch -q && git reset --hard -q origin/main
 cp v2/server/bundle/*.py v2/server/bundle/*.sh v2/server/bundle/*.sql /opt/argia/bundle/
 cp v2/server/monitoring_gen.py /opt/argia/bundle/
 cp v2/server/bundle/argia-*.service v2/server/bundle/argia-*.timer /etc/systemd/system/ && systemctl daemon-reload
-systemctl restart argia-auth argia-setup argia-ask argia-maint      # when their code changed
+systemctl restart argia-auth argia-setup argia-ask argia-maint argia-fin   # when their code changed
 # nginx only when a vhost/snippet changed — see server/bundle/README.md for the file map
 systemctl restart argia-auth argia-setup argia-ask       # only when those apps changed
 /root/argia_v2/v2/pi/run_job.sh drift drift_check.py && tail -3 /root/argia_logs/drift.log   # "status quo intact"
@@ -69,7 +69,7 @@ Rules: commit scripts use `set -o pipefail` and are idempotent; never hand-edit 
 ## 5. Restore
 - **Database**: dumps in `/root/argia_backups/argia_mont_YYYYMMDD.dump` (3 kept) and on the Pi `~/db_backups/daily` (14) + `weekly` (8). `runuser -u postgres -- pg_restore -d argia_mont --clean --if-exists /path/argia_mont_YYYYMMDD.dump`.
 - **Accounts**: `users_YYYYMMDD.db` → `/opt/argia/auth/users.db` (chmod 600), then `systemctl restart argia-auth argia-setup`.
-- **Server rebuild**: install PostgreSQL 17 + nginx + python3-venv; clone the repo to `/root/argia_v2`; `python3 -m venv v2/.venv && pip install -r v2/requirements.txt`; recreate the secret files; run the deploy block; restore the DB; `systemctl enable --now` every `argia-*.timer` and the three services; certificates via certbot webroot for `portal.argia.com.mx` (the old three domains only 301).
+- **Server rebuild**: install PostgreSQL 17 + nginx + python3-venv; clone the repo to `/root/argia_v2`; `python3 -m venv v2/.venv && pip install -r v2/requirements.txt`; recreate the secret files; run the deploy block; restore the DB; `systemctl enable --now` every `argia-*.timer` and every always-on service listed in §2; certificates via certbot webroot for `portal.argia.com.mx` (the old three domains only 301).
 
 ## 6. Who gets which mail (v217 rules, v223 cadence)
 | Channel (`/setup/`) | Content | Who |
@@ -101,6 +101,7 @@ Severity rule (Tomasz, 2026-09-07): **CRITICAL = energy is being lost or a plant
 | backup stale | `ls -l /root/argia_backups`, `journalctl -u argia-dbdump` | `systemctl start argia-dbdump`; on the Pi `tail ~/argia_logs/db_backup_pull.log` |
 | "inverter registry: …" (digest) | `cd /root/argia_v2/v2 && ./.venv/bin/python scripts/inverter_registry.py --live` | the vendor renamed/replaced an inverter, or the table drifted: fix `data/inverter_registry.json` against the manufacturer portal (never the table by hand), commit, deploy, then `scripts/inverter_registry.py --apply` (idempotent; labels and missing rows only, never the active flag) |
 | a plant's report shows no "expected from weather" line, or PR from a handful of days | `SELECT prod_date, irradiance_kwh_m2, pr FROM daily_production WHERE plant_key='X' ORDER BY 1 DESC LIMIT 40` | v241: a dark plant gets irradiance + expected_kwh from its weather device every morning (`kpi_eod`, `dark_plant_stamps`); rows that predate that (an onboarding backfill) are filled from the plant sharing the device with `scripts/irradiance_proxy_backfill.py --plant X` (dry run) then `--apply` — NULL cells only, `irradiance_source = proxy:<donor>`. The PR tile needs ≥ 7 PR days in the window and the weather line's self-calibration ≥ 10 full days; below that the config factor stands |
+| `/finance/` empty or "No access" (v244 preview) | `systemctl status argia-fin argia-savio-mock`; `curl -s -H 'X-Remote-User: tomasz' 127.0.0.1:8515/finance/me` | demo data lives in DEMO-* rows only: `cd /root/argia_v2/v2 && ./.venv/bin/python scripts/fin_schema.py --apply` (28 tables, idempotent) → `scripts/fin_seed.py --apply` (master data, projects, POs) → `ARGIA_SAVIO_BASE=http://127.0.0.1:8530/api/v1 scripts/fin_ingest.py --all --apply` (Savio via the mock, CFDI XML, bank CSV, PMO snapshot from `tests/fixtures/fin/`) → `scripts/fin_seed.py --decisions` (approvals, payments, matches). Every step re-runs without duplicates; `fin_seed.py --wipe` removes only DEMO-* rows. Access list: `/opt/argia/auth/fin_allow.txt` (one e-mail per line) + `systemctl restart argia-fin` |
 
 ## 8. Where the numbers are explained
 Portal "How the numbers are calculated" (report pages), `docs/AGS_701_VS_MONITORING_2026-09.md` (standard vs implementation), `docs/INVERTER_THERMAL_HEALTH_V216.md`, Ask ARGIA (`/ask/`, read-only SQL + Golden Standard search).

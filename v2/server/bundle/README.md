@@ -29,11 +29,12 @@ Deploy after a change (as root on pio06):
     cp v2/server/bundle/argia-*.service v2/server/bundle/argia-*.timer /etc/systemd/system/ && systemctl daemon-reload
     # nginx only when a vhost/snippet changed:
     cp v2/server/bundle/nginx-argia_session.conf /etc/nginx/snippets/argia_auth.conf && nginx -t && systemctl reload nginx
-    systemctl restart argia-auth argia-setup argia-ask     # only when those apps changed
+    systemctl restart argia-auth argia-setup argia-ask argia-maint argia-fin   # only when those apps changed
     /root/argia_v2/v2/pi/run_job.sh drift drift_check.py    # prove it: "status quo intact"
 
 Server-local data never in git: the secret files in `/root` (`.argia_env`,
 `.argia_mail`, `.argia_cfe_push`, `.argia_ask`, the vendor JSONs — all
-0600), `/opt/argia/auth/` (users.db, sessions.db, session.key), the CFE
+0600), `/opt/argia/auth/` (users.db, sessions.db, session.key, `fin_allow.txt` —
+the v244 finance preview allow-list, one e-mail per line), the CFE
 inbox. One-time migration CSVs and old shipping archives were moved to
 `/root/argia_attic/` on 2026-09-07 (v218 house-cleaning).

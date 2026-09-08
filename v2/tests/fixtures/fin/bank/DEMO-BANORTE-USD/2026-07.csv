@@ -1,0 +1,5 @@
+opening,140000.00
+closing,150000.00
+period,2026-07-01,2026-07-31
+date,description,debit,credit,counterpart,bank_id
+2026-07-22,TRASPASO DESDE BBVA MXN,,10000.00,012180001122334455,DEMO-TX-U0722

@@ -58,6 +58,12 @@ SECTIONS = {
         ('system', 'System', 'Sistema')]),
     'maintenance': ('Maintenance', 'Mantenimiento', [
         ('', 'Open', 'Abiertos'), ('new', 'New ticket', 'Nuevo ticket'), ('resolved', 'Resolved', 'Resueltos')]),
+    # v244: finance + projects (fin_app) — the landing cards stay hidden
+    # unless /finance/me says allowed (.finonly, like .askonly)
+    'finance': ('Finance', 'Finanzas', [
+        ('', 'Today', 'Hoy'), ('ar', 'Receivables', 'Cobrar'), ('ap', 'Payables', 'Pagar'),
+        ('bank', 'Bank', 'Banco'), ('exceptions', 'Exceptions', 'Excepciones')]),
+    'projects': ('Projects', 'Proyectos', [('', 'Portfolio', 'Portafolio')]),
 }
 
 
@@ -139,6 +145,8 @@ _ICONS = {
     'bolt': '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
     'chev': '<path d="m6 9 6 6 6-6"/>',
     'maint': '<path d="M14.5 5.5a4 4 0 0 0-5.3 5.1L4 15.8V20h4.2l5.2-5.2a4 4 0 0 0 5.1-5.3l-2.6 2.6-2.2-.6-.6-2.2z"/>',
+    'finance': '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>',
+    'projects': '<path d="M4 5h16v4H4zM4 11h10v4H4zM4 17h13v3H4z"/>',
 }
 
 
@@ -205,7 +213,7 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .umenu .seg{margin-left:auto}.wa{padding:1px 7px;border-radius:9px;font-size:11px;font-weight:600;background:#ecebf6;color:#4f4a94}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}.seg button,.seg a,.seg span{padding:7px 12px;font:600 12.5px inherit;font-family:inherit;color:var(--muted);border:0;border-right:1px solid var(--line);background:#fff;cursor:pointer}
 .seg>*:last-child{border-right:0}.seg .active,.seg .on{background:#e6f7f5;color:var(--deep)}
-.adminonly,.askonly{display:none}
+.adminonly,.askonly,.finonly{display:none}
 /* buttons */
 .btn{background:var(--teal);color:var(--deep);border:0;border-radius:8px;padding:11px 18px;font-weight:800;font-size:13px;letter-spacing:.03em;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-family:inherit}
 .btn2{background:#fff;color:var(--ink2);border:1px solid var(--line2);border-radius:8px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-family:inherit}
@@ -357,6 +365,8 @@ window.addEventListener('DOMContentLoaded',()=>{
  }).catch(()=>{});
  fetch('/ask/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   if(d&&d.allowed)document.querySelectorAll('.askonly').forEach(x=>x.style.display='');}).catch(()=>{});
+ fetch('/finance/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
+  if(d&&d.allowed)document.querySelectorAll('.finonly').forEach(x=>x.style.display='');}).catch(()=>{});
  document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();location.href='/ask/';}});
 });
 </script>'''

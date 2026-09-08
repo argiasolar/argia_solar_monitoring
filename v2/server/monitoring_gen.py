@@ -508,27 +508,71 @@ RECON_M = [r for r in q(
     "SELECT plant_key, to_char(ref_month,'YYYY-MM'), billing_kwh,"
     " billing_basis, status, coalesce(closed_by,''),"
     " coalesce(note,'') FROM reconciliation_monthly"
-    " ORDER BY ref_month DESC, plant_key LIMIT 60;") if len(r) >= 7]
+    " ORDER BY ref_month DESC, plant_key LIMIT 400;") if len(r) >= 7]   # v242: the archive is collapsed, not cut
 
-# performance, last 30 days (Phase F v1): PR, availability, vs expected
-PERF = {}
-for r in q("SELECT plant_key, round(avg(pr)::numeric, 3),"
-           " round(avg(availability)::numeric, 3),"
-           " sum(energy_kwh), sum(expected_kwh),"
-           " count(*) FILTER (WHERE pr IS NOT NULL),"
-           " round(avg(pr_stc)::numeric, 3)"
-           " FROM daily_production"
-           f" WHERE prod_date >= DATE '{TODAY}' - 30"
-           " GROUP BY 1;"):
-    if len(r) >= 7:
-        PERF[r[0]] = {'pr': f(r[1]), 'avail': f(r[2]), 'prod': f(r[3]),
-                      'exp': f(r[4]), 'pr_days': int(f(r[5]) or 0),
-                      'pr_stc': f(r[6])}
+# performance, last 30 days (Phase F v1): PR, availability, vs expected.
+# v242 (Mirek's QA, 2026-09-08): the averages used to run over the days
+# that HAD a value — Ryder showed PR 0.996 / PR_STC 1.084 / availability
+# 100% from ONE day while dark for six. Now: a PR needs MIN_PR_DAYS days
+# and a day above PR_MAX is an input error, not a value; a dark day (no
+# telemetry, no energy — or no row at all up to yesterday) is 0%
+# available, the same rule the plant report applies (v241).
+MIN_PR_DAYS = 7
+PR_MAX = 1.05
+
+
+def perf_summary(rows, today, first_dates, min_pr_days=MIN_PR_DAYS, pr_max=PR_MAX):
+    """rows: (plant_key, 'YYYY-MM-DD', pr, pr_stc, availability,
+    energy_kwh, expected_kwh) for the last 30 days as strings ('' = NULL);
+    first_dates: plant -> its first daily_production date. Pure."""
+    import datetime as _dt
+    end = _dt.date.fromisoformat(today) - _dt.timedelta(days=1)
+    start = _dt.date.fromisoformat(today) - _dt.timedelta(days=30)
+    by = {}
+    for r in rows:
+        if len(r) < 7:
+            continue
+        by.setdefault(r[0], []).append(r)
+    out = {}
+    for pk, rs in by.items():
+        prs = [f(r[2]) for r in rs if f(r[2]) is not None]
+        good = [v for v in prs if v <= pr_max]
+        stcs = [f(r[3]) for r in rs if f(r[3]) is not None and f(r[3]) <= pr_max]
+        avs, dark = [], 0
+        for r in rs:
+            a = f(r[4])
+            if a is not None:
+                avs.append(a)
+            elif (f(r[5]) or 0.0) <= 0:
+                dark += 1                      # a row with nothing in it
+        fd = first_dates.get(pk)
+        owed_from = max(start, _dt.date.fromisoformat(fd)) if fd else start
+        owed = (end - owed_from).days + 1 if owed_from <= end else 0
+        have = sum(1 for r in rs if owed_from.isoformat() <= r[1] <= end.isoformat())
+        norow = max(0, owed - have)
+        n_av = len(avs) + dark + norow
+        out[pk] = {
+            'pr': round(sum(good) / len(good), 3) if len(good) >= min_pr_days else None,
+            'pr_stc': round(sum(stcs) / len(stcs), 3) if len(stcs) >= min_pr_days else None,
+            'avail': round(sum(avs) / n_av, 3) if n_av else None,
+            'prod': sum(f(r[5]) or 0.0 for r in rs),
+            'exp': sum(f(r[6]) or 0.0 for r in rs),
+            'pr_days': len(prs), 'pr_bad': len(prs) - len(good),
+            'dark_days': dark + norow,
+        }
+    return out
+
+
+FIRST_DATES = {r[0]: r[1] for r in q(
+    "SELECT plant_key, min(prod_date)::text FROM daily_production GROUP BY 1;") if len(r) >= 2}
+PERF = perf_summary(q(
+    "SELECT plant_key, prod_date::text, pr, pr_stc, availability, energy_kwh, expected_kwh"
+    f" FROM daily_production WHERE prod_date >= DATE '{TODAY}' - 30;"), TODAY, FIRST_DATES)
 
 PR_TREND = {}   # plant -> [(date, pr)] last 30d, for sparklines
 for r in q("SELECT plant_key, prod_date::text, pr FROM daily_production"
            f" WHERE prod_date >= DATE '{TODAY}' - 30 AND pr IS NOT NULL"
-           " ORDER BY 1, 2;"):
+           f" AND pr <= {PR_MAX} ORDER BY 1, 2;"):
     if len(r) >= 3 and f(r[2]) is not None:
         PR_TREND.setdefault(r[0], []).append((r[1], f(r[2])))
 
@@ -1419,8 +1463,8 @@ def performance_page(skin='old'):
 <th data-en="Expected kWh" data-es="Esperado kWh">Expected kWh</th>
 <th data-en="vs exp." data-es="vs esp.">vs exp.</th></tr>
 {''.join(rows)}</table>
-<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature — only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. Next: degradation vs the ≤0.4%/yr warranty."
- data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia — solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Sigue: degradación vs garantía ≤0.4%/año.">
+<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature — only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. A PR needs at least 7 days in the window and a day above 1.05 is an input error, not a value (—); a day without telemetry and without energy counts as 0% available. Next: degradation vs the ≤0.4%/yr warranty."
+ data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia — solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Un PR necesita al menos 7 días en la ventana y un día arriba de 1.05 es un error de entrada, no un valor (—); un día sin telemetría y sin energía cuenta como 0% disponible. Sigue: degradación vs garantía ≤0.4%/año.">
 PR and availability come from the daily KPI pipeline.</p></div>'''
     if skin == 'portal':
         return body
@@ -1428,40 +1472,133 @@ PR and availability come from the daily KPI pipeline.</p></div>'''
                 '30-day PR · availability · production vs expected')
 
 
+def recon_split(recon_m):
+    """v242 (Mirek's QA): the rows that need a decision — an OPEN
+    month (no closer yet) — apart from the closed, invoiced archive.
+    Pure; order preserved (newest first)."""
+    open_rows = [r for r in recon_m if not (r[5] or '').strip()]
+    closed = [r for r in recon_m if (r[5] or '').strip()]
+    return open_rows, closed
+
+
+def recon_csv(recon_m, recon_d):
+    """The two reconciliation tables as CSV text (UTF-8, comma, quoted)
+    — the accountant's export Mirek asked for. Pure."""
+    import csv as _csv
+    import io as _io
+    out = _io.StringIO()
+    w = _csv.writer(out)
+    w.writerow(['table', 'month_or_date', 'plant', 'billing_or_kpi_kwh', 'basis', 'status',
+                'closed_by', 'interval_kwh', 'vendor_kwh', 'completeness_pct', 'variance_pct', 'note'])
+    for pk, m, bill, basis, st, closed, note in recon_m:
+        w.writerow(['monthly', m, pk, bill, basis, st, closed, '', '', '', '', note])
+    for pk in sorted(recon_d):
+        for r in recon_d[pk]:
+            w.writerow(['daily', r[0], pk, r[3], '', r[6], '', r[1], r[2], r[4], r[5], r[7]])
+    return out.getvalue()
+
+
+RECON_LEGEND_EN = (
+    "How the four checks work. The monthly close compares independent energy counters: "
+    "CHECK 2 = Σ of the vendor's daily counters vs the vendor's monthly counter; "
+    "CHECK 4 = the vendor's monthly counter vs the delta of the inverters' lifetime registers; "
+    "CHECK 3 = Σ of the daily inverter-counter references vs that lifetime delta. "
+    "These are the HARD checks: agreement within 0.5% is PASS, within 1.5% REVIEW, beyond 1.5% FAIL. "
+    "CHECK 1 = our own 5-minute telemetry summed vs the counters — it measures how much of the day WE captured "
+    "(completeness), not how much the plant produced; when completeness is under 95% an undercount is expected, "
+    "so CHECK 1 informs and never fails a close on its own. That is why '−21% at 69.6% completeness' can sit next to "
+    "a PASS: the billing figure comes from the counters, which cover the whole month. "
+    "Billing basis, in order of preference: Σ inverter-counter daily references (every day covered) → lifetime delta → "
+    "vendor monthly → Σ vendor daily → interval sum (last resort, always REVIEW). A PASS month closes automatically and "
+    "unlocks its invoice annex; REVIEW/FAIL wait for a person.")
+RECON_LEGEND_ES = (
+    "Cómo funcionan las cuatro verificaciones. El cierre mensual compara contadores de energía independientes: "
+    "CHECK 2 = Σ de los contadores diarios del fabricante vs su contador mensual; "
+    "CHECK 4 = contador mensual del fabricante vs el delta de los registros de vida de los inversores; "
+    "CHECK 3 = Σ de las referencias diarias de contadores de inversor vs ese delta de vida. "
+    "Estas son las verificaciones DURAS: acuerdo dentro de 0.5% es PASS, dentro de 1.5% REVIEW, más allá FAIL. "
+    "CHECK 1 = nuestra telemetría de 5 minutos sumada vs los contadores — mide cuánto del día capturamos NOSOTROS "
+    "(completitud), no cuánto produjo la planta; con completitud bajo 95% se espera un subconteo, así que CHECK 1 informa "
+    "y nunca reprueba un cierre por sí sola. Por eso '−21% con 69.6% de completitud' puede estar junto a un PASS: la cifra "
+    "facturable viene de los contadores, que cubren todo el mes. "
+    "Base de facturación, en orden de preferencia: Σ referencias diarias de contadores de inversor (todos los días cubiertos) → "
+    "delta de vida → mensual del fabricante → Σ diario del fabricante → suma de intervalos (último recurso, siempre REVIEW). "
+    "Un mes PASS cierra automáticamente y desbloquea su anexo de factura; REVIEW/FAIL esperan a una persona.")
+
+
+def _recon_m_row(pk, m, bill, basis, st, closed, note):
+    return (f'<tr data-plant="{esc(pk)}" data-status="{esc(st)}"><td>{esc(m)}</td><td>{esc(pk)}</td><td>{fmt_kwh(f(bill))}</td>'
+            f'<td>{esc(basis)}</td><td class="st-{esc(st)}">{esc(st)}</td>'
+            f'<td>{esc(closed) or "<span class=note>open</span>"}</td>'
+            f'<td>{"<span class=pill>invoice unlocked</span>" if closed else "<span class=pill off>locked until close</span>"}</td>'
+            f'<td class="note recnote" title="{esc(note)}">{esc(note)}</td></tr>')
+
+
+RECON_M_HEAD = ('<tr><th data-en="Month" data-es="Mes">Month</th><th data-en="Plant" data-es="Planta">Plant</th>'
+                '<th data-en="Billing kWh" data-es="kWh facturables">Billing kWh</th><th data-en="Basis" data-es="Base">Basis</th>'
+                '<th>Status</th><th data-en="Closed by" data-es="Cerrado por">Closed by</th>'
+                '<th data-en="Invoice annex" data-es="Anexo de factura">Invoice annex</th><th data-en="Note" data-es="Nota">Note</th></tr>')
+
+RECON_JS = """<script>
+(function(){function apply(){var p=document.getElementById('rf_plant').value,s=document.getElementById('rf_status').value;
+ document.querySelectorAll('tr[data-plant]').forEach(function(tr){tr.style.display=((!p||tr.dataset.plant===p)&&(!s||tr.dataset.status===s))?'':'none';});}
+ ['rf_plant','rf_status'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',apply);});})();
+</script>"""
+
+RECON_NOTE_CSS = '<style>.recnote{white-space:normal;max-width:520px;min-width:260px;line-height:1.4}</style>'
+
+
 def recon_page(skin='old'):
     """skin='portal' (v213) returns the body without the controls row;
-    the annex link then points at /report/invoices/."""
+    the annex link then points at /report/invoices/.
+    v242 (Mirek's QA): open months first, the closed archive collapsed,
+    a plant/status filter, full notes (they were cut at 60 characters
+    on the server — the FAIL row lost the word 'billing'), the four
+    checks explained on the page, CSV export."""
     d_rows = []
     for pk in sorted(RECON_D):
         for r in RECON_D[pk][:5]:
             d_rows.append(
-                f'<tr><td>{esc(r[0])}</td><td>{pk}</td>'
+                f'<tr data-plant="{esc(pk)}" data-status="{esc(r[6])}"><td>{esc(r[0])}</td><td>{pk}</td>'
                 f'<td>{fmt_kwh(f(r[1]))}</td><td>{fmt_kwh(f(r[2]))}</td>'
                 f'<td>{fmt_kwh(f(r[3]))}</td>'
                 f'<td>{"—" if f(r[4]) is None else f"{f(r[4]):.0f}%"}</td>'
                 f'<td>{"—" if f(r[5]) is None else f"{f(r[5]):+.2f}%"}</td>'
                 f'<td class="st-{esc(r[6])}">{esc(r[6])}</td>'
-                f'<td class="note">{esc(r[7][:70])}</td></tr>')
-    m_rows = ''.join(
-        f'<tr><td>{esc(m)}</td><td>{esc(pk)}</td><td>{fmt_kwh(f(bill))}</td>'
-        f'<td>{esc(basis)}</td><td class="st-{esc(st)}">{esc(st)}</td>'
-        f'<td>{esc(closed) or "<span class=note>open</span>"}</td>'
-        f'<td>{"<span class=pill>invoice unlocked</span>" if closed else "<span class=pill off>locked until close</span>"}</td>'
-        f'<td class="note">{esc(note[:60])}</td></tr>'
-        for pk, m, bill, basis, st, closed, note in RECON_M)
+                f'<td class="note recnote" title="{esc(r[7])}">{esc(r[7])}</td></tr>')
+    open_rows, closed_rows = recon_split(RECON_M)
+    m_open = ''.join(_recon_m_row(*r) for r in open_rows)
+    m_closed = ''.join(_recon_m_row(*r) for r in closed_rows)
+    plants_opt = ''.join(f'<option value="{esc(k)}">{esc(k)}</option>' for k in sorted(PLANTS))
+    status_opt = ''.join(f'<option value="{st}">{st}</option>' for st in ('PASS', 'REVIEW', 'FAIL', 'NO_DATA'))
     inv = '/report/invoices/' if skin == 'portal' else '/invoices/'
+    filt = ('<div class="recfilter" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px">'
+            f'<label class="note"><span data-en="Plant" data-es="Planta">Plant</span> <select id="rf_plant"><option value="">—</option>{plants_opt}</select></label>'
+            f'<label class="note">Status <select id="rf_status"><option value="">—</option>{status_opt}</select></label>'
+            '<a class="btn" href="reconciliation.csv" download data-en="Download CSV" data-es="Descargar CSV" style="margin-left:auto">Download CSV</a></div>')
+    no_open = ('<tr><td colspan="8" class="note" data-en="No open month — every closed month is in the archive below." '
+               'data-es="Ningún mes abierto — todos los meses cerrados están en el archivo de abajo.">No open month — every closed month is in the archive below.</td></tr>')
+    no_closed = ('<tr><td colspan="8" class="note" data-en="No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX." '
+                 'data-es="Aún no hay cierre mensual. El primero (agosto) corre el 1 de septiembre a las 06:10 MX.">No monthly close yet.</td></tr>')
     body = ('' if skin == 'portal' else controls(
         f'<a class="btn" href="{inv}" data-en="Invoice annexes"'
         ' data-es="Anexos de facturación">Invoice annexes</a>')) + f'''
+{RECON_NOTE_CSS}
 <div class="card"><h2 data-en="Monthly close — the invoice gate" data-es="Cierre mensual — la puerta de facturación">Monthly close — the invoice gate</h2>
-<table><tr><th data-en="Month" data-es="Mes">Month</th><th data-en="Plant" data-es="Planta">Plant</th><th data-en="Billing kWh" data-es="kWh facturables">Billing kWh</th><th data-en="Basis" data-es="Base">Basis</th><th>Status</th><th data-en="Closed by" data-es="Cerrado por">Closed by</th><th data-en="Invoice annex" data-es="Anexo de factura">Invoice annex</th><th data-en="Note" data-es="Nota">Note</th></tr>
-{m_rows or '<tr><td colspan="8" class="note" data-en="No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX; each plant-month then appears here with its billing kWh, and the invoice annex unlocks for closed months." data-es="Aún no hay cierre mensual. El primero (agosto) corre el 1 de septiembre a las 06:10 MX; cada planta-mes aparecerá aquí con sus kWh facturables, y el anexo de factura se desbloquea para meses cerrados.">No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX.</td></tr>'}</table>
-<p class="note" data-en="A PASS month closes automatically; REVIEW/FAIL wait for a manual close. Approved customer-maintenance events add deemed energy to billing. The annex generator connects here once the first month is closed."
+{filt}
+<h3 style="margin:6px 0" data-en="Open — waiting for a decision" data-es="Abiertos — esperan decisión">Open — waiting for a decision</h3>
+<table>{RECON_M_HEAD}
+{m_open or no_open}</table>
+<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:600" data-en="Closed and invoiced — {len(closed_rows)} plant-months" data-es="Cerrados y facturados — {len(closed_rows)} planta-meses">Closed and invoiced — {len(closed_rows)} plant-months</summary>
+<table>{RECON_M_HEAD}
+{m_closed or no_closed}</table></details>
+<p class="note" data-en="A PASS month closes automatically; REVIEW/FAIL wait for a manual close. Approved customer-maintenance events add deemed energy to billing."
  data-es="Un mes PASS cierra automáticamente; REVIEW/FAIL esperan cierre manual. Los eventos de mantenimiento de cliente aprobados agregan energía compensada.">
-A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p></div>
+A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p>
+<p class="note" data-en="{esc(RECON_LEGEND_EN)}" data-es="{esc(RECON_LEGEND_ES)}">{esc(RECON_LEGEND_EN)}</p></div>
 <div class="card"><h2 data-en="Daily reconciliation — last days, all plants" data-es="Conciliación diaria — últimos días, todas las plantas">Daily reconciliation — last days, all plants</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Plant" data-es="Planta">Plant</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th>Compl.</th><th>Δ%</th><th>Status</th><th data-en="Note" data-es="Nota">Note</th></tr>
-{''.join(d_rows)}</table></div>'''
+{''.join(d_rows)}</table></div>{RECON_JS}'''
     if skin == 'portal':
         return body
     return page('Reconciliation', body,

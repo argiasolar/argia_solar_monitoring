@@ -134,6 +134,8 @@ _cfgf = {r[0]: f(r[1]) for r in q(
 # MIN_CAL_DAYS the config factor stands alone.
 MIN_CAL_DAYS = 10
 MIN_PR_DAYS = 7      # a 30-day PR tile from fewer days than this is not a 30-day PR
+PR_MAX = 1.05        # v242: above this a day's PR is an input error (sun undercounted), never averaged
+V2_START = '2026-07-01'   # first v2 billing month — the financial report's default window opens here
 _medpr_raw = {r[0]: (f(r[1]), int(f(r[2]))) for r in q(
     f"SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY pr), count(*)"
     f" FROM daily_production WHERE pr IS NOT NULL AND data_class = 'full'"
@@ -166,11 +168,11 @@ for r in q("SELECT plant_key, prod_date, data_class FROM daily_production "
         dq_d[(r[0], r[1])] = 1 if r[2].strip() == 'full' else 0
 
 pr30 = {r[0]: f(r[1]) for r in q(
-    f"SELECT plant_key, avg(pr) FROM daily_production WHERE source='v2' AND pr IS NOT NULL "
+    f"SELECT plant_key, avg(pr) FROM daily_production WHERE source='v2' AND pr IS NOT NULL AND pr <= {PR_MAX} "
     f"AND prod_date > date '{asof}' - 30 GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}
 prstc30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr_stc) FROM daily_production WHERE source='v2'"
-    f" AND pr_stc IS NOT NULL AND prod_date > date '{asof}' - 30"
+    f" AND pr_stc IS NOT NULL AND pr_stc <= {PR_MAX} AND prod_date > date '{asof}' - 30"
     f" GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}   # temperature-normalized PR (25 degC cell)
 last_seen = {r[0]: r[1] for r in q(
     "SELECT plant_key, max(prod_date) FROM daily_production GROUP BY plant_key;")}
@@ -1436,8 +1438,8 @@ def plant_parts(k):
     # already opens on, and the full range is what From/To empty means.
     controls = f'''<div class="controls rangebar noprint">
  <div class="rgroup">
-  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn"></label>
-  <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn"></label>
+  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn" value="{(dt.date.fromisoformat(asof) - dt.timedelta(days=29)).isoformat()}"></label>
+  <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn" value="{asof}"></label>
  </div>
  <div class="rgroup seg">
   <button class="btn" onclick="preset('mtd')">{t("Month to date","Mes en curso")}</button>
@@ -1595,8 +1597,8 @@ def financial_body():
     body.append(f'''
 <div class="controls rangebar noprint">
  <div class="rgroup">
-  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn"></label>
-  <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn"></label>
+  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn" value="{V2_START}"></label>
+  <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn" value="{asof}"></label>
  </div>
  <div class="rgroup seg">
   <button class="btn" onclick="preset('mtd')">{t("Month to date","Mes en curso")}</button>
@@ -1723,7 +1725,7 @@ function preset(w){{
 window.addEventListener('DOMContentLoaded',()=>{{
  // window override via #d0=YYYY-MM-DD&d1=YYYY-MM-DD (or ?d0=&d1=) —
  // the financial mailer prints a chosen period; humans get the default
- let w0='2026-07-01', w1=ASOF;
+ let w0='{V2_START}', w1=ASOF;   // v2 billing start -> data edge (Mirek: the HTML now carries the same default in the inputs)
  try{{
   const raw=(location.hash||'').replace(/^#/,'')+'&'+(location.search||'').replace(/^\?/,'');
   const p=new URLSearchParams(raw);

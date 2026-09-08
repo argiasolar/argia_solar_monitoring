@@ -304,11 +304,21 @@ def monthly_close(interval_sum_kwh: Optional[float],
         else:
             notes.append(f"CHECK3 Σ inverter-counter references vs lifetime "
                          f"delta {c3:+.2f}%")
+    # v242 (Mirek's QA): a PASS that rests on the vendor alone (no
+    # lifetime register to cross-check, no full month of inverter-counter
+    # references) says so — the customer can verify it only on the
+    # vendor portal. Informational; the status is Tomasz's call.
+    if (status == STATUS_PASS and ld is None
+            and basis in (BASIS_MONTHLY, BASIS_DAILY_SUM)):
+        notes.append("vendor-only cross-check (Σ daily vs monthly from the same "
+                     "portal; no lifetime register, no full month of inverter "
+                     "counters)")
     if c1 is not None:
         if low_completeness:
             notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}% "
                          f"(completeness {completeness_pct:.1f}% — "
-                         "undercount expected)")
+                         "undercount expected; our 5-min sampling, not the "
+                         "billing counters)")
         elif abs(c1) > MONTHLY_REVIEW_PCT:
             notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}% — telemetry "
                          "pipeline losing data despite good completeness")

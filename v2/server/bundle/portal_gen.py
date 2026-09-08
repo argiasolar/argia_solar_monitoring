@@ -166,11 +166,32 @@ def plant_table(keys, day):
 </div>'''
 
 
+def revenue_tile(on, rev, rev_ppa, rev_laas):
+    """The overview tile carries the split (PPA x + LaaS y = total); the
+    PPA page its own share; the CAPEX page says why there is none."""
+    tip = ("Energy × the plant tariff, plus LaaS fees, accrued by day. Overview = PPA + LaaS; the PPA page shows the PPA share alone; CAPEX plants are client-owned and earn ARGIA no revenue.",
+           "Energía × tarifa de la planta, más cuotas LaaS, devengado por día. Resumen = PPA + LaaS; la página PPA muestra sólo la parte PPA; las plantas CAPEX son del cliente y no generan ingreso a ARGIA.")
+    if on == 'capex':
+        return tile("Revenue generated", "Ingreso generado", "—",
+                    "CAPEX · client-owned, no ARGIA revenue", "CAPEX · del cliente, sin ingreso ARGIA", tip=tip)
+    if on == '':
+        sub = (f"PPA {rev_ppa / 1e6:,.1f} M + LaaS {rev_laas / 1e6:,.1f} M · accrued",
+               f"PPA {rev_ppa / 1e6:,.1f} M + LaaS {rev_laas / 1e6:,.1f} M · devengado")
+    else:
+        sub = ("PPA · accrued", "PPA · devengado")
+    return tile("Revenue generated", "Ingreso generado", f"$ {rev / 1e6:,.1f} <span class=unit>M MXN</span>", sub[0], sub[1], tip=tip)
+
+
 def report_overview(keys=None, on='', title_en='Fleet overview', title_es='Resumen de la flota'):
     keys = keys or (PPA + CAPEX)
     life = sum(v for (k2, m2), v in RG.monthly_kwh.items() if k2 in keys)
     co2 = sum(v / 1000.0 * RG.co2_factor(m2[:4], k2) for (k2, m2), v in RG.monthly_kwh.items() if k2 in keys)
-    rev = sum(a[2] for a in RG.atoms if a[1] in keys or on == '')
+    # v242 (Mirek's QA): the overview's revenue is PPA + LaaS while the PPA
+    # and CAPEX pages show their own share — say the split, so the three
+    # pages add up in front of the reader; CAPEX has no ARGIA revenue at all
+    rev_ppa = sum(a[2] for a in RG.atoms if a[1] in keys and a[1] in PPA)
+    rev_laas = sum(a[2] for a in RG.atoms if a[1] in RG.LAAS) if on == '' else 0.0
+    rev = rev_ppa + rev_laas
     kwp = sum(RG.plants[k]['kwp'] for k in keys)
     this_m = RG.asof[:7]
     mtd = sum(v for (k2, m2), v in RG.monthly_kwh.items() if m2 == this_m and k2 in keys)
@@ -184,7 +205,7 @@ def report_overview(keys=None, on='', title_en='Fleet overview', title_es='Resum
 <div class="grid g5" style="margin-top:20px">
  {tile("Clean energy generated", "Energía limpia generada", f"{life / 1e6:,.2f} <span class=unit>GWh</span>", f"{RG.first} → {RG.asof}", f"{RG.first} → {RG.asof}", tip=("Sum of daily production, inverter counters first (vendor daily only where higher).", "Suma de la producción diaria, contadores de inversor primero (diario del proveedor sólo si es mayor)."))}
  {tile("CO₂ avoided", "CO₂ evitado", f"{co2:,.0f} <span class=unit>t</span>", f"grid factor by year · {RG.CO2_T_PER_MWH} t/MWh current", f"factor de red por año · {RG.CO2_T_PER_MWH} t/MWh actual", tip=("kWh × the national grid factor of that year (a contracted plant factor wins).", "kWh × el factor de red nacional de ese año (gana el factor contratado de la planta)."))}
- {tile("Revenue generated", "Ingreso generado", f"$ {rev / 1e6:,.1f} <span class=unit>M MXN</span>", "PPA + LaaS · accrued", "PPA + LaaS · devengado", tip=("Energy × the plant tariff, plus LaaS fees, accrued by day.", "Energía × tarifa de la planta, más cuotas LaaS, devengado por día."))}
+ {revenue_tile(on, rev, rev_ppa, rev_laas)}
  {tile("Fleet capacity", "Capacidad instalada", f"{kwp / 1000:,.2f} <span class=unit>MWp</span>", f"{n_ppa} PPA · {len(keys) - n_ppa} CAPEX", f"{n_ppa} PPA · {len(keys) - n_ppa} CAPEX")}
  {tile("This month", "Este mes", f"{mtd / 1000:,.0f} <span class=unit>MWh</span>", f"{this_m} → {RG.asof[8:]}", f"{this_m} → {RG.asof[8:]}")}
 </div>
@@ -472,6 +493,7 @@ def main():
     write('monitoring/capex/index.html', monitoring_overview('capex')); n += 1
     write('monitoring/performance/index.html', monitoring_performance()); n += 1
     write('monitoring/recon/index.html', monitoring_recon()); n += 1
+    write('monitoring/recon/reconciliation.csv', MG.recon_csv(MG.RECON_M, MG.RECON_D)); n += 1   # v242: the accountant's export
     # parity phase: not-yet-rebuilt destinations land on the old site
     write('report/financial/index.html', financial_report()); n += 1
     write('report/invoices/index.html', invoices_page()); n += 1

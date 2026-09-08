@@ -31,7 +31,7 @@ class TestTheButtonExists:
         MON = (ROOT / "server" / "monitoring_gen.py").read_text(
             encoding="utf-8")
         i = MON.index("def recon_page")
-        block = MON[i:i + 2400]
+        block = MON[i:i + 4000]      # v242: the page grew (filter, archive, legend)
         # v213: /invoices/ on the old host, /report/invoices/ on the portal
         assert "inv = '/report/invoices/' if skin == 'portal' else '/invoices/'" in block
         assert 'href="{inv}"' in block

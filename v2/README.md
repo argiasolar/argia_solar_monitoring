@@ -10,6 +10,7 @@ portal and the invoices, and answers questions (Ask ARGIA).
 **Live**: https://portal.argia.com.mx (login required). **Runbook**:
 `docs/OPERATIONS.md`. **Go-live status**: `docs/GO_LIVE_CHECKLIST.md`.
 **Standard vs implementation**: `docs/AGS_701_VS_MONITORING_2026-09.md`.
+**Next modules (Project Management + Finance)**: `docs/PM_FINANCE_ARCHITECTURE.md` — decisions, domain model, Savio/Drive/PMO integration, roadmap; the rules live in `argia/fin/` (pure, tested); book inputs `docs/ags/AGS-903_*.md`, `AGS-904_*.md`.
 
 ## Layout
 ```

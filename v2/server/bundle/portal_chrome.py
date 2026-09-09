@@ -62,7 +62,7 @@ SECTIONS = {
     # unless /finance/me says allowed (.finonly, like .askonly)
     'finance': ('Finance', 'Finanzas', [
         ('', 'Today', 'Hoy'), ('ar', 'Receivables', 'Cobrar'), ('ap', 'Payables', 'Pagar'),
-        ('bank', 'Bank', 'Banco'), ('exceptions', 'Exceptions', 'Excepciones')]),
+        ('bank', 'Bank', 'Banco'), ('pl', 'P&L', 'Resultados'), ('exceptions', 'Exceptions', 'Excepciones')]),
     'projects': ('Projects', 'Proyectos', [('', 'Portfolio', 'Portafolio')]),
 }
 

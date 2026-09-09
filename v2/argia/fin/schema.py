@@ -315,6 +315,239 @@ CREATE TABLE IF NOT EXISTS savio_cursor (
 CREATE INDEX IF NOT EXISTS supplier_invoice_project_idx ON supplier_invoice(project_id);
 CREATE INDEX IF NOT EXISTS supplier_invoice_status_idx ON supplier_invoice(status);
 CREATE INDEX IF NOT EXISTS customer_invoice_project_idx ON customer_invoice(project_id);
+-- ------------------------------------------------------------------ v245: the books (CONTPAQi + the accountants' workbook + the business-side workbooks)
+CREATE TABLE IF NOT EXISTS fin_source_file (                -- every file the Drive ingest ever read, by content hash
+    sha256          text PRIMARY KEY,
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    kind            text NOT NULL,                   -- polizas | auxiliares | acctbook | overview | tracker | pmo_sheet
+    name            text NOT NULL,
+    drive_id        text,
+    modified        timestamptz,
+    period          text,                            -- 'YYYY-MM' the file reports through, when it has one
+    imported_at     timestamptz NOT NULL DEFAULT now(),
+    rows            integer NOT NULL DEFAULT 0,
+    notes           text NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS gl_account (
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    account         text NOT NULL,                   -- '102-01-001'
+    name            text NOT NULL,
+    name_en         text NOT NULL DEFAULT '',
+    bs_pl           text NOT NULL DEFAULT '',        -- BS | PL
+    a_p             text NOT NULL DEFAULT '',        -- A | P | R | C
+    report_code     text NOT NULL DEFAULT '',        -- BS_100 | PL_040 …
+    report_account  text NOT NULL DEFAULT '',
+    nature          text NOT NULL DEFAULT 'debit',   -- debit | credit (how the print shows the balance)
+    PRIMARY KEY (entity_id, account)
+);
+CREATE TABLE IF NOT EXISTS gl_journal (
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    jkey            text NOT NULL,                   -- 'YYYY-MM-DD:kind:number'
+    jdate           date NOT NULL,
+    kind            text NOT NULL,                   -- Ingresos | Egresos | Diario
+    number          integer NOT NULL,
+    concept         text NOT NULL DEFAULT '',
+    control         text NOT NULL DEFAULT '',
+    posted          boolean NOT NULL DEFAULT true,   -- false when the auxiliares print does not carry it
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
+    PRIMARY KEY (entity_id, jkey)
+);
+CREATE TABLE IF NOT EXISTS gl_line (
+    entity_id       text NOT NULL,
+    jkey            text NOT NULL,
+    line_no         integer NOT NULL,
+    account         text NOT NULL,
+    account_name    text NOT NULL DEFAULT '',
+    reference       text NOT NULL DEFAULT '',
+    segment         integer,                         -- business-case number (project) or NULL
+    debit           numeric(16,2) NOT NULL DEFAULT 0,
+    credit          numeric(16,2) NOT NULL DEFAULT 0,
+    PRIMARY KEY (entity_id, jkey, line_no),
+    FOREIGN KEY (entity_id, jkey) REFERENCES gl_journal(entity_id, jkey) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS gl_line_account_idx ON gl_line(entity_id, account);
+CREATE INDEX IF NOT EXISTS gl_line_segment_idx ON gl_line(entity_id, segment);
+CREATE TABLE IF NOT EXISTS gl_balance (                     -- per account, per period end (from the auxiliares / balanza)
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    period          text NOT NULL,                   -- 'YYYY-MM' (period end) — the YTD print gives one row per account
+    account         text NOT NULL,
+    name            text NOT NULL DEFAULT '',
+    opening         numeric(16,2) NOT NULL DEFAULT 0,   -- as shown (nature-signed)
+    debits          numeric(16,2) NOT NULL DEFAULT 0,
+    credits         numeric(16,2) NOT NULL DEFAULT 0,
+    closing         numeric(16,2) NOT NULL DEFAULT 0,   -- as shown (a supplier in credit reads positive)
+    nature          text NOT NULL DEFAULT 'debit',
+    movements       integer NOT NULL DEFAULT 0,
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
+    PRIMARY KEY (entity_id, period, account)
+);
+CREATE TABLE IF NOT EXISTS fin_report_line (                -- the accountants' P&L / BS / budget by month (thousands MXN)
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    period          text NOT NULL,                   -- workbook period 'YYYY-MM'
+    sheet           text NOT NULL,                   -- pl | bs | budget
+    code            text NOT NULL,                   -- PL_040 | BS_100 | label:Gross Margin
+    label           text NOT NULL,
+    ord             integer NOT NULL,
+    m01 numeric(14,2), m02 numeric(14,2), m03 numeric(14,2), m04 numeric(14,2), m05 numeric(14,2), m06 numeric(14,2),
+    m07 numeric(14,2), m08 numeric(14,2), m09 numeric(14,2), m10 numeric(14,2), m11 numeric(14,2), m12 numeric(14,2),
+    ytd             numeric(14,2),
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
+    PRIMARY KEY (entity_id, period, sheet, code)
+);
+CREATE TABLE IF NOT EXISTS biz_case (                       -- the accountants' project list (CONTPAQi segments)
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    code            integer NOT NULL,
+    name            text NOT NULL DEFAULT '',
+    project_type    text NOT NULL DEFAULT '',        -- GM | LAAS | PL_xxx (cost centre) | _
+    business_manager text NOT NULL DEFAULT '',
+    PRIMARY KEY (entity_id, code)
+);
+CREATE TABLE IF NOT EXISTS project_margin (                 -- GM_per_Projects: booked vs planned, per workbook period
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    period          text NOT NULL,
+    code            integer NOT NULL,
+    name            text NOT NULL DEFAULT '',
+    revenue_prior   numeric(16,2) NOT NULL DEFAULT 0,
+    cos_prior       numeric(16,2) NOT NULL DEFAULT 0,
+    revenue_ytd     numeric(16,2) NOT NULL DEFAULT 0,
+    cos_ytd         numeric(16,2) NOT NULL DEFAULT 0,
+    revenue_total   numeric(16,2) NOT NULL DEFAULT 0,
+    cos_total       numeric(16,2) NOT NULL DEFAULT 0,
+    gm              numeric(16,2) NOT NULL DEFAULT 0,
+    gm_pct          numeric(12,4),
+    planned_value   numeric(16,2) NOT NULL DEFAULT 0,
+    planned_cost    numeric(16,2) NOT NULL DEFAULT 0,
+    planned_margin  numeric(16,2) NOT NULL DEFAULT 0,
+    planned_margin_pct numeric(12,4),
+    business_manager text NOT NULL DEFAULT '',
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
+    PRIMARY KEY (entity_id, period, code)
+);
+CREATE TABLE IF NOT EXISTS portfolio_project (              -- Argia_Projects_Overview_MX.xlsx, sheet Data
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    code            integer NOT NULL,
+    project_id      text NOT NULL,                   -- 'ARG1473'
+    name            text NOT NULL,
+    phase           text NOT NULL,                   -- 0_closing … 8_on hold
+    status          text NOT NULL DEFAULT '',
+    country         text NOT NULL DEFAULT '',
+    business_manager text NOT NULL DEFAULT '',
+    project_manager text NOT NULL DEFAULT '',
+    value_usd       numeric(16,2),
+    value_mxn       numeric(16,2),
+    planned_cost_mxn numeric(16,2),
+    margin_planned_pct numeric(12,4),
+    contract_start  date,
+    contract_end    date,
+    planned_start   date,
+    planned_finish  date,
+    subcontractor   text NOT NULL DEFAULT '',
+    progress        numeric(12,4),
+    handover        date,
+    invoiced_mxn    numeric(16,2),
+    paid_mxn        numeric(16,2),
+    po              text NOT NULL DEFAULT '',
+    comment         text NOT NULL DEFAULT '',
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
+    PRIMARY KEY (entity_id, code, name)             -- a code can carry two rows (a project and its extension)
+);
+CREATE TABLE IF NOT EXISTS open_item (                      -- the AR/AP tracker workbook, replaced whole on every import
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    item_key        text NOT NULL,                   -- sha of side+company+invoice+folio+issued+amount
+    side            text NOT NULL,                   -- ar | ap
+    status          text NOT NULL,
+    invoice         text NOT NULL DEFAULT '',
+    company         text NOT NULL,
+    project_code    integer,
+    project_name    text NOT NULL DEFAULT '',
+    po              text NOT NULL DEFAULT '',
+    issued          date,
+    due             date,
+    new_due         date,
+    final_due       date,
+    days_to_due     integer,
+    currency        text NOT NULL,
+    total           numeric(16,2) NOT NULL DEFAULT 0,
+    net             numeric(16,2) NOT NULL DEFAULT 0,
+    mxn_equiv_net   numeric(16,2) NOT NULL DEFAULT 0,
+    folio_fiscal    text NOT NULL DEFAULT '',
+    paid_on         date,
+    kind            text NOT NULL DEFAULT '',
+    comment         text NOT NULL DEFAULT '',
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
+    PRIMARY KEY (entity_id, item_key)
+);
+CREATE TABLE IF NOT EXISTS pmo_project (                    -- one ARGIA PROJECT workbook
+    project_id      text PRIMARY KEY,                -- 'ARG1473'
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    code            integer,
+    name            text NOT NULL DEFAULT '',
+    customer        text NOT NULL DEFAULT '',
+    location        text NOT NULL DEFAULT '',
+    status          text NOT NULL DEFAULT '',
+    phase           text NOT NULL DEFAULT '',
+    contract_type   text NOT NULL DEFAULT '',
+    manager         text NOT NULL DEFAULT '',
+    supervisor      text NOT NULL DEFAULT '',
+    start_date      date,
+    end_date        date,
+    value           numeric(16,2),
+    cost            numeric(16,2),
+    progress        numeric(12,4),
+    sheet_id        text NOT NULL DEFAULT '',
+    modified        timestamptz,
+    source_sha      text NOT NULL REFERENCES fin_source_file(sha256)
+);
+CREATE TABLE IF NOT EXISTS pmo_task (
+    project_id      text NOT NULL REFERENCES pmo_project(project_id) ON DELETE CASCADE,
+    task_id         text NOT NULL,
+    wbs             text NOT NULL DEFAULT '',
+    name            text NOT NULL DEFAULT '',
+    is_phase        boolean NOT NULL DEFAULT false,
+    is_milestone    boolean NOT NULL DEFAULT false,
+    resource        text NOT NULL DEFAULT '',
+    start_date      date,
+    end_date        date,
+    duration_days   integer,
+    priority        text NOT NULL DEFAULT '',
+    status          text NOT NULL DEFAULT '',
+    progress        numeric(12,4),
+    PRIMARY KEY (project_id, task_id)
+);
+CREATE TABLE IF NOT EXISTS pmo_cost (
+    project_id      text NOT NULL REFERENCES pmo_project(project_id) ON DELETE CASCADE,
+    cost_id         text NOT NULL,
+    cost_date       date,
+    category        text NOT NULL DEFAULT '',
+    vendor          text NOT NULL DEFAULT '',
+    description     text NOT NULL DEFAULT '',
+    net             numeric(16,2) NOT NULL DEFAULT 0,
+    vat             numeric(16,2) NOT NULL DEFAULT 0,
+    total           numeric(16,2) NOT NULL DEFAULT 0,
+    cost_status     text NOT NULL DEFAULT '',
+    approval        text NOT NULL DEFAULT '',
+    approved_by     text NOT NULL DEFAULT '',
+    paid            numeric(16,2) NOT NULL DEFAULT 0,
+    payment_status  text NOT NULL DEFAULT '',
+    PRIMARY KEY (project_id, cost_id)
+);
+CREATE TABLE IF NOT EXISTS pmo_invoice (
+    project_id      text NOT NULL REFERENCES pmo_project(project_id) ON DELETE CASCADE,
+    invoice_id      text NOT NULL,
+    customer        text NOT NULL DEFAULT '',
+    milestone       text NOT NULL DEFAULT '',
+    number          text NOT NULL DEFAULT '',
+    inv_date        date,
+    due             date,
+    net             numeric(16,2) NOT NULL DEFAULT 0,
+    vat             numeric(16,2) NOT NULL DEFAULT 0,
+    total           numeric(16,2) NOT NULL DEFAULT 0,
+    status          text NOT NULL DEFAULT '',
+    payment_status  text NOT NULL DEFAULT '',
+    paid_on         date,
+    received        numeric(16,2) NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, invoice_id)
+);
 CREATE INDEX IF NOT EXISTS bank_transaction_account_date_idx ON bank_transaction(account_id, tx_date);
 CREATE INDEX IF NOT EXISTS fin_event_subject_idx ON fin_event(subject_kind, subject_ref);
 """
@@ -326,4 +559,7 @@ TABLES = (
     "supplier_invoice", "customer_invoice", "payment", "allocation",
     "bank_statement", "bank_transaction", "bank_match",
     "period_close", "fin_exception", "fin_event", "savio_event", "savio_cursor",
+    # v245 — the books
+    "fin_source_file", "gl_account", "gl_journal", "gl_line", "gl_balance", "fin_report_line",
+    "biz_case", "project_margin", "portfolio_project", "open_item", "pmo_project", "pmo_task", "pmo_cost", "pmo_invoice",
 )

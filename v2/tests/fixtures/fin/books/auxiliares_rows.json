@@ -1,0 +1,510 @@
+[
+[
+"CONTPAQ i",
+null,
+null,
+"ARGIA DEMO",
+null,
+null,
+null,
+"Hoja:      1"
+],
+[
+"Movimientos, Auxiliares del catálogo",
+null,
+null,
+null,
+null,
+null,
+null,
+"Fecha: 21/Mar/2026"
+],
+[
+"del 01/Ene/2026 al 28/Feb/2026"
+],
+[
+"Moneda: Peso Mexicano"
+],
+[
+null
+],
+[
+"C u e n ta",
+"N o m b r e",
+null,
+null,
+null,
+null,
+null,
+"Saldo Inicial"
+],
+[
+"Fecha",
+"Tipo",
+"Número ",
+"Concepto",
+"Referencia",
+"Cargos",
+"Abonos",
+"Saldo"
+],
+[
+null
+],
+[
+"102-01-001",
+"Banorte MXN 9001",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+250000.0
+],
+[
+"28/Ene/2026",
+"Ingresos",
+1.0,
+"COBRO CLIENTE ALFA",
+"SPEI 4411",
+580000.0,
+null,
+830000.0
+],
+[
+"03/Feb/2026",
+"Egresos",
+1.0,
+"PAGO PROVEEDOR GAMMA",
+"SPEI 5120",
+null,
+348000.0,
+482000.0
+],
+[
+"14/Feb/2026",
+"Egresos",
+2.0,
+"VIATICOS LEON",
+"UBER",
+null,
+1450.5,
+480549.5
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+580000.0,
+349450.5,
+480549.5
+],
+[
+" "
+],
+[
+"102-01-002",
+"Banorte DLLS 9002",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+5000.0
+],
+[
+"20/Feb/2026",
+"Ingresos",
+2.0,
+"COBRO CLIENTE BETA USD",
+"WIRE 77",
+20000.0,
+null,
+25000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+20000.0,
+0.0,
+25000.0
+],
+[
+" "
+],
+[
+"102-01-003",
+"Banorte DLLS 9002 Compl",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+87000.0
+],
+[
+"20/Feb/2026",
+"Ingresos",
+2.0,
+"COBRO CLIENTE BETA USD",
+"WIRE 77",
+348000.0,
+null,
+435000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+348000.0,
+0.0,
+435000.0
+],
+[
+" "
+],
+[
+"105-01-001",
+"CLIENTE ALFA SA DE CV",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+120000.0
+],
+[
+"15/Ene/2026",
+"Diario",
+1.0,
+"FACTURA 2001 CLIENTE ALFA",
+"F-2001",
+1160000.0,
+null,
+1280000.0
+],
+[
+"28/Ene/2026",
+"Ingresos",
+1.0,
+"COBRO CLIENTE ALFA",
+"SPEI 4411",
+null,
+580000.0,
+700000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+1160000.0,
+580000.0,
+700000.0
+],
+[
+" "
+],
+[
+"105-01-002",
+"CLIENTE BETA USD",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"10/Feb/2026",
+"Diario",
+3.0,
+"FACTURA 2002 CLIENTE BETA USD",
+"F-2002",
+20000.0,
+null,
+20000.0
+],
+[
+"20/Feb/2026",
+"Ingresos",
+2.0,
+"COBRO CLIENTE BETA USD",
+"WIRE 77",
+null,
+20000.0,
+0.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+20000.0,
+20000.0,
+0.0
+],
+[
+" "
+],
+[
+"119-01-000",
+"IVA acreditable",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"20/Ene/2026",
+"Diario",
+2.0,
+"FACTURA A-77 PROVEEDOR GAMMA",
+"A-77",
+96000.0,
+null,
+96000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+96000.0,
+0.0,
+96000.0
+],
+[
+" "
+],
+[
+"201-01-001",
+"PROVEEDOR GAMMA SA DE CV",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"20/Ene/2026",
+"Diario",
+2.0,
+"FACTURA A-77 PROVEEDOR GAMMA",
+"A-77",
+null,
+696000.0,
+696000.0
+],
+[
+"03/Feb/2026",
+"Egresos",
+1.0,
+"PAGO PROVEEDOR GAMMA",
+"SPEI 5120",
+348000.0,
+null,
+348000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+348000.0,
+696000.0,
+348000.0
+],
+[
+" "
+],
+[
+"201-01-002",
+"PROVEEDOR DELTA SA DE CV",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+50000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+0.0,
+0.0,
+50000.0
+],
+[
+" "
+],
+[
+"209-01-000",
+"IVA trasladado",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"15/Ene/2026",
+"Diario",
+1.0,
+"FACTURA 2001 CLIENTE ALFA",
+"F-2001",
+null,
+160000.0,
+160000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+0.0,
+160000.0,
+160000.0
+],
+[
+" "
+],
+[
+"401-03-000",
+"Ventas proyectos",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"15/Ene/2026",
+"Diario",
+1.0,
+"FACTURA 2001 CLIENTE ALFA",
+"F-2001",
+null,
+1000000.0,
+1000000.0
+],
+[
+"10/Feb/2026",
+"Diario",
+3.0,
+"FACTURA 2002 CLIENTE BETA USD",
+"F-2002",
+null,
+20000.0,
+1020000.0
+],
+[
+"20/Feb/2026",
+"Ingresos",
+2.0,
+"COBRO CLIENTE BETA USD",
+"TC 18.40",
+null,
+348000.0,
+1368000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+0.0,
+1368000.0,
+1368000.0
+],
+[
+" "
+],
+[
+"501-11-000",
+"Costo de ventas materiales",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"20/Ene/2026",
+"Diario",
+2.0,
+"FACTURA A-77 PROVEEDOR GAMMA",
+"A-77",
+600000.0,
+null,
+600000.0
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+600000.0,
+0.0,
+600000.0
+],
+[
+" "
+],
+[
+"601-49-001",
+"Viáticos",
+null,
+null,
+null,
+null,
+"Saldo inicial :",
+0.0
+],
+[
+"14/Feb/2026",
+"Egresos",
+2.0,
+"VIATICOS LEON",
+"UBER",
+1450.5,
+null,
+1450.5
+],
+[
+null,
+null,
+null,
+null,
+"Total:",
+1450.5,
+0.0,
+1450.5
+],
+[
+" "
+]
+]

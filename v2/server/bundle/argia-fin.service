@@ -3,8 +3,7 @@
 # nginx proxies both prefixes here behind the session login; the app
 # allow-lists WHO may see them (ARGIA_FIN_EMAILS / ARGIA_FIN_ALLOW —
 # Tomasz only while the modules are being built) and answers 403 to
-# everyone else. Reads PostgreSQL only in this slice. The entity shown
-# is DEMO-MX until the real legal entities are configured.
+# everyone else. Reads PostgreSQL only in this slice.
 Description=ARGIA finance + projects (/finance/, /projects/)
 After=network.target postgresql.service
 Wants=network.target
@@ -18,7 +17,8 @@ Environment=ARGIA_FIN_PORT=8515
 Environment=ARGIA_FIN_EMAILS=tomasz.zemelka@argia.com.mx
 # more people: one e-mail per line in this file, read live, no restart
 Environment=ARGIA_FIN_ALLOW=/opt/argia/auth/fin_allow.txt
-Environment=ARGIA_FIN_ENTITY=DEMO-MX
+# v245: the real books (fin_drive_ingest) — the v244 demo world stays under /finance/demo/
+Environment=ARGIA_FIN_ENTITY=ARGIA-MX
 ExecStart=/usr/bin/python3 /opt/argia/bundle/fin_app.py
 Restart=always
 RestartSec=3

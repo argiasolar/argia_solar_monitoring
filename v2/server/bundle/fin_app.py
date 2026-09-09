@@ -36,6 +36,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.environ.get('ARGIA_V2_DIR', '/root/argia_v2/v2'))
 
 import portal_chrome as PC                                      # noqa: E402
+import fin_books as FB                                          # noqa: E402  v245: the pages on the real books
 from argia.fin import cost as COST, health as HEALTH, ledger as LG, rules as RULES   # noqa: E402
 from argia.fin.money import D                                    # noqa: E402
 from argia.store import pgq                                      # noqa: E402
@@ -43,6 +44,9 @@ from argia.store import pgq                                      # noqa: E402
 t, ti, tile, pill = PC.t, PC.ti, PC.tile, PC.pill
 app = Flask(__name__)
 ENTITY = os.environ.get('ARGIA_FIN_ENTITY', 'DEMO-MX')
+# v245: 'books' = the real books read from Drive (entity ARGIA-MX …); 'demo' = the v244 demo world.
+# The demo pages stay reachable under /finance/demo/ and /projects/demo/ in books mode.
+MODE = os.environ.get('ARGIA_FIN_MODE', 'demo' if ENTITY.startswith('DEMO') else 'books')
 ALLOWED_USERS = {u.strip().lower() for u in os.environ.get('ARGIA_FIN_USERS', '').split(',') if u.strip()}
 ALLOWED_EMAILS = {e.strip().lower() for e in os.environ.get('ARGIA_FIN_EMAILS', 'tomasz.zemelka@argia.com.mx').split(',') if e.strip()}
 ALLOW_FILE = os.environ.get('ARGIA_FIN_ALLOW', '/opt/argia/auth/fin_allow.txt')
@@ -102,13 +106,21 @@ def _q(s) -> str:
     return "'" + str(s).replace("'", "''") + "'"
 
 
+def _ent() -> str:
+    """The entity the DEMO pages query: in books mode the demo world keeps
+    its own rows (DEMO-MX) under /finance/demo/ and /projects/demo/."""
+    if app.config.get('MODE', MODE) == 'books':
+        return app.config.get('DEMO_ENTITY', 'DEMO-MX')
+    return app.config.get('ENTITY', ENTITY)
+
+
 def q_accounts():
     return rows('accounts', f"SELECT a.account_id, a.bank, a.currency, a.purpose,"
                             f" (SELECT closing FROM bank_statement s WHERE s.account_id = a.account_id ORDER BY period_end DESC LIMIT 1) AS closing,"
                             f" (SELECT period_end FROM bank_statement s WHERE s.account_id = a.account_id ORDER BY period_end DESC LIMIT 1) AS as_of,"
                             f" (SELECT count(*) FROM bank_transaction x WHERE x.account_id = a.account_id AND NOT x.own_transfer AND NOT EXISTS"
                             f"   (SELECT 1 FROM bank_match m WHERE m.line_key = x.line_key AND m.reversed_at IS NULL)) AS unreconciled"
-                            f" FROM bank_account a WHERE a.entity_id = {_q(ENTITY)} AND a.active ORDER BY a.account_id;")
+                            f" FROM bank_account a WHERE a.entity_id = {_q(_ent())} AND a.active ORDER BY a.account_id;")
 
 
 def q_ar():
@@ -116,7 +128,7 @@ def q_ar():
                       f" i.issue_date, i.due_date, i.currency, i.total, i.status,"
                       f" coalesce((SELECT sum(amount) FROM allocation al WHERE al.invoice_ref = i.savio_invoice_id AND al.invoice_side = 'ar'), 0) AS applied"
                       f" FROM customer_invoice i LEFT JOIN customer_master c ON c.customer_id = i.customer_id"
-                      f" WHERE i.entity_id = {_q(ENTITY)} ORDER BY i.due_date, i.savio_invoice_id;")
+                      f" WHERE i.entity_id = {_q(_ent())} ORDER BY i.due_date, i.savio_invoice_id;")
 
 
 def q_ap():
@@ -124,12 +136,12 @@ def q_ap():
                       f" i.issue_date, i.due_date, i.currency, i.total, i.subtotal, i.tipo, i.status, i.related_uuid,"
                       f" coalesce((SELECT sum(amount) FROM allocation al WHERE al.invoice_ref = i.cfdi_uuid AND al.invoice_side = 'ap'), 0) AS applied"
                       f" FROM supplier_invoice i LEFT JOIN supplier s ON s.supplier_id = i.supplier_id LEFT JOIN purchase_order p ON p.po_id = i.po_id"
-                      f" WHERE i.entity_id = {_q(ENTITY)} ORDER BY i.due_date, i.cfdi_uuid;")
+                      f" WHERE i.entity_id = {_q(_ent())} ORDER BY i.due_date, i.cfdi_uuid;")
 
 
 def q_exceptions():
     return rows('exceptions', f"SELECT exception_id, kind, ref, project_id, owner, status, detail, opened_at::date AS opened"
-                              f" FROM fin_exception WHERE status IN ('open','in_progress') AND (entity_id = {_q(ENTITY)} OR entity_id IS NULL)"
+                              f" FROM fin_exception WHERE status IN ('open','in_progress') AND (entity_id = {_q(_ent())} OR entity_id IS NULL)"
                               f" ORDER BY opened_at DESC, exception_id DESC;")
 
 
@@ -137,7 +149,7 @@ def q_projects():
     return rows('projects', f"SELECT p.project_id, p.name, p.site, p.project_type, p.status, p.pm_user, p.contract_value, p.contract_ccy, p.kwp_dc,"
                             f" coalesce(c.name, '') AS customer, p.plant_key, p.pmo_sheet_id"
                             f" FROM project p LEFT JOIN customer_master c ON c.customer_id = p.customer_id"
-                            f" WHERE p.entity_id = {_q(ENTITY)} ORDER BY p.project_id;")
+                            f" WHERE p.entity_id = {_q(_ent())} ORDER BY p.project_id;")
 
 
 def q_milestones():
@@ -160,7 +172,7 @@ def q_pos():
                        f" coalesce((SELECT sum(total) FROM supplier_invoice i WHERE i.po_id = p.po_id AND i.tipo = 'I' AND i.status <> 'rejected'), 0) AS invoiced,"
                        f" coalesce((SELECT sum(subtotal) FROM supplier_invoice i WHERE i.po_id = p.po_id AND i.tipo = 'I' AND i.status <> 'rejected'), 0) AS invoiced_net,"
                        f" coalesce((SELECT sum(value) FROM receipt r WHERE r.po_id = p.po_id), 0) AS received"
-                       f" FROM purchase_order p LEFT JOIN supplier s ON s.supplier_id = p.supplier_id WHERE p.entity_id = {_q(ENTITY)} ORDER BY p.po_number;")
+                       f" FROM purchase_order p LEFT JOIN supplier s ON s.supplier_id = p.supplier_id WHERE p.entity_id = {_q(_ent())} ORDER BY p.po_number;")
 
 
 def q_tasks(pid: str):
@@ -316,7 +328,7 @@ def page_today() -> str:
                          f'<td><span class="pill {"ok" if h.band == "green" else "warn" if h.band == "amber" else "crit"}">{h.score}</span></td></tr>')
     body = f'''
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
- <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Finance · today", "Finanzas · hoy")} · {today().isoformat()} · <span class="mono">{html.escape(ENTITY)}</span> · {t("demo data", "datos demo")}</div><h1 class="pt">{t("Where the money is", "Dónde está el dinero")}</h1></div>
+ <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Finance · today", "Finanzas · hoy")} · {today().isoformat()} · <span class="mono">{html.escape(_ent())}</span> · {t("demo data", "datos demo")}</div><h1 class="pt">{t("Where the money is", "Dónde está el dinero")}</h1></div>
 </div>
 <div class="tiles" style="margin-top:20px">{cash_tiles}{ar_t}{ap_t}{pend_t}{exc_t}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">
@@ -356,7 +368,7 @@ def _ledger_page(kind: str) -> str:
     head += [t('Issued', 'Emitida'), t('Due', 'Vence'), 'Total', t('Applied', 'Aplicado'), t('Outstanding', 'Saldo'), t('Bucket', 'Antigüedad'), 'Status']
     title = ('Receivables', 'Por cobrar') if kind == 'ar' else ('Payables', 'Por pagar')
     ag = aging_by_ccy(raw if kind == 'ar' else [r for r in raw if r['status'] not in ('received', 'exception')])
-    body = f'''<div class="kicker">{t("Finance", "Finanzas")} · {today().isoformat()} · <span class="mono">{html.escape(ENTITY)}</span></div><h1 class="pt">{t(*title)}</h1>
+    body = f'''<div class="kicker">{t("Finance", "Finanzas")} · {today().isoformat()} · <span class="mono">{html.escape(_ent())}</span></div><h1 class="pt">{t(*title)}</h1>
 <div class="tiles" style="margin-top:16px">{_bucket_tiles(title[0], title[1], ag)}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table(head, trs)}</div>
 <p class="note">{t("Source: Savio (customer invoices, CFDI UUID) — mirrored, never re-typed." if kind == "ar" else "Source: the supplier's CFDI XML (UUID once, totals re-checked). Received/matched rows await approval and are not payables yet; a credit note (E) reduces its original; a complemento (P) is the supplier's receipt of our payment.",
@@ -368,7 +380,7 @@ def page_bank() -> str:
     acc = q_accounts()
     lines = rows('bank_lines', f"SELECT x.line_key, x.account_id, x.tx_date, x.amount, x.description, x.counterpart, x.own_transfer,"
                                f" coalesce((SELECT string_agg(m.target_kind || ':' || m.target_ref, ', ') FROM bank_match m WHERE m.line_key = x.line_key AND m.reversed_at IS NULL), '') AS matched"
-                               f" FROM bank_transaction x JOIN bank_account a ON a.account_id = x.account_id WHERE a.entity_id = {_q(ENTITY)} ORDER BY x.account_id, x.tx_date DESC, x.line_key;")
+                               f" FROM bank_transaction x JOIN bank_account a ON a.account_id = x.account_id WHERE a.entity_id = {_q(_ent())} ORDER BY x.account_id, x.tx_date DESC, x.line_key;")
     tiles = ''.join(tile(a['account_id'], a['account_id'], money(a.get('closing'), a['currency']) if a.get('closing') else '—',
                          f"{a['bank']} · {a.get('purpose') or ''} · to {a.get('as_of') or '—'}", f"{a['bank']} · {a.get('purpose') or ''} · al {a.get('as_of') or '—'}") for a in acc)
     trs = []
@@ -378,7 +390,7 @@ def page_bank() -> str:
         trs.append(f'<tr><td>{html.escape(l["account_id"])}</td><td>{html.escape(str(l["tx_date"]))}</td><td class="r">{money(l["amount"], "", 2)}</td>'
                    f'<td>{html.escape(l.get("description") or "")}</td><td class="mono" style="font-size:11px">{html.escape(l.get("counterpart") or "")}</td>'
                    f'<td>{html.escape(l.get("matched") or ("own transfer" if own else ""))}</td><td>{pill("ok" if state == "reconciled" else "off" if state == "transfer" else "warn", state)}</td></tr>')
-    body = f'''<div class="kicker">{t("Finance", "Finanzas")} · <span class="mono">{html.escape(ENTITY)}</span></div><h1 class="pt">{t("Bank", "Banco")}</h1>
+    body = f'''<div class="kicker">{t("Finance", "Finanzas")} · <span class="mono">{html.escape(_ent())}</span></div><h1 class="pt">{t("Bank", "Banco")}</h1>
 <div class="grid g3" style="margin-top:16px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table([t("Account", "Cuenta"), t("Date", "Fecha"), t("Amount", "Importe"), t("Description", "Descripción"), t("Counterpart", "Contraparte"), t("Matched to", "Conciliado con"), "State"], trs)}</div>
 <p class="note">{t("A statement loads whole (opening + activity = closing) or not at all; a line reconciles once unless split; own transfers are neither income nor expense.", "Un estado de cuenta carga completo (inicial + movimientos = final) o no carga; una línea se concilia una vez salvo división; los traspasos propios no son ingreso ni gasto.")}</p>'''
@@ -390,7 +402,7 @@ def page_exceptions() -> str:
     trs = [f'<tr><td>{pill("crit" if e["kind"] in ("CFDI_TOTALS", "FOREIGN_CFDI", "STATEMENT_REJECTED") else "warn", e["kind"])}</td>'
            f'<td class="mono" style="font-size:12px">{html.escape(e["ref"][:40])}</td><td>{html.escape(e.get("project_id") or "—")}</td>'
            f'<td>{html.escape(e.get("owner") or "—")}</td><td>{html.escape(str(e.get("opened") or ""))}</td><td>{html.escape(e.get("detail") or "")}</td></tr>' for e in exc]
-    body = f'''<div class="kicker">{t("Finance", "Finanzas")} · <span class="mono">{html.escape(ENTITY)}</span></div><h1 class="pt">{t("Exceptions", "Excepciones")} · {len(exc)}</h1>
+    body = f'''<div class="kicker">{t("Finance", "Finanzas")} · <span class="mono">{html.escape(_ent())}</span></div><h1 class="pt">{t("Exceptions", "Excepciones")} · {len(exc)}</h1>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table([t("Kind", "Tipo"), "Ref", t("Project", "Proyecto"), t("Owner", "Dueño"), t("Opened", "Abierta"), t("Detail", "Detalle")], trs) if trs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("Nothing to decide.", "Nada que decidir.")}</p>'}</div>
 <p class="note">{t("Every exception has an owner, a status and a resolution history (AGS-904 R6). Resolution actions arrive in the next slice, with CSRF and an audit event.", "Cada excepción tiene dueño, estado e historial de resolución (AGS-904 R6). Las acciones de resolución llegan en el siguiente corte, con CSRF y evento de auditoría.")}</p>'''
     return PC.page('Exceptions', body, 'finance', 'exceptions')
@@ -423,7 +435,7 @@ def page_portfolio() -> str:
   <div class="muted" style="font-size:12.5px">{t("next", "siguiente")}: {html.escape(nxt["name"]) + " · " + html.escape(str(nxt["planned_date"])) if nxt else t("no open milestone", "sin hitos abiertos")}{(" · <b style='color:#c2554e'>" + str(late[0][1]) + " d late</b>") if late else ""}</div>
  </a>'''
     body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
- <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Projects", "Proyectos")} · {today().isoformat()} · <span class="mono">{html.escape(ENTITY)}</span> · {t("demo data", "datos demo")}</div><h1 class="pt">{t("Portfolio", "Portafolio")}</h1></div>
+ <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Projects", "Proyectos")} · {today().isoformat()} · <span class="mono">{html.escape(_ent())}</span> · {t("demo data", "datos demo")}</div><h1 class="pt">{t("Portfolio", "Portafolio")}</h1></div>
 </div>
 <div class="grid g4" style="margin-top:20px">
  {tile("Active projects", "Proyectos activos", str(n_active), f"{len(projects)} in total", f"{len(projects)} en total")}
@@ -516,24 +528,38 @@ def me():
     return jsonify({'user': actor(), 'allowed': allowed(actor())})
 
 
+def mode() -> str:
+    return app.config.get('MODE', MODE)
+
+
+def _books():
+    FB.bind(rows, money, today, app.config.get('ENTITY', ENTITY))
+    return FB
+
+
 @app.get('/finance/')
 def finance_today():
-    return _gate() or page_today()
+    return _gate() or (_books().page_today() if mode() == 'books' else page_today())
 
 
 @app.get('/finance/ar/')
 def finance_ar():
-    return _gate() or _ledger_page('ar')
+    return _gate() or (_books().page_ledger('ar') if mode() == 'books' else _ledger_page('ar'))
 
 
 @app.get('/finance/ap/')
 def finance_ap():
-    return _gate() or _ledger_page('ap')
+    return _gate() or (_books().page_ledger('ap') if mode() == 'books' else _ledger_page('ap'))
 
 
 @app.get('/finance/bank/')
 def finance_bank():
-    return _gate() or page_bank()
+    return _gate() or (_books().page_bank() if mode() == 'books' else page_bank())
+
+
+@app.get('/finance/pl/')
+def finance_pl():
+    return _gate() or _books().page_pl()
 
 
 @app.get('/finance/exceptions/')
@@ -543,7 +569,7 @@ def finance_exceptions():
 
 @app.get('/projects/')
 def projects_index():
-    return _gate() or page_portfolio()
+    return _gate() or (_books().page_portfolio() if mode() == 'books' else page_portfolio())
 
 
 @app.get('/projects/<pid>/')
@@ -552,10 +578,35 @@ def project_one(pid):
     if g:
         return g
     pid = pid.strip().upper()[:16]
-    html_ = page_project(pid)
+    if pid == 'DEMO':
+        return page_portfolio()
+    html_ = _books().page_project(pid) if mode() == 'books' else page_project(pid)
     if html_ is None:
         return PC.page('Not found', f'<p class="muted" style="margin:40px 0">{t("No such project.", "No existe ese proyecto.")}</p>', 'projects'), 404
     return html_
+
+
+# the v244 demo world stays reachable (its own entity, DEMO-MX rows only)
+@app.get('/finance/demo/')
+def finance_demo():
+    return _gate() or page_today()
+
+
+@app.get('/finance/demo/<kind>/')
+def finance_demo_kind(kind):
+    g = _gate()
+    if g:
+        return g
+    return {'ar': lambda: _ledger_page('ar'), 'ap': lambda: _ledger_page('ap'), 'bank': page_bank, 'exceptions': page_exceptions}.get(kind, page_today)()
+
+
+@app.get('/projects/demo/<pid>/')
+def project_demo(pid):
+    g = _gate()
+    if g:
+        return g
+    html_ = page_project(pid.strip().upper()[:16])
+    return html_ if html_ is not None else (PC.page('Not found', '', 'projects'), 404)
 
 
 if __name__ == '__main__':

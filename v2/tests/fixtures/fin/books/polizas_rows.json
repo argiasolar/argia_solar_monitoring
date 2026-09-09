@@ -1,0 +1,559 @@
+[
+[
+"CONTPAQi®",
+null,
+null,
+"ARGIA DEMO",
+null,
+null,
+null,
+"Hoja:      1"
+],
+[
+"Impreso de pólizas del 01/Ene/2026 al 28/Feb/2026",
+null,
+null,
+null,
+null,
+null,
+null,
+"Fecha: 21/Mar/2026"
+],
+[
+"Moneda: Peso Mexicano"
+],
+[
+"Dirección:  "
+],
+[
+"Reg. Fed.: DEM150101AB1"
+],
+[
+null
+],
+[
+"Fecha",
+"Tipo",
+"Número",
+"C o n c e p t o",
+"Clase",
+"Diario"
+],
+[
+"No.",
+"Refer.",
+"C u e n t a",
+"N o m b r e",
+"Diario",
+"Seg.",
+"C a r g o s",
+"A b o n o s"
+],
+[
+null
+],
+[
+"15/Ene/2026",
+"Diario",
+1.0,
+"FACTURA 2001 CLIENTE ALFA",
+null,
+null,
+null
+],
+[
+1.0,
+"F-2001",
+"105-01-001",
+"CLIENTE ALFA SA DE CV",
+null,
+9001.0,
+1160000.0,
+null
+],
+[
+2.0,
+"F-2001",
+"401-03-000",
+"Ventas proyectos",
+null,
+9001.0,
+null,
+1000000.0
+],
+[
+3.0,
+"F-2001",
+"209-01-000",
+"IVA trasladado",
+null,
+9001.0,
+null,
+160000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+1160000.0,
+1160000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 15/Ene/2026 :",
+1160000.0,
+1160000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"20/Ene/2026",
+"Diario",
+2.0,
+"FACTURA A-77 PROVEEDOR GAMMA",
+null,
+null,
+null
+],
+[
+1.0,
+"A-77",
+"501-11-000",
+"Costo de ventas materiales",
+null,
+9001.0,
+600000.0,
+null
+],
+[
+2.0,
+"A-77",
+"119-01-000",
+"IVA acreditable",
+null,
+9001.0,
+96000.0,
+null
+],
+[
+3.0,
+"A-77",
+"201-01-001",
+"PROVEEDOR GAMMA SA DE CV",
+null,
+9001.0,
+null,
+696000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+696000.0,
+696000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 20/Ene/2026 :",
+696000.0,
+696000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"28/Ene/2026",
+"Ingresos",
+1.0,
+"COBRO CLIENTE ALFA",
+null,
+null,
+null
+],
+[
+1.0,
+"SPEI 4411",
+"102-01-001",
+"Banorte MXN 9001",
+null,
+9001.0,
+580000.0,
+null
+],
+[
+2.0,
+"SPEI 4411",
+"105-01-001",
+"CLIENTE ALFA SA DE CV",
+null,
+9001.0,
+null,
+580000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+580000.0,
+580000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 28/Ene/2026 :",
+580000.0,
+580000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"03/Feb/2026",
+"Egresos",
+1.0,
+"PAGO PROVEEDOR GAMMA",
+null,
+null,
+null
+],
+[
+1.0,
+"SPEI 5120",
+"201-01-001",
+"PROVEEDOR GAMMA SA DE CV",
+null,
+9001.0,
+348000.0,
+null
+],
+[
+2.0,
+"SPEI 5120",
+"102-01-001",
+"Banorte MXN 9001",
+null,
+9001.0,
+null,
+348000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+348000.0,
+348000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 03/Feb/2026 :",
+348000.0,
+348000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"10/Feb/2026",
+"Diario",
+3.0,
+"FACTURA 2002 CLIENTE BETA USD",
+null,
+null,
+null
+],
+[
+1.0,
+"F-2002",
+"105-01-002",
+"CLIENTE BETA USD",
+null,
+9002.0,
+20000.0,
+null
+],
+[
+2.0,
+"F-2002",
+"401-03-000",
+"Ventas proyectos",
+null,
+9002.0,
+null,
+20000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+20000.0,
+20000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 10/Feb/2026 :",
+20000.0,
+20000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"14/Feb/2026",
+"Egresos",
+2.0,
+"VIATICOS LEON",
+null,
+null,
+null
+],
+[
+1.0,
+"UBER",
+"601-49-001",
+"Viáticos",
+null,
+701.0,
+1450.5,
+null
+],
+[
+2.0,
+"UBER",
+"102-01-001",
+"Banorte MXN 9001",
+null,
+701.0,
+null,
+1450.5
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+1450.5,
+1450.5
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 14/Feb/2026 :",
+1450.5,
+1450.5
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"20/Feb/2026",
+"Ingresos",
+2.0,
+"COBRO CLIENTE BETA USD",
+null,
+null,
+null
+],
+[
+1.0,
+"WIRE 77",
+"102-01-002",
+"Banorte DLLS 9002",
+null,
+9002.0,
+20000.0,
+null
+],
+[
+2.0,
+"WIRE 77",
+"102-01-003",
+"Banorte DLLS 9002 Compl",
+null,
+9002.0,
+348000.0,
+null
+],
+[
+3.0,
+"WIRE 77",
+"105-01-002",
+"CLIENTE BETA USD",
+null,
+9002.0,
+null,
+20000.0
+],
+[
+4.0,
+"TC 18.40",
+"401-03-000",
+"Ventas proyectos",
+null,
+9002.0,
+null,
+348000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+368000.0,
+368000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 20/Feb/2026 :",
+368000.0,
+368000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+],
+[
+"25/Feb/2026",
+"Egresos",
+99.0,
+"PAGO DUPLICADO (NO AFECTADA)",
+null,
+null,
+null
+],
+[
+1.0,
+"SPEI 9999",
+"201-01-002",
+"PROVEEDOR DELTA SA DE CV",
+null,
+9002.0,
+50000.0,
+null
+],
+[
+2.0,
+"SPEI 9999",
+"102-01-001",
+"Banorte MXN 9001",
+null,
+9002.0,
+null,
+50000.0
+],
+[
+null,
+"Cifra de Control",
+20402008.0,
+null,
+null,
+"Total póliza :",
+50000.0,
+50000.0
+],
+[
+" "
+],
+[
+null,
+null,
+null,
+null,
+null,
+"Total al 25/Feb/2026 :",
+50000.0,
+50000.0
+],
+[
+"      Total de pólizas impresas: 1"
+],
+[
+" "
+]
+]

@@ -5,3 +5,5 @@ requests>=2.31.0
 # Required on Windows for zoneinfo (e.g. "America/Mexico_City").
 # Linux/Mac usually have IANA tz database installed; Windows does not.
 tzdata>=2025.1
+# v245: the accountants export .xlsx/.xlsm (CONTPAQi prints, the reporting workbook)
+openpyxl>=3.1

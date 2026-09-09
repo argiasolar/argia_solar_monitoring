@@ -1,0 +1,466 @@
+{
+"Project_Info": [
+[
+""
+],
+[
+"",
+"PROJECT SUMMARY"
+],
+[
+""
+],
+[
+"",
+"Project_ID",
+"ARG9001",
+"",
+"Project_Status",
+"Project_Phase",
+"Project_Contract_Type",
+"Project Manager",
+"Project_Supervisor",
+"Project_Location"
+],
+[
+"",
+"Project_Name",
+"9001 Solar Capex Roof 300 kWp Demo Uno",
+"",
+"Ok",
+"0 - Closing",
+"Lighting",
+"Project Manager",
+"Project Supervisor",
+"Project Location"
+],
+[
+"",
+"Project_Customer",
+"Cliente Alfa",
+"",
+"Warning",
+"1 - Preparation",
+"LAAS",
+"Vit Kovarik",
+"Roberto Alvarado (ARGIA)",
+"Mexico City"
+],
+[
+"",
+"Project_Location",
+"León",
+"",
+"Critical",
+"2 - Specification",
+"Solar",
+"Eduardo Fraga",
+"Emilio Perez (ARGIA)",
+"Monterrey"
+],
+[
+"",
+"GPS",
+"21.12, -101.68"
+],
+[
+"",
+"Project_Manager",
+"Eduardo Fraga"
+],
+[
+"",
+"Project_Supervisor",
+"Emilio Cardiel (ARGIA)"
+],
+[
+"",
+"Project_Status",
+"In Progress"
+],
+[
+"",
+"Project_Phase",
+"3 - Execution"
+],
+[
+"",
+"Project_Contract_Type",
+"Solar"
+],
+[
+"",
+"Project_Start_Date",
+"1/10/2026"
+],
+[
+"",
+"Project_End_Date",
+"5/30/2026",
+"140"
+],
+[
+"",
+"Project_Value",
+"$1,200,000.00"
+],
+[
+"",
+"Project_Cost",
+"$840,000.00"
+],
+[
+"",
+"Project_Margin",
+"30.00%"
+],
+[
+"",
+"Project_Shifts",
+"Mon-Sat"
+]
+],
+"Resources": [
+[
+"Resource_ID",
+"Resoruce_Type",
+"Resource_Name"
+],
+[
+"RES001",
+"Electro Installation",
+"Electro Experts"
+]
+],
+"Tasks": [
+[
+"WBS",
+"Task_ID",
+"Task_Name",
+"Project_Phase",
+"Resource_ID",
+"Task_Start_Date",
+"Task_End_Date",
+"Project_Task_Start_Date",
+"Project_Task_End_Date",
+"Task_Duration",
+"Task_Priority",
+"Task_Status",
+"Task_Complete%",
+"Milestone"
+],
+[
+"1",
+"P001",
+"Aviso de Inicio (NTP)",
+"Yes",
+"RES012 - ARGIA Design",
+"1/10/2026",
+"1/10/2026",
+"1/10/2026",
+"1/10/2026",
+"",
+"",
+"",
+"100.00%",
+"No"
+],
+[
+"1.1",
+"T001",
+"Aceptación de Orden de Trabajo",
+"No",
+"RES012 - ARGIA Design",
+"1/10/2026",
+"1/10/2026",
+"1/10/2026",
+"1/10/2026",
+"1",
+"",
+"Completed",
+"100.00%",
+"No"
+],
+[
+"1.9",
+"M001",
+"NTP Completado",
+"No",
+"",
+"1/10/2026",
+"1/10/2026",
+"1/10/2026",
+"1/10/2026",
+"1",
+"",
+"Completed",
+"100.00%",
+"Yes"
+],
+[
+"2",
+"P002",
+"Ingeniería",
+"Yes",
+"RES012 - ARGIA Design",
+"1/12/2026",
+"1/30/2026",
+"1/12/2026",
+"1/30/2026",
+"",
+"",
+"",
+"50.00%",
+"No"
+],
+[
+"2.1",
+"T002",
+"Diseño fotovoltaico",
+"No",
+"RES012 - ARGIA Design",
+"1/12/2026",
+"1/30/2026",
+"1/12/2026",
+"1/30/2026",
+"14",
+"High",
+"In Progress",
+"50.00%",
+"No"
+],
+[
+"2.9",
+"M002",
+"Ingeniería Completada",
+"No",
+"",
+"1/30/2026",
+"1/30/2026",
+"1/30/2026",
+"1/30/2026",
+"1",
+"",
+"Not Started",
+"0.00%",
+"Yes"
+],
+[
+"3",
+"P003",
+"Instalación",
+"Yes",
+"RES001 - Electro Experts",
+"2/15/2026",
+"5/20/2026",
+"2/15/2026",
+"5/20/2026",
+"",
+"",
+"",
+"0.00%",
+"No"
+],
+[
+"3.1",
+"T003",
+"Montaje de estructura",
+"No",
+"RES001 - Electro Experts",
+"2/15/2026",
+"3/15/2026",
+"2/15/2026",
+"3/15/2026",
+"24",
+"",
+"Not Started",
+"0.00%",
+"No"
+],
+[
+"3.9",
+"M003",
+"Instalación Completada",
+"No",
+"",
+"5/20/2026",
+"5/20/2026",
+"5/20/2026",
+"5/20/2026",
+"1",
+"",
+"Not Started",
+"0.00%",
+"Yes"
+]
+],
+"Daily_Logs": [
+[
+"Log_ID",
+"Log_Date",
+"Project_ID",
+"Task_ID",
+"Resource_ID",
+"Hours_Worked",
+"Progress_Entry_%",
+"Status_Update",
+"Issue_Flag",
+"Notes",
+"Photo_Link",
+"Entered_By",
+"Timestamp"
+],
+[
+"LOG0001",
+"1/20/2026",
+"ARG9001",
+"T002",
+"RES012",
+"8",
+"50.00%",
+"In Progress",
+"No",
+"diseño en revisión",
+"",
+"Eduardo Fraga",
+""
+]
+],
+"Costs": [
+[
+"Cost_ID",
+"Project_ID",
+"Cost_Date",
+"Cost_Category",
+"Vendor",
+"Description",
+"Amount_Before_VAT",
+"VAT_Amount",
+"Total_Amount",
+"Cost_Status",
+"Approval_Status",
+"Approved_By",
+"Approval_Date",
+"Amount_Paid",
+"Payment_Status"
+],
+[
+"COST0001",
+"ARG9001",
+"20/01/26",
+"Solar Panels",
+"Proveedor Gamma",
+"Paneles",
+"$600,000.00",
+"$96,000.00",
+"$696,000.00",
+"Paid",
+"Approved",
+"Eduardo Fraga",
+"",
+"$348,000.00",
+"Partial"
+],
+[
+"COST0002",
+"ARG9001",
+"15/02/26",
+"Installation",
+"Electro Experts",
+"Instalación",
+"$150,000.00",
+"$24,000.00",
+"$174,000.00",
+"Committed",
+"Approved",
+"Eduardo Fraga",
+"",
+"",
+"Open"
+],
+[
+"COST0003",
+"ARG9001",
+"1/3/2026",
+"Inverters",
+"Solarever",
+"Inversores",
+"$90,000.00",
+"$14,400.00",
+"$104,400.00",
+"Planned",
+"",
+"",
+"",
+"",
+"Open"
+]
+],
+"Invoices": [
+[
+"Invoice_ID",
+"Project_ID",
+"Customer_Name",
+"Invoice_Milestone",
+"Invoice_Number",
+"Invoice_Date",
+"Due_Date",
+"Invoice_Amount",
+"VAT_Amount",
+"Total_Amount",
+"Invoice_Status",
+"Payment_Status",
+"Payment_Date",
+"Amount_Received"
+],
+[
+"INV0001",
+"ARG9001",
+"Cliente Alfa",
+"Engineering",
+"2001",
+"1/15/2026",
+"2/14/2026",
+"$1,000,000.00",
+"$160,000.00",
+"$1,160,000.00",
+"Approved",
+"Partial",
+"1/28/2026",
+"$580,000.00"
+]
+],
+"Summary": [
+[
+""
+],
+[
+"",
+"PROJECT SUMMARY"
+],
+[
+""
+],
+[
+"",
+"Project_ID",
+"ARG9001",
+"",
+"Project_Status",
+"Project_Phase"
+],
+[
+"",
+"Project_Name",
+"9001 Solar Capex Roof 300 kWp Demo Uno",
+"",
+"In Progress",
+"3 - Execution"
+],
+[
+"",
+"Project_Progress",
+"41.67%"
+]
+]
+}

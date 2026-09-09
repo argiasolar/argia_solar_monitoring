@@ -149,7 +149,8 @@ class TestSecret:
         pg = (V2 / "server/bundle/portal_gen.py").read_text(encoding="utf-8")
         ch = (V2 / "server/bundle/portal_chrome.py").read_text(encoding="utf-8")
         assert "class=\"card dest{' finonly' if key in ('finance', 'projects') else ''}\"" in pg
-        assert ".adminonly,.askonly,.finonly{display:none}" in ch and "fetch('/finance/me'" in ch
+        assert ".finonly{display:none!important}" in ch and "fetch('/finance/me'" in ch
+        assert "querySelectorAll('.finonly').forEach(x=>x.classList.remove('finonly'))" in ch   # v245: not style.display='' (that re-hid the cards)
         ac = (V2 / "server/bundle/auth_core.py").read_text(encoding="utf-8")
         assert "'/finance/': ALL" in ac and "'/projects/': ALL" in ac
         ng = (V2 / "server/bundle/nginx-argia_session.conf").read_text(encoding="utf-8")

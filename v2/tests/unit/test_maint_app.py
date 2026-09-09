@@ -397,7 +397,10 @@ class TestV237Spanish:
             for phrase in self.EN_ONLY:
                 assert phrase not in body, (path, phrase)
         sp = es(client.get("/t/TK-NL1-0001/", headers=H()).data.decode())
-        assert "Verificación" in sp and "quedan" in sp and "En curso → Verificación" in sp and "Línea de tiempo" in sp
+        assert "Verificación" in sp and "En curso → Verificación" in sp and "Línea de tiempo" in sp
+        # the SLA line depends on the wall clock: "quedan … de N h" while inside the target, "… sobre el objetivo de N h" after
+        # (the fixture ticket was opened 2026-09-08, so the day after it is over target — v244.2 fixed the date-bound assert)
+        assert "quedan" in sp or "sobre el objetivo" in sp
         assert "Causa raíz" in sp and "Falla de equipo" in sp and "Resuelto: por el dato" in sp
 
     def test_english_view_unchanged_and_placeholders_follow(self, client):

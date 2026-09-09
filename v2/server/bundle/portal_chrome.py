@@ -213,7 +213,7 @@ header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;to
 .umenu .seg{margin-left:auto}.wa{padding:1px 7px;border-radius:9px;font-size:11px;font-weight:600;background:#ecebf6;color:#4f4a94}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}.seg button,.seg a,.seg span{padding:7px 12px;font:600 12.5px inherit;font-family:inherit;color:var(--muted);border:0;border-right:1px solid var(--line);background:#fff;cursor:pointer}
 .seg>*:last-child{border-right:0}.seg .active,.seg .on{background:#e6f7f5;color:var(--deep)}
-.adminonly,.askonly,.finonly{display:none}
+.adminonly,.askonly{display:none}.finonly{display:none!important}
 /* buttons */
 .btn{background:var(--teal);color:var(--deep);border:0;border-radius:8px;padding:11px 18px;font-weight:800;font-size:13px;letter-spacing:.03em;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-family:inherit}
 .btn2{background:#fff;color:var(--ink2);border:1px solid var(--line2);border-radius:8px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-family:inherit}
@@ -366,7 +366,9 @@ window.addEventListener('DOMContentLoaded',()=>{
  fetch('/ask/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   if(d&&d.allowed)document.querySelectorAll('.askonly').forEach(x=>x.style.display='');}).catch(()=>{});
  fetch('/finance/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
-  if(d&&d.allowed)document.querySelectorAll('.finonly').forEach(x=>x.style.display='');}).catch(()=>{});
+  /* v245: the landing cards carry an inline display:flex, so the hide rule is !important and the
+     reveal drops the class (clearing the inline style would have hidden them - Tomasz saw exactly that) */
+  if(d&&d.allowed)document.querySelectorAll('.finonly').forEach(x=>x.classList.remove('finonly'));}).catch(()=>{});
  document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();location.href='/ask/';}});
 });
 </script>'''

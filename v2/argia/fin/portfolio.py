@@ -91,6 +91,8 @@ class OverviewRow:
     paid_mxn: Optional[Decimal]
     po: str
     comment: str
+    sheet: str = ""            # v250: where this row lives in the workbook…
+    row: int = 0               # …1-based sheet row, so the portal can point at it
 
     @property
     def phase_no(self) -> Optional[int]:
@@ -105,12 +107,12 @@ class OverviewRow:
         return f"ARG{self.code:04d}"
 
 
-def read_overview(rows: Sequence[Sequence]) -> List[OverviewRow]:
+def read_overview(rows: Sequence[Sequence], sheet: str = "Data") -> List[OverviewRow]:
     """Sheet ``Data``: the header row is the one whose 6th cell is 'Id';
     the 'Project Name' cell carries '<code> <name>'."""
     hdr: Optional[Dict[str, int]] = None
     out: List[OverviewRow] = []
-    for r in rows:
+    for n, r in enumerate(rows, 1):
         if hdr is None:
             cells = [_s(c).replace("\n", " ") for c in r]
             # the sheet carries a partial header block at the top (Id, name, value…) and the full
@@ -136,7 +138,7 @@ def read_overview(rows: Sequence[Sequence]) -> List[OverviewRow]:
             margin_planned_pct=_n(g("Margin Planned [%]")), contract_start=_d(g("Contract Start")), contract_end=_d(g("Contract End")),
             planned_start=_d(g("Planned Start")), planned_finish=_d(g("Planned Finish")), subcontractor=_s(g("Subcontractor")),
             progress=_n(g("Installation progress")), handover=_d(g("Handover protocol Date")),
-            invoiced_mxn=_n(g("Invoiced MXN")), paid_mxn=_n(g("Paid [MXN]")), po=_s(g("PO")), comment=_s(g("Comment"))))
+            invoiced_mxn=_n(g("Invoiced MXN")), paid_mxn=_n(g("Paid [MXN]")), po=_s(g("PO")), comment=_s(g("Comment")), sheet=sheet, row=n))
     return out
 
 
@@ -164,6 +166,8 @@ class OpenItem:
     paid_on: Optional[dt.date]
     kind: str
     comment: str
+    sheet: str = ""            # v250
+    row: int = 0
 
     @property
     def currency(self) -> str:
@@ -182,13 +186,13 @@ class OpenItem:
         return D(0) if self.is_paid else self.total
 
 
-def read_tracker(rows: Sequence[Sequence]) -> List[OpenItem]:
+def read_tracker(rows: Sequence[Sequence], sheet: str = "") -> List[OpenItem]:
     """Sheet ``Payables and Receivables.``: a RECEIVABLES block and a
     PAYABLES block, each with its own header row starting 'Status'."""
     side = ""
     hdr: Optional[Dict[str, int]] = None
     out: List[OpenItem] = []
-    for r in rows:
+    for n, r in enumerate(rows, 1):
         cells = [_s(c) for c in r]
         joined = " ".join(cells).upper()
         if "RECEIVABLES" in joined and "PAYABLES" not in joined and len([c for c in cells if c]) <= 2:
@@ -219,5 +223,5 @@ def read_tracker(rows: Sequence[Sequence]) -> List[OpenItem]:
             total_mxn=_n(g("Total Amount MXN")) or D(0), net_mxn=_n(g("Amount without VAT")) or D(0),
             total_usd=_n(g("Total Amount USD")) or D(0), net_usd=_n(g("Amount without VAT2")) or D(0), mxn_equiv_net=_n(g("MXN w/o VAT")) or D(0),
             folio_fiscal=_s(g("Folio Fiscal")).replace("‐", "-"), paid_on=_d(g("Confirmation Payment")),
-            kind=_s(g("Type")), comment=_s(g("Comments"))))
+            kind=_s(g("Type")), comment=_s(g("Comments")), sheet=sheet, row=n))
     return out

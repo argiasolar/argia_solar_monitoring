@@ -305,6 +305,7 @@ table.dt th .ti{vertical-align:middle}
 table.dt td.nw,table.dt td.date{white-space:nowrap}table.dt tfoot td{font-weight:700;border-top:2px solid var(--line2);background:#fafbfc;white-space:nowrap}table.dt tfoot td.lbl{color:var(--muted);font-weight:600;font-size:12px}
 .ccysw{display:inline-flex;gap:0;border:1px solid var(--line2);border-radius:8px;overflow:hidden;font-size:12px;vertical-align:middle;margin-left:8px}.ccysw a{padding:3px 9px;color:var(--ink2);text-decoration:none;background:#fff}.ccysw a.on{background:var(--deep);color:#fff}.ccysw a+a{border-left:1px solid var(--line2)}
 span.conv{border-bottom:1px dotted var(--muted);cursor:help}a.doc{font-size:11px;color:var(--deep);text-decoration:none;margin-left:4px;border:1px solid var(--line2);border-radius:5px;padding:0 4px}
+a.src{color:var(--deep);text-decoration:none;font-size:13px;padding:0 3px;border-radius:4px}a.src:hover,a.src:focus-visible{background:var(--green-bg);outline:none}
 details.cols{margin:0 16px 12px;font-size:12.5px;color:var(--ink2)}details.cols summary{cursor:pointer;color:var(--muted);padding:8px 0}details.cols dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:6px 0 0}details.cols dt{font-weight:700;color:var(--ink)}details.cols dd{margin:0}
 .printbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.printbtn:hover{border-color:var(--teal)}
 @media print{.dtbar,.printbtn,.tabs,details.cols,.noprint{display:none!important}.flipin{transform:none!important}.tile.flip .face.back{display:none!important}body.wide .wrap{padding:0}.card{break-inside:auto;box-shadow:none;border:1px solid #ccc}
@@ -376,10 +377,11 @@ function argiaTables(){
   const rows=[...tbl.tBodies[0].rows];const ths=[...tbl.tHead.rows[0].cells];
   ths.forEach(th=>{if(th.dataset.tipEs&&L==='es'){th.dataset.tipEn=th.title;th.title=th.dataset.tipEs;}});
   document.querySelectorAll('[data-title-es]').forEach(b=>{if(L==='es')b.title=b.dataset.titleEs;});
+  const tools=!w.dataset.notools;                     // v250: a short reference table gets no search bar, only sorting
   const bar=document.createElement('div');bar.className='dtbar noprint';
-  const q=document.createElement('input');q.type='search';q.placeholder=T('Search this table…','Buscar en esta tabla…');bar.appendChild(q);
+  const q=document.createElement('input');q.type='search';q.placeholder=T('Search this table…','Buscar en esta tabla…');if(tools)bar.appendChild(q);
   const sels=[];
-  if(!w.dataset.notools&&rows.length>3){
+  if(tools&&rows.length>3){
    ths.forEach((th,i)=>{
     const vals=new Set(rows.map(r=>(r.cells[i]?.innerText||'').trim()).filter(v=>v));
     if(vals.size>=2&&vals.size<=15&&rows.length>vals.size){
@@ -388,7 +390,9 @@ function argiaTables(){
      s.dataset.col=i;sels.push(s);bar.appendChild(s);
     }});
   }
-  const n=document.createElement('span');n.className='dtn';bar.appendChild(n);
+  const n=document.createElement('span');n.className='dtn';if(tools)bar.appendChild(n);
+  const x=document.createElement('button');x.type='button';x.className='dtx';x.textContent=T('Reset','Limpiar');if(tools)bar.appendChild(x);
+  if(tools)w.insertBefore(bar,w.firstChild);
   let foot=null;const sumCols=(w.dataset.sum||'').split(',').filter(x=>x!=='').map(Number);
   if(sumCols.length&&rows.length>1){
    foot=tbl.createTFoot().insertRow();
@@ -401,8 +405,6 @@ function argiaTables(){
     const dec=Object.values(acc).some(x=>Math.abs(x)%1>0.004)?2:0;
     foot.cells[i].textContent=any?Object.keys(acc).map(k=>acc[k].toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec})+(k?' '+k:'')).join(' · '):'';});
   }
-  const x=document.createElement('button');x.type='button';x.className='dtx';x.textContent=T('Reset','Limpiar');bar.appendChild(x);
-  w.insertBefore(bar,w.firstChild);
   function apply(){
    const needle=q.value.trim().toLowerCase();let shown=0;
    rows.forEach(r=>{

@@ -17,6 +17,7 @@ from typing import Callable, Dict, List, Optional
 
 import portal_chrome as PC
 from argia.fin import costcenter as CC
+from argia.fin import source as SRC
 from argia.fin.money import D
 
 t, ti, tile, pill = PC.t, PC.ti, PC.tile, PC.pill
@@ -127,6 +128,26 @@ def _per_ccy(d: Dict[str, Decimal], bold=False) -> str:
     return f'<b>{x}</b>' if bold else x
 
 
+_SRC_JOIN = ("f.name AS src_name, f.kind AS src_kind, f.drive_id AS src_drive_id, coalesce(f.mime, '') AS src_mime")
+
+
+def src_link(row: dict, column: str = '', value: str = '', label: str = '') -> str:
+    """v250: the ⎘ that opens the file this row was read from — on the cell
+    itself when the file is a Google Sheet, on the file otherwise, with the
+    sheet and row in the tooltip (Tomasz 2026-09-10)."""
+    p = SRC.pointer(row, column, value)
+    if not p or not p['url']:
+        return ''
+    tip = f"{p['en']} / {p['es']}"
+    mark = '⎘' if p['exact'] else '↗'
+    return (f'<a class="src" target="_blank" rel="noopener" href="{_e(p["url"])}" title="{_e(tip)}"'
+            f' aria-label="{_e(p["en"])}">{label or mark}</a>')
+
+
+_COL_SRC = ("Opens the file this row was read from — the exact cell when the file is a Google Sheet, otherwise the file, with the sheet and row in the tooltip. This is where the value is changed; the portal never writes to any source file.",
+            "Abre el archivo del que se leyó esta fila — la celda exacta si el archivo es una hoja de Google, si no el archivo, con la hoja y la fila en el tooltip. Ahí se cambia el valor; el portal nunca escribe en los archivos de origen.")
+
+
 def doc_link(it: dict) -> str:
     """v248: a link to the document — the tracker has no URL column, so this
     opens a Google Drive search for the folio fiscal (or the invoice number)."""
@@ -152,10 +173,11 @@ def _e(s) -> str:
     return html.escape(str(s if s is not None else ''))
 
 
-def _table(head: List[str], body: List[str], cls='', cols=None, sums=None) -> str:
+def _table(head: List[str], body: List[str], cls='', cols=None, sums=None, tools=True) -> str:
     """v246: every table gets search, filters, sorting and column tooltips (portal_chrome.data_table);
-    v248: ``sums`` = the money columns that get a total row."""
-    return PC.data_table(head, body, cls, cols, sums=sums)
+    v248: ``sums`` = the money columns that get a total row; v250: ``tools=False``
+    for a short reference table that needs no search box."""
+    return PC.data_table(head, body, cls, cols, tools=tools, sums=sums)
 
 
 # --------------------------------------------------- column explanations (v246)
@@ -287,9 +309,11 @@ def q_book_ap(period: str):
 
 
 def q_open_items(side: str):
-    return _rows(f'open_{side}', f"SELECT status, invoice, company, project_code, project_name, po, issued, due, final_due, days_to_due, currency,"
-                                 f" total, net, mxn_equiv_net, folio_fiscal, paid_on, kind, comment FROM open_item WHERE entity_id = {_q(ENTITY)}"
-                                 f" AND side = {_q(side)} ORDER BY (paid_on IS NOT NULL), coalesce(final_due, due), company;")
+    return _rows(f'open_{side}', f"SELECT o.status, o.invoice, o.company, o.project_code, o.project_name, o.po, o.issued, o.due, o.final_due,"
+                                 f" o.days_to_due, o.currency, o.total, o.net, o.mxn_equiv_net, o.folio_fiscal, o.paid_on, o.kind, o.comment,"
+                                 f" o.src_sheet, o.src_row, o.src_gid, {_SRC_JOIN} FROM open_item o"
+                                 f" LEFT JOIN fin_source_file f ON f.sha256 = o.source_sha WHERE o.entity_id = {_q(ENTITY)}"
+                                 f" AND o.side = {_q(side)} ORDER BY (o.paid_on IS NOT NULL), coalesce(o.final_due, o.due), o.company;")
 
 
 def q_report(period: str, sheet: str):
@@ -302,7 +326,9 @@ def q_portfolio():
                               f" p.planned_cost_mxn, p.margin_planned_pct, p.contract_start, p.contract_end, p.progress, p.invoiced_mxn, p.paid_mxn, p.comment,"
                               f" m.revenue_ytd, m.cos_ytd, m.revenue_total, m.cos_total, m.gm, m.planned_value, m.planned_cost, m.planned_margin,"
                               f" s.project_id AS pmo_id, s.phase AS pmo_phase, s.status AS pmo_status, s.progress AS pmo_progress, s.manager AS pmo_manager"
+                              f", p.src_sheet, p.src_row, p.src_gid, {_SRC_JOIN}, s.sheet_id AS pmo_sheet_id"
                               f" FROM portfolio_project p"
+                              f" LEFT JOIN fin_source_file f ON f.sha256 = p.source_sha"
                               f" LEFT JOIN project_margin m ON m.entity_id = p.entity_id AND m.code = p.code AND m.period = (SELECT max(period) FROM project_margin x WHERE x.entity_id = p.entity_id)"
                               f" LEFT JOIN pmo_project s ON s.entity_id = p.entity_id AND s.code = p.code"
                               f" WHERE p.entity_id = {_q(ENTITY)} ORDER BY p.phase, p.code DESC;")
@@ -323,23 +349,31 @@ def q_project_gl(code: int, period: str = ''):
 
 
 def q_project_items(code: int):
-    return _rows('project_items', f"SELECT side, status, invoice, company, issued, due, final_due, days_to_due, currency, total, net, paid_on, kind FROM open_item"
-                                  f" WHERE entity_id = {_q(ENTITY)} AND project_code = {int(code)} ORDER BY side, (paid_on IS NOT NULL), coalesce(final_due, due);")
+    return _rows('project_items', f"SELECT o.side, o.status, o.invoice, o.company, o.issued, o.due, o.final_due, o.days_to_due, o.currency, o.total,"
+                                  f" o.net, o.paid_on, o.kind, o.folio_fiscal, o.src_sheet, o.src_row, o.src_gid, {_SRC_JOIN} FROM open_item o"
+                                  f" LEFT JOIN fin_source_file f ON f.sha256 = o.source_sha"
+                                  f" WHERE o.entity_id = {_q(ENTITY)} AND o.project_code = {int(code)} ORDER BY o.side, (o.paid_on IS NOT NULL), coalesce(o.final_due, o.due);")
 
 
 def q_pmo_tasks(pid: str):
-    return _rows('pmo_tasks', f"SELECT wbs, task_id, name, is_phase, is_milestone, resource, start_date, end_date, duration_days, status, progress"
-                              f" FROM pmo_task WHERE project_id = {_q(pid)} ORDER BY string_to_array(wbs, '.')::int[];")
+    return _rows('pmo_tasks', f"SELECT t.wbs, t.task_id, t.name, t.is_phase, t.is_milestone, t.resource, t.start_date, t.end_date, t.duration_days,"
+                              f" t.status, t.progress, t.src_sheet, t.src_row, t.src_gid, {_SRC_JOIN} FROM pmo_task t"
+                              f" JOIN pmo_project p ON p.project_id = t.project_id LEFT JOIN fin_source_file f ON f.sha256 = p.source_sha"
+                              f" WHERE t.project_id = {_q(pid)} ORDER BY string_to_array(t.wbs, '.')::int[];")
 
 
 def q_pmo_costs(pid: str):
-    return _rows('pmo_costs', f"SELECT cost_id, cost_date, category, vendor, description, net, vat, total, cost_status, approval, approved_by, paid, payment_status"
-                              f" FROM pmo_cost WHERE project_id = {_q(pid)} ORDER BY cost_date, cost_id;")
+    return _rows('pmo_costs', f"SELECT c.cost_id, c.cost_date, c.category, c.vendor, c.description, c.net, c.vat, c.total, c.cost_status, c.approval,"
+                              f" c.approved_by, c.paid, c.payment_status, c.src_sheet, c.src_row, c.src_gid, {_SRC_JOIN} FROM pmo_cost c"
+                              f" JOIN pmo_project p ON p.project_id = c.project_id LEFT JOIN fin_source_file f ON f.sha256 = p.source_sha"
+                              f" WHERE c.project_id = {_q(pid)} ORDER BY c.cost_date, c.cost_id;")
 
 
 def q_pmo_invoices(pid: str):
-    return _rows('pmo_invoices', f"SELECT invoice_id, customer, milestone, number, inv_date, due, net, vat, total, status, payment_status, paid_on, received"
-                                 f" FROM pmo_invoice WHERE project_id = {_q(pid)} ORDER BY inv_date, invoice_id;")
+    return _rows('pmo_invoices', f"SELECT i.invoice_id, i.customer, i.milestone, i.number, i.inv_date, i.due, i.net, i.vat, i.total, i.status,"
+                                 f" i.payment_status, i.paid_on, i.received, i.src_sheet, i.src_row, i.src_gid, {_SRC_JOIN} FROM pmo_invoice i"
+                                 f" JOIN pmo_project p ON p.project_id = i.project_id LEFT JOIN fin_source_file f ON f.sha256 = p.source_sha"
+                                 f" WHERE i.project_id = {_q(pid)} ORDER BY i.inv_date, i.invoice_id;")
 
 
 def q_bank_lines(account: str, since: dt.date):
@@ -565,7 +599,8 @@ def page_ledger(side: str) -> str:
         trs.append(f'<tr><td>{pill(cls, st)}</td><td class="mono" style="font-size:12px">{_e(it.get("invoice"))}</td><td>{party}</td><td>{_proj(it.get("project_code"), it.get("project_name"))}</td>'
                    f'<td class="nw">{_e(re.sub(r" 00:00:00$", "", str(it.get("po") or "")))}</td>{_dt(it.get("issued"))}{_dt(it.get("final_due") or it.get("due"))}'
                    f'<td class="r">{"" if paid else f"{days:+d}"}</td><td class="r"><b>{_money(it.get("total"), it.get("currency") or "MXN")}</b></td>'
-                   f'<td class="r">{_money(it.get("net"), it.get("currency") or "MXN")}</td>{_dt(it.get("paid_on"))}<td class="mono nw" style="font-size:11px">{_e((it.get("folio_fiscal") or "")[:8])}{doc_link(it)}</td><td>{_e(it.get("comment") or "")}</td></tr>')
+                   f'<td class="r">{_money(it.get("net"), it.get("currency") or "MXN")}</td>{_dt(it.get("paid_on"))}<td class="mono nw" style="font-size:11px">{_e((it.get("folio_fiscal") or "")[:8])}{doc_link(it)}</td><td>{_e(it.get("comment") or "")}</td>'
+                   f'<td class="nw">{src_link(it, "Payment Due Day" if not paid else "Confirmation Payment date", str(it.get("final_due") or it.get("due") or ""))}</td></tr>')
     brs = []
     for b in book:
         nm = f'<a href="/finance/suppliers/{_e(b["account"])}/">{_nm(b["name"])}</a>' if side == 'ap' else _nm(b['name'])
@@ -574,7 +609,7 @@ def page_ledger(side: str) -> str:
 <div class="tiles" style="margin-top:16px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Open items (tracker)", "Partidas abiertas (seguimiento)")}</h2><span class="muted" style="font-size:12.5px">{t("days = to the final due date; negative = overdue", "días = al vencimiento final; negativo = vencida")}</span></div>
- {_table(["Status", t("Invoice", "Factura"), t("Customer", "Cliente") if side == "ar" else t("Supplier", "Proveedor"), t("Project", "Proyecto"), "PO", t("Issued", "Emitida"), t("Due", "Vence"), t("Days", "Días"), "Total", t("Net", "Neto"), t("Paid", "Pagada"), "Folio", t("Comment", "Comentario")], trs, cols=COLS('oi_status', 'oi_invoice', 'oi_customer' if side == 'ar' else 'oi_supplier', 'oi_project', 'oi_po', 'oi_issued', 'oi_due', 'oi_days', 'oi_total', 'oi_net', 'oi_paid', 'oi_folio', 'oi_comment'), sums=[8, 9])}
+ {_table(["Status", t("Invoice", "Factura"), t("Customer", "Cliente") if side == "ar" else t("Supplier", "Proveedor"), t("Project", "Proyecto"), "PO", t("Issued", "Emitida"), t("Due", "Vence"), t("Days", "Días"), "Total", t("Net", "Neto"), t("Paid", "Pagada"), "Folio", t("Comment", "Comentario"), t("Source", "Origen")], trs, cols=COLS('oi_status', 'oi_invoice', 'oi_customer' if side == 'ar' else 'oi_supplier', 'oi_project', 'oi_po', 'oi_issued', 'oi_due', 'oi_days', 'oi_total', 'oi_net', 'oi_paid', 'oi_folio', 'oi_comment') + [_COL_SRC], sums=[8, 9])}
 </div>
 <div class="card" style="margin-top:16px;overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Balances in the books", "Saldos en libros")} · {period}</h2><span class="muted" style="font-size:12.5px">{t("CONTPAQi auxiliares, one sub-account per counterparty; USD accounts at face value", "auxiliares CONTPAQi, una subcuenta por contraparte; cuentas USD a valor nominal")}</span></div>
@@ -721,6 +756,51 @@ def page_portfolio() -> str:
     return PC.page('Projects', body, 'projects', '', wide=True)
 
 
+def q_source(kind: str) -> Optional[dict]:
+    """The newest file of one kind, shaped like the src_* fields of a row."""
+    r = _rows(f'src_{kind}', f"SELECT name AS src_name, kind AS src_kind, drive_id AS src_drive_id, coalesce(mime, '') AS src_mime"
+                             f" FROM fin_source_file WHERE entity_id = {_q(ENTITY)} AND kind = {_q(kind)}"
+                             f" ORDER BY period DESC NULLS LAST, coalesce(modified, imported_at) DESC LIMIT 1;")
+    return r[0] if r else None
+
+
+def _tab_of(row: Optional[dict]) -> Optional[dict]:
+    """A row's pointer without its row number: the tab, not the cell — what
+    you want when the answer is "add a line here", not "look at this line"."""
+    return dict(row, src_row=0) if row else None
+
+
+def where_box(entries: List[dict]) -> str:
+    """v250 — "where do I change this?": one row per file that feeds the page,
+    what it decides, who keeps it and a link straight to it. The books are
+    listed too, marked read-only: a wrong booked figure is corrected in
+    CONTPAQi by the accountants and arrives with the next close."""
+    trs = []
+    for e in entries:
+        p = e.get('pointer')
+        if not p or not p.get('url'):
+            continue
+        own_en, own_es = SRC.owner(p['kind'])
+        link = f'<a class="src" target="_blank" rel="noopener" href="{_e(p["url"])}">{_e(p["name"])} {"⎘" if p["exact"] else "↗"}</a>'
+        badge = pill('ok', 'Edit here', 'Aquí se edita') if p['editable'] else pill('off', 'Read-only', 'Solo lectura')
+        trs.append(f'<tr><td>{t(*e["what"])}</td><td>{link}</td><td class="muted" style="font-size:12.5px">{_e(p["en"])}</td>'
+                   f'<td>{t(own_en, own_es)}</td><td>{badge}</td></tr>')
+    if not trs:
+        return ''
+    cols = [("What this file decides on this page.", "Qué decide este archivo en esta página."),
+            ("The file itself — the link opens it (the exact cell when it is a Google Sheet).", "El archivo — el enlace lo abre (la celda exacta si es una hoja de Google)."),
+            ("Sheet and row the portal read, so the value is easy to find inside the file.", "Hoja y fila que leyó el portal, para ubicar el valor dentro del archivo."),
+            ("Who keeps that file.", "Quién lleva ese archivo."),
+            ("Whether changing the file is the way to fix the number. The books are the accountants' output: a wrong figure there is corrected in CONTPAQi and arrives with the next monthly close.",
+             "Si cambiar el archivo es la forma de corregir el número. Los libros son el resultado de contabilidad: una cifra equivocada se corrige en CONTPAQi y llega con el siguiente cierre mensual.")]
+    head = [t("What it decides", "Qué decide"), t("File", "Archivo"), t("Where in the file", "Dónde en el archivo"), t("Kept by", "Lo lleva"), ""]
+    note = t("every number on this page comes from one of these files; the portal only reads them and picks a change up at the next morning's read",
+             "cada número de esta página viene de uno de estos archivos; el portal solo los lee y toma el cambio en la lectura de la mañana siguiente")
+    return ('<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">'
+            + t("Where to change this", "Dónde se cambia esto") + '</h2><span class="muted" style="font-size:12.5px">' + note + '</span></div>'
+            + _table(head, trs, cols=cols, tools=False) + '</div>')
+
+
 def page_project(pid: str) -> Optional[str]:
     m = re.match(r'^ARG(\d{4})$', pid)
     if not m:
@@ -755,35 +835,49 @@ def page_project(pid: str) -> Optional[str]:
         net = _n(g['debit']) - _n(g['credit'])
         grs.append(f'<tr><td>{_e(g.get("bs_pl") or "")}</td><td class="mono" style="font-size:12px">{_e(g["account"])}</td><td>{_e(g["bucket"])}</td><td class="r">{_money(_n(g["debit"]), "", 2)}</td><td class="r">{_money(_n(g["credit"]), "", 2)}</td><td class="r"><b>{_money(net, "", 2)}</b></td><td class="r">{_e(g["n"])}</td><td>{_e(g.get("first"))} → {_e(g.get("last"))}</td></tr>')
     irs = [f'<tr><td>{pill("ok" if it.get("paid_on") else "crit" if (it.get("status") or "").lower() == "delay" else "warn", (it.get("status") or ""))}</td><td>{_e(it["side"]).upper()}</td><td class="mono" style="font-size:12px">{_e(it.get("invoice"))}</td><td>{_nm(it.get("company"))}</td>'
-           f'{_dt(it.get("issued"))}{_dt(it.get("final_due") or it.get("due"))}<td class="r"><b>{_money(it.get("total"), it.get("currency") or "MXN")}</b></td>{_dt(it.get("paid_on"))}</tr>' for it in items]
+           f'{_dt(it.get("issued"))}{_dt(it.get("final_due") or it.get("due"))}<td class="r"><b>{_money(it.get("total"), it.get("currency") or "MXN")}</b></td>{_dt(it.get("paid_on"))}'
+           f'<td class="nw">{src_link(it, "Payment Due Day", str(it.get("final_due") or it.get("due") or ""))}</td></tr>' for it in items]
     pmo_html = ''
     if p.get('pmo_id'):
         ms = [x for x in tasks if x.get('is_milestone') in ('t', 'true', True)]
-        mrs = [f'<tr><td class="mono" style="font-size:12px">{_e(x["task_id"])}</td><td>{_e(x["name"])}</td><td>{_e(x.get("end_date") or "")}</td><td>{pill("ok" if (x.get("status") or "").lower() == "completed" else "warn" if (x.get("status") or "").lower() == "in progress" else "off", x.get("status") or "—")}</td></tr>' for x in ms]
+        mrs = [f'<tr><td class="mono" style="font-size:12px">{_e(x["task_id"])}</td><td>{_e(x["name"])}</td>{_dt(x.get("end_date"))}<td>{pill("ok" if (x.get("status") or "").lower() == "completed" else "warn" if (x.get("status") or "").lower() == "in progress" else "off", x.get("status") or "—")}</td>'
+               f'<td class="nw">{src_link(x, "Task_Status", x.get("status") or "")}</td></tr>' for x in ms]
         by_status: Dict[str, Decimal] = {}
         for c in costs:
             by_status[c.get('cost_status') or '—'] = by_status.get(c.get('cost_status') or '—', D(0)) + _n(c['net'])
-        crs = [f'<tr><td class="mono" style="font-size:12px">{_e(c["cost_id"])}</td><td>{_e(c.get("cost_date") or "")}</td><td>{_e(c["category"])}</td><td>{_nm(c["vendor"])}</td><td>{_e(c["description"])}</td><td class="r">{_money(c["net"])}</td><td class="r">{_money(c["total"])}</td><td>{pill("ok" if (c.get("cost_status") or "") == "Paid" else "warn" if c.get("cost_status") in ("Committed", "Incurred") else "off", c.get("cost_status") or "—")}</td><td>{_e(c.get("approval") or "")} {_e(c.get("approved_by") or "")}</td></tr>' for c in costs]
+        crs = []
+        for c in costs:
+            crs.append(f'<tr><td class="mono" style="font-size:12px">{_e(c["cost_id"])}</td>{_dt(c.get("cost_date"))}<td>{_e(c["category"])}</td><td>{_nm(c["vendor"])}</td>'
+                       f'<td>{_e(c["description"])}</td><td class="r">{_money(c["net"])}</td><td class="r">{_money(c["total"])}</td>'
+                       f'<td>{pill("ok" if (c.get("cost_status") or "") == "Paid" else "warn" if c.get("cost_status") in ("Committed", "Incurred") else "off", c.get("cost_status") or "—")}</td>'
+                       f'<td>{_e(c.get("approval") or "")} {_e(c.get("approved_by") or "")}</td>'
+                       f'<td class="nw">{src_link(c, "Amount_Before_VAT", format(_n(c.get("net")), ",.2f"))}</td></tr>')
         phases = [x for x in tasks if x.get('is_phase') in ('t', 'true', True)]
         prs = [f'<tr><td class="mono" style="font-size:12px">{_e(x["wbs"])}</td><td>{_e(x["name"])}</td><td>{_e(x.get("start_date") or "")} → {_e(x.get("end_date") or "")}</td><td>{_e(x.get("resource") or "")}</td></tr>' for x in phases]
-        vrs = [f'<tr><td>{_e(i["invoice_id"])}</td><td>{_e(i["milestone"])}</td><td>{_e(i["number"])}</td><td>{_e(i.get("inv_date") or "")}</td><td>{_e(i.get("due") or "")}</td><td class="r">{_money(i["total"])}</td><td>{_e(i["status"])} / {_e(i["payment_status"])}</td></tr>' for i in invs]
+        vrs = [f'<tr><td>{_e(i["invoice_id"])}</td><td>{_e(i["milestone"])}</td><td>{_e(i["number"])}</td>{_dt(i.get("inv_date"))}{_dt(i.get("due"))}<td class="r">{_money(i["total"])}</td><td>{_e(i["status"])} / {_e(i["payment_status"])}</td>'
+               f'<td class="nw">{src_link(i, "Total_Amount", format(_n(i.get("total")), ",.2f"))}</td></tr>' for i in invs]
         pmo_html = f'''
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("PMO sheet", "Hoja PMO")} · {_e(p.get("pmo_phase") or "")} · {_e(p.get("pmo_status") or "")}</h2><span class="muted" style="font-size:12.5px">{t("ARGIA PROJECT workbook: phases, milestones, costs, invoices", "libro ARGIA PROJECT: fases, hitos, costos, facturas")}</span></div>
  <div class="tiles" style="padding:12px 16px 0">{''.join(tile(f"Costs · {k}", f"Costos · {k}", _money(v), "net of IVA, from the Costs tab", "sin IVA, de la pestaña Costs") for k, v in sorted(by_status.items()))}</div>
- <div class="chead"><h3 class="ct">{t("Milestones", "Hitos")}</h3></div>{_table(["ID", t("Milestone", "Hito"), t("Date", "Fecha"), "Status"], mrs, cols=COLS('ms_id', 'ms_name', 'ms_date', 'ms_status'))}
+ <div class="chead"><h3 class="ct">{t("Milestones", "Hitos")}</h3></div>{_table(["ID", t("Milestone", "Hito"), t("Date", "Fecha"), "Status", t("Source", "Origen")], mrs, cols=COLS('ms_id', 'ms_name', 'ms_date', 'ms_status') + [_COL_SRC])}
  <div class="chead"><h3 class="ct">{t("Phases", "Fases")}</h3></div>{_table(["WBS", t("Phase", "Fase"), t("Dates", "Fechas"), t("Resource", "Recurso")], prs, cols=COLS('ph_wbs', 'ph_name', 'ph_dates', 'ph_res'))}
- <div class="chead"><h3 class="ct">{t("Costs", "Costos")}</h3></div>{_table(["ID", t("Date", "Fecha"), t("Category", "Categoría"), t("Vendor", "Proveedor"), t("Description", "Descripción"), t("Net", "Neto"), "Total", "Status", t("Approval", "Aprobación")], crs, cols=COLS('c_id', 'c_date', 'c_cat', 'c_vendor', 'c_desc', 'c_net', 'c_total', 'c_status', 'c_appr'), sums=[5, 6])}
- {('<div class="chead"><h3 class="ct">' + t("Invoices", "Facturas") + '</h3></div>' + _table(["ID", t("Milestone", "Hito"), t("Number", "Número"), t("Date", "Fecha"), t("Due", "Vence"), "Total", "Status"], vrs, cols=COLS('iv_id', 'iv_ms', 'iv_no', 'iv_date', 'iv_due', 'iv_total', 'iv_status'))) if vrs else ''}
+ <div class="chead"><h3 class="ct">{t("Costs", "Costos")}</h3></div>{_table(["ID", t("Date", "Fecha"), t("Category", "Categoría"), t("Vendor", "Proveedor"), t("Description", "Descripción"), t("Net", "Neto"), "Total", "Status", t("Approval", "Aprobación"), t("Source", "Origen")], crs, cols=COLS('c_id', 'c_date', 'c_cat', 'c_vendor', 'c_desc', 'c_net', 'c_total', 'c_status', 'c_appr') + [_COL_SRC], sums=[5, 6])}
+ {('<div class="chead"><h3 class="ct">' + t("Invoices", "Facturas") + '</h3></div>' + _table(["ID", t("Milestone", "Hito"), t("Number", "Número"), t("Date", "Fecha"), t("Due", "Vence"), "Total", "Status", t("Source", "Origen")], vrs, cols=COLS('iv_id', 'iv_ms', 'iv_no', 'iv_date', 'iv_due', 'iv_total', 'iv_status') + [_COL_SRC], sums=[5])) if vrs else ''}
 </div>'''
     body = f'''<div class="kicker"><a href="/projects/">{t("Projects", "Proyectos")}</a> · <span class="mono">{_e(pid)}</span> · {t("books through", "libros al")} {period}</div>
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{_e(CC.label(code, p["name"]))}</h1>{_tools()}</div>
 <div class="muted" style="font-size:14px">{phase_pill(p["phase"])} · {t("BM", "BM")} {_e(p.get("business_manager") or "—")} · PM {_e(p.get("project_manager") or p.get("pmo_manager") or "—")} · {_e(p.get("comment") or "")}</div>
 <div class="tiles" style="margin-top:16px">{tiles}</div>
 {pmo_html}
+{where_box([{"what": ("Value, planned cost, phase, dates, progress, invoiced and paid", "Valor, costo planeado, fase, fechas, avance, facturado y cobrado"), "pointer": SRC.pointer(p)},
+            {"what": ("Project costs — add or correct a cost line here", "Costos del proyecto — aquí se agrega o corrige una línea de costo"), "pointer": SRC.pointer(_tab_of(costs[0]) if costs else _tab_of(tasks[0]) if tasks else None)},
+            {"what": ("Milestones, phases and progress", "Hitos, fases y avance"), "pointer": SRC.pointer(_tab_of(tasks[0])) if tasks else None},
+            {"what": ("Customer and supplier invoices, due dates, payment dates", "Facturas de cliente y proveedor, vencimientos, fechas de pago"), "pointer": SRC.pointer(_tab_of(items[0])) if items else SRC.pointer(q_source("tracker") or {})},
+            {"what": ("Everything booked on this project (revenue, cost, margin)", "Todo lo contabilizado en este proyecto (ingresos, costo, margen)"), "pointer": SRC.pointer(q_source("polizas") or {})}])}
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("In the books", "En libros")} · {t("segment", "segmento")} {code}</h2><span class="muted" style="font-size:12.5px">{t("every posted journal line carrying this project's segment, grouped by account (2026 year to date)", "cada línea de póliza contabilizada con el segmento de este proyecto, agrupada por cuenta (2026 acumulado)")}</span></div>
 {_table(["BS/PL", t("Account", "Cuenta"), t("Report line", "Línea de reporte"), t("Debit", "Cargo"), t("Credit", "Abono"), t("Net", "Neto"), "n", t("Dates", "Fechas")], grs, cols=COLS('gl_bspl', 'gl_account', 'gl_report', 'gl_debit', 'gl_credit', 'gl_net', 'gl_n', 'gl_dates'), sums=[3, 4, 5]) if grs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No journal lines carry this segment in 2026.", "Ninguna línea de póliza lleva este segmento en 2026.")}</p>'}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Invoices in the tracker", "Facturas en seguimiento")}</h2></div>
-{_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada")], irs, cols=COLS('oi_status', 'it_side', 'oi_invoice', 'it_company', 'oi_issued', 'oi_due', 'oi_total', 'oi_paid'), sums=[6]) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No open or recently paid invoice for this project.", "Sin factura abierta o pagada recientemente para este proyecto.")}</p>'}</div>'''
+{_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada"), t("Source", "Origen")], irs, cols=COLS('oi_status', 'it_side', 'oi_invoice', 'it_company', 'oi_issued', 'oi_due', 'oi_total', 'oi_paid') + [_COL_SRC], sums=[6]) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No open or recently paid invoice for this project.", "Sin factura abierta o pagada recientemente para este proyecto.")}</p>'}</div>'''
     return PC.page(CC.label(code, p['name']), body, 'projects', '', wide=True)
 
 
@@ -1044,16 +1138,20 @@ def page_cost_center(code_s: str) -> Optional[str]:
     items = q_project_items(code)
     open_ap = _open_ap_map()
     irs = [f'<tr><td>{pill("ok" if it.get("paid_on") else "crit" if (it.get("status") or "").lower() == "delay" else "warn", (it.get("status") or ""))}</td><td>{_e(it["side"]).upper()}</td><td class="mono" style="font-size:12px">{_e(it.get("invoice"))}</td><td>{_nm(it.get("company"))}</td>'
-           f'{_dt(it.get("issued"))}{_dt(it.get("final_due") or it.get("due"))}<td class="r"><b>{_money(it.get("total"), it.get("currency") or "MXN")}</b></td>{_dt(it.get("paid_on"))}</tr>' for it in items]
+           f'{_dt(it.get("issued"))}{_dt(it.get("final_due") or it.get("due"))}<td class="r"><b>{_money(it.get("total"), it.get("currency") or "MXN")}</b></td>{_dt(it.get("paid_on"))}'
+           f'<td class="nw">{src_link(it, "Payment Due Day", str(it.get("final_due") or it.get("due") or ""))}</td></tr>' for it in items]
     name = c['name'] if c else ''
     body = f'''<div class="kicker"><a href="/finance/costs/">{t("Cost centres", "Centros de costo")}</a> · <span class="mono">{code}</span> · {t("books through", "libros al")} {period}</div>
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{_e(CC.label(code, name, kind))}</h1>{_tools()}</div>
 <div class="muted" style="font-size:14px">{pill("warn" if kind == CC.OVERHEAD else "off", *CC.KIND_LABEL.get(kind, ("Other", "Otros")))}{" · " + t("kind set by hand", "tipo fijado a mano") if c and c.get("manual") in (True, "t", "true") else ""}</div>
 <div class="tiles" style="margin-top:16px">{tile("Cost YTD", "Costo YTD", _money(_n(seg.get("cost_ytd"))), f"{seg.get('n') or 0} journal lines", f"{seg.get('n') or 0} líneas de póliza")}{tile("This month", "Este mes", _money(_n(seg.get("cost_month"))), period, period)}{tile("Open AP", "Por pagar", _ap_cells(open_ap, code) or "—", "supplier invoices open in the tracker", "facturas de proveedor abiertas en el seguimiento")}</div>
+{where_box([{"what": ("Supplier invoices on this code, due dates, payment dates", "Facturas de proveedor con este código, vencimientos, fechas de pago"), "pointer": SRC.pointer(_tab_of(items[0])) if items else SRC.pointer(q_source("tracker") or {})},
+            {"what": ("Everything booked on this cost centre", "Todo lo contabilizado en este centro de costo"), "pointer": SRC.pointer(q_source("polizas") or {})},
+            {"what": ("Which cost centre this code is, and its name", "Qué centro de costo es este código, y su nombre"), "pointer": SRC.pointer(q_source("acctbook") or {})}])}
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Journal lines", "Líneas de póliza")} · {t("segment", "segmento")} {code}</h2><span class="muted" style="font-size:12.5px">{t("every posted line carrying this segment (all accounts, newest first, up to 600)", "cada línea contabilizada con este segmento (todas las cuentas, la más reciente primero, hasta 600)")}</span></div>
 {_lines_table(lines) if lines else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No journal lines carry this segment.", "Ninguna línea de póliza lleva este segmento.")}</p>'}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Invoices in the tracker", "Facturas en seguimiento")}</h2></div>
-{_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada")], irs, cols=COLS('oi_status', 'it_side', 'oi_invoice', 'it_company', 'oi_issued', 'oi_due', 'oi_total', 'oi_paid'), sums=[6]) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No invoice in the tracker for this code.", "Sin factura en seguimiento para este código.")}</p>'}</div>'''
+{_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada"), t("Source", "Origen")], irs, cols=COLS('oi_status', 'it_side', 'oi_invoice', 'it_company', 'oi_issued', 'oi_due', 'oi_total', 'oi_paid') + [_COL_SRC], sums=[6]) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No invoice in the tracker for this code.", "Sin factura en seguimiento para este código.")}</p>'}</div>'''
     return PC.page(CC.label(code, name, kind), body, 'finance', 'costs', wide=True)
 
 

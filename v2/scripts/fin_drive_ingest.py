@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # runs from anywhere, PYTHONPATH or not
 
-from argia.fin import acctbook as AB, books as B, contpaq as CP, pmo_sheet as PS, portfolio as PF   # noqa: E402
+from argia.fin import acctbook as AB, books as B, contpaq as CP, pmo_sheet as PS, portfolio as PF, source as SRC   # noqa: E402
 from argia.fin.ingest import _lit                                                                  # noqa: E402
 
 ENTITY = os.environ.get("ARGIA_FIN_ENTITY", "ARGIA-MX")
@@ -53,14 +53,24 @@ PMO_MIN_CODE = int(os.environ.get("ARGIA_FIN_PMO_MIN_CODE", "1000"))   # ARG0000
 # ------------------------------------------------------------------ files
 class SourceFile:
     def __init__(self, kind: str, name: str, data: bytes = b"", drive_id: str = "", modified: Optional[dt.datetime] = None,
-                 tabs: Optional[Dict[str, List[List]]] = None, folder: str = ""):
+                 tabs: Optional[Dict[str, List[List]]] = None, folder: str = "", mime: str = "", gids: Optional[Dict[str, str]] = None):
         self.kind, self.name, self.data, self.drive_id, self.modified, self.tabs, self.folder = kind, name, data, drive_id, modified, tabs, folder
+        self.mime = mime or _mime_of(name)          # v250: a Google Sheet can be linked cell-deep, an .xlsx only file-deep
+        self.gids = gids or {}                      # tab title -> gid, for those cell-deep links
 
     @property
     def sha(self) -> str:
         if self.tabs is not None:
             return B.sha_of(json.dumps(self.tabs, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
         return B.sha_of(self.data)
+
+
+def _mime_of(name: str) -> str:
+    ext = Path(name).suffix.lower()
+    return {".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
+            ".xls": "application/vnd.ms-excel",
+            ".json": SRC.SHEET_MIME}.get(ext, "")
 
 
 def _period_key(name: str) -> str:
@@ -162,7 +172,7 @@ class DriveSource:
 
     def _download(self, f: dict, kind: str) -> SourceFile:
         data = self.drive.files().get_media(fileId=f["id"], supportsAllDrives=True).execute()
-        return SourceFile(kind, f["name"], data, f["id"], _ts(f.get("modifiedTime")), folder=f.get("folder", ""))
+        return SourceFile(kind, f["name"], data, f["id"], _ts(f.get("modifiedTime")), folder=f.get("folder", ""), mime=f.get("mimeType", ""))
 
     def latest(self, rx: re.Pattern, year: Optional[int] = None) -> Optional[SourceFile]:
         best = None
@@ -196,13 +206,14 @@ class DriveSource:
                 continue
             for f in self._list(folder["id"]):
                 if f["mimeType"] == "application/vnd.google-apps.spreadsheet" and PMO_TITLE_RE.search(f["name"]):
-                    meta = self.sheets.spreadsheets().get(spreadsheetId=f["id"], fields="sheets.properties.title").execute()
+                    meta = self.sheets.spreadsheets().get(spreadsheetId=f["id"], fields="sheets.properties.title,sheets.properties.sheetId").execute()
                     titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
+                    gids = {s["properties"]["title"]: str(s["properties"].get("sheetId", "")) for s in meta.get("sheets", [])}
                     got = self.sheets.spreadsheets().values().batchGet(spreadsheetId=f["id"], ranges=[f"'{t}'" for t in titles],
                                                                        valueRenderOption="FORMATTED_VALUE").execute()
                     tabs = {t: vr.get("values", []) for t, vr in zip(titles, got.get("valueRanges", []))}
                     out.append(SourceFile("pmo_sheet", f["name"], drive_id=f["id"], modified=_ts(f.get("modifiedTime")), tabs=tabs,
-                                          folder=folder["name"]))
+                                          folder=folder["name"], mime=SRC.SHEET_MIME, gids=gids))
         return out
 
 
@@ -279,6 +290,9 @@ class Run:
     def skip(self, sf: SourceFile) -> bool:
         if sf.sha in self.known and not self.force:
             print(f"  {sf.kind}: {sf.name} — unchanged (sha {sf.sha[:12]}), skipped")
+            if sf.drive_id or sf.mime:           # v250: the content is old news, the Drive pointer may be new
+                self.write(B.source_touch_sql(sf.sha, sf.drive_id, sf.mime, sf.modified), "source_touch")
+                self.commit()
             return True
         return False
 
@@ -311,7 +325,7 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
             run.findings.append(f"auxiliares: running balance disagrees on {len(bad)} account(s): {', '.join(a.account for a in bad[:5])}")
         period = B.period_of(A.period_to) or B.month_prefix_period(aux.name)
         run.write(B.source_file_sql(B.source_file_row(aux.sha, ENTITY, "auxiliares", aux.name, aux.drive_id, aux.modified, period,
-                                                     sum(len(a.movements) for a in A.accounts.values()))), "source_file")
+                                                     sum(len(a.movements) for a in A.accounts.values()), mime=aux.mime)), "source_file")
         rows = B.balance_rows(ENTITY, A, aux.sha, period)
         run.write(B.balance_sql(rows), "gl_balance")
         run.commit()
@@ -322,7 +336,7 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
         sheets = _xlsx_rows(book.data)
         W = AB.read_workbook({k: v for k, v in sheets.items() if k in AB.SHEETS})
         period = W.period.label if W.period.year else B.acctbook_period(book.name)
-        run.write(B.source_file_sql(B.source_file_row(book.sha, ENTITY, "acctbook", book.name, book.drive_id, book.modified, period, len(W.mapping))), "source_file")
+        run.write(B.source_file_sql(B.source_file_row(book.sha, ENTITY, "acctbook", book.name, book.drive_id, book.modified, period, len(W.mapping), mime=book.mime)), "source_file")
         if not history:
             run.write(B.gl_account_sql(B.gl_account_rows(ENTITY, W.mapping, A)), "gl_account")
             run.write(B.biz_case_sql(B.biz_case_rows(ENTITY, W.projects)), "biz_case")
@@ -349,7 +363,7 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
             for f in CP.cross_check(P, A):
                 run.findings.append("pólizas vs auxiliares: " + f)
         period = B.period_of(P.period_to) or B.month_prefix_period(pol.name)
-        run.write(B.source_file_sql(B.source_file_row(pol.sha, ENTITY, "polizas", pol.name, pol.drive_id, pol.modified, period, P.lines)), "source_file")
+        run.write(B.source_file_sql(B.source_file_row(pol.sha, ENTITY, "polizas", pol.name, pol.drive_id, pol.modified, period, P.lines, mime=pol.mime)), "source_file")
         jr, lr = B.journal_rows(ENTITY, P, pol.sha, posted)
         run.write(B.journal_sql(ENTITY, jr, lr, P.period_from, P.period_to), "gl_journal+line")
         run.commit()
@@ -364,8 +378,8 @@ def ingest_overview(run: Run, sf: Optional[SourceFile]):
         sf.kind = 'overview'
     if not sf or run.skip(sf):
         return None
-    rows = PF.read_overview(_xlsx_rows(sf.data, "Data", max_col=40)["Data"])
-    run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "overview", sf.name, sf.drive_id, sf.modified, "", len(rows))), "source_file")
+    rows = PF.read_overview(_xlsx_rows(sf.data, "Data", max_col=40)["Data"], "Data")
+    run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "overview", sf.name, sf.drive_id, sf.modified, "", len(rows), mime=sf.mime)), "source_file")
     run.write(B.portfolio_sql(ENTITY, B.portfolio_rows(ENTITY, rows, sf.sha)), "portfolio_project")
     run.commit()
     print(f"  overview: {sf.name} — {len(rows)} projects, {sum(1 for r in rows if r.active)} active")
@@ -382,8 +396,8 @@ def ingest_tracker(run: Run, sf: Optional[SourceFile]):
     if not name:
         run.findings.append(f"tracker: no 'Payables and Receivables' sheet in {sf.name}")
         return None
-    items = PF.read_tracker(sheets[name])
-    run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "tracker", sf.name, sf.drive_id, sf.modified, "", len(items))), "source_file")
+    items = PF.read_tracker(sheets[name], name)
+    run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "tracker", sf.name, sf.drive_id, sf.modified, "", len(items), mime=sf.mime)), "source_file")
     run.write(B.open_item_sql(ENTITY, B.open_item_rows(ENTITY, items, sf.sha)), "open_item")
     run.commit()
     print(f"  tracker: {sf.name} — {len(items)} items ({sum(1 for i in items if i.side == 'ar')} AR, {sum(1 for i in items if i.side == 'ap')} AP)")
@@ -401,8 +415,8 @@ def ingest_pmo(run: Run, sheets: Sequence[SourceFile]):
             continue
         if p.code is not None and p.code < PMO_MIN_CODE:
             continue
-        run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "pmo_sheet", sf.name, sf.drive_id, sf.modified, "", len(p.tasks))), "source_file")
-        run.write(B.pmo_sql(*B.pmo_rows(ENTITY, p, sf.sha, sf.drive_id, sf.modified)), "pmo")
+        run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "pmo_sheet", sf.name, sf.drive_id, sf.modified, "", len(p.tasks), mime=sf.mime)), "source_file")
+        run.write(B.pmo_sql(*B.pmo_rows(ENTITY, p, sf.sha, sf.drive_id, sf.modified, sf.gids)), "pmo")
         run.commit()
         print(f"  pmo: {p.project_id} {p.name[:40]} — {len(p.tasks)} tasks, {len(p.costs)} costs, {len(p.invoices)} invoices, phase '{p.phase}'")
         n += 1

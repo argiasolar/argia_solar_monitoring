@@ -28,13 +28,23 @@ def entity_sql(entity: Dict = ENTITY_MX) -> str:
 
 
 def source_file_row(sha: str, entity_id: str, kind: str, name: str, drive_id: str = "", modified: Optional[dt.datetime] = None,
-                    period: str = "", rows: int = 0, notes: str = "") -> Row:
+                    period: str = "", rows: int = 0, notes: str = "", mime: str = "") -> Row:
     return {"sha256": sha, "entity_id": entity_id, "kind": kind, "name": name, "drive_id": drive_id or None,
-            "modified": modified.isoformat() if modified else None, "period": period or None, "rows": rows, "notes": notes}
+            "modified": modified.isoformat() if modified else None, "period": period or None, "rows": rows, "notes": notes, "mime": mime}
 
 
 def source_file_sql(row: Row) -> str:
-    return upsert("fin_source_file", [row], ("sha256",), update=("name", "drive_id", "modified", "period", "rows", "notes"))
+    return upsert("fin_source_file", [row], ("sha256",), update=("name", "drive_id", "modified", "period", "rows", "notes", "mime"))
+
+
+def source_touch_sql(sha: str, drive_id: str = "", mime: str = "", modified: Optional[dt.datetime] = None) -> str:
+    """v250: a file whose content is unchanged is skipped by hash — but its
+    Drive id may have only just become readable (the folders were shared).
+    Refresh the pointer without re-importing anything."""
+    sets = [f"drive_id = coalesce({_lit(drive_id or None)}, drive_id)", f"mime = CASE WHEN {_lit(mime)} <> '' THEN {_lit(mime)} ELSE mime END"]
+    if modified:
+        sets.append(f"modified = {_lit(modified.isoformat())}")
+    return f"UPDATE fin_source_file SET {', '.join(sets)} WHERE sha256 = {_lit(sha)};"
 
 
 def sha_of(data: bytes) -> str:
@@ -181,7 +191,7 @@ def portfolio_rows(entity_id: str, rows_in: Sequence[PF.OverviewRow], sha: str) 
                     "margin_planned_pct": o.margin_planned_pct, "contract_start": o.contract_start, "contract_end": o.contract_end,
                     "planned_start": o.planned_start, "planned_finish": o.planned_finish, "subcontractor": o.subcontractor,
                     "progress": o.progress, "handover": o.handover, "invoiced_mxn": o.invoiced_mxn, "paid_mxn": o.paid_mxn,
-                    "po": o.po, "comment": o.comment, "source_sha": sha})
+                    "po": o.po, "comment": o.comment, "source_sha": sha, "src_sheet": o.sheet, "src_row": o.row, "src_gid": ""})
     return out
 
 
@@ -204,7 +214,8 @@ def open_item_rows(entity_id: str, items: Sequence[PF.OpenItem], sha: str) -> Li
                     "project_code": it.project_code, "project_name": it.project_name, "po": it.po, "issued": it.issued, "due": it.due,
                     "new_due": it.new_due, "final_due": it.final_due, "days_to_due": it.days_to_due, "currency": it.currency,
                     "total": it.total, "net": it.net_usd if it.currency == "USD" else it.net_mxn, "mxn_equiv_net": it.mxn_equiv_net,
-                    "folio_fiscal": it.folio_fiscal, "paid_on": it.paid_on, "kind": it.kind, "comment": it.comment, "source_sha": sha})
+                    "folio_fiscal": it.folio_fiscal, "paid_on": it.paid_on, "kind": it.kind, "comment": it.comment, "source_sha": sha,
+                    "src_sheet": it.sheet, "src_row": it.row, "src_gid": ""})
     return out
 
 
@@ -217,20 +228,23 @@ def open_item_sql(entity_id: str, rows: Sequence[Row]) -> str:
 
 
 # --------------------------------------------------------------------- PMO
-def pmo_rows(entity_id: str, p: PS.PmoProject, sha: str, sheet_id: str = "", modified: Optional[dt.datetime] = None):
+def pmo_rows(entity_id: str, p: PS.PmoProject, sha: str, sheet_id: str = "", modified: Optional[dt.datetime] = None,
+             gids: Optional[Dict[str, str]] = None):
     proj = {"project_id": p.project_id, "entity_id": entity_id, "code": p.code, "name": p.name, "customer": p.customer, "location": p.location,
             "status": p.status, "phase": p.phase, "contract_type": p.contract_type, "manager": p.manager, "supervisor": p.supervisor,
             "start_date": p.start, "end_date": p.end, "value": p.value, "cost": p.cost, "progress": p.progress, "sheet_id": sheet_id,
             "modified": modified.isoformat() if modified else None, "source_sha": sha}
     tasks = [{"project_id": p.project_id, "task_id": t.task_id, "wbs": t.wbs, "name": t.name, "is_phase": t.is_phase, "is_milestone": t.is_milestone,
               "resource": t.resource, "start_date": t.start, "end_date": t.end, "duration_days": t.duration_days, "priority": t.priority,
-              "status": t.status, "progress": t.progress} for t in p.tasks]
+              "status": t.status, "progress": t.progress, "src_sheet": t.sheet, "src_row": t.row, "src_gid": (gids or {}).get(t.sheet, "")} for t in p.tasks]
     costs = [{"project_id": p.project_id, "cost_id": c.cost_id, "cost_date": c.date, "category": c.category, "vendor": c.vendor,
               "description": c.description, "net": c.net, "vat": c.vat, "total": c.total, "cost_status": c.cost_status, "approval": c.approval,
-              "approved_by": c.approved_by, "paid": c.paid, "payment_status": c.payment_status} for c in p.costs]
+              "approved_by": c.approved_by, "paid": c.paid, "payment_status": c.payment_status,
+              "src_sheet": c.sheet, "src_row": c.row, "src_gid": (gids or {}).get(c.sheet, "")} for c in p.costs]
     invs = [{"project_id": p.project_id, "invoice_id": i.invoice_id, "customer": i.customer, "milestone": i.milestone, "number": i.number,
              "inv_date": i.date, "due": i.due, "net": i.net, "vat": i.vat, "total": i.total, "status": i.status, "payment_status": i.payment_status,
-             "paid_on": i.paid_on, "received": i.received} for i in p.invoices]
+             "paid_on": i.paid_on, "received": i.received,
+             "src_sheet": i.sheet, "src_row": i.row, "src_gid": (gids or {}).get(i.sheet, "")} for i in p.invoices]
     return proj, tasks, costs, invs
 
 

@@ -78,6 +78,8 @@ class PmoTask:
     priority: str
     status: str
     progress: Optional[Decimal]        # 0..1
+    sheet: str = ""                    # v250: the tab this row lives in…
+    row: int = 0                       # …1-based sheet row
 
     @property
     def phase_no(self) -> str:
@@ -99,6 +101,8 @@ class PmoCost:
     approved_by: str
     paid: Decimal
     payment_status: str
+    sheet: str = ""                    # v250
+    row: int = 0
 
 
 @dataclass
@@ -116,6 +120,8 @@ class PmoInvoice:
     payment_status: str
     paid_on: Optional[dt.date]
     received: Decimal
+    sheet: str = ""                    # v250
+    row: int = 0
 
 
 @dataclass
@@ -216,7 +222,7 @@ def read_project(tabs: Dict[str, Sequence[Sequence]]) -> Optional[PmoProject]:
         hi = _find_header(rows, "Task_ID", "WBS")
         if hi is not None and not tasks:
             h = _hdr_index(rows[hi])
-            for r in rows[hi + 1:]:
+            for rn, r in enumerate(rows[hi + 1:], hi + 2):
                 g = lambda k: (r[h[k]] if k in h and h[k] < len(r) else None)   # noqa: E731
                 if not _s(g("Task_ID")):
                     continue
@@ -227,12 +233,12 @@ def read_project(tabs: Dict[str, Sequence[Sequence]]) -> Optional[PmoProject]:
                                      resource=_s(g("Resource_ID")), start=_d(g("Task_Start_Date")) or _d(g("Planned_Start")),
                                      end=_d(g("Task_End_Date")) or _d(g("Planned_End")), duration_days=int(dur) if dur is not None else None,
                                      priority=_s(g("Task_Priority")), status=_s(g("Task_Status")) or _s(g("Status")),
-                                     progress=_pct(g("Task_Complete%")) if "Task_Complete%" in h else _pct(g("Progress_Pct"))))
+                                     progress=_pct(g("Task_Complete%")) if "Task_Complete%" in h else _pct(g("Progress_Pct")), sheet=_name, row=rn))
             continue
         hi = _find_header(rows, "Cost_ID", "Vendor")
         if hi is not None and not costs:
             h = _hdr_index(rows[hi])
-            for r in rows[hi + 1:]:
+            for rn, r in enumerate(rows[hi + 1:], hi + 2):
                 g = lambda k: (r[h[k]] if k in h and h[k] < len(r) else None)   # noqa: E731
                 if not _s(g("Cost_ID")):
                     continue
@@ -240,12 +246,12 @@ def read_project(tabs: Dict[str, Sequence[Sequence]]) -> Optional[PmoProject]:
                                      vendor=_s(g("Vendor")), description=_s(g("Description")), net=_n(g("Amount_Before_VAT")) or D(0),
                                      vat=_n(g("VAT_Amount")) or D(0), total=_n(g("Total_Amount")) or D(0), cost_status=_s(g("Cost_Status")),
                                      approval=_s(g("Approval_Status")), approved_by=_s(g("Approved_By")), paid=_n(g("Amount_Paid")) or D(0),
-                                     payment_status=_s(g("Payment_Status"))))
+                                     payment_status=_s(g("Payment_Status")), sheet=_name, row=rn))
             continue
         hi = _find_header(rows, "Invoice_ID", "Invoice_Amount")
         if hi is not None and not invoices:
             h = _hdr_index(rows[hi])
-            for r in rows[hi + 1:]:
+            for rn, r in enumerate(rows[hi + 1:], hi + 2):
                 g = lambda k: (r[h[k]] if k in h and h[k] < len(r) else None)   # noqa: E731
                 if not _s(g("Invoice_ID")):
                     continue
@@ -253,7 +259,7 @@ def read_project(tabs: Dict[str, Sequence[Sequence]]) -> Optional[PmoProject]:
                                            number=_s(g("Invoice_Number")), date=_d(g("Invoice_Date")), due=_d(g("Due_Date")),
                                            net=_n(g("Invoice_Amount")) or D(0), vat=_n(g("VAT_Amount")) or D(0), total=_n(g("Total_Amount")) or D(0),
                                            status=_s(g("Invoice_Status")), payment_status=_s(g("Payment_Status")), paid_on=_d(g("Payment_Date")),
-                                           received=_n(g("Amount_Received")) or D(0)))
+                                           received=_n(g("Amount_Received")) or D(0), sheet=_name, row=rn))
             continue
         hi = _find_header(rows, "Log_ID", "Hours_Worked")
         if hi is not None and not logs:

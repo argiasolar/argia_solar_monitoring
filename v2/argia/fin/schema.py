@@ -326,7 +326,8 @@ CREATE TABLE IF NOT EXISTS fin_source_file (                -- every file the Dr
     period          text,                            -- 'YYYY-MM' the file reports through, when it has one
     imported_at     timestamptz NOT NULL DEFAULT now(),
     rows            integer NOT NULL DEFAULT 0,
-    notes           text NOT NULL DEFAULT ''
+    notes           text NOT NULL DEFAULT '',
+    mime            text NOT NULL DEFAULT ''         -- v250: Google Sheet vs .xlsx decides how deep a link can go
 );
 CREATE TABLE IF NOT EXISTS gl_account (
     entity_id       text NOT NULL REFERENCES entity(entity_id),
@@ -448,6 +449,9 @@ CREATE TABLE IF NOT EXISTS portfolio_project (              -- Argia_Projects_Ov
     paid_mxn        numeric(16,2),
     po              text NOT NULL DEFAULT '',
     comment         text NOT NULL DEFAULT '',
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
+    src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
     PRIMARY KEY (entity_id, code, name)             -- a code can carry two rows (a project and its extension)
 );
@@ -474,6 +478,9 @@ CREATE TABLE IF NOT EXISTS open_item (                      -- the AR/AP tracker
     paid_on         date,
     kind            text NOT NULL DEFAULT '',
     comment         text NOT NULL DEFAULT '',
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
+    src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
     PRIMARY KEY (entity_id, item_key)
 );
@@ -512,6 +519,9 @@ CREATE TABLE IF NOT EXISTS pmo_task (
     priority        text NOT NULL DEFAULT '',
     status          text NOT NULL DEFAULT '',
     progress        numeric(12,4),
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
+    src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     PRIMARY KEY (project_id, task_id)
 );
 CREATE TABLE IF NOT EXISTS pmo_cost (
@@ -529,6 +539,9 @@ CREATE TABLE IF NOT EXISTS pmo_cost (
     approved_by     text NOT NULL DEFAULT '',
     paid            numeric(16,2) NOT NULL DEFAULT 0,
     payment_status  text NOT NULL DEFAULT '',
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
+    src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     PRIMARY KEY (project_id, cost_id)
 );
 CREATE TABLE IF NOT EXISTS pmo_invoice (
@@ -546,6 +559,9 @@ CREATE TABLE IF NOT EXISTS pmo_invoice (
     payment_status  text NOT NULL DEFAULT '',
     paid_on         date,
     received        numeric(16,2) NOT NULL DEFAULT 0,
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
+    src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     PRIMARY KEY (project_id, invoice_id)
 );
 CREATE TABLE IF NOT EXISTS savio_check (                    -- v247: the Savio plugin's last reconciliation, replaced whole each run
@@ -573,6 +589,33 @@ CREATE TABLE IF NOT EXISTS cost_center (                    -- v248: every CONTP
 CREATE INDEX IF NOT EXISTS bank_transaction_account_date_idx ON bank_transaction(account_id, tx_date);
 CREATE INDEX IF NOT EXISTS fin_event_subject_idx ON fin_event(subject_kind, subject_ref);
 """
+
+# v250 — columns added to tables that already exist on a running server.
+# ``ENSURE_SQL`` above creates a fresh database with them in place; this list
+# brings an older one up to date. ``ADD COLUMN IF NOT EXISTS`` is idempotent,
+# so the list only ever grows and re-running it costs nothing. Every entry is
+# checked against the CREATE TABLE text by the unit tests, so a migrated
+# database and a fresh one can never drift apart.
+ADD_COLUMNS = (
+    ("fin_source_file", "mime", "text NOT NULL DEFAULT ''"),
+    ("open_item", "src_sheet", "text NOT NULL DEFAULT ''"),
+    ("open_item", "src_row", "integer NOT NULL DEFAULT 0"),
+    ("open_item", "src_gid", "text NOT NULL DEFAULT ''"),
+    ("portfolio_project", "src_sheet", "text NOT NULL DEFAULT ''"),
+    ("portfolio_project", "src_row", "integer NOT NULL DEFAULT 0"),
+    ("portfolio_project", "src_gid", "text NOT NULL DEFAULT ''"),
+    ("pmo_task", "src_sheet", "text NOT NULL DEFAULT ''"),
+    ("pmo_task", "src_row", "integer NOT NULL DEFAULT 0"),
+    ("pmo_task", "src_gid", "text NOT NULL DEFAULT ''"),
+    ("pmo_cost", "src_sheet", "text NOT NULL DEFAULT ''"),
+    ("pmo_cost", "src_row", "integer NOT NULL DEFAULT 0"),
+    ("pmo_cost", "src_gid", "text NOT NULL DEFAULT ''"),
+    ("pmo_invoice", "src_sheet", "text NOT NULL DEFAULT ''"),
+    ("pmo_invoice", "src_row", "integer NOT NULL DEFAULT 0"),
+    ("pmo_invoice", "src_gid", "text NOT NULL DEFAULT ''"),
+)
+
+MIGRATE_SQL = "\n".join(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS {c} {d};" for t, c, d in ADD_COLUMNS)
 
 TABLES = (
     "entity", "bank_account", "cost_code", "supplier", "customer_master", "fx_rate",

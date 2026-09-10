@@ -263,6 +263,8 @@ import fin_app as F      # noqa: E402
 import fin_books as FB   # noqa: E402
 
 _I18N = re.compile(r'<span data-en="[^"]*" data-es="[^"]*">([^<]*)</span>')
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 
 def en(h):
@@ -274,7 +276,7 @@ def book_rows():
     aux = CP.parse_auxiliares(load("auxiliares_rows.json"))
     wb = AB.read_workbook(load("acctbook_sheets.json"))
     bal = {r["account"]: r for r in B.balance_rows("X", aux, "s", "2026-02")}
-    items = B.open_item_rows("X", PF.read_tracker(load("tracker_rows.json")), "s")
+    items = B.open_item_rows("X", PF.read_tracker(load("tracker_rows.json"), "Payables and Receivables."), "s")
     ov = B.portfolio_rows("X", PF.read_overview(load("overview_rows.json")), "s")
     gm = {r["code"]: r for r in B.margin_rows("X", "2026-02", wb.gm, "s")}
     pmo = PS.read_project(load("pmo_tabs.json"))
@@ -283,12 +285,17 @@ def book_rows():
     def s(v):
         return "" if v is None else ("t" if v is True else "f" if v is False else str(v))
 
+    SRC_TRACKER = {"src_name": "Tracker.xlsx", "src_kind": "tracker", "src_drive_id": "TRK", "src_mime": XLSX_MIME}
+    SRC_OVERVIEW = {"src_name": "Overview.xlsx", "src_kind": "overview", "src_drive_id": "OVW", "src_mime": XLSX_MIME}
+    SRC_PMO = {"src_name": "ARGIA PROJECT ARG9001", "src_kind": "pmo_sheet", "src_drive_id": "PMO", "src_mime": SHEET_MIME}
+
     def portfolio():
         out = []
         for r in ov:
             m = gm.get(r["code"], {})
             row = {k: s(v) for k, v in r.items()}
             row.update({k: s(m.get(k)) for k in ("revenue_ytd", "cos_ytd", "revenue_total", "cos_total", "gm", "planned_value", "planned_cost", "planned_margin")})
+            row.update(SRC_OVERVIEW)
             if r["code"] == 9001:
                 row.update({"pmo_id": "ARG9001", "pmo_phase": proj["phase"], "pmo_status": proj["status"], "pmo_progress": s(proj["progress"]), "pmo_manager": proj["manager"]})
             else:
@@ -308,7 +315,7 @@ def book_rows():
         if name == "book_ap":
             return [{k: s(v) for k, v in r.items()} for a, r in sorted(bal.items()) if a.startswith("201-01-") and r["closing"]]
         if name in ("open_ar", "open_ap"):
-            return [{k: s(v) for k, v in r.items()} for r in items if r["side"] == name[5:]]
+            return [dict({k: s(v) for k, v in r.items()}, **SRC_TRACKER) for r in items if r["side"] == name[5:]]
         if name.startswith("report_"):
             lines = {"pl": wb.pl, "bs": wb.bs, "budget": wb.budget}[name[7:]]
             return [{k: s(v) for k, v in r.items()} for r in B.report_rows("X", "2026-02", name[7:], lines, "s")]
@@ -318,13 +325,13 @@ def book_rows():
             return [{"account": "401-03-000", "bucket": "Revenues", "bs_pl": "PL", "a_p": "R", "debit": "0", "credit": "1000000.00", "n": "1", "first": "2026-01-15", "last": "2026-01-15"},
                     {"account": "501-11-000", "bucket": "Cost of Sales", "bs_pl": "PL", "a_p": "C", "debit": "600000.00", "credit": "0", "n": "1", "first": "2026-01-20", "last": "2026-01-20"}]
         if name == "project_items":
-            return [{k: s(v) for k, v in r.items()} for r in items if r["project_code"] == 9001]
+            return [dict({k: s(v) for k, v in r.items()}, **SRC_TRACKER) for r in items if r["project_code"] == 9001]
         if name == "pmo_tasks":
-            return [{k: s(v) for k, v in r.items()} for r in tasks]
+            return [dict({k: s(v) for k, v in r.items()}, **SRC_PMO) for r in tasks]
         if name == "pmo_costs":
-            return [{k: s(v) for k, v in r.items()} for r in costs]
+            return [dict({k: s(v) for k, v in r.items()}, src_gid="55", **SRC_PMO) for r in costs]
         if name == "pmo_invoices":
-            return [{k: s(v) for k, v in r.items()} for r in invs]
+            return [dict({k: s(v) for k, v in r.items()}, **SRC_PMO) for r in invs]
         if name == "bank_lines":
             return [{"jdate": "2026-02-03", "kind": "Egresos", "number": "1", "concept": "PAGO PROVEEDOR GAMMA", "reference": "SPEI 5120", "debit": "0", "credit": "348000.00", "segment": "9001"}]
         if name == "sources":
@@ -355,6 +362,10 @@ def book_rows():
                     {"jdate": "2026-01-20", "kind": "Diario", "number": "4", "concept": "FACTURA GAMMA", "reference": "A-1", "debit": "0", "credit": "580000.00", "segment": "9001"}]
         if name == "fx":
             return []
+        if name.startswith("src_"):
+            k = name[4:]
+            return [{"src_name": {"polizas": "0226 Polizas Argia.xlsx", "tracker": "Tracker.xlsx", "acctbook": "Argia_Accounting_Data_02_26.xlsx"}.get(k, k),
+                     "src_kind": k, "src_drive_id": k.upper(), "src_mime": XLSX_MIME}]
         return []                      # the demo pages ask for their own tables — empty here
     return rows
 
@@ -609,3 +620,29 @@ class TestCostCentres:
         assert 'class="conv"' in h and "as issued" in h
         client.set_cookie("fin_ccy", "")
         assert 'class="conv"' not in client.get("/finance/ap/", headers=H).data.decode()
+
+
+class TestSourcePointers:
+    def test_every_tracker_row_links_to_the_document_that_makes_it_overdue(self, client):
+        h = client.get("/finance/ap/", headers=H).data.decode()
+        assert h.count('class="src"') >= 1 and "Tracker.xlsx" in h and "drive.google.com/file/d/TRK/view" in h
+        assert 'sheet “' in h and "column “Payment Due Day”" in h          # the tooltip says where to look inside the file
+        assert en(h).count("Source") >= 1
+
+    def test_the_project_page_says_where_to_change_each_thing(self, client):
+        h = en(client.get("/projects/ARG9001/", headers=H).data.decode())
+        assert "Where to change this" in h and "data-notools" in h          # a reference table, no search box
+        assert "Overview.xlsx" in h and "the portfolio owner" in h and "Edit here" in h
+        assert "ARGIA PROJECT ARG9001" in h and "the project manager" in h
+        assert "0226 Polizas Argia.xlsx" in h and "the accountants" in h and "Read-only" in h
+        assert "docs.google.com/spreadsheets/d/PMO/edit#gid=55" in h        # the Costs tab, ready for a new line
+
+    def test_a_cost_row_links_to_its_own_cell_in_the_sheet(self, client):
+        h = client.get("/projects/ARG9001/", headers=H).data.decode()
+        assert "docs.google.com/spreadsheets/d/PMO/edit#gid=55&amp;range=A" in h
+        assert "⎘" in h and "Amount_Before_VAT" in h
+
+    def test_the_cost_centre_page_names_the_three_files_behind_it(self, client):
+        h = en(client.get("/finance/costs/701/", headers=H).data.decode())
+        assert "Where to change this" in h and "Tracker.xlsx" in h and "0226 Polizas Argia.xlsx" in h and "Argia_Accounting_Data_02_26.xlsx" in h
+        assert h.count("Read-only") >= 2                                     # the books and the accountants' workbook

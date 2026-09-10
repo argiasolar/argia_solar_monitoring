@@ -562,6 +562,11 @@ def finance_pl():
     return _gate() or _books().page_pl()
 
 
+@app.get('/finance/savio/')
+def finance_savio():
+    return _gate() or _books().page_savio()
+
+
 @app.get('/finance/exceptions/')
 def finance_exceptions():
     return _gate() or page_exceptions()

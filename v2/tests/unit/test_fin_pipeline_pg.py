@@ -51,7 +51,7 @@ def run(script: str, *args: str, env=None, ok=(0,)) -> str:
 def pipeline():
     _psql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
     subprocess.run(["runuser", "-u", "postgres", "--", "psql", "-d", DB, "-q", "-v", "ON_ERROR_STOP=1", "-f", str(V2 / "server/bundle/schema.sql")], check=True, capture_output=True)
-    assert "42 missing" in run("fin_schema.py", ok=(2,))          # exit 2 = missing tables, by contract (28 v243 + 14 v245)
+    assert "43 missing" in run("fin_schema.py", ok=(2,))          # exit 2 = missing tables, by contract (28 v243 + 14 v245 + 1 v247)
     assert "0 missing" in run("fin_schema.py", "--apply")
     assert "applied: project=6" in run("fin_seed.py", "--apply")
     run("fin_seed.py", "--apply")                                   # idempotent

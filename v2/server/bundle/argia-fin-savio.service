@@ -1,0 +1,14 @@
+[Unit]
+# v247: the Savio plugin — read invoices + payments from Savio (the
+# loopback mock on 8530 until the real key is in /root/.argia_savio, then
+# ARGIA_SAVIO_BASE in /root/.argia_env points at the real API), compare
+# them with the AR tracker, the booked deposits and the registered bank
+# accounts, store the findings in savio_check for /finance/savio/.
+# Read-only towards Savio. Runs 20 minutes after the Drive ingest.
+Description=ARGIA finance: Savio invoices + payments vs books (daily)
+Wants=network-online.target
+After=network-online.target postgresql.service argia-savio-mock.service
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh fin-savio fin_savio_recon.py --apply

@@ -548,6 +548,19 @@ CREATE TABLE IF NOT EXISTS pmo_invoice (
     received        numeric(16,2) NOT NULL DEFAULT 0,
     PRIMARY KEY (project_id, invoice_id)
 );
+CREATE TABLE IF NOT EXISTS savio_check (                    -- v247: the Savio plugin's last reconciliation, replaced whole each run
+    check_id        serial PRIMARY KEY,
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    checked_at      timestamptz NOT NULL,
+    source          text NOT NULL,                   -- mock | sandbox | live
+    kind            text NOT NULL,                   -- SUMMARY | SAVIO_ONLY | TRACKER_ONLY | AMOUNT | CURRENCY | STATE | NO_DEPOSIT | DEPOSIT_UNMATCHED | UNKNOWN_ACCOUNT
+    severity        text NOT NULL DEFAULT 'info',    -- info | warn | crit
+    savio_ref       text NOT NULL DEFAULT '',
+    our_ref         text NOT NULL DEFAULT '',
+    amount          numeric(16,2) NOT NULL DEFAULT 0,
+    currency        text NOT NULL DEFAULT '',
+    detail          text NOT NULL DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS bank_transaction_account_date_idx ON bank_transaction(account_id, tx_date);
 CREATE INDEX IF NOT EXISTS fin_event_subject_idx ON fin_event(subject_kind, subject_ref);
 """
@@ -562,4 +575,5 @@ TABLES = (
     # v245 — the books
     "fin_source_file", "gl_account", "gl_journal", "gl_line", "gl_balance", "fin_report_line",
     "biz_case", "project_margin", "portfolio_project", "open_item", "pmo_project", "pmo_task", "pmo_cost", "pmo_invoice",
+    "savio_check",
 )

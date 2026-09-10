@@ -1,0 +1,7 @@
+[Unit]
+Description=Daily Savio check against the books
+[Timer]
+OnCalendar=*-*-* 12:40:00
+Persistent=true
+[Install]
+WantedBy=timers.target

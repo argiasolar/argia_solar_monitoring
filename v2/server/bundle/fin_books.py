@@ -656,3 +656,60 @@ def page_project(pid: str) -> Optional[str]:
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Invoices in the tracker", "Facturas en seguimiento")}</h2></div>
 {_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada")], irs, cols=COLS('oi_status', 'it_side', 'oi_invoice', 'it_company', 'oi_issued', 'oi_due', 'oi_total', 'oi_paid')) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No open or recently paid invoice for this project.", "Sin factura abierta o pagada recientemente para este proyecto.")}</p>'}</div>'''
     return PC.page(p['name'], body, 'projects', '', wide=True)
+
+
+# --------------------------------------------------------------- Savio (v247)
+def q_savio_check():
+    return _rows('savio_check', f"SELECT to_char(checked_at, 'YYYY-MM-DD HH24:MI') AS checked_at, source, kind, severity, savio_ref, our_ref, amount, currency, detail"
+                                f" FROM savio_check WHERE entity_id = {_q(ENTITY)} ORDER BY (kind <> 'SUMMARY'), CASE severity WHEN 'crit' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END, kind, check_id;")
+
+
+_SAVIO_KIND = {
+    'SAVIO_ONLY': ('Invoice in Savio, not in the tracker', 'Factura en Savio, no en el seguimiento'),
+    'TRACKER_ONLY': ('Open AR row without a Savio invoice', 'Cuenta por cobrar sin factura en Savio'),
+    'AMOUNT': ('Amount differs', 'Importe distinto'), 'CURRENCY': ('Currency differs', 'Moneda distinta'),
+    'STATE': ('Paid / open state differs', 'Estado pagada / abierta distinto'),
+    'NO_DEPOSIT': ('Savio payment without a deposit in the books', 'Pago en Savio sin depósito en libros'),
+    'DEPOSIT_UNMATCHED': ('Deposit in the books without a Savio payment', 'Depósito en libros sin pago en Savio'),
+    'UNKNOWN_ACCOUNT': ('Payment to an unregistered bank account', 'Pago a una cuenta bancaria no registrada'),
+}
+
+
+def page_savio() -> str:
+    rows = q_savio_check()
+    summary = next((r for r in rows if r['kind'] == 'SUMMARY'), None)
+    findings = [r for r in rows if r['kind'] != 'SUMMARY']
+    source = (summary or {}).get('source') or ''
+    banner = ''
+    if source == 'mock':
+        banner = (f'<div class="card" style="margin-top:16px;padding:12px 18px;border-left:4px solid #e0b100;background:#fffbe8">'
+                  f'<b>{t("Mock data.", "Datos de prueba.")}</b> {t("Savio has not issued the API key yet; this page reconciles the demo invoices served by the loopback mock. The checks, the page and the schedule are final — only the input changes when the key lands in /root/.argia_savio.", "Savio aún no entrega la llave del API; esta página concilia las facturas demo del mock local. Las verificaciones, la página y la programación son definitivas — solo cambia la entrada cuando la llave llegue a /root/.argia_savio.")}</div>')
+    by_kind: Dict[str, int] = {}
+    crit = warn = 0
+    for f in findings:
+        by_kind[f['kind']] = by_kind.get(f['kind'], 0) + 1
+        crit += f['severity'] == 'crit'
+        warn += f['severity'] == 'warn'
+    tiles = tile('Last check', 'Última verificación', (summary or {}).get('checked_at') or '—', (summary or {}).get('detail') or t('never run', 'nunca ejecutada'), (summary or {}).get('detail') or 'nunca ejecutada')
+    tiles += tile('Findings', 'Hallazgos', str(len(findings)), f"{crit} critical · {warn} to review · {len(findings) - crit - warn} informational", f"{crit} críticos · {warn} por revisar · {len(findings) - crit - warn} informativos",
+                  tone=('bad' if crit else 'warn' if warn else 'good' if summary else ''), why_en=('a critical finding is money or an invoice that does not match between Savio and the books' if crit else ''),
+                  why_es=('un hallazgo crítico es dinero o una factura que no coincide entre Savio y los libros' if crit else ''))
+    for k, (en, es) in _SAVIO_KIND.items():
+        n = by_kind.get(k, 0)
+        if n:
+            tiles += tile(en, es, str(n), '', '', tone=('bad' if k in ('AMOUNT', 'CURRENCY', 'UNKNOWN_ACCOUNT') else 'warn' if k in ('SAVIO_ONLY', 'STATE', 'NO_DEPOSIT') else ''))
+    trs = [f'<tr><td>{pill("crit" if f["severity"] == "crit" else "warn" if f["severity"] == "warn" else "off", f["severity"])}</td><td>{t(*_SAVIO_KIND.get(f["kind"], (f["kind"], f["kind"])))}</td>'
+           f'<td class="mono" style="font-size:12px">{_e(f["savio_ref"])}</td><td class="mono" style="font-size:12px">{_e(f["our_ref"])}</td><td class="r">{_money(f["amount"], f["currency"] or "") if _n(f["amount"]) else ""}</td><td>{_e(f["detail"])}</td></tr>' for f in findings]
+    cols = [("Critical = an amount, currency or bank account that does not agree; to review = a state or a missing counterpart; informational = expected differences (income outside Savio).", "Crítico = importe, moneda o cuenta bancaria que no coinciden; por revisar = un estado o contraparte faltante; informativo = diferencias esperadas (ingresos fuera de Savio)."),
+            ("What was compared and how it differs.", "Qué se comparó y en qué difiere."), ("Savio invoice or payment id.", "Id de factura o pago en Savio."),
+            ("Our side: the tracker invoice number, or the bank account and date of the deposit.", "Nuestro lado: número de factura del seguimiento, o cuenta bancaria y fecha del depósito."),
+            ("Amount involved (for AMOUNT: the difference Savio − tracker).", "Importe involucrado (en AMOUNT: la diferencia Savio − seguimiento)."), ("Plain-language explanation.", "Explicación en lenguaje llano.")]
+    body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(q_period(), f" · Savio {_e(source) or '—'}")}<h1 class="pt">{t("Savio check", "Verificación Savio")}</h1></div>{PC.print_button()}</div>
+{banner}
+<div class="tiles" style="margin-top:16px">{tiles}</div>
+<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Findings", "Hallazgos")}</h2><span class="muted" style="font-size:12.5px">{t("every Savio invoice against the AR tracker (by CFDI UUID, then folio + total); every Savio payment against the deposits in the books (same amount, ±3 days); every reported receiving account against the registered ones", "cada factura de Savio contra el seguimiento de cobrar (por UUID CFDI, luego folio + total); cada pago de Savio contra los depósitos en libros (mismo importe, ±3 días); cada cuenta receptora reportada contra las registradas")}</span></div>
+{_table(["Severity", t("Check", "Verificación"), "Savio", t("Ours", "Nuestro"), t("Amount", "Importe"), t("Detail", "Detalle")], trs, cols=cols) if trs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No findings — or the check has not run yet.", "Sin hallazgos — o la verificación aún no corre.")}</p>'}</div>
+<div class="card" style="margin-top:16px;padding:16px 20px"><h2 class="ct">{t("How this check works", "Cómo funciona esta verificación")}</h2>
+<p class="note">{t("Savio is the invoicing and collections tool: it knows every customer invoice it stamped and every payment it applied. The books (CONTPAQi) and the AR tracker are kept by the accountants. The plugin reads Savio through its API (read-only) and asks three questions: is every stamped invoice being followed for collection, with the same amount and the same paid/open state; did every payment Savio applied really arrive as a deposit on one of ARGIA's bank accounts; and was the money received on an account ARGIA actually owns. Nothing is written back to Savio. It runs daily after the books ingest; the last result is what you see here.",
+"Savio es la herramienta de facturación y cobranza: conoce cada factura de cliente que timbró y cada pago que aplicó. Los libros (CONTPAQi) y el seguimiento de cobrar los lleva contabilidad. El plugin lee Savio por su API (solo lectura) y hace tres preguntas: ¿cada factura timbrada está en seguimiento de cobranza, con el mismo importe y el mismo estado pagada/abierta?; ¿cada pago que Savio aplicó llegó realmente como depósito a una cuenta bancaria de ARGIA?; ¿el dinero se recibió en una cuenta que ARGIA realmente posee? No se escribe nada de vuelta a Savio. Corre a diario después de la carga de libros; el último resultado es lo que se ve aquí.")}</p></div>'''
+    return PC.page('Savio', body, 'finance', 'savio', wide=True)

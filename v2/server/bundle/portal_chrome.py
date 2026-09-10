@@ -147,6 +147,7 @@ _ICONS = {
     'maint': '<path d="M14.5 5.5a4 4 0 0 0-5.3 5.1L4 15.8V20h4.2l5.2-5.2a4 4 0 0 0 5.1-5.3l-2.6 2.6-2.2-.6-.6-2.2z"/>',
     'finance': '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>',
     'projects': '<path d="M4 5h16v4H4zM4 11h10v4H4zM4 17h13v3H4z"/>',
+    'print': '<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/>',
 }
 
 
@@ -293,6 +294,20 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 footer.pf{max-width:1280px;margin:0 auto;padding:0 28px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .legacy{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
 @media print{header.ph,.noprint,.ti,.tipbox,.face.back,footer.pf{display:none!important}body{background:#fff}.wrap{padding:0}}
+/* v246: wide pages (finance/projects tables) use the whole window; table tools; print */
+body.wide .wrap,body.wide .phrow,body.wide .tabs{max-width:none}body.wide .wrap{padding:22px 32px 44px}
+.dtbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:#fafbfc;font-size:12.5px}
+.dtbar input[type=search]{flex:1 1 220px;min-width:160px;padding:7px 10px;border:1px solid var(--line2);border-radius:8px;font:inherit;font-size:13px}
+.dtbar select{padding:6px 8px;border:1px solid var(--line2);border-radius:8px;font:inherit;font-size:12.5px;background:#fff;max-width:220px}
+.dtbar .dtn{color:var(--muted);white-space:nowrap;margin-left:auto}.dtbar .dtx{padding:6px 10px;border:1px solid var(--line2);border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:12.5px}
+table.dt th{cursor:pointer;user-select:none;white-space:nowrap}table.dt th .sarr{opacity:.35;font-size:10px;margin-left:3px}table.dt th.sorted .sarr{opacity:1;color:var(--deep)}
+table.dt th .ti{vertical-align:middle}
+details.cols{margin:0 16px 12px;font-size:12.5px;color:var(--ink2)}details.cols summary{cursor:pointer;color:var(--muted);padding:8px 0}details.cols dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:6px 0 0}details.cols dt{font-weight:700;color:var(--ink)}details.cols dd{margin:0}
+.printbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.printbtn:hover{border-color:var(--teal)}
+@media print{.dtbar,.printbtn,.tabs,details.cols,.noprint{display:none!important}.flipin{transform:none!important}.tile.flip .face.back{display:none!important}body.wide .wrap{padding:0}.card{break-inside:auto;box-shadow:none;border:1px solid #ccc}
+ table.dt tr.dthide{display:none}div[style*="overflow-x"]{overflow:visible!important}table{font-size:10.5px}th,td{padding:4px 5px}
+ .tiles{grid-template-columns:repeat(4,1fr)}.tile{break-inside:avoid}h1.pt{font-size:22px}@page{size:A4 landscape;margin:12mm}}
+
 '''
 
 # --------------------------------------------------------------------- js
@@ -346,11 +361,62 @@ function argiaFit(){
   if(over&&!box){const w=document.createElement('div');w.className='tscroll';t.parentNode.insertBefore(w,t);w.appendChild(t);}
   else if(!over&&box){box.parentNode.insertBefore(t,box);box.remove();}});
 }
+
+/* v246: table tools — search, per-column filters (columns with few distinct values), sort, count.
+   Pure client side on the rows the server rendered; nothing is fetched. Tooltip text follows the language. */
+function argiaTables(){
+ const L=localStorage.getItem('argia_lang')||'en';
+ const T=(en,es)=>L==='es'?es:en;
+ document.querySelectorAll('.dtwrap').forEach(w=>{
+  if(w.dataset.done)return;w.dataset.done='1';
+  const tbl=w.querySelector('table.dt');if(!tbl)return;
+  const rows=[...tbl.tBodies[0].rows];const ths=[...tbl.tHead.rows[0].cells];
+  ths.forEach(th=>{if(th.dataset.tipEs&&L==='es'){th.dataset.tipEn=th.title;th.title=th.dataset.tipEs;}});
+  document.querySelectorAll('[data-title-es]').forEach(b=>{if(L==='es')b.title=b.dataset.titleEs;});
+  const bar=document.createElement('div');bar.className='dtbar noprint';
+  const q=document.createElement('input');q.type='search';q.placeholder=T('Search this table…','Buscar en esta tabla…');bar.appendChild(q);
+  const sels=[];
+  if(!w.dataset.notools&&rows.length>3){
+   ths.forEach((th,i)=>{
+    const vals=new Set(rows.map(r=>(r.cells[i]?.innerText||'').trim()).filter(v=>v));
+    if(vals.size>=2&&vals.size<=15&&rows.length>vals.size){
+     const s=document.createElement('select');const o=document.createElement('option');o.value='';o.textContent=[...th.childNodes].filter(n=>n.nodeType===3||(n.nodeType===1&&!n.classList.contains('ti')&&!n.classList.contains('sarr'))).map(n=>n.textContent).join('').trim()+': '+T('all','todos');s.appendChild(o);
+     [...vals].sort().forEach(v=>{const x=document.createElement('option');x.value=v;x.textContent=v.length>40?v.slice(0,40)+'…':v;s.appendChild(x);});
+     s.dataset.col=i;sels.push(s);bar.appendChild(s);
+    }});
+  }
+  const n=document.createElement('span');n.className='dtn';bar.appendChild(n);
+  const x=document.createElement('button');x.type='button';x.className='dtx';x.textContent=T('Reset','Limpiar');bar.appendChild(x);
+  w.insertBefore(bar,w.firstChild);
+  function apply(){
+   const needle=q.value.trim().toLowerCase();let shown=0;
+   rows.forEach(r=>{
+    let ok=!needle||r.innerText.toLowerCase().includes(needle);
+    for(const s of sels){if(ok&&s.value&&(r.cells[+s.dataset.col]?.innerText||'').trim()!==s.value)ok=false;}
+    r.classList.toggle('dthide',!ok);r.style.display=ok?'':'none';if(ok)shown++;
+   });
+   n.textContent=shown===rows.length?rows.length+' '+T('rows','filas'):shown+' '+T('of','de')+' '+rows.length;
+  }
+  q.addEventListener('input',apply);sels.forEach(s=>s.addEventListener('change',apply));
+  x.addEventListener('click',()=>{q.value='';sels.forEach(s=>s.value='');apply();});
+  ths.forEach((th,i)=>{th.addEventListener('click',e=>{
+    if(e.target.classList.contains('ti'))return;
+    const dir=th.dataset.dir==='asc'?'desc':'asc';ths.forEach(h=>{h.classList.remove('sorted');delete h.dataset.dir;});th.dataset.dir=dir;th.classList.add('sorted');
+    const num=v=>{const m=v.replace(/[^0-9.\-]/g,'');return m&&!isNaN(parseFloat(m))&&/\d/.test(v)&&!/[a-df-z]/i.test(v.replace(/mxn|usd|eur/ig,''))?parseFloat(m):null;};
+    const key=r=>{const v=(r.cells[i]?.innerText||'').trim();const x=num(v);return x!==null?x:v.toLowerCase();};
+    const sorted=[...rows].sort((a,b)=>{const ka=key(a),kb=key(b);if(typeof ka==='number'&&typeof kb==='number')return ka-kb;if(typeof ka==='number')return -1;if(typeof kb==='number')return 1;return ka<kb?-1:ka>kb?1:0;});
+    if(dir==='desc')sorted.reverse();sorted.forEach(r=>tbl.tBodies[0].appendChild(r));
+    th.querySelector('.sarr').textContent=dir==='asc'?'▲':'▼';
+  });});
+  apply();
+ });
+}
 let _fitT=null;window.addEventListener('resize',()=>{clearTimeout(_fitT);_fitT=setTimeout(argiaFit,150);});
 window.addEventListener('DOMContentLoaded',()=>{
  argiaFit();
  let stored=null;try{stored=localStorage.getItem('argia_lang');}catch(e){}
  setLang(stored||'en');
+ argiaTables();
  const who=document.getElementById('uwho');
  fetch('/session/whoami',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   if(!d||!d.user){return;}
@@ -425,14 +491,47 @@ def header(section=None, on='', tabs_override=None):
 </header>'''
 
 
-def page(title, body, section=None, on='', refresh=0, extra_head='', tabs=None):
+def page(title, body, section=None, on='', refresh=0, extra_head='', tabs=None, wide=False):
+    """``wide`` (v246): the page uses the whole window — finance/projects
+    tables are read on screen, not printed to A4 — so no sideways
+    scrollbar under a 12-column table."""
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ''
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<meta name="robots" content="noindex,nofollow">{meta}'
             f'<title>{html.escape(title)} — ARGIA</title><link rel="icon" href="/favicon.png">'
-            f'<style>{CSS}</style>{extra_head}</head><body>'
+            f'<style>{CSS}</style>{extra_head}</head><body' + (' class="wide"' if wide else '') + '>'
             f'{header(section, on, tabs)}<div class="wrap">{body}</div>{JS}</body></html>')
+
+
+def print_button(label_en='Print / PDF', label_es='Imprimir / PDF'):
+    """v246: the browser's own print dialog — 'Save as PDF' is there on
+    every OS, no server-side renderer to keep alive."""
+    return ('<button type="button" class="printbtn noprint" onclick="window.print()" title="Print this page or save it as a PDF" '
+            'data-title-es="Imprimir esta página o guardarla como PDF">'
+            f'{ico("print", 14, "currentColor", 2)} {t(label_en, label_es)}</button>')
+
+
+def data_table(head, body, cls='', columns=None, tools=True):
+    """v246: a table with search, per-column filters, sorting and column
+    tooltips. ``head`` = labels (already through t()); ``columns`` =
+    optional list of (en, es) explanations, one per column — they become
+    the ⓘ tooltip on the header and the 'Columns explained' block below.
+    ``body`` = the <tr> strings. Wide content still scrolls inside the card."""
+    ths = []
+    for i, h in enumerate(head):
+        tip = columns[i] if columns and i < len(columns) and columns[i] else None
+        if tip:
+            en, es = tip if isinstance(tip, tuple) else (tip, tip)
+            ths.append(f'<th title="{html.escape(en, quote=True)}" data-tip-es="{html.escape(es, quote=True)}">{h}<span class="ti" tabindex="0" aria-label="definition">i</span><span class="sarr">⇅</span></th>')
+        else:
+            ths.append(f'<th>{h}<span class="sarr">⇅</span></th>')
+    explain = ''
+    if columns and any(columns):
+        rows = ''.join(f'<dt>{head[i]}</dt><dd>{t(*(c if isinstance(c, tuple) else (c, c)))}</dd>' for i, c in enumerate(columns) if c and i < len(head))
+        explain = f'<details class="cols"><summary>{t("Columns explained", "Explicación de columnas")}</summary><dl>{rows}</dl></details>'
+    return ('<div class="dtwrap"' + ('' if tools else ' data-notools="1"') + f'><div style="overflow-x:auto"><table class="dt {cls}"><thead><tr>' + ''.join(ths) + '</tr></thead><tbody>'
+            + ''.join(body) + f'</tbody></table></div>{explain}</div>')
 
 
 def skin_reset(scope):

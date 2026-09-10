@@ -268,8 +268,8 @@ def project_health(pid: str, ms_rows: List[dict], cost: dict, ap_rows: List[dict
 
 # --------------------------------------------------------------- pages
 def _table(head: List[str], body: List[str], cls='') -> str:
-    return (f'<div style="overflow-x:auto"><table class="{cls}"><thead><tr>' + ''.join(f'<th>{h}</th>' for h in head) + '</tr></thead><tbody>'
-            + ''.join(body) + '</tbody></table></div>')
+    """v246: the demo tables get the same search / filter / sort tools as the books pages."""
+    return PC.data_table(head, body, cls)
 
 
 def _bucket_tiles(label_en, label_es, ag: Dict[str, Dict[str, Decimal]], tone_on_overdue=True) -> str:
@@ -340,7 +340,7 @@ def page_today() -> str:
  <p class="note">{t("Cash = the closing balance of the latest bank statement per account (statements load whole or not at all). Receivables = open customer invoices mirrored from Savio, aged from the due date per currency. Payables = approved supplier invoices (CFDI XML is the source; a received or matched invoice is not payable until a person approves it). Exceptions = what a person must decide: missing PO, over PO, foreign CFDI, rejected statement, unreconciled line. Project figures follow AGS-904 §3; health follows AGS-903 §4. Everything on this page is DEMO data until the real entities are configured.",
  "Efectivo = saldo final del último estado de cuenta por cuenta (los estados cargan completos o no cargan). Por cobrar = facturas de cliente abiertas reflejadas de Savio, envejecidas desde su vencimiento por moneda. Por pagar = facturas de proveedor aprobadas (el XML CFDI es la fuente; una factura recibida o conciliada no es pagadera hasta que una persona la apruebe). Excepciones = lo que una persona debe decidir. Las cifras de proyecto siguen AGS-904 §3; la salud AGS-903 §4. Todo en esta página es información DEMO hasta configurar las entidades reales.")}</p>
 </div>'''
-    return PC.page('Finance', body, 'finance', '')
+    return PC.page('Finance', body, 'finance', '', wide=True)
 
 
 def _ledger_page(kind: str) -> str:
@@ -373,7 +373,7 @@ def _ledger_page(kind: str) -> str:
 <div class="card" style="margin-top:16px;overflow:hidden">{_table(head, trs)}</div>
 <p class="note">{t("Source: Savio (customer invoices, CFDI UUID) — mirrored, never re-typed." if kind == "ar" else "Source: the supplier's CFDI XML (UUID once, totals re-checked). Received/matched rows await approval and are not payables yet; a credit note (E) reduces its original; a complemento (P) is the supplier's receipt of our payment.",
  "Fuente: Savio (facturas de cliente, UUID CFDI) — espejo, nunca recapturado." if kind == "ar" else "Fuente: el XML CFDI del proveedor (UUID una vez, totales verificados). Las filas recibidas/conciliadas esperan aprobación y aún no son por pagar; una nota de crédito (E) reduce su original; un complemento (P) es el recibo del proveedor de nuestro pago.")}</p>'''
-    return PC.page(title[0], body, 'finance', kind)
+    return PC.page(title[0], body, 'finance', kind, wide=True)
 
 
 def page_bank() -> str:
@@ -394,7 +394,7 @@ def page_bank() -> str:
 <div class="grid g3" style="margin-top:16px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table([t("Account", "Cuenta"), t("Date", "Fecha"), t("Amount", "Importe"), t("Description", "Descripción"), t("Counterpart", "Contraparte"), t("Matched to", "Conciliado con"), "State"], trs)}</div>
 <p class="note">{t("A statement loads whole (opening + activity = closing) or not at all; a line reconciles once unless split; own transfers are neither income nor expense.", "Un estado de cuenta carga completo (inicial + movimientos = final) o no carga; una línea se concilia una vez salvo división; los traspasos propios no son ingreso ni gasto.")}</p>'''
-    return PC.page('Bank', body, 'finance', 'bank')
+    return PC.page('Bank', body, 'finance', 'bank', wide=True)
 
 
 def page_exceptions() -> str:
@@ -405,7 +405,7 @@ def page_exceptions() -> str:
     body = f'''<div class="kicker">{t("Finance", "Finanzas")} · <span class="mono">{html.escape(_ent())}</span></div><h1 class="pt">{t("Exceptions", "Excepciones")} · {len(exc)}</h1>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table([t("Kind", "Tipo"), "Ref", t("Project", "Proyecto"), t("Owner", "Dueño"), t("Opened", "Abierta"), t("Detail", "Detalle")], trs) if trs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("Nothing to decide.", "Nada que decidir.")}</p>'}</div>
 <p class="note">{t("Every exception has an owner, a status and a resolution history (AGS-904 R6). Resolution actions arrive in the next slice, with CSRF and an audit event.", "Cada excepción tiene dueño, estado e historial de resolución (AGS-904 R6). Las acciones de resolución llegan en el siguiente corte, con CSRF y evento de auditoría.")}</p>'''
-    return PC.page('Exceptions', body, 'finance', 'exceptions')
+    return PC.page('Exceptions', body, 'finance', 'exceptions', wide=True)
 
 
 def page_portfolio() -> str:
@@ -444,7 +444,7 @@ def page_portfolio() -> str:
  {tile("Schedule from", "Cronograma de", "PMO", "Sheets snapshot; money from the portal", "snapshot de Sheets; dinero del portal")}
 </div>
 <div class="grid g3" style="margin-top:16px;gap:16px">{cards}</div>'''
-    return PC.page('Projects', body, 'projects', '')
+    return PC.page('Projects', body, 'projects', '', wide=True)
 
 
 def page_project(pid: str) -> Optional[str]:
@@ -511,7 +511,7 @@ def page_project(pid: str) -> Optional[str]:
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Supplier invoices", "Facturas de proveedor")}</h2></div>{_table(["UUID", t("Supplier", "Proveedor"), "PO", t("Type", "Tipo"), t("Issued", "Emitida"), "Total", "Status"], inv_rows) if inv_rows else f'<p class="muted" style="padding:16px 20px;margin:0">{t("None.", "Ninguna.")}</p>'}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Tasks (PMO snapshot)", "Tareas (snapshot PMO)")}</h2><span class="muted" style="font-size:12.5px">{html.escape(p.get("pmo_sheet_id") or "")}</span></div>{_table([t("Task", "Tarea"), t("Phase", "Fase"), t("Start", "Inicio"), t("End", "Fin"), t("Progress", "Avance"), t("Resource", "Recurso")], task_rows) if task_rows else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No snapshot yet.", "Sin snapshot todavía.")}</p>'}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Exceptions", "Excepciones")}</h2></div>{_table([t("Kind", "Tipo"), "Ref", t("Detail", "Detalle")], exc_rows) if exc_rows else f'<p class="muted" style="padding:16px 20px;margin:0">{t("None.", "Ninguna.")}</p>'}</div>'''
-    return PC.page(p['name'], body, 'projects', '')
+    return PC.page(p['name'], body, 'projects', '', wide=True)
 
 
 # --------------------------------------------------------------- routes

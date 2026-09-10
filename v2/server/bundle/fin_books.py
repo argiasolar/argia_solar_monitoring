@@ -46,9 +46,111 @@ def _e(s) -> str:
     return html.escape(str(s if s is not None else ''))
 
 
-def _table(head: List[str], body: List[str], cls='') -> str:
-    return (f'<div style="overflow-x:auto"><table class="{cls}"><thead><tr>' + ''.join(f'<th>{h}</th>' for h in head) + '</tr></thead><tbody>'
-            + ''.join(body) + '</tbody></table></div>')
+def _table(head: List[str], body: List[str], cls='', cols=None) -> str:
+    """v246: every table gets search, filters, sorting and column tooltips (portal_chrome.data_table)."""
+    return PC.data_table(head, body, cls, cols)
+
+
+# --------------------------------------------------- column explanations (v246)
+# One entry per column, (EN, ES); shown as the ⓘ tooltip on the header and in the
+# "Columns explained" block under the table. Written for Tania and the accountants.
+def COLS(*keys):
+    return [_COL.get(k) for k in keys]
+
+
+_COL = {
+    'project': ("Business case name and its 4-digit code. The code is the CONTPAQi segment: every journal line the accountants book for this project carries it, so it is the join between the books, the projects overview and the ARGnnnn PMO folder.",
+                "Nombre del caso de negocio y su código de 4 dígitos. El código es el segmento CONTPAQi: cada línea de póliza que contabilidad registra para este proyecto lo lleva, así que es la unión entre libros, el overview de proyectos y la carpeta PMO ARGnnnn."),
+    'phase': ("Phase from the projects overview: 0 closing (deal pending), 1 specification, 2 preparation (orders placed), 3 execution (installing), 4 finalization (>95 %), 5 review (handover), 6 done, 7 warranty claim, 8 on hold.",
+              "Fase del overview de proyectos: 0 cierre (trato pendiente), 1 especificación, 2 preparación (pedidos colocados), 3 ejecución (instalando), 4 finalización (>95 %), 5 revisión (entrega), 6 terminado, 7 garantía, 8 en pausa."),
+    'status': ("Traffic light the PM keeps in the overview: ok / warning / critical.", "Semáforo que el PM mantiene en el overview: ok / warning / critical."),
+    'pm': ("Project manager named in the projects overview (or in the PMO sheet when the overview has none).", "Project manager nombrado en el overview de proyectos (o en la hoja PMO cuando el overview no lo tiene)."),
+    'contract': ("Contract start → contract end as written in the projects overview. A project still in phases 0-3 after its contract end is flagged 'past contract end'.",
+                 "Inicio → fin de contrato como está en el overview de proyectos. Un proyecto aún en fases 0-3 después del fin de contrato se marca 'pasó el fin de contrato'."),
+    'value': ("Contract value in MXN from the projects overview (net of IVA). USD deals are shown at the overview's own conversion.",
+              "Valor del contrato en MXN del overview de proyectos (sin IVA). Los tratos en USD se muestran a la conversión propia del overview."),
+    'planned_cost': ("Planned cost in MXN from the projects overview and, in brackets, the planned margin it implies ((value − cost) / value).",
+                     "Costo planeado en MXN del overview de proyectos y, entre paréntesis, el margen planeado que implica ((valor − costo) / valor)."),
+    'rev_ytd': ("Revenue BOOKED in 2026 on this project: the sum of revenue-account lines (401-xx) carrying the project's segment, from the accountants' GM per project. Not invoicing — booking. Blank means nothing booked yet.",
+                "Ingresos CONTABILIZADOS en 2026 en este proyecto: la suma de líneas de cuentas de ingreso (401-xx) con el segmento del proyecto, del GM por proyecto de contabilidad. No es facturación, es registro contable. Vacío = nada registrado aún."),
+    'cos_ytd': ("Cost of sales BOOKED in 2026 on this project (501-xx lines with the segment), shown positive. A negative value is a cost reversal.",
+                "Costo de ventas CONTABILIZADO en 2026 en este proyecto (líneas 501-xx con el segmento), mostrado en positivo. Un valor negativo es una reversión de costo."),
+    'gm_ytd': ("Booked revenue minus booked cost for 2026, with the margin rate. Compare with the planned margin: a big gap means costs booked ahead of revenue (or the reverse), not necessarily a problem until the project closes.",
+               "Ingresos menos costo contabilizados en 2026, con la tasa de margen. Compárese con el margen planeado: una brecha grande significa costos registrados antes que ingresos (o al revés), no necesariamente un problema hasta que el proyecto cierre."),
+    'invoiced': ("Amount invoiced to the customer (MXN) as kept in the projects overview; '/ paid' = collected so far.", "Monto facturado al cliente (MXN) según el overview de proyectos; '/ cobrado' = cobrado hasta hoy."),
+    'progress': ("Installation progress: the higher of the PM's estimate in the overview and the PMO sheet's logged task progress.", "Avance de instalación: el mayor entre la estimación del PM en el overview y el avance de tareas registrado en la hoja PMO."),
+    'pmo': ("'sheet' = the project's ARGIA PROJECT workbook is found under PROJECT MANAGEMENT and read (tasks, milestones, costs); '—' = no sheet yet.", "'sheet' = la hoja ARGIA PROJECT del proyecto existe en PROJECT MANAGEMENT y se lee (tareas, hitos, costos); '—' = aún sin hoja."),
+    'src_kind': ("Which reader loaded the file: polizas / auxiliares (CONTPAQi prints), acctbook (the accountants' workbook), overview (projects overview), tracker (AR/AP open items), pmo_sheet (a project workbook).",
+                 "Qué lector cargó el archivo: polizas / auxiliares (impresiones CONTPAQi), acctbook (libro de contabilidad), overview (overview de proyectos), tracker (partidas abiertas), pmo_sheet (hoja de proyecto)."),
+    'src_file': ("File name exactly as it is in Google Drive.", "Nombre del archivo tal cual está en Google Drive."),
+    'src_period': ("The month the file reports through (books close ~3 weeks after month end).", "El mes hasta el que reporta el archivo (los libros cierran ~3 semanas después del fin de mes)."),
+    'src_modified': ("Last modification in Drive.", "Última modificación en Drive."),
+    'src_imported': ("When the portal read it. Files are identified by content hash: an unchanged file is never imported twice.", "Cuándo lo leyó el portal. Los archivos se identifican por hash de contenido: un archivo sin cambios nunca se importa dos veces."),
+    'src_rows': ("Rows taken from the file (journal lines, movements, accounts, projects, items…).", "Filas tomadas del archivo (líneas de póliza, movimientos, cuentas, proyectos, partidas…)."),
+    'oi_status': ("From the tracker: Delay = past its final due date; On time = not yet due; Paid = payment confirmed (date in 'Paid').", "Del seguimiento: Delay = pasó su vencimiento final; On time = aún no vence; Paid = pago confirmado (fecha en 'Pagada')."),
+    'oi_invoice': ("Invoice number (ours for receivables, the supplier's for payables); 'Permanent' = a recurring charge such as leasing.", "Número de factura (nuestro en cobrar, del proveedor en pagar); 'Permanent' = cargo recurrente como arrendamiento."),
+    'oi_customer': ("Customer as named in the tracker.", "Cliente como aparece en el seguimiento."),
+    'oi_supplier': ("Supplier as named in the tracker.", "Proveedor como aparece en el seguimiento."),
+    'oi_project': ("Business case the invoice belongs to (links to the project page); 701 = operation costs.", "Caso de negocio al que pertenece la factura (enlaza a la página del proyecto); 701 = costos de operación."),
+    'oi_po': ("Customer PO or reference the invoice was issued against.", "OC del cliente o referencia contra la que se emitió la factura."),
+    'oi_issued': ("Invoice date.", "Fecha de la factura."),
+    'oi_due': ("Final due date: the renegotiated date when there is one, otherwise the original payment term.", "Vencimiento final: la fecha renegociada cuando existe, si no el plazo original."),
+    'oi_days': ("Days to the final due date as of today; negative = days overdue. Blank once paid.", "Días al vencimiento final a hoy; negativo = días de atraso. Vacío una vez pagada."),
+    'oi_total': ("Invoice total including IVA, in the invoice currency.", "Total de la factura con IVA, en la moneda de la factura."),
+    'oi_net': ("Amount before IVA.", "Importe antes de IVA."),
+    'oi_paid': ("Date the payment was confirmed in the tracker.", "Fecha en que se confirmó el pago en el seguimiento."),
+    'oi_folio': ("First 8 characters of the CFDI folio fiscal (UUID) — enough to find it in SAT / Savio.", "Primeros 8 caracteres del folio fiscal CFDI (UUID) — suficiente para ubicarla en SAT / Savio."),
+    'oi_comment': ("The tracker's own comment (milestone, partial, dispute…).", "Comentario propio del seguimiento (hito, parcial, disputa…)."),
+    'bk_account': ("CONTPAQi sub-account: 105-01-xxx one per customer, 201-01-xxx one per supplier.", "Subcuenta CONTPAQi: 105-01-xxx una por cliente, 201-01-xxx una por proveedor."),
+    'bk_party': ("Counterparty name as the accountants keep it; 'USD' / 'Compl' pairs are one dollar counterparty (face value + peso complement).", "Nombre de la contraparte como lo lleva contabilidad; los pares 'USD' / 'Compl' son una contraparte en dólares (valor nominal + complemento en pesos)."),
+    'bk_balance': ("Balance at the last closed month from the auxiliares print (receivable: what they owe us; payable: what we owe them).", "Saldo al último mes cerrado según el auxiliar (cobrar: lo que nos deben; pagar: lo que debemos)."),
+    'bl_date': ("Date of the póliza.", "Fecha de la póliza."),
+    'bl_poliza': ("Póliza type and number (Ingresos = money in, Egresos = money out, Diario = other entries).", "Tipo y número de póliza (Ingresos = entradas, Egresos = salidas, Diario = otros asientos)."),
+    'bl_concept': ("Concept the accountants wrote on the póliza.", "Concepto que contabilidad escribió en la póliza."),
+    'bl_ref': ("Reference on the line: SPEI, invoice number, supplier…", "Referencia de la línea: SPEI, número de factura, proveedor…"),
+    'bl_in': ("Debit to the bank account = money in.", "Cargo a la cuenta bancaria = entrada."),
+    'bl_out': ("Credit to the bank account = money out.", "Abono a la cuenta bancaria = salida."),
+    'bl_project': ("Business-case segment on the line, when the accountants assigned one.", "Segmento de caso de negocio en la línea, cuando contabilidad lo asignó."),
+    'pl_line': ("Management report line as the accountants define it (sheet PL / BS of Argia_Accounting_Data). Bold rows are subtotals.", "Línea del reporte de gestión como la define contabilidad (hoja PL / BS de Argia_Accounting_Data). Las filas en negritas son subtotales."),
+    'pl_month': ("Value for the month in thousands of MXN; costs negative.", "Valor del mes en miles de MXN; costos en negativo."),
+    'pl_ytd': ("Sum January → last closed month (rates recomputed, not summed).", "Suma enero → último mes cerrado (las tasas se recalculan, no se suman)."),
+    'pl_budget': ("2026 budget for the same months, sheet PL_Budget.", "Presupuesto 2026 para los mismos meses, hoja PL_Budget."),
+    'pl_var': ("YTD actual minus budget: green favourable, red unfavourable (for costs a smaller negative number is favourable).", "Real YTD menos presupuesto: verde favorable, rojo desfavorable (en costos, un negativo menor es favorable)."),
+    'ms_id': ("Task id in the PMO sheet (Mnnn = milestone).", "Id de tarea en la hoja PMO (Mnnn = hito)."),
+    'ms_name': ("Milestone as the PM named it.", "Hito como lo nombró el PM."),
+    'ms_date': ("Planned end date of the milestone.", "Fecha planeada de fin del hito."),
+    'ms_status': ("Status the PM keeps in the sheet.", "Estatus que el PM mantiene en la hoja."),
+    'ph_wbs': ("Work-breakdown number (phase = whole number).", "Número de la EDT (fase = número entero)."),
+    'ph_name': ("Phase name.", "Nombre de la fase."),
+    'ph_dates': ("Planned start → end.", "Inicio → fin planeados."),
+    'ph_res': ("Resource assigned (installer, ARGIA team).", "Recurso asignado (instalador, equipo ARGIA)."),
+    'c_id': ("Cost line id in the PMO sheet.", "Id de la línea de costo en la hoja PMO."),
+    'c_date': ("Date of the cost (order or invoice).", "Fecha del costo (pedido o factura)."),
+    'c_cat': ("Cost category (panels, inverters, structure, installation…).", "Categoría de costo (paneles, inversores, estructura, instalación…)."),
+    'c_vendor': ("Supplier.", "Proveedor."),
+    'c_desc': ("Description the PM wrote.", "Descripción que escribió el PM."),
+    'c_net': ("Amount before IVA.", "Importe antes de IVA."),
+    'c_total': ("Amount including IVA.", "Importe con IVA."),
+    'c_status': ("Planned (not ordered) → Committed (ordered) → Incurred (received/invoiced) → Paid.", "Planned (sin ordenar) → Committed (ordenado) → Incurred (recibido/facturado) → Paid (pagado)."),
+    'c_appr': ("Approval status and who approved.", "Estatus de aprobación y quién aprobó."),
+    'iv_id': ("Invoice line id in the PMO sheet.", "Id de la factura en la hoja PMO."),
+    'iv_ms': ("Billing milestone (engineering, materials, installation…).", "Hito de facturación (ingeniería, materiales, instalación…)."),
+    'iv_no': ("Our invoice number.", "Nuestro número de factura."),
+    'iv_date': ("Invoice date.", "Fecha de la factura."),
+    'iv_due': ("Due date.", "Fecha de vencimiento."),
+    'iv_total': ("Amount including IVA.", "Importe con IVA."),
+    'iv_status': ("Invoice status / payment status as the PM keeps them.", "Estatus de factura / de pago como los lleva el PM."),
+    'gl_bspl': ("BS = balance-sheet account (asset/liability), PL = profit-and-loss account.", "BS = cuenta de balance (activo/pasivo), PL = cuenta de resultados."),
+    'gl_account': ("CONTPAQi account the line was booked to.", "Cuenta CONTPAQi donde se registró la línea."),
+    'gl_report': ("Management report line the account maps to (Revenues, Cost of Sales, Travel…).", "Línea del reporte de gestión a la que mapea la cuenta (Ingresos, Costo de ventas, Viáticos…)."),
+    'gl_debit': ("Sum of debits (cargos) on this account with the project's segment, 2026 year to date.", "Suma de cargos en esta cuenta con el segmento del proyecto, 2026 acumulado."),
+    'gl_credit': ("Sum of credits (abonos).", "Suma de abonos."),
+    'gl_net': ("Debits minus credits: positive = cost/asset, negative = revenue/liability.", "Cargos menos abonos: positivo = costo/activo, negativo = ingreso/pasivo."),
+    'gl_n': ("Number of journal lines.", "Número de líneas de póliza."),
+    'gl_dates': ("First → last póliza date.", "Primera → última fecha de póliza."),
+    'it_side': ("AR = we invoice (receivable), AP = we owe (payable).", "AR = nosotros facturamos (cobrar), AP = debemos (pagar)."),
+    'it_company': ("Customer or supplier.", "Cliente o proveedor."),
+}
 
 
 # ------------------------------------------------------------------ queries
@@ -144,20 +246,38 @@ def cash_view(cash_rows: List[dict]) -> List[dict]:
     """Bank sub-accounts → one line per real bank account. CONTPAQi keeps a
     dollar account as two sub-accounts: '… DLLS' holds the USD figure at
     face value and '… Compl' the peso complement of its valuation; their
-    sum is the MXN value, the DLLS line alone is the USD balance."""
+    sum is the MXN value, the DLLS line alone is the USD balance. A
+    'Compl' account pairs with the base whose name it repeats, else with
+    the previous dollar account in account order ('Banbajio DLLS 402' +
+    'Banbajio DLLS Compl' are 102-01-008 / -009 in the real chart)."""
+    out: List[dict] = []
     by_name: Dict[str, dict] = {}
-    for r in cash_rows:
+    last_usd: Optional[dict] = None
+    for r in sorted(cash_rows, key=lambda x: x['account']):
         name = r['name']
+        is_compl = bool(re.search(r'\bCompl(emento)?\b', name, re.I))
         base = re.sub(r'\s+Compl(emento)?$', '', name, flags=re.I).strip()
         usd = bool(re.search(r'\b(DLLS|USD)\b', base, re.I))
-        v = by_name.setdefault(base, {'name': base, 'usd': usd, 'usd_amount': D(0), 'mxn': D(0), 'accounts': [], 'movements': 0})
+        c = _n(r['closing'])
+        v = None
+        if is_compl:
+            v = by_name.get(base)
+            if v is None and last_usd is not None and last_usd['name'].split()[0].lower() == base.split()[0].lower():
+                v = last_usd
+        if v is None:
+            v = by_name.get(base)
+        if v is None:
+            v = {'name': base, 'usd': usd, 'usd_amount': D(0), 'mxn': D(0), 'accounts': [], 'movements': 0}
+            by_name[base] = v
+            out.append(v)
         v['accounts'].append(r['account'])
         v['movements'] += int(r.get('movements') or 0)
-        c = _n(r['closing'])
         v['mxn'] += c
-        if usd and not re.search(r'Compl', name, re.I):
+        if v['usd'] and not is_compl:
             v['usd_amount'] += c
-    live = [v for v in by_name.values() if v['mxn'] != 0 or v['usd_amount'] != 0]
+        if usd and not is_compl:
+            last_usd = v
+    live = [v for v in out if v['mxn'] != 0 or v['usd_amount'] != 0]
     return sorted(live, key=lambda v: (v['usd'], v['name']))
 
 
@@ -291,22 +411,23 @@ def page_today() -> str:
     body = f'''
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
  <div style="display:flex;flex-direction:column;gap:4px">{_kicker(period)}<h1 class="pt">{t("Where the money is", "Dónde está el dinero")}</h1></div>
+ {PC.print_button()}
 </div>
 <div class="tiles" style="margin-top:20px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Active projects — planned vs booked", "Proyectos activos — plan vs libros")}</h2><span class="muted" style="font-size:12.5px">{t("value and planned cost from the projects overview · booked revenue / cost / margin YTD from the accountants' GM per project (CONTPAQi segments)", "valor y costo planeado del overview de proyectos · ingresos / costo / margen contabilizados YTD del GM por proyecto de contabilidad (segmentos CONTPAQi)")}</span></div>
- {_table([t("Project", "Proyecto"), t("Phase", "Fase"), "PM", t("Value", "Valor"), t("Planned cost", "Costo planeado"), t("Booked revenue YTD", "Ingresos YTD"), t("Booked cost YTD", "Costo YTD"), t("Booked margin YTD", "Margen YTD"), t("Invoiced", "Facturado"), t("Progress", "Avance"), "PMO"], rows_html)}
+ {_table([t("Project", "Proyecto"), t("Phase", "Fase"), "PM", t("Value", "Valor"), t("Planned cost", "Costo planeado"), t("Booked revenue YTD", "Ingresos YTD"), t("Booked cost YTD", "Costo YTD"), t("Booked margin YTD", "Margen YTD"), t("Invoiced", "Facturado"), t("Progress", "Avance"), "PMO"], rows_html, cols=COLS('project', 'phase', 'pm', 'value', 'planned_cost', 'rev_ytd', 'cos_ytd', 'gm_ytd', 'invoiced', 'progress', 'pmo'))}
 </div>
 <div class="card" style="margin-top:16px;overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Data sources", "Fuentes de datos")}</h2><span class="muted" style="font-size:12.5px">{t("read from Google Drive by content hash — an unchanged file is never re-imported", "leídas de Google Drive por hash de contenido — un archivo sin cambios nunca se reimporta")}</span></div>
- {_table([t("Kind", "Tipo"), t("File", "Archivo"), t("Period", "Periodo"), t("Modified", "Modificado"), t("Imported", "Importado"), t("Rows", "Filas")], [src_html] if src_html else [])}
+ {_table([t("Kind", "Tipo"), t("File", "Archivo"), t("Period", "Periodo"), t("Modified", "Modificado"), t("Imported", "Importado"), t("Rows", "Filas")], [src_html] if src_html else [], cols=COLS('src_kind', 'src_file', 'src_period', 'src_modified', 'src_imported', 'src_rows'))}
 </div>
 <div class="card" style="margin-top:16px;padding:16px 20px">
  <h2 class="ct">{t("How the numbers are calculated", "Cómo se calculan los números")}</h2>
  <p class="note">{t("Cash = closing balance of every bank sub-account in the CONTPAQi auxiliares at the last closed month (a dollar account is its USD sub-account; its peso value adds the complement). Receivables / payables = the accountants' open-item tracker (every open customer and supplier invoice with its due date), aged from the final due date; the books' balances per counterparty at month end are on the AR and AP pages. P&L = the accountants' management P&L in thousands of MXN, year to date, against the 2026 budget on the same lines. Project figures: value and planned cost from the projects overview; booked revenue, cost and margin from GM per project, i.e. the journal lines carrying the project's segment. Nothing here is typed by hand: every number traces to a file in the Data sources table.",
  "Efectivo = saldo final de cada subcuenta bancaria en los auxiliares CONTPAQi al último mes cerrado (una cuenta en dólares es su subcuenta USD; su valor en pesos suma el complemento). Por cobrar / por pagar = el seguimiento de partidas abiertas de contabilidad (cada factura de cliente y proveedor abierta con su vencimiento), envejecidas desde el vencimiento final; los saldos de libros por contraparte al cierre están en las páginas de cobrar y pagar. Resultados = el estado de resultados de gestión de contabilidad en miles de MXN, acumulado del año, contra el presupuesto 2026 en las mismas líneas. Cifras de proyecto: valor y costo planeado del overview de proyectos; ingresos, costo y margen contabilizados del GM por proyecto, es decir las líneas de póliza con el segmento del proyecto. Nada aquí se captura a mano: cada número lleva a un archivo de la tabla de fuentes.")}</p>
 </div>'''
-    return PC.page('Finance', body, 'finance', '')
+    return PC.page('Finance', body, 'finance', '', wide=True)
 
 
 def page_ledger(side: str) -> str:
@@ -336,17 +457,17 @@ def page_ledger(side: str) -> str:
                    f'<td class="r">{"" if paid else f"{days:+d}"}</td><td class="r"><b>{_money(it.get("total"), it.get("currency") or "MXN")}</b></td>'
                    f'<td class="r">{_money(it.get("net"), it.get("currency") or "MXN")}</td><td>{_e(it.get("paid_on") or "")}</td><td class="mono" style="font-size:11px">{_e((it.get("folio_fiscal") or "")[:8])}</td><td>{_e(it.get("comment") or "")}</td></tr>')
     brs = [f'<tr><td class="mono" style="font-size:12px">{_e(b["account"])}</td><td>{_e(b["name"])}</td><td class="r"><b>{_money(b["closing"])}</b></td></tr>' for b in book]
-    body = f'''{_kicker(period)}<h1 class="pt">{t(en, es)}</h1>
+    body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(period)}<h1 class="pt">{t(en, es)}</h1></div>{PC.print_button()}</div>
 <div class="tiles" style="margin-top:16px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Open items (tracker)", "Partidas abiertas (seguimiento)")}</h2><span class="muted" style="font-size:12.5px">{t("days = to the final due date; negative = overdue", "días = al vencimiento final; negativo = vencida")}</span></div>
- {_table(["Status", t("Invoice", "Factura"), t("Customer", "Cliente") if side == "ar" else t("Supplier", "Proveedor"), t("Project", "Proyecto"), "PO", t("Issued", "Emitida"), t("Due", "Vence"), t("Days", "Días"), "Total", t("Net", "Neto"), t("Paid", "Pagada"), "Folio", t("Comment", "Comentario")], trs)}
+ {_table(["Status", t("Invoice", "Factura"), t("Customer", "Cliente") if side == "ar" else t("Supplier", "Proveedor"), t("Project", "Proyecto"), "PO", t("Issued", "Emitida"), t("Due", "Vence"), t("Days", "Días"), "Total", t("Net", "Neto"), t("Paid", "Pagada"), "Folio", t("Comment", "Comentario")], trs, cols=COLS('oi_status', 'oi_invoice', 'oi_customer' if side == 'ar' else 'oi_supplier', 'oi_project', 'oi_po', 'oi_issued', 'oi_due', 'oi_days', 'oi_total', 'oi_net', 'oi_paid', 'oi_folio', 'oi_comment'))}
 </div>
 <div class="card" style="margin-top:16px;overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Balances in the books", "Saldos en libros")} · {period}</h2><span class="muted" style="font-size:12.5px">{t("CONTPAQi auxiliares, one sub-account per counterparty; USD accounts at face value", "auxiliares CONTPAQi, una subcuenta por contraparte; cuentas USD a valor nominal")}</span></div>
- {_table([t("Account", "Cuenta"), t("Counterparty", "Contraparte"), t("Balance", "Saldo")], brs)}
+ {_table([t("Account", "Cuenta"), t("Counterparty", "Contraparte"), t("Balance", "Saldo")], brs, cols=COLS('bk_account', 'bk_party', 'bk_balance'))}
 </div>'''
-    return PC.page(en, body, 'finance', side)
+    return PC.page(en, body, 'finance', side, wide=True)
 
 
 def page_bank() -> str:
@@ -371,12 +492,12 @@ def page_bank() -> str:
             trs = [f'<tr><td>{_e(l["jdate"])}</td><td>{_e(l["kind"])} {_e(l["number"])}</td><td>{_e(l["concept"])}</td><td class="mono" style="font-size:11px">{_e(l.get("reference") or "")}</td>'
                    f'<td class="r">{_money(l["debit"], "", 2) if _n(l["debit"]) else ""}</td><td class="r">{_money(l["credit"], "", 2) if _n(l["credit"]) else ""}</td><td>{_e(l.get("segment") or "")}</td></tr>' for l in lines]
             sections += f'''<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{_e(v["name"])} · <span class="mono">{_e(acct)}</span></h2><span class="muted" style="font-size:12.5px">{t("last 45 days of the books", "últimos 45 días de libros")} · {since.isoformat()} → {pend.isoformat()}</span></div>
-{_table([t("Date", "Fecha"), t("Póliza", "Póliza"), t("Concept", "Concepto"), t("Reference", "Referencia"), t("In", "Entrada"), t("Out", "Salida"), t("Project", "Proyecto")], trs)}</div>'''
-    body = f'''{_kicker(period)}<h1 class="pt">{t("Bank", "Banco")}</h1>
+{_table([t("Date", "Fecha"), t("Póliza", "Póliza"), t("Concept", "Concepto"), t("Reference", "Referencia"), t("In", "Entrada"), t("Out", "Salida"), t("Project", "Proyecto")], trs, cols=COLS('bl_date', 'bl_poliza', 'bl_concept', 'bl_ref', 'bl_in', 'bl_out', 'bl_project'))}</div>'''
+    body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(period)}<h1 class="pt">{t("Bank", "Banco")}</h1></div>{PC.print_button()}</div>
 <div class="tiles" style="margin-top:16px">{tiles or tile("Bank", "Banco", "—", "no books loaded", "sin libros")}</div>
 {sections}
 <p class="note">{t("These are the bank movements as booked by the accountants (CONTPAQi pólizas), not the bank's own statement. A statement-to-books reconciliation arrives when the bank exports are in the drop folder.", "Estos son los movimientos bancarios como los contabilizó contabilidad (pólizas CONTPAQi), no el estado de cuenta del banco. La conciliación estado de cuenta vs libros llega cuando los exports del banco estén en la carpeta.")}</p>'''
-    return PC.page('Bank', body, 'finance', 'bank')
+    return PC.page('Bank', body, 'finance', 'bank', wide=True)
 
 
 def page_pl() -> str:
@@ -421,11 +542,11 @@ def page_pl() -> str:
         cells = ''.join(f'<td class="r">{fmt(l.get(f"m{i:02d}"))}</td>' for i in range(1, month + 1))
         brs.append(f'<tr{style}><td>{_e(l["label"])}</td>{cells}</td></tr>')
     bheads = [t('Line (k MXN)', 'Línea (k MXN)')] + [t(mon[i], mon_es[i]) for i in range(month)]
-    body = f'''{_kicker(period)}<h1 class="pt">{t("Profit & loss and balance sheet", "Resultados y balance")}</h1>
-<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Management P&L", "Estado de resultados de gestión")} · {period}</h2><span class="muted" style="font-size:12.5px">{t("thousands of MXN, the accountants' sheet PL; budget = sheet PL_Budget (2026 plan)", "miles de MXN, hoja PL de contabilidad; presupuesto = hoja PL_Budget (plan 2026)")}</span></div>{_table(heads, trs)}</div>
-<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Balance sheet", "Balance")} · {period}</h2><span class="muted" style="font-size:12.5px">{t("thousands of MXN, month-end balances", "miles de MXN, saldos al cierre de mes")}</span></div>{_table(bheads, brs)}</div>
+    body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(period)}<h1 class="pt">{t("Profit & loss and balance sheet", "Resultados y balance")}</h1></div>{PC.print_button('Print / PDF for the accountants', 'Imprimir / PDF para contabilidad')}</div>
+<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Management P&L", "Estado de resultados de gestión")} · {period}</h2><span class="muted" style="font-size:12.5px">{t("thousands of MXN, the accountants' sheet PL; budget = sheet PL_Budget (2026 plan)", "miles de MXN, hoja PL de contabilidad; presupuesto = hoja PL_Budget (plan 2026)")}</span></div>{_table(heads, trs, cols=[_COL['pl_line']] + [_COL['pl_month']] * month + [_COL['pl_ytd'], _COL['pl_budget'], _COL['pl_var']])}</div>
+<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Balance sheet", "Balance")} · {period}</h2><span class="muted" style="font-size:12.5px">{t("thousands of MXN, month-end balances", "miles de MXN, saldos al cierre de mes")}</span></div>{_table(bheads, brs, cols=[_COL['pl_line']] + [_COL['pl_month']] * month)}</div>
 <p class="note">{t("Sign convention as in the workbook: costs negative. The accountants close a month about three weeks after it ends; the portal shows the last closed month.", "Convención de signos como en el libro: costos en negativo. Contabilidad cierra un mes unas tres semanas después de terminado; el portal muestra el último mes cerrado.")}</p>'''
-    return PC.page('P&L', body, 'finance', 'pl')
+    return PC.page('P&L', body, 'finance', 'pl', wide=True)
 
 
 def page_portfolio() -> str:
@@ -464,11 +585,11 @@ def page_portfolio() -> str:
                              f'<td class="r">{_money(rev_y)}</td><td class="r">{_money(-cos_y)}</td><td class="r">{_money(_n(p.get("invoiced_mxn")))} <span class="muted">/ {_money(_n(p.get("paid_mxn")))}</span></td>'
                              f'<td class="r">{f"{prog * 100:.0f}%" if prog else "—"}</td><td>{pill("ok", "sheet") if p.get("pmo_id") else pill("off", "—")}</td></tr>')
         cards += f'''<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{phase_pill(phase)} <span class="muted" style="font-weight:400;font-size:13px">{len(by_phase[phase])}</span></h2></div>
-{_table([t("Project", "Proyecto"), "Status", "PM", t("Contract", "Contrato"), t("Value", "Valor"), t("Planned cost", "Costo planeado"), t("Booked rev. YTD", "Ingresos YTD"), t("Booked cost YTD", "Costo YTD"), t("Invoiced / paid", "Facturado / cobrado"), t("Progress", "Avance"), "PMO"], rows_html)}</div>'''
-    body = f'''<div class="kicker">{t("Projects", "Proyectos")} · {_today().isoformat()} · <span class="mono">{_e(ENTITY)}</span> · {t("overview + books through", "overview + libros al")} {period}</div><h1 class="pt">{t("Portfolio", "Portafolio")}</h1>
+{_table([t("Project", "Proyecto"), "Status", "PM", t("Contract", "Contrato"), t("Value", "Valor"), t("Planned cost", "Costo planeado"), t("Booked rev. YTD", "Ingresos YTD"), t("Booked cost YTD", "Costo YTD"), t("Invoiced / paid", "Facturado / cobrado"), t("Progress", "Avance"), "PMO"], rows_html, cols=COLS('project', 'status', 'pm', 'contract', 'value', 'planned_cost', 'rev_ytd', 'cos_ytd', 'invoiced', 'progress', 'pmo'))}</div>'''
+    body = f'''<div class="kicker">{t("Projects", "Proyectos")} · {_today().isoformat()} · <span class="mono">{_e(ENTITY)}</span> · {t("overview + books through", "overview + libros al")} {period}</div><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{t("Portfolio", "Portafolio")}</h1>{PC.print_button('Print / PDF for shareholders', 'Imprimir / PDF para accionistas')}</div>
 <div class="tiles" style="margin-top:16px">{tiles}</div>{cards}
 <p class="note">{t("Phase, dates, value, planned cost, progress, invoiced and paid come from Argia_Projects_Overview_MX.xlsx (sheet Data); booked revenue and cost from the accountants' GM per project; 'sheet' = the project's ARGIA PROJECT workbook is being read (tasks, milestones, costs). The dummy PLD projects ARG0001–ARG0012 and the template are skipped.", "Fase, fechas, valor, costo planeado, avance, facturado y cobrado vienen de Argia_Projects_Overview_MX.xlsx (hoja Data); ingresos y costo contabilizados del GM por proyecto de contabilidad; 'sheet' = se lee la hoja ARGIA PROJECT del proyecto (tareas, hitos, costos). Los proyectos PLD ARG0001–ARG0012 de prueba y la plantilla se omiten.")}</p>'''
-    return PC.page('Projects', body, 'projects', '')
+    return PC.page('Projects', body, 'projects', '', wide=True)
 
 
 def page_project(pid: str) -> Optional[str]:
@@ -520,18 +641,18 @@ def page_project(pid: str) -> Optional[str]:
         pmo_html = f'''
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("PMO sheet", "Hoja PMO")} · {_e(p.get("pmo_phase") or "")} · {_e(p.get("pmo_status") or "")}</h2><span class="muted" style="font-size:12.5px">{t("ARGIA PROJECT workbook: phases, milestones, costs, invoices", "libro ARGIA PROJECT: fases, hitos, costos, facturas")}</span></div>
  <div class="tiles" style="padding:12px 16px 0">{''.join(tile(f"Costs · {k}", f"Costos · {k}", _money(v), "net of IVA, from the Costs tab", "sin IVA, de la pestaña Costs") for k, v in sorted(by_status.items()))}</div>
- <div class="chead"><h3 class="ct">{t("Milestones", "Hitos")}</h3></div>{_table(["ID", t("Milestone", "Hito"), t("Date", "Fecha"), "Status"], mrs)}
- <div class="chead"><h3 class="ct">{t("Phases", "Fases")}</h3></div>{_table(["WBS", t("Phase", "Fase"), t("Dates", "Fechas"), t("Resource", "Recurso")], prs)}
- <div class="chead"><h3 class="ct">{t("Costs", "Costos")}</h3></div>{_table(["ID", t("Date", "Fecha"), t("Category", "Categoría"), t("Vendor", "Proveedor"), t("Description", "Descripción"), t("Net", "Neto"), "Total", "Status", t("Approval", "Aprobación")], crs)}
- {('<div class="chead"><h3 class="ct">' + t("Invoices", "Facturas") + '</h3></div>' + _table(["ID", t("Milestone", "Hito"), t("Number", "Número"), t("Date", "Fecha"), t("Due", "Vence"), "Total", "Status"], vrs)) if vrs else ''}
+ <div class="chead"><h3 class="ct">{t("Milestones", "Hitos")}</h3></div>{_table(["ID", t("Milestone", "Hito"), t("Date", "Fecha"), "Status"], mrs, cols=COLS('ms_id', 'ms_name', 'ms_date', 'ms_status'))}
+ <div class="chead"><h3 class="ct">{t("Phases", "Fases")}</h3></div>{_table(["WBS", t("Phase", "Fase"), t("Dates", "Fechas"), t("Resource", "Recurso")], prs, cols=COLS('ph_wbs', 'ph_name', 'ph_dates', 'ph_res'))}
+ <div class="chead"><h3 class="ct">{t("Costs", "Costos")}</h3></div>{_table(["ID", t("Date", "Fecha"), t("Category", "Categoría"), t("Vendor", "Proveedor"), t("Description", "Descripción"), t("Net", "Neto"), "Total", "Status", t("Approval", "Aprobación")], crs, cols=COLS('c_id', 'c_date', 'c_cat', 'c_vendor', 'c_desc', 'c_net', 'c_total', 'c_status', 'c_appr'))}
+ {('<div class="chead"><h3 class="ct">' + t("Invoices", "Facturas") + '</h3></div>' + _table(["ID", t("Milestone", "Hito"), t("Number", "Número"), t("Date", "Fecha"), t("Due", "Vence"), "Total", "Status"], vrs, cols=COLS('iv_id', 'iv_ms', 'iv_no', 'iv_date', 'iv_due', 'iv_total', 'iv_status'))) if vrs else ''}
 </div>'''
     body = f'''<div class="kicker"><a href="/projects/">{t("Projects", "Proyectos")}</a> · <span class="mono">{_e(pid)}</span> · {t("books through", "libros al")} {period}</div>
-<h1 class="pt">{_e(p["name"])}</h1>
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{_e(p["name"])}</h1>{PC.print_button()}</div>
 <div class="muted" style="font-size:14px">{phase_pill(p["phase"])} · {t("BM", "BM")} {_e(p.get("business_manager") or "—")} · PM {_e(p.get("project_manager") or p.get("pmo_manager") or "—")} · {_e(p.get("comment") or "")}</div>
 <div class="tiles" style="margin-top:16px">{tiles}</div>
 {pmo_html}
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("In the books", "En libros")} · {t("segment", "segmento")} {code}</h2><span class="muted" style="font-size:12.5px">{t("every posted journal line carrying this project's segment, grouped by account (2026 year to date)", "cada línea de póliza contabilizada con el segmento de este proyecto, agrupada por cuenta (2026 acumulado)")}</span></div>
-{_table(["BS/PL", t("Account", "Cuenta"), t("Report line", "Línea de reporte"), t("Debit", "Cargo"), t("Credit", "Abono"), t("Net", "Neto"), "n", t("Dates", "Fechas")], grs) if grs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No journal lines carry this segment in 2026.", "Ninguna línea de póliza lleva este segmento en 2026.")}</p>'}</div>
+{_table(["BS/PL", t("Account", "Cuenta"), t("Report line", "Línea de reporte"), t("Debit", "Cargo"), t("Credit", "Abono"), t("Net", "Neto"), "n", t("Dates", "Fechas")], grs, cols=COLS('gl_bspl', 'gl_account', 'gl_report', 'gl_debit', 'gl_credit', 'gl_net', 'gl_n', 'gl_dates')) if grs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No journal lines carry this segment in 2026.", "Ninguna línea de póliza lleva este segmento en 2026.")}</p>'}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Invoices in the tracker", "Facturas en seguimiento")}</h2></div>
-{_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada")], irs) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No open or recently paid invoice for this project.", "Sin factura abierta o pagada recientemente para este proyecto.")}</p>'}</div>'''
-    return PC.page(p['name'], body, 'projects', '')
+{_table(["Status", t("Side", "Lado"), t("Invoice", "Factura"), t("Company", "Empresa"), t("Issued", "Emitida"), t("Due", "Vence"), "Total", t("Paid", "Pagada")], irs, cols=COLS('oi_status', 'it_side', 'oi_invoice', 'it_company', 'oi_issued', 'oi_due', 'oi_total', 'oi_paid')) if irs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No open or recently paid invoice for this project.", "Sin factura abierta o pagada recientemente para este proyecto.")}</p>'}</div>'''
+    return PC.page(p['name'], body, 'projects', '', wide=True)

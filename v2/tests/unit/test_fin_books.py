@@ -358,6 +358,14 @@ class TestDerivations:
         usd = v[1]
         assert usd["usd"] and usd["usd_amount"] == D(25000) and usd["mxn"] == D(460000) and usd["accounts"] == ["102-01-002", "102-01-003"]
 
+    def test_a_complement_without_the_base_name_pairs_with_the_previous_dollar_account(self):
+        # the real chart: 102-01-008 'Banbajio DLLS 402' and 102-01-009 'Banbajio DLLS Compl' (no '402' in the complement)
+        v = FB.cash_view([{"account": "102-01-008", "name": "Banbajio DLLS 402", "closing": "16024.08", "movements": "1"},
+                          {"account": "102-01-009", "name": "Banbajio DLLS Compl", "closing": "264610.44", "movements": "1"},
+                          {"account": "102-01-017", "name": "BanBajio cta 40397689 DLLS", "closing": "17669.78", "movements": "1"},
+                          {"account": "102-01-018", "name": "BanBajio cta 40397689 Compl", "closing": "291786.38", "movements": "1"}])
+        assert [(x["name"], str(x["usd_amount"]), str(x["mxn"])) for x in v] == [("BanBajio cta 40397689 DLLS", "17669.78", "309456.16"), ("Banbajio DLLS 402", "16024.08", "280634.52")]
+
     def test_open_summary_ages_from_the_final_due_date(self):
         items = [{"currency": "MXN", "total": "580000", "final_due": "2026-02-14", "paid_on": ""}, {"currency": "USD", "total": "12000", "due": "2026-03-27", "paid_on": ""},
                  {"currency": "USD", "total": "20000", "due": "2026-02-20", "paid_on": "2026-02-20"}]
@@ -410,6 +418,42 @@ class TestBooksPages:
         assert client.get("/finance/demo/", headers=H).status_code == 200
         assert client.get("/finance/", headers={"X-Remote-User": "nobody"}).status_code == 403
         assert F.mode() == "books" and F._ent() == "DEMO-MX"
+
+
+class TestTableTools:
+    """v246 (Tomasz): filtering, searching, tooltips, full width, print buttons on every table."""
+
+    def test_data_table_markup(self):
+        import portal_chrome as C
+        h = C.data_table(["A", "B"], ["<tr><td>1</td><td>x</td></tr>"], columns=[("what A is", "qué es A"), None])
+        assert 'class="dtwrap"' in h and '<table class="dt "' in h
+        assert 'title="what A is" data-tip-es="qué es A"' in h and 'class="ti"' in h and h.count('class="sarr"') == 2
+        assert "Columns explained" in h and "<dt>A</dt>" in h and "<dt>B</dt>" not in h
+        assert "function argiaTables()" in C.JS and "argiaTables();" in C.JS
+        assert "body.wide .wrap" in C.CSS and "@page{size:A4 landscape" in C.CSS and ".flipin{transform:none!important}" in C.CSS
+
+    def test_every_books_page_is_wide_with_tools_and_a_print_button(self, client):
+        for path, tables in (("/finance/", 2), ("/finance/ar/", 2), ("/finance/ap/", 2), ("/finance/bank/", 1), ("/finance/pl/", 2), ("/projects/", 2), ("/projects/ARG9001/", 5)):
+            h = client.get(path, headers=H).data.decode()
+            assert '<body class="wide">' in h, path
+            assert h.count('class="dtwrap"') >= tables, (path, h.count('class="dtwrap"'))
+            assert 'class="printbtn noprint"' in h and 'onclick="window.print()"' in h, path
+            assert "Columns explained" in h, path
+        ap = client.get("/finance/ap/", headers=H).data.decode()
+        assert 'title="From the tracker: Delay = past its final due date' in ap and "data-tip-es=\"Del seguimiento" in ap
+
+    def test_demo_pages_get_the_same_tools(self, client):
+        h = client.get("/finance/demo/", headers=H).data.decode()
+        assert '<body class="wide">' in h and 'class="dtwrap"' in h
+
+    def test_every_column_key_used_exists(self):
+        src = (V2 / "server" / "bundle" / "fin_books.py").read_text(encoding="utf-8")
+        used = set(re.findall(r"COLS\(([^)]*)\)", src))
+        keys = {m for grp in used for m in re.findall(r"'([a-z_]+)'", grp)} - {"ar"}      # 'ar' is the side switch, not a key
+        missing = keys - set(FB._COL)
+        assert not missing, missing
+        for k, (en, es) in FB._COL.items():
+            assert len(en) > 8 and len(es) > 8 and en != es, k
 
 
 class TestWiring:

@@ -5,6 +5,7 @@
     fin_cost_centers.py --set 772=project     # a manual kind (kept by every future ingest)
     fin_cost_centers.py --set 1259=overhead --set 704=payroll
     fin_cost_centers.py --auto 772            # back to the automatic rule
+    fin_cost_centers.py --rebuild             # (re)build the catalogue from biz_case + the overview already in PostgreSQL
 
 Kinds: project | overhead | payroll | warranty | other. A payroll code
 joins the SALARIES group (one line on /finance/costs/). Env: ARGIA_PG_DB,
@@ -47,12 +48,31 @@ def auto_sql(code: int, entity: str = ENTITY) -> str:
     return f"UPDATE cost_center SET manual = false WHERE entity_id = {_lit(entity)} AND code = {int(code)};"
 
 
+def rebuild_sql(entity: str = ENTITY) -> str:
+    """The catalogue from what the books ingest already stored (biz_case,
+    portfolio_project) — for a server whose workbook was imported before
+    v248 and is skipped by hash since."""
+    from argia.fin import books as B
+    from argia.fin.acctbook import ProjectCode
+    projects = {int(r[0]): ProjectCode(int(r[0]), r[1], r[2], r[3]) for r in
+                _rows(f"SELECT code, name, project_type, business_manager FROM biz_case WHERE entity_id = {_lit(entity)};")}
+    codes = {int(r[0]) for r in _rows(f"SELECT DISTINCT code FROM portfolio_project WHERE entity_id = {_lit(entity)};") if r and r[0]}
+    return B.cost_center_sql(B.cost_center_rows(entity, projects, codes))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--set", action="append", default=[], metavar="CODE=KIND")
     ap.add_argument("--auto", action="append", default=[], type=int, metavar="CODE")
+    ap.add_argument("--rebuild", action="store_true")
     a = ap.parse_args(argv)
     stmts = []
+    if a.rebuild:
+        try:
+            stmts.append(rebuild_sql())
+        except Exception as e:                # noqa: BLE001
+            print(f"FAILED: database ({type(e).__name__}: {str(e)[:120]})")
+            return 2
     for x in a.set:
         code, _, kind = x.partition("=")
         try:

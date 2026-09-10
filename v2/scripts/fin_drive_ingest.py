@@ -224,10 +224,23 @@ def _xlsx_rows(data: bytes, sheet: Optional[str] = None, max_col: Optional[int] 
 
 
 def _print_rows(data: bytes) -> List[tuple]:
-    """A CONTPAQi print: one sheet, and its dimension record is broken
-    (read-only mode sees 1x1) — load it fully."""
-    sheets = _xlsx_rows(data, max_col=8, read_only=False)
-    return next(iter(sheets.values()))
+    """A CONTPAQi print: one sheet whose dimension record is broken (read-only
+    mode sees 1x1 unless the dimensions are reset). v249: streamed read-only
+    with ``reset_dimensions()`` — same rows as a full load, a third of the
+    memory (the 2023 auxiliares print is 40 MB; the full load killed the
+    ingest on the 4 GB server)."""
+    import openpyxl
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    ws.reset_dimensions()
+    rows = [tuple(r) + (None,) * (8 - len(r)) for r in ws.iter_rows(values_only=True, max_col=8)]
+    while rows and all(c is None for c in rows[-1]):
+        rows.pop()
+    wb.close()
+    return rows
 
 
 def _rows(sql: str):

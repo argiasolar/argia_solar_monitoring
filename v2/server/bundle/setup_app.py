@@ -34,9 +34,10 @@ sys_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.insert(0, sys_dir)
 try:
-    from argia_logo import LOGO_URI
+    from argia_logo import LOGO_ALT, LOGO_URI
 except ImportError:
     LOGO_URI = ''
+    LOGO_ALT = 'ARGIA'
 import setup_catalog as cat          # v200: the admin catalog (pure helpers)
 
 AUTH_DIR = os.environ.get('ARGIA_AUTH_DIR', '/opt/argia/auth')
@@ -625,7 +626,7 @@ label{{font-size:13.5px;}}
 </style></head><body><div class="wrap">
 <div class="top"><div><h1 data-en="{html.escape(t_en)}" data-es="{html.escape(t_es)}">{html.escape(t_en)}</h1>
 <div class="sub" data-en="{html.escape(s_en)}" data-es="{html.escape(s_es)}">{html.escape(s_en)}</div></div>
-<img src="{LOGO_URI}" alt="ARGIA SOLAR" style="height:26px;width:auto;margin-top:2px"></div>
+<img src="{LOGO_URI}" alt="{LOGO_ALT}" style="height:34px;width:auto;margin-top:2px"></div>
 <div class="controls"><a class="btn" href="/" data-en="← Reports"
  data-es="← Reportes">← Reports</a><a class="btn" href="/setup/" data-en="Catalog"
  data-es="Catálogo">Catalog</a>{who_html}</div>

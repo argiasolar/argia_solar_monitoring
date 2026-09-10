@@ -155,7 +155,7 @@ class TestPublishRun:
         assert "b/argia-dashboard/o" in args[0]
         assert "name=dashboard.html" in args[0]
         assert kwargs["headers"]["Cache-Control"] == "no-cache"
-        assert b"ARGIA SOLAR" in kwargs["data"]
+        assert b"ARGIA \xe2\x80\x94 Smart Energy Solutions" in kwargs["data"]   # v251: the company wordmark, not the solar one
 
     def test_apply_without_bucket_skips_gracefully(self, tmp_path):
         session = MagicMock()
@@ -312,12 +312,12 @@ class TestLossAndInverterAvailability20260705:
 class TestLogoAndAudit20260705:
     def test_logo_replaces_text_header(self):
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")
-        assert "ARGIA SOLAR — plant dashboard" not in html
-        assert 'alt="ARGIA SOLAR"' in html
+        assert "ARGIA SOLAR" not in html and "plant dashboard" in html
+        assert 'alt="ARGIA — Smart Energy Solutions"' in html      # v251: the whole company, not only solar
         assert "data:image/png;base64," in html
-        assert len(H.LOGO_B64) > 10000          # a real image, not a stub
+        assert len(H.LOGO_B64) > 3000           # a real image, not a stub (palette PNG, ~5.9 KiB of base64)
         assert "PERFORMANCE&nbsp;REPORT" in html
-        assert "height:28px" in html             # compact logo size
+        assert "height:34px" in html            # the three-line tagline needs 34px to read
         # layout: title precedes logo (left vs right edge)
         assert html.index("PERFORMANCE&nbsp;REPORT") < html.index("__LOGO__".replace("__LOGO__","data:image/png"))
 

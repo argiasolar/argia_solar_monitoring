@@ -62,19 +62,25 @@ def display_name(customer):
 
 
 def logo_png():
-    """ARGIA SOLAR wordmark bytes for CID embedding, or None. Reads
-    the official asset (server/bundle/argia_logo.py data URI) so mail
-    and portal can never diverge; missing file degrades to text."""
+    """ARGIA wordmark bytes for CID embedding, or None. Reads the official
+    asset (server/bundle/argia_logo.py) so mail and portal can never
+    diverge; a missing file degrades to text. v251: the mail header keeps
+    the logo deliberately smaller than its title, and the full lockup's
+    three-line tagline is a smudge at that size — so mail takes MARK_URI,
+    'ARGIA' on its own, and falls back to the full lockup."""
     import base64
     import re
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "server", "bundle", "argia_logo.py")
     try:
         src = open(path, encoding="utf-8").read()
-        m = re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", src)
-        return base64.b64decode(m.group(1)) if m else None
     except OSError:
         return None
+    for name in ("MARK_URI", "LOGO_URI"):
+        m = re.search(name + r" = 'data:image/png;base64,([A-Za-z0-9+/=]+)'", src)
+        if m:
+            return base64.b64decode(m.group(1))
+    return None
 
 # ------------------------------------------------------------- gathering
 
@@ -769,7 +775,7 @@ padding:16px 22px">
 color:#16324f;white-space:nowrap;vertical-align:middle">DAILY&nbsp;PPA
 &nbsp;PERFORMANCE</td>
 <td align="right" style="vertical-align:middle">
-<img src="cid:argialogo" alt="ARGIA SOLAR" height="19"
+<img src="cid:argialogo" alt="ARGIA" height="19"
  style="height:19px;display:block"></td>
 </tr>
 <tr>

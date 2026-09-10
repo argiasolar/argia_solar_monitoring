@@ -1,4 +1,4 @@
-# Argia_Mont v2 — fleet monitoring for ARGIA Solar (Mexico)
+# Argia_Mont v2 — fleet monitoring for ARGIA, Smart Energy Solutions (Mexico)
 
 Operating monitor for the ARGIA solar fleet (11 plants — Growatt, Huawei,
 SolarEdge; PPA, CAPEX and LaaS portfolios). It collects inverter telemetry

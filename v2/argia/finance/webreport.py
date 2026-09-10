@@ -198,9 +198,9 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
     daily atoms — no financial logic in the browser."""
     payload = json.dumps(data, separators=(",", ":"))
     logo = _logo_uri()
-    logo_html = ('<img src="%s" alt="ARGIA SOLAR" '
+    logo_html = ('<img src="%s" alt="ARGIA — Smart Energy Solutions" '
                  'style="height:28px; display:block;">' % logo
-                 ) if logo else "<b>ARGIA SOLAR</b>"
+                 ) if logo else "<b>ARGIA</b>"
     footer = _footer_sources()
     default_from = data["days"][0]
     default_to = data["last_actual_day"] or data["days"][-1]

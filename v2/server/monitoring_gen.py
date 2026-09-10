@@ -24,7 +24,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from argia_logo import LOGO_URI
+from argia_logo import LOGO_ALT, LOGO_URI
 
 # fault-code catalog from the repo checkout (documented vendor states)
 sys.path.insert(0, '/root/argia_v2/v2')
@@ -663,7 +663,7 @@ body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#f6f7f8;col
 .top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;}
 h1{font-size:23px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#1c2733;margin:4px 0 0;}
 .sub{color:#5f6368;font-size:13.5px;margin-top:4px;}
-.logo{height:26px;width:auto;margin-top:2px;}
+.logo{height:34px;width:auto;margin-top:2px;}
 .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0;}
 .btn{background:#fff;border:1px solid #dadce0;border-radius:8px;padding:6px 13px;font-size:13.5px;color:#202124;cursor:pointer;text-decoration:none;display:inline-block;}
 .btn.primary{background:#1c2733;color:#fff;border-color:#1c2733;}
@@ -785,7 +785,7 @@ def page(title, body, subtitle='', refresh=True):
 <style>{STYLE}</style></head><body><div class="wrap">
 <div class="top"><div><h1>{esc(title)}</h1>
 <div class="sub">{subtitle}</div></div>
-<a href="/" title="ARGIA reports"><img class="logo" src="{LOGO_URI}" alt="ARGIA SOLAR"></a></div>
+<a href="/" title="ARGIA reports"><img class="logo" src="{LOGO_URI}" alt="{LOGO_ALT}"></a></div>
 {body}
 <p class="note" data-en="Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pio06.{' Live pages auto-refresh every 5 minutes.' if refresh else ' Archived day — static.'}"
  data-es="Generado {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX desde PostgreSQL en pio06.{' Las páginas en vivo se actualizan cada 5 minutos.' if refresh else ' Día archivado — estático.'}">
@@ -1617,7 +1617,7 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p>
 # by Tomasz on 2026-09-04 — v186's colonia-level estimate was ~5 km off.
 OFFICE = {
     'lat': 21.1731665, 'lon': -101.7041698,
-    'name': 'ARGIA Solar',
+    'name': 'ARGIA',
     'lines': ['Provincias del Campestre 1904-4',
               'Balcones del Campestre',
               'León, Guanajuato · C.P. 37138'],

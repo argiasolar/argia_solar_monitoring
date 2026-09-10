@@ -18,7 +18,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from argia_logo import LOGO_URI  # official wordmark, transparent PNG data URI
+from argia_logo import LOGO_ALT, LOGO_URI  # official wordmark, transparent PNG data URI
 from argia_client_logos import CLIENT_LOGOS  # plant_key -> (display name, grayscale data URI)
 sys.path.insert(0, '/root/argia_v2/v2')
 try:
@@ -411,7 +411,7 @@ body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-s
 h1.sect{font-size:19px;font-weight:700;margin:28px 0 10px;color:#1c2733;}
 .titlerow{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:6px;}
 .rng{color:#5f6368;font-size:13.5px;font-variant-numeric:tabular-nums;}
-.logo{height:26px;width:auto;margin-top:2px;}
+.logo{height:34px;width:auto;margin-top:2px;}
 .audit{font-size:12.5px;color:#5f6368;line-height:1.65;}
 .audit b{color:#3c4043;}
 .sub{color:var(--ink2);font-size:13.5px;margin-top:4px;}
@@ -836,7 +836,7 @@ def ti(en, es):
             f'<span class="tipbox">{t(en, es)}</span>')
 
 
-LOGO = f'<img class="logo" src="{LOGO_URI}" alt="ARGIA SOLAR">'
+LOGO = f'<img class="logo" src="{LOGO_URI}" alt="{LOGO_ALT}">'
 
 
 def user_menu():

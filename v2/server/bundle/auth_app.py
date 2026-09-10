@@ -163,8 +163,8 @@ def safe_next(raw):
 def login_page(nxt='/', error='', user=''):
     err = (f'<p class="err">{html.escape(error)}</p>') if error else ''
     logo = getattr(sa, 'LOGO_URI', '') or ''
-    logo_img = (f'<img src="{logo}" alt="ARGIA SOLAR" class="logo">'
-                if logo else '<div class="logo">ARGIA SOLAR</div>')
+    logo_img = (f'<img src="{logo}" alt="{getattr(sa, "LOGO_ALT", "ARGIA")}" class="logo">'
+                if logo else '<div class="logo">ARGIA</div>')
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Sign in — ARGIA</title>
@@ -174,7 +174,7 @@ body{{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#f6f7f8;
  justify-content:center;}}
 .box{{background:#fff;border:1px solid #e0e3e7;border-radius:14px;padding:32px 30px;
  width:min(380px,92vw);box-shadow:0 1px 3px rgba(0,0,0,.06);}}
-.logo{{height:26px;display:block;margin:0 auto 22px;font-weight:700;
+.logo{{height:40px;display:block;margin:0 auto 22px;font-weight:700;
  letter-spacing:.18em;text-align:center;}}
 h1{{font-size:17px;font-weight:600;margin:0 0 18px;text-align:center;}}
 label{{display:block;font-size:13px;color:#5f6368;margin:12px 0 4px;}}
@@ -199,7 +199,7 @@ button:hover{{background:#2b3a4a;}}
 <label for="p">Password / Contraseña</label>
 <input id="p" name="password" type="password" autocomplete="current-password" required>
 <button type="submit">Sign in / Entrar</button>
-<p class="sub">ARGIA Solar — authorised users only.<br>
+<p class="sub">ARGIA — authorised users only.<br>
 Solo usuarios autorizados.</p>
 </form></body></html>'''
 

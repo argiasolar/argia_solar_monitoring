@@ -297,11 +297,11 @@ def render_html(data: FinanceReportData) -> str:
 
     usd_share = data.usd_service_share
     logo = _logo_data_uri()
-    logo_html = ('<img src="%s" alt="ARGIA SOLAR" style="height:34px">'
-                 % logo) if logo else '<b>ARGIA SOLAR</b>'
+    logo_html = ('<img src="%s" alt="ARGIA — Smart Energy Solutions" style="height:34px">'
+                 % logo) if logo else '<b>ARGIA</b>'
 
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<title>Argia Solar — Portfolio Financial Report</title><style>
+<title>ARGIA — Portfolio Financial Report</title><style>
 :root{{--ink:#1b2a31;--muted:#6d7f88;--line:#e2e9ec;--brand:#0e7c66;--band:#f6f9f9;--good:#1f9d63;--warn:#c98a00;--bad:#c0392b;--laas:#5b57c9;--ppa:#0e7c66}}
 *{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);font-size:13px;line-height:1.45}}
 .page{{max-width:1060px;margin:0 auto;padding:26px 30px}}

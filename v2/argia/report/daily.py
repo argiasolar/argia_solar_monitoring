@@ -444,7 +444,7 @@ header{display:block;margin-bottom:14px}
 gap:14px;margin-bottom:10px}
 .lockup .title{font-size:16px;font-weight:600;letter-spacing:3.5px;
 white-space:nowrap}
-.lockup img{height:26px;display:block}
+.lockup img{height:34px;display:block}
 .subrow{display:flex;justify-content:space-between;align-items:baseline}
 .subrow .kind{color:var(--mut);font-size:13px}
 .date{font-size:16px;font-weight:600}
@@ -741,7 +741,7 @@ def render_html(data: ReportData) -> str:
         f'<div class="wrap"><header>'
         f'<div class="lockup"><span class="title">PERFORMANCE&nbsp;'
         f'REPORT</span><img src="data:image/png;base64,{LOGO_B64}" '
-        f'alt="ARGIA SOLAR"></div>'
+        f'alt="ARGIA — Smart Energy Solutions"></div>'
         f'<div class="subrow"><span class="kind">Daily performance '
         f'report &#183; {subtitle}</span>'
         f'<span class="date">{data.date_iso}</span></div></header>'

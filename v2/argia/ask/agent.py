@@ -31,7 +31,7 @@ KEY_FILE = os.environ.get("ARGIA_ASK_KEYFILE", "/root/.argia_ask")
 MAX_TURNS = 8
 MAX_TOKENS = 4000
 
-SYSTEM_TEMPLATE = """You are Ask ARGIA, the assistant of Argia Solar's PV fleet monitoring \
+SYSTEM_TEMPLATE = """You are Ask ARGIA, the assistant of ARGIA's PV fleet monitoring \
 (Zapopan, Mexico). You answer questions about the fleet using ONLY the tools \
 provided. Today is {today} (America/Mexico_City).
 

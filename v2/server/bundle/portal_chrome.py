@@ -21,9 +21,10 @@ import re
 import unicodedata
 
 try:
-    from argia_logo import LOGO_URI          # the official wordmark, PNG data URI
+    from argia_logo import LOGO_ALT, LOGO_URI   # the official wordmark, PNG data URI
 except ImportError:                          # never in production; keeps the module pure in odd test paths
     LOGO_URI = ''
+    LOGO_ALT = 'ARGIA'
 
 PORTAL_HOST = 'portal.argia.com.mx'
 ENGINE_URL = 'https://engine.sprinkler.agency/engine'
@@ -197,7 +198,7 @@ h2.ct{font-size:15px;margin:0;font-weight:700}
 header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
 .phrow{max-width:1280px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:18px;height:60px}
 .wm{display:flex;align-items:center;gap:9px;color:var(--deep)}.wm .wmb{width:26px;height:26px;border-radius:7px;background:var(--teal);display:flex;align-items:center;justify-content:center}
-.wm .wmt{font-weight:800;font-size:17px;letter-spacing:.16em}.wm .wmlogo{height:26px;width:auto;display:block}
+.wm .wmt{font-weight:800;font-size:17px;letter-spacing:.16em}.wm .wmlogo{height:34px;width:auto;display:block}
 .psec{display:flex;align-items:center;gap:10px}.psec .sep{width:1px;height:22px;background:var(--line)}.psec .pn{font-weight:700;font-size:15px}
 .hbtns{display:flex;gap:8px;align-items:center;position:relative;margin-left:auto}
 .ib{width:40px;height:40px;border-radius:10px;border:1px solid var(--line2);background:#fff;display:flex;align-items:center;justify-content:center;color:var(--ink2);cursor:pointer;padding:0}
@@ -462,7 +463,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 def wordmark():
     """The official ARGIA wordmark (v210) — on every page, linking home."""
     if LOGO_URI:
-        return f'<a class="wm" href="/" title="Home"><img class="wmlogo" src="{LOGO_URI}" alt="ARGIA SOLAR"></a>'
+        return f'<a class="wm" href="/" title="Home"><img class="wmlogo" src="{LOGO_URI}" alt="{LOGO_ALT}"></a>'
     return (f'<a class="wm" href="/" title="Home">'
             f'<span class="wmb">{ico("sun", 16, "#053b38", 2.2)}</span><span class="wmt">ARGIA</span></a>')
 

@@ -43,9 +43,10 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.environ.get('ARGIA_V2_DIR', '/root/argia_v2/v2'))
 
 try:
-    from argia_logo import LOGO_URI
+    from argia_logo import LOGO_ALT, LOGO_URI
 except ImportError:
     LOGO_URI = ''
+    LOGO_ALT = 'ARGIA'
 
 from argia.ask import agent, tools                 # noqa: E402
 from argia.store import pgq                        # noqa: E402
@@ -251,7 +252,7 @@ f.onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text)retur
 
 
 def page(user):
-    logo = f'<img src="{LOGO_URI}" alt="ARGIA">' if LOGO_URI else ''
+    logo = f'<img src="{LOGO_URI}" alt="{LOGO_ALT}">' if LOGO_URI else ''
     body = ((_portal_page() if _portal_host() else PAGE_OLD).replace('__LOGO__', logo)
             .replace('__USER__', html.escape(user))
             .replace('__MODEL__', html.escape(agent.DEFAULT_MODEL))

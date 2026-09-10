@@ -352,9 +352,9 @@ def render_annex_html(payload: Dict, generated_at: str,
     if not default_ym and payload["days"]:
         default_ym = payload["days"][-1][:7]
 
-    argia_img = (f'<img src="{logo}" alt="ARGIA SOLAR" style="height:30px">'
+    argia_img = (f'<img src="{logo}" alt="ARGIA — Smart Energy Solutions" style="height:34px">'
                  if logo else '<span style="font-weight:600;letter-spacing:'
-                 '.2em">ARGIA SOLAR</span>')
+                 '.2em">ARGIA</span>')
     client_img = (f'<img src="{clogo}" alt="{client}" style="max-height:44px;'
                   'max-width:150px;object-fit:contain">' if clogo else
                   f'<span style="font-weight:700">{client}</span>')

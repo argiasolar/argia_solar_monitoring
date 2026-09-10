@@ -15,6 +15,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 from . import acctbook as AB
 from . import contpaq as CP
+from . import costcenter as CC
 from . import pmo_sheet as PS
 from . import portfolio as PF
 from .ingest import Row, _lit, upsert
@@ -140,6 +141,24 @@ def biz_case_sql(rows: Sequence[Row]) -> str:
     return upsert("biz_case", rows, ("entity_id", "code"))
 
 
+def cost_center_rows(entity_id: str, projects: Dict[int, AB.ProjectCode], project_codes: Iterable[int] = ()) -> List[Row]:
+    """v248: the cost-centre catalogue from the accountants' project list."""
+    return [{"entity_id": entity_id, "code": c.code, "name": c.name, "kind": c.kind, "grp": c.grp, "manual": False}
+            for c in CC.build(projects.values(), None, project_codes)]
+
+
+def cost_center_sql(rows: Sequence[Row]) -> str:
+    """Upsert that respects a manual kind/group (set with fin_cost_centers.py --set)."""
+    out = []
+    for r in rows:
+        cols = list(r.keys())
+        out.append(f"INSERT INTO cost_center ({', '.join(cols)}) VALUES ({', '.join(_lit(r[c]) for c in cols)})"
+                   f" ON CONFLICT (entity_id, code) DO UPDATE SET name = EXCLUDED.name,"
+                   f" kind = CASE WHEN cost_center.manual THEN cost_center.kind ELSE EXCLUDED.kind END,"
+                   f" grp = CASE WHEN cost_center.manual THEN cost_center.grp ELSE EXCLUDED.grp END;")
+    return "\n".join(out)
+
+
 def margin_rows(entity_id: str, period: str, gm: Dict[int, AB.ProjectMargin], sha: str) -> List[Row]:
     return [{"entity_id": entity_id, "period": period, "code": m.code, "name": m.name, "revenue_prior": m.revenue_prior, "cos_prior": m.cos_prior,
              "revenue_ytd": m.revenue_ytd, "cos_ytd": m.cos_ytd, "revenue_total": m.revenue_total, "cos_total": m.cos_total, "gm": m.gm,
@@ -237,14 +256,25 @@ def period_of(d: Optional[dt.date]) -> str:
 
 
 def month_prefix_period(name: str) -> str:
-    """'0726 Polizas Argia.xlsx' → '2026-07' (MMYY prefix the accountants use)."""
+    """'0726 Polizas Argia.xlsx' → '2026-07' (MMYY, the usual prefix);
+    '122023 Auxiliares …' → '2023-12' (MMYYYY, the 2023 close);
+    '2025 Polizas Argia.xlsx' → '2025-12' (a whole-year print)."""
     import re
+    m = re.match(r"^(\d{2})(20\d{2})\s", name)
+    if m:
+        return f"{m.group(2)}-{m.group(1)}"
+    m = re.match(r"^(20\d{2})\s", name)
+    if m:
+        return f"{m.group(1)}-12"
     m = re.match(r"^(\d{2})(\d{2})\s", name)
     return f"20{m.group(2)}-{m.group(1)}" if m else ""
 
 
 def acctbook_period(name: str) -> str:
-    """'Argia_Accounting_Data_07_26_V1.xlsx' → '2026-07'."""
+    """'Argia_Accounting_Data_07_26_V1.xlsx' → '2026-07'; '…_12_2023_cambio saldos' → '2023-12'."""
     import re
+    m = re.search(r"_(\d{2})_(20\d{2})", name)
+    if m:
+        return f"{m.group(2)}-{m.group(1)}"
     m = re.search(r"_(\d{2})_(\d{2})", name)
     return f"20{m.group(2)}-{m.group(1)}" if m else ""

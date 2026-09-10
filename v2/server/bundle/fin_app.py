@@ -29,7 +29,7 @@ import sys
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -516,6 +516,13 @@ def page_project(pid: str) -> Optional[str]:
 
 # --------------------------------------------------------------- routes
 def _gate():
+    """403 for anyone off the allow-list; v248: ``?ccy=MXN|USD|`` sets the
+    display-currency cookie and comes back to the same page."""
+    if 'ccy' in request.args and allowed(actor()):
+        pref = request.args.get('ccy', '')
+        resp = redirect(request.path)
+        resp.set_cookie('fin_ccy', pref if pref in ('MXN', 'USD') else '', max_age=365 * 86400, samesite='Lax', path='/')
+        return resp
     if not allowed(actor()):
         return PC.page('No access', f'<div style="max-width:520px;margin:60px auto;text-align:center"><h1 class="pt">{t("No access", "Sin acceso")}</h1>'
                                     f'<p class="muted">{t("This part of the portal is not open to your account.", "Esta sección no está disponible para su cuenta.")}</p>'
@@ -534,6 +541,12 @@ def mode() -> str:
 
 def _books():
     FB.bind(rows, money, today, app.config.get('ENTITY', ENTITY))
+    pref = request.cookies.get('fin_ccy', '') if request else ''
+    if pref in ('MXN', 'USD'):
+        rate, src = FB.books_rate(FB.q_period())
+        FB.set_display(pref, rate, src)
+    else:
+        FB.set_display('')
     return FB
 
 
@@ -559,12 +572,46 @@ def finance_bank():
 
 @app.get('/finance/pl/')
 def finance_pl():
-    return _gate() or _books().page_pl()
+    return _gate() or _books().page_pl(request.args.get('period', '')[:7])
 
 
 @app.get('/finance/savio/')
 def finance_savio():
     return _gate() or _books().page_savio()
+
+
+@app.get('/finance/costs/')
+def finance_costs():
+    return _gate() or _books().page_costs()
+
+
+@app.get('/finance/costs/<code>/')
+def finance_cost_center(code):
+    g = _gate()
+    if g:
+        return g
+    html_ = _books().page_cost_center(code.strip().lower()[:12])
+    if html_ is None:
+        return PC.page('Not found', f'<p class="muted" style="margin:40px 0">{t("No such cost centre.", "No existe ese centro de costo.")}</p>', 'finance', 'costs'), 404
+    if html_.startswith('REDIRECT:'):
+        return redirect(html_[9:])
+    return html_
+
+
+@app.get('/finance/suppliers/')
+def finance_suppliers():
+    return _gate() or _books().page_suppliers()
+
+
+@app.get('/finance/suppliers/<account>/')
+def finance_supplier(account):
+    g = _gate()
+    if g:
+        return g
+    html_ = _books().page_supplier(account.strip()[:12])
+    if html_ is None:
+        return PC.page('Not found', f'<p class="muted" style="margin:40px 0">{t("No such supplier account.", "No existe esa cuenta de proveedor.")}</p>', 'finance', 'suppliers'), 404
+    return html_
 
 
 @app.get('/finance/exceptions/')

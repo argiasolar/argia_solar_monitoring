@@ -35,11 +35,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # runs from anywhere, PYTHONPATH or not
 
 from argia.fin import acctbook as AB, books as B, contpaq as CP, pmo_sheet as PS, portfolio as PF   # noqa: E402
+from argia.fin.ingest import _lit                                                                  # noqa: E402
 
 ENTITY = os.environ.get("ARGIA_FIN_ENTITY", "ARGIA-MX")
-POLIZAS_RE = re.compile(r"^(\d{4}) Polizas .*\.xlsx$", re.I)
-AUX_RE = re.compile(r"^(\d{4}) Auxiliares .*\.xlsx$", re.I)
-BOOK_RE = re.compile(r"^Argia_Accounting_Data_(\d{2})_(\d{2})(?:_V(\d+))?.*\.xls[xm]$", re.I)
+POLIZAS_RE = re.compile(r"^(\d{4}|\d{6}) Polizas .*\.xlsx$", re.I)          # 0726 …, 122023 …, 2025 … (v249: the yearly closes)
+AUX_RE = re.compile(r"^(\d{4}|\d{6}) Auxiliares .*\.xlsx$", re.I)
+BOOK_RE = re.compile(r"^Argia_Accounting_Data_(\d{2})_(\d{2,4})(?:_V(\d+))?.*\.xls[xm]$", re.I)
+SKIP_NAMES = re.compile(r"before", re.I)          # 'Argia_Accounting_Data_12_25_V3 – Before (Accruals Model)': the pre-restatement copy
 OVERVIEW_RE = re.compile(r"^Argia_Projects_Overview_MX\.xlsx$", re.I)
 TRACKER_RE = re.compile(r"Payables and receivables.*\.xlsx$", re.I)
 PROJECT_FOLDER_RE = re.compile(r"^Project ARG(\d{4})\b", re.I)
@@ -67,7 +69,7 @@ def _period_key(name: str) -> str:
         return B.month_prefix_period(name)
     m = BOOK_RE.match(name)
     if m:
-        return f"20{m.group(2)}-{m.group(1)}-{int(m.group(3) or 0):02d}"
+        return f"{B.acctbook_period(name)}-{int(m.group(3) or 0):02d}"
     return ""
 
 
@@ -87,13 +89,18 @@ class LocalSource:
                 continue
             yield p
 
-    def latest(self, rx: re.Pattern) -> Optional[SourceFile]:
+    def latest(self, rx: re.Pattern, year: Optional[int] = None) -> Optional[SourceFile]:
+        """The newest period (v249: inside ``year`` when given); same period →
+        the last modified file wins ('1224 Polizas Argia1.xlsx' re-export)."""
         best = None
         for p in self._walk():
-            if rx.match(p.name):
+            if rx.match(p.name) and not SKIP_NAMES.search(p.name):
                 k = _period_key(p.name)
-                if best is None or k > best[0]:
-                    best = (k, p)
+                if year and not k.startswith(str(year)):
+                    continue
+                key = (k, p.stat().st_mtime)
+                if best is None or key > best[0]:
+                    best = (key, p)
         if not best:
             return None
         p = best[1]
@@ -119,7 +126,7 @@ class LocalSource:
 class DriveSource:
     """The service account reads the shared folders (Drive v3 + Sheets v4)."""
 
-    def __init__(self, reporting: str, overview: str, pm: str, tracker: str = ""):
+    def __init__(self, reporting: str, overview: str, pm: str, tracker: str = "", history: Sequence[str] = ()):
         from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
         raw = os.environ.get("GOOGLE_CREDENTIALS", "")
@@ -130,6 +137,7 @@ class DriveSource:
         self.drive = build("drive", "v3", credentials=creds, cache_discovery=False)
         self.sheets = build("sheets", "v4", credentials=creds, cache_discovery=False)
         self.reporting, self.overview, self.pm, self.tracker = reporting, overview, pm, tracker
+        self.history = [h for h in history if h]
 
     def _list(self, folder_id: str) -> List[dict]:
         out, token = [], None
@@ -156,13 +164,17 @@ class DriveSource:
         data = self.drive.files().get_media(fileId=f["id"], supportsAllDrives=True).execute()
         return SourceFile(kind, f["name"], data, f["id"], _ts(f.get("modifiedTime")), folder=f.get("folder", ""))
 
-    def latest(self, rx: re.Pattern) -> Optional[SourceFile]:
+    def latest(self, rx: re.Pattern, year: Optional[int] = None) -> Optional[SourceFile]:
         best = None
-        for f in self._walk(self.reporting):
-            if rx.match(f["name"]):
-                k = _period_key(f["name"])
-                if best is None or k > best[0]:
-                    best = (k, f)
+        for folder in ([self.reporting] if not year else self.history):
+            for f in self._walk(folder):
+                if rx.match(f["name"]) and not SKIP_NAMES.search(f["name"]):
+                    k = _period_key(f["name"])
+                    if year and not k.startswith(str(year)):
+                        continue
+                    key = (k, f.get("modifiedTime") or "")
+                    if best is None or key > best[0]:
+                        best = (key, f)
         return self._download(best[1], "") if best else None
 
     def find(self, rx: re.Pattern) -> Optional[SourceFile]:
@@ -228,6 +240,15 @@ def _exec(sql: str):
     psql_exec("SET statement_timeout='300s';\n" + sql)
 
 
+def _overview_codes() -> set:
+    """v248: codes present in the projects overview are projects for the
+    cost-centre catalogue whatever their name looks like; empty without a database."""
+    try:
+        return {int(r[0]) for r in _rows(f"SELECT DISTINCT code FROM portfolio_project WHERE entity_id = {_lit(ENTITY)};") if r and r[0]}
+    except Exception:                          # noqa: BLE001 — dry run on the laptop
+        return set()
+
+
 class Run:
     def __init__(self, apply: bool, force: bool):
         self.apply, self.force = apply, force
@@ -262,7 +283,11 @@ class Run:
         self.pending = []
 
 
-def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile], book: Optional[SourceFile]) -> Tuple[Optional[CP.PolizasPrint], Optional[CP.AuxiliaresPrint], Optional[AB.Workbook]]:
+def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile], book: Optional[SourceFile],
+                 history: bool = False) -> Tuple[Optional[CP.PolizasPrint], Optional[CP.AuxiliaresPrint], Optional[AB.Workbook]]:
+    """v249: ``history`` = a past year's close — balances, journals, report
+    lines and margins for that period; the account names, the project list
+    and the cost-centre catalogue stay those of the current workbook."""
     P = A = W = None
     if aux:
         aux.kind = 'auxiliares'
@@ -285,8 +310,12 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
         W = AB.read_workbook({k: v for k, v in sheets.items() if k in AB.SHEETS})
         period = W.period.label if W.period.year else B.acctbook_period(book.name)
         run.write(B.source_file_sql(B.source_file_row(book.sha, ENTITY, "acctbook", book.name, book.drive_id, book.modified, period, len(W.mapping))), "source_file")
-        run.write(B.gl_account_sql(B.gl_account_rows(ENTITY, W.mapping, A)), "gl_account")
-        run.write(B.biz_case_sql(B.biz_case_rows(ENTITY, W.projects)), "biz_case")
+        if not history:
+            run.write(B.gl_account_sql(B.gl_account_rows(ENTITY, W.mapping, A)), "gl_account")
+            run.write(B.biz_case_sql(B.biz_case_rows(ENTITY, W.projects)), "biz_case")
+            run.write(B.cost_center_sql(B.cost_center_rows(ENTITY, W.projects, _overview_codes())), "cost_center")
+        else:
+            run.write(B.upsert("gl_account", B.gl_account_rows(ENTITY, W.mapping, A), ("entity_id", "account"), update=[]), "gl_account_new")   # only accounts the current books no longer carry
         for sheet, lines in (("pl", W.pl), ("bs", W.bs), ("budget", W.budget)):
             run.write(B.report_sql(B.report_rows(ENTITY, period, sheet, lines, book.sha)), "fin_report_line")
         run.write(B.margin_sql(B.margin_rows(ENTITY, period, W.gm, book.sha)), "project_margin")
@@ -374,13 +403,16 @@ def main(argv=None) -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--force", action="store_true", help="re-import files already known by hash")
     ap.add_argument("--only", choices=("books", "overview", "tracker", "pmo"), action="append")
+    ap.add_argument("--history", default=os.environ.get("ARGIA_FIN_HISTORY_YEARS", ""), metavar="YEARS",
+                    help="v249: past years' closes to load, e.g. 2025,2024,2023 (Drive: the year folders in ARGIA_FIN_DRIVE_HISTORY)")
     a = ap.parse_args(argv)
     if not a.from_dir and not a.drive:
         ap.error("--from-dir DIR or --drive")
     only = set(a.only or ("books", "overview", "tracker", "pmo"))
     src = LocalSource(Path(a.from_dir)) if a.from_dir else DriveSource(
         os.environ.get("ARGIA_FIN_DRIVE_REPORTING", ""), os.environ.get("ARGIA_FIN_DRIVE_OVERVIEW", ""),
-        os.environ.get("ARGIA_FIN_DRIVE_PM", ""), os.environ.get("ARGIA_FIN_DRIVE_TRACKER", ""))
+        os.environ.get("ARGIA_FIN_DRIVE_PM", ""), os.environ.get("ARGIA_FIN_DRIVE_TRACKER", ""),
+        [x.strip() for x in os.environ.get("ARGIA_FIN_DRIVE_HISTORY", "").split(",") if x.strip()])
     run = Run(a.apply, a.force)
     print(f"fin_drive_ingest: entity {ENTITY}, {'APPLY' if a.apply else 'dry run'}, source {'drive' if a.drive else a.from_dir}")
     if a.apply:
@@ -389,6 +421,9 @@ def main(argv=None) -> int:
     try:
         if "books" in only:
             ingest_books(run, src.latest(POLIZAS_RE), src.latest(AUX_RE), src.latest(BOOK_RE))
+            for y in [int(x) for x in a.history.split(",") if x.strip().isdigit()]:
+                print(f"  history {y}:")
+                ingest_books(run, src.latest(POLIZAS_RE, y), src.latest(AUX_RE, y), src.latest(BOOK_RE, y), history=True)
         if "overview" in only:
             ingest_overview(run, src.find(OVERVIEW_RE))
         if "tracker" in only:

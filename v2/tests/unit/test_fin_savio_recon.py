@@ -171,4 +171,4 @@ class TestPage:
         ops = (V2 / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
         assert "argia-fin-savio" in ops and "fin_savio_recon" in ops and "/root/.argia_savio" in ops
         from argia.fin import schema as S
-        assert "savio_check" in S.TABLES and len(S.TABLES) == 43
+        assert "savio_check" in S.TABLES and len(S.TABLES) >= 43

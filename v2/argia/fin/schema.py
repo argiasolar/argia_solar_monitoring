@@ -561,6 +561,15 @@ CREATE TABLE IF NOT EXISTS savio_check (                    -- v247: the Savio p
     currency        text NOT NULL DEFAULT '',
     detail          text NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS cost_center (                    -- v248: every CONTPAQi segment with a kind; where the money goes
+    entity_id       text NOT NULL REFERENCES entity(entity_id),
+    code            integer NOT NULL,
+    name            text NOT NULL DEFAULT '',        -- canonical (upper case) name
+    kind            text NOT NULL DEFAULT 'other',   -- project | overhead | payroll | warranty | other
+    grp             text NOT NULL DEFAULT '',        -- SALARIES for payroll codes (one line on the cost page)
+    manual          boolean NOT NULL DEFAULT false,  -- kind/grp set by hand (fin_cost_centers.py --set); the ingest keeps them
+    PRIMARY KEY (entity_id, code)
+);
 CREATE INDEX IF NOT EXISTS bank_transaction_account_date_idx ON bank_transaction(account_id, tx_date);
 CREATE INDEX IF NOT EXISTS fin_event_subject_idx ON fin_event(subject_kind, subject_ref);
 """
@@ -576,4 +585,5 @@ TABLES = (
     "fin_source_file", "gl_account", "gl_journal", "gl_line", "gl_balance", "fin_report_line",
     "biz_case", "project_margin", "portfolio_project", "open_item", "pmo_project", "pmo_task", "pmo_cost", "pmo_invoice",
     "savio_check",
+    "cost_center",
 )

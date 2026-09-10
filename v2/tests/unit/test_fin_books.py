@@ -299,6 +299,8 @@ def book_rows():
     def rows(name, sql):
         if name == "period":
             return [{"period": "2026-02"}]
+        if name == "report_periods":
+            return [{"period": "2026-02"}, {"period": "2025-12"}]
         if name == "cash":
             return [{k: s(v) for k, v in r.items()} for a, r in sorted(bal.items()) if a.startswith("102-01-")]
         if name == "book_ar":
@@ -327,6 +329,32 @@ def book_rows():
             return [{"jdate": "2026-02-03", "kind": "Egresos", "number": "1", "concept": "PAGO PROVEEDOR GAMMA", "reference": "SPEI 5120", "debit": "0", "credit": "348000.00", "segment": "9001"}]
         if name == "sources":
             return [{"kind": "polizas", "name": "0226 Polizas Argia.xlsx", "period": "2026-02", "modified": "2026-03-21", "imported": "2026-03-22 07:00", "rows": "20", "notes": ""}]
+        # v248 — cost centres and suppliers
+        if name == "cost_centers":
+            return [{"code": "9001", "name": "SOLAR CAPEX ROOF 300 kWp DEMO UNO", "kind": "project", "grp": "", "manual": "f"},
+                    {"code": "701", "name": "OPERATION COSTS", "kind": "overhead", "grp": "", "manual": "f"},
+                    {"code": "704", "name": "VIT KOVARIK", "kind": "payroll", "grp": "SALARIES", "manual": "f"},
+                    {"code": "705", "name": "TOMASZ ZEMELKA", "kind": "payroll", "grp": "SALARIES", "manual": "t"}]
+        if name == "cost_seg":
+            return [{"code": "9001", "cost_ytd": "600000.00", "cost_month": "600000.00", "rev_ytd": "1000000.00", "n": "2", "last": "2026-02-20"},
+                    {"code": "701", "cost_ytd": "250000.00", "cost_month": "40000.00", "rev_ytd": "0", "n": "30", "last": "2026-02-27"},
+                    {"code": "704", "cost_ytd": "90000.00", "cost_month": "45000.00", "rev_ytd": "0", "n": "4", "last": "2026-02-28"},
+                    {"code": "705", "cost_ytd": "60000.00", "cost_month": "30000.00", "rev_ytd": "0", "n": "4", "last": "2026-02-28"}]
+        if name == "open_ap_code":
+            return [{"code": "701", "currency": "MXN", "total": "12000.00", "n": "2", "overdue": "5000.00"}, {"code": "701", "currency": "USD", "total": "300.00", "n": "1", "overdue": "0"}]
+        if name == "seg_lines":
+            if "l.segment = 701" not in sql:
+                return []
+            return [{"jdate": "2026-02-27", "kind": "Egresos", "number": "7", "concept": "RENTA OFICINA", "account": "601-01-000", "account_name": "Rentas", "bs_pl": "PL", "a_p": "C", "reference": "F-77", "debit": "40000.00", "credit": "0"}]
+        if name == "suppliers":
+            return [{"account": "201-01-005", "name": "PROVEEDOR GAMMA SA DE CV", "opening": "0", "debits": "348000.00", "credits": "580000.00", "closing": "232000.00", "movements": "3", "last": "2026-02-03"},
+                    {"account": "201-01-006", "name": "PROVEEDOR GAMMA USD", "opening": "0", "debits": "0", "credits": "1500.00", "closing": "1500.00", "movements": "1", "last": "2026-02-10"},
+                    {"account": "201-01-007", "name": "PROVEEDOR GAMMA COMPL", "opening": "0", "debits": "0", "credits": "27000.00", "closing": "27000.00", "movements": "1", "last": "2026-02-10"}]
+        if name == "acct_lines":
+            return [{"jdate": "2026-02-03", "kind": "Egresos", "number": "1", "concept": "PAGO PROVEEDOR GAMMA", "reference": "SPEI 5120", "debit": "348000.00", "credit": "0", "segment": "9001"},
+                    {"jdate": "2026-01-20", "kind": "Diario", "number": "4", "concept": "FACTURA GAMMA", "reference": "A-1", "debit": "0", "credit": "580000.00", "segment": "9001"}]
+        if name == "fx":
+            return []
         return []                      # the demo pages ask for their own tables — empty here
     return rows
 
@@ -387,7 +415,7 @@ class TestBooksPages:
         assert "480,550" in h and "Banorte DLLS 9002" in h and "25,000 <span class=\"unit\">USD" in h and "460,000 MXN" in h   # the USD figure, its peso value beside it
         assert "Receivables (tracker) · MXN" in h and "580,000" in h and "1 open · 1 overdue" in h
         assert "Revenue YTD" in h and "1,368,000" in h and "budget 1,800k" in h
-        assert "Solar Capex Roof 300 kWp Demo Uno" in h and "Old Lighting Demo Cero" not in h   # done projects stay off Today
+        assert "ARG9001 · SOLAR CAPEX ROOF 300 kWp DEMO UNO" in h and "DEMO CERO" not in h   # v248: code first, one case; done projects stay off Today
         assert "0226 Polizas Argia.xlsx" in h and "How the numbers are calculated" in h
 
     def test_ledgers_bank_pl_portfolio_project(self, client):
@@ -400,7 +428,7 @@ class TestBooksPages:
         pl = en(client.get("/finance/pl/", headers=H).data.decode())
         assert "Management P&amp;L" in pl and "% Gross Margin" in pl and "56.1%" in pl and "Balance sheet" in pl
         pf = en(client.get("/projects/", headers=H).data.decode())
-        assert "Active projects" in pf and "on hold" not in pf.split("Portfolio")[0] and "Demo Uno" in pf and "sheet" in pf
+        assert "Active projects" in pf and "on hold" not in pf.split("Portfolio")[0] and "ARG9001 · SOLAR CAPEX ROOF 300 kWp DEMO UNO" in pf and "sheet" in pf
         pj = en(client.get("/projects/ARG9001/", headers=H).data.decode())
         assert "PMO sheet" in pj and "M001" in pj and "Costs · Paid" in pj and "segment 9001" in pj and "Cost of Sales" in pj
         assert client.get("/projects/ARG9999/", headers=H).status_code == 404
@@ -467,3 +495,117 @@ class TestWiring:
         ops = (V2 / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
         assert "argia-fin-drive" in ops and "fin_drive_ingest" in ops
         assert "openpyxl" in (V2 / "requirements.txt").read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------- v248
+class TestCostCentres:
+    def test_catalogue_rules_on_the_accountants_codes(self):
+        from argia.fin import costcenter as CC
+        assert CC.classify(701, "OPERATION COSTS", "_") == CC.OVERHEAD
+        assert CC.classify(706, "PAYROLL", "PL_080") == CC.PAYROLL
+        assert CC.classify(704, "VIT KOVARIK", "PL_195") == CC.PAYROLL and CC.classify(1362, "Martín de Jesús Arias Parada", "") == CC.PAYROLL
+        assert CC.classify(1350, "SOLAR PPA ROOF 605.5 kWp TAIGENE GUANAJUATO", "GM") == CC.PROJECT
+        assert CC.classify(1238, "Prologis Smart Mtering Arcos Office", "") == CC.PROJECT     # 'Office' inside a Prologis name is still a project
+        assert CC.classify(1259, "Argia Holding", "") == CC.OVERHEAD and CC.classify(918, "PROLOGIS GENERAL", "_") == CC.OVERHEAD
+        assert CC.classify(1100, "Garantias Acuity", "") == CC.WARRANTY and CC.classify(772, "PIRELLI", "_") == CC.OTHER
+        assert not CC.is_person("RYDER GUADALAJARA") and CC.is_person("SALVADOR BRAVO") and not CC.is_person("C10 GROUP SRO")
+
+    def test_one_case_and_code_first_labels(self):
+        from argia.fin import costcenter as CC
+        assert CC.canon("Solar Capex Roof 947.7 KwP Teneria Panamericana BJX") == "SOLAR CAPEX ROOF 947.7 kWp TENERIA PANAMERICANA BJX"
+        assert CC.canon("Leon Warehpuse") == "LEON WAREHOUSE" and CC.canon("  c10  Group s.r.o ") == "C10 GROUP S.R.O"
+        assert CC.label(1350, "Solar PPA Taigene") == "ARG1350 · SOLAR PPA TAIGENE"
+        assert CC.label(701, "Operation costs", CC.OVERHEAD) == "701 · OPERATION COSTS" and CC.label(919, "Prologis - Autotek 1", CC.PROJECT) == "919 · PROLOGIS - AUTOTEK 1"
+        assert CC.label(None, "no code") == "NO CODE" and CC.href(1350) == "/projects/ARG1350/" and CC.href(701, CC.OVERHEAD) == "/finance/costs/701/"
+
+    def test_build_keeps_manual_kinds_and_trusts_the_overview(self):
+        from argia.fin import costcenter as CC
+        projects = [{"code": 1414, "name": "Ryder Guadalajara", "project_type": ""}, {"code": 772, "name": "PIRELLI", "project_type": "_"}, {"code": 713, "name": "not used yet", "project_type": "_"}]
+        out = {c.code: c for c in CC.build(projects, {772: CC.CostCenter(772, "PIRELLI", CC.PROJECT, "", manual=True)}, project_codes={1414})}
+        assert out[1414].kind == CC.PROJECT and out[772].kind == CC.PROJECT and out[772].manual and 713 not in out
+        sql = B.cost_center_sql(B.cost_center_rows("X", {1414: AB.ProjectCode(1414, "Ryder Guadalajara", "", ""), 704: AB.ProjectCode(704, "VIT KOVARIK", "PL_195", "")}, {1414}))
+        assert "CASE WHEN cost_center.manual THEN cost_center.kind" in sql and "'SALARIES'" in sql and sql.count("INSERT INTO cost_center") == 2
+
+    def test_party_key_joins_tracker_names_to_sub_accounts(self):
+        assert FB.party_key("C10 Group s.r.o") == "C10 GROUP" == FB.party_key("C10 GROUP SRO")
+        assert FB.party_key("PROLOGIS PROPERTY MEXICO COMPL") == FB.party_key("Prologis Property Mexico USD") == FB.party_key("PROLOGIS PROPERTY MEXICO")
+        assert FB.party_key("JOSE DE JESUS MUÑOZ LOPEZ") == "JOSE JESUS MUNOZ LOPEZ" and FB.party_key("Electro Experts, MXP Proveed") == "ELECTRO EXPERTS"
+        groups = FB.supplier_groups([{"account": "201-01-005", "name": "PROVEEDOR GAMMA SA DE CV", "closing": "232000", "credits": "580000", "debits": "348000", "movements": "3", "last": "2026-02-03"},
+                                     {"account": "201-01-006", "name": "PROVEEDOR GAMMA USD", "closing": "1500", "credits": "1500", "debits": "0", "movements": "1", "last": "2026-02-10"},
+                                     {"account": "201-01-007", "name": "PROVEEDOR GAMMA COMPL", "closing": "27000", "credits": "27000", "debits": "0", "movements": "1", "last": "2026-02-10"}])
+        assert len(groups) == 1 and groups[0]["name"] == "PROVEEDOR GAMMA SA DE CV" and groups[0]["accounts"] == ["201-01-005", "201-01-006", "201-01-007"]
+        assert groups[0]["closing"] == {"MXN": D(259000), "USD": D(1500)}        # the peso complement counts as MXN, USD at face value
+        idx = FB.supplier_index([{"account": "201-01-005", "name": "PROVEEDOR GAMMA SA DE CV", "closing": "1", "credits": "0", "debits": "0", "movements": "1", "last": ""}])
+        assert FB.match_account(idx, "Proveedor Gamma, S.A. de C.V.") == "201-01-005" and FB.match_account(idx, "OTRO") == ""
+
+    def test_cost_pages(self, client):
+        h = en(client.get("/finance/costs/", headers=H).data.decode())
+        assert "Where the money goes" in h and "ARG9001 · SOLAR CAPEX ROOF 300 kWp DEMO UNO" in h and "701 · OPERATION COSTS" in h
+        assert "SALARIES &amp; FEES" in h and "(2 people)" in h and "150,000" in h        # 704 + 705 rolled into one line
+        assert "VIT KOVARIK" not in h and 'data-sum="2,3,5,6"' in h and '12,000 <span class="unit">MXN</span> · 300 <span class="unit">USD</span>' in h
+        assert "1,000,000" in h and "60.0%" in h                                            # project share of the 1,000,000 total
+        d = en(client.get("/finance/costs/701/", headers=H).data.decode())
+        assert "701 · OPERATION COSTS" in d and "RENTA OFICINA" in d and "Overhead" in d and "40,000.00" in d
+        s_ = en(client.get("/finance/costs/salaries/", headers=H).data.decode())
+        assert "704 · VIT KOVARIK" in s_ and "705 · TOMASZ ZEMELKA" in s_ and "90,000" in s_
+        r = client.get("/finance/costs/9001/", headers=H)
+        assert r.status_code == 302 and r.headers["Location"].endswith("/projects/ARG9001/")
+        assert client.get("/finance/costs/4242/", headers=H).status_code == 404
+
+    def test_supplier_pages_group_sub_accounts(self, client):
+        h = en(client.get("/finance/suppliers/", headers=H).data.decode())
+        assert "PROVEEDOR GAMMA SA DE CV" in h and h.count("201-01-006") >= 1 and "259,000 <span class=\"unit\">MXN</span> · 1,500 <span class=\"unit\">USD</span>" in h and "1 suppliers (3 sub-accounts)" in h
+        d = en(client.get("/finance/suppliers/201-01-006/", headers=H).data.decode())     # any sub-account opens the supplier
+        assert "PROVEEDOR GAMMA SA DE CV" in d and "PAGO PROVEEDOR GAMMA" in d and "ARG9001 · SOLAR CAPEX ROOF 300 kWp DEMO UNO" in d
+        assert client.get("/finance/suppliers/201-01-999/", headers=H).status_code == 404 and client.get("/finance/suppliers/x/", headers=H).status_code == 404
+
+    def test_ledger_has_code_first_projects_dates_nowrap_doc_links_and_totals(self, client):
+        h = en(client.get("/finance/ap/", headers=H).data.decode())
+        assert "ARG9001 · SOLAR CAPEX ROOF 300 kWp DEMO UNO" in h and 'class="nw"' in h and 'data-sum="8,9"' in h
+        assert "drive.google.com/drive/search?q=" in h and 'href="/finance/suppliers/201-01-005/"' in h
+        assert "Proveedor Gamma" not in h and "PROVEEDOR GAMMA" in h                       # one case everywhere
+
+    def test_pl_offers_the_closed_years(self, client):
+        h = en(client.get("/finance/pl/", headers=H).data.decode())
+        assert 'href="?period=2025-12">2025</a>' in h and 'href="?period=2026-02" class=on>2026-02</a>' in h
+        assert client.get("/finance/pl/?period=2025-12", headers=H).status_code == 200
+        assert client.get("/finance/pl/?period=bogus", headers=H).status_code == 200                # unknown → the current one
+
+    def test_history_period_parsers(self):
+        assert B.month_prefix_period("122023 Auxiliares Argia Final (3).xlsx") == "2023-12" and B.month_prefix_period("2025 Polizas Argia.xlsx") == "2025-12"
+        assert B.month_prefix_period("1224 Polizas Argia1.xlsx") == "2024-12" and B.month_prefix_period("0726 Polizas Argia.xlsx") == "2026-07"
+        assert B.acctbook_period("Argia_Accounting_Data_12_2023_cambio saldos.xlsm") == "2023-12" and B.acctbook_period("Argia_Accounting_Data_12_25_V3.0 - After (PPA as Assets).xlsm") == "2025-12"
+        import fin_drive_ingest as I
+        assert I.SKIP_NAMES.search("Argia_Accounting_Data_12_25_V3 - Before (Accruals Model).xlsm") and not I.SKIP_NAMES.search("Argia_Accounting_Data_12_24.xlsm")
+        assert I.POLIZAS_RE.match("122023 Polizas Argia Final (2).xlsx") and I.AUX_RE.match("2025 Auxiliares Argia.xlsx") and I.BOOK_RE.match("Argia_Accounting_Data_12_2023_cambio saldos.xlsm")
+
+    def test_local_source_picks_the_year_and_the_latest_re_export(self, tmp_path):
+        import fin_drive_ingest as I
+        d = tmp_path / "2024" / "12. December"
+        d.mkdir(parents=True)
+        (d / "1224 Polizas Argia.xlsx").write_bytes(b"old")
+        (d / "1224 Polizas Argia1.xlsx").write_bytes(b"re-export")
+        import os
+        os.utime(d / "1224 Polizas Argia1.xlsx", (2_000_000_000, 2_000_000_000))
+        os.utime(d / "1224 Polizas Argia.xlsx", (1_900_000_000, 1_900_000_000))
+        (tmp_path / "2026").mkdir()
+        (tmp_path / "2026" / "0726 Polizas Argia.xlsx").write_bytes(b"now")
+        (tmp_path / "2025").mkdir()
+        (tmp_path / "2025" / "Argia_Accounting_Data_12_25_V3 - Before (Accruals Model).xlsm").write_bytes(b"x")
+        src = I.LocalSource(tmp_path)
+        assert src.latest(I.POLIZAS_RE).name == "0726 Polizas Argia.xlsx"
+        assert src.latest(I.POLIZAS_RE, 2024).name == "1224 Polizas Argia1.xlsx" and src.latest(I.POLIZAS_RE, 2023) is None
+        assert src.latest(I.BOOK_RE, 2025) is None                                                  # the 'Before' copy is never read
+
+    def test_display_currency_cookie_converts_and_keeps_the_original(self, client):
+        r = client.get("/finance/ap/?ccy=MXN", headers=H)
+        assert r.status_code == 302 and "fin_ccy=MXN" in r.headers.get("Set-Cookie", "")
+        client.set_cookie("fin_ccy", "MXN")
+        h = client.get("/finance/ap/", headers=H).data.decode()
+        assert 'class="ccysw' in h and 'class=on>MXN' in h
+        # the synthetic books hold a USD bank account with its peso complement → the rate comes from the books
+        rate, src = FB.books_rate("2026-02")
+        assert rate is not None and src == ("books", "2026-02") and D("18.3") < rate < D("18.5")
+        assert 'class="conv"' in h and "as issued" in h
+        client.set_cookie("fin_ccy", "")
+        assert 'class="conv"' not in client.get("/finance/ap/", headers=H).data.decode()

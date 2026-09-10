@@ -61,8 +61,8 @@ SECTIONS = {
     # v244: finance + projects (fin_app) — the landing cards stay hidden
     # unless /finance/me says allowed (.finonly, like .askonly)
     'finance': ('Finance', 'Finanzas', [
-        ('', 'Today', 'Hoy'), ('ar', 'Receivables', 'Cobrar'), ('ap', 'Payables', 'Pagar'),
-        ('bank', 'Bank', 'Banco'), ('pl', 'P&L', 'Resultados'), ('savio', 'Savio', 'Savio'), ('exceptions', 'Exceptions', 'Excepciones')]),
+        ('', 'Today', 'Hoy'), ('ar', 'Receivables', 'Cobrar'), ('ap', 'Payables', 'Pagar'), ('suppliers', 'Suppliers', 'Proveedores'),
+        ('bank', 'Bank', 'Banco'), ('pl', 'P&L', 'Resultados'), ('costs', 'Cost centres', 'Centros de costo'), ('savio', 'Savio', 'Savio'), ('exceptions', 'Exceptions', 'Excepciones')]),
     'projects': ('Projects', 'Proyectos', [('', 'Portfolio', 'Portafolio')]),
 }
 
@@ -302,6 +302,9 @@ body.wide .wrap,body.wide .phrow,body.wide .tabs{max-width:none}body.wide .wrap{
 .dtbar .dtn{color:var(--muted);white-space:nowrap;margin-left:auto}.dtbar .dtx{padding:6px 10px;border:1px solid var(--line2);border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:12.5px}
 table.dt th{cursor:pointer;user-select:none;white-space:nowrap}table.dt th .sarr{opacity:.35;font-size:10px;margin-left:3px}table.dt th.sorted .sarr{opacity:1;color:var(--deep)}
 table.dt th .ti{vertical-align:middle}
+table.dt td.nw,table.dt td.date{white-space:nowrap}table.dt tfoot td{font-weight:700;border-top:2px solid var(--line2);background:#fafbfc;white-space:nowrap}table.dt tfoot td.lbl{color:var(--muted);font-weight:600;font-size:12px}
+.ccysw{display:inline-flex;gap:0;border:1px solid var(--line2);border-radius:8px;overflow:hidden;font-size:12px;vertical-align:middle;margin-left:8px}.ccysw a{padding:3px 9px;color:var(--ink2);text-decoration:none;background:#fff}.ccysw a.on{background:var(--deep);color:#fff}.ccysw a+a{border-left:1px solid var(--line2)}
+span.conv{border-bottom:1px dotted var(--muted);cursor:help}a.doc{font-size:11px;color:var(--deep);text-decoration:none;margin-left:4px;border:1px solid var(--line2);border-radius:5px;padding:0 4px}
 details.cols{margin:0 16px 12px;font-size:12.5px;color:var(--ink2)}details.cols summary{cursor:pointer;color:var(--muted);padding:8px 0}details.cols dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:6px 0 0}details.cols dt{font-weight:700;color:var(--ink)}details.cols dd{margin:0}
 .printbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.printbtn:hover{border-color:var(--teal)}
 @media print{.dtbar,.printbtn,.tabs,details.cols,.noprint{display:none!important}.flipin{transform:none!important}.tile.flip .face.back{display:none!important}body.wide .wrap{padding:0}.card{break-inside:auto;box-shadow:none;border:1px solid #ccc}
@@ -386,6 +389,18 @@ function argiaTables(){
     }});
   }
   const n=document.createElement('span');n.className='dtn';bar.appendChild(n);
+  let foot=null;const sumCols=(w.dataset.sum||'').split(',').filter(x=>x!=='').map(Number);
+  if(sumCols.length&&rows.length>1){
+   foot=tbl.createTFoot().insertRow();
+   ths.forEach((th,i)=>{const c=foot.insertCell();if(i===0){c.className='lbl';c.textContent=T('Total (rows shown)','Total (filas mostradas)');}else if(sumCols.includes(i))c.className='r';});
+  }
+  function sumUp(){
+   if(!foot)return;
+   sumCols.forEach(i=>{const acc={};let any=false;
+    rows.forEach(r=>{if(r.style.display==='none')return;const v=(r.cells[i]?.innerText||'').trim();const m=v.match(/-?\d[\d,]*(?:\.\d+)?/);if(!m)return;const cm=v.match(/\b(MXN|USD|EUR)\b/);const k=cm?cm[1]:'';acc[k]=(acc[k]||0)+parseFloat(m[0].replace(/,/g,''));any=true;});
+    const dec=Object.values(acc).some(x=>Math.abs(x)%1>0.004)?2:0;
+    foot.cells[i].textContent=any?Object.keys(acc).map(k=>acc[k].toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec})+(k?' '+k:'')).join(' · '):'';});
+  }
   const x=document.createElement('button');x.type='button';x.className='dtx';x.textContent=T('Reset','Limpiar');bar.appendChild(x);
   w.insertBefore(bar,w.firstChild);
   function apply(){
@@ -396,6 +411,7 @@ function argiaTables(){
     r.classList.toggle('dthide',!ok);r.style.display=ok?'':'none';if(ok)shown++;
    });
    n.textContent=shown===rows.length?rows.length+' '+T('rows','filas'):shown+' '+T('of','de')+' '+rows.length;
+   sumUp();
   }
   q.addEventListener('input',apply);sels.forEach(s=>s.addEventListener('change',apply));
   x.addEventListener('click',()=>{q.value='';sels.forEach(s=>s.value='');apply();});
@@ -512,12 +528,14 @@ def print_button(label_en='Print / PDF', label_es='Imprimir / PDF'):
             f'{ico("print", 14, "currentColor", 2)} {t(label_en, label_es)}</button>')
 
 
-def data_table(head, body, cls='', columns=None, tools=True):
+def data_table(head, body, cls='', columns=None, tools=True, sums=None):
     """v246: a table with search, per-column filters, sorting and column
     tooltips. ``head`` = labels (already through t()); ``columns`` =
     optional list of (en, es) explanations, one per column — they become
     the ⓘ tooltip on the header and the 'Columns explained' block below.
-    ``body`` = the <tr> strings. Wide content still scrolls inside the card."""
+    ``body`` = the <tr> strings. Wide content still scrolls inside the card.
+    v248: ``sums`` = column indexes that get a summary row (per currency,
+    recomputed on every filter — the total of what is on screen)."""
     ths = []
     for i, h in enumerate(head):
         tip = columns[i] if columns and i < len(columns) and columns[i] else None
@@ -530,7 +548,8 @@ def data_table(head, body, cls='', columns=None, tools=True):
     if columns and any(columns):
         rows = ''.join(f'<dt>{head[i]}</dt><dd>{t(*(c if isinstance(c, tuple) else (c, c)))}</dd>' for i, c in enumerate(columns) if c and i < len(head))
         explain = f'<details class="cols"><summary>{t("Columns explained", "Explicación de columnas")}</summary><dl>{rows}</dl></details>'
-    return ('<div class="dtwrap"' + ('' if tools else ' data-notools="1"') + f'><div style="overflow-x:auto"><table class="dt {cls}"><thead><tr>' + ''.join(ths) + '</tr></thead><tbody>'
+    sm = f' data-sum="{",".join(str(int(i)) for i in sums)}"' if sums else ''
+    return ('<div class="dtwrap"' + ('' if tools else ' data-notools="1"') + f'{sm}><div style="overflow-x:auto"><table class="dt {cls}"><thead><tr>' + ''.join(ths) + '</tr></thead><tbody>'
             + ''.join(body) + f'</tbody></table></div>{explain}</div>')
 
 

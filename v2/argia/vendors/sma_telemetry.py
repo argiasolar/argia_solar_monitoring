@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from argia.core.normalize import normalize_sn, pick, safe_float
 from argia.core.time_utils import MX_TZ, UTC, now_utc, parse_provider_datetime
+from argia.vendors import sma as SMA
 from argia.vendors.sma import (
     OFFLINE_DEVICE_STATES,
     SMAAPIError,
@@ -244,6 +245,51 @@ def parse_telemetry_response(
     )
 
 
+def _set_for(sma_client: Any, plant: Any, inv: Any) -> Optional[str]:
+    """Which measurement set this inverter actually serves.
+
+    Asked once per device per run, then cached on the client. The Stage 6
+    scaffold hard-coded "pvGeneration", which is the docs' category name and
+    not a set the API accepts — every telemetry call would have 404'd. The
+    device tells us; we only choose among what it lists.
+    """
+    cache = getattr(sma_client, "_set_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            sma_client._set_cache = cache
+        except Exception:                                  # noqa: BLE001
+            pass
+    key = str(inv.inverter_sn)
+    if key in cache:
+        return cache[key]
+    try:
+        listing = sma_client._get_json(f"/devices/{key}/measurements/sets", {})
+    except (SMAAuthError, SMAConsentError):
+        raise
+    except SMAAPIError as e:
+        msg = str(e).lower()
+        if "rate-limited" in msg or "429" in msg:
+            # Same contract as the data call: a rate limit aborts the run
+            # rather than quietly reporting every inverter as having no data.
+            LOG.warning("[%s/%s] rate-limited listing measurement sets",
+                        plant.plant_key, key)
+            raise
+        LOG.warning("[%s/%s] could not list measurement sets: %s",
+                    plant.plant_key, key, e)
+        cache[key] = None
+        return None
+    chosen = SMA.pick_set(listing)
+    if not chosen:
+        LOG.warning("[%s/%s] device offers no readable measurement set (%s)",
+                    plant.plant_key, key, ", ".join(SMA.sets_of(listing)) or "none")
+    else:
+        LOG.info("[%s/%s] using measurement set %s",
+                 plant.plant_key, key, chosen)
+    cache[key] = chosen
+    return chosen
+
+
 def fetch_inverter_telemetry(
     sma_client: Any,
     plant: Any,
@@ -261,9 +307,12 @@ def fetch_inverter_telemetry(
 
     out: List[SMATelemetryRow] = []
     for inv in inverters:
+        set_name = _set_for(sma_client, plant, inv)
+        if not set_name:
+            continue
         try:
             response = sma_client._get_json(
-                f"/devices/{inv.inverter_sn}/measurements/sets/pvGeneration",
+                f"/devices/{inv.inverter_sn}/measurements/sets/{set_name}",
                 {"Period": "Recent"},
             )
         except SMAAuthError as e:
@@ -293,8 +342,8 @@ def fetch_inverter_telemetry(
         )
         if row is None:
             LOG.warning(
-                "[%s/%s] empty pvGeneration response — likely no data in sandbox",
-                plant.plant_key, inv.inverter_sn,
+                "[%s/%s] empty %s response — no data for this device right now",
+                plant.plant_key, inv.inverter_sn, set_name,
             )
             continue
         out.append(row)

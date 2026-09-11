@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -45,6 +46,19 @@ from argia.vendors.base import InverterSnapshot
 
 LOG = logging.getLogger("argia.vendors.sma")
 
+
+def _zone(name: str):
+    """The plant's tz, falling back to Mexico when the name is unknown — a bad
+    timezone string must never take the 5-minute pipeline down."""
+    if not name or name == "America/Mexico_City":
+        return MX_TZ
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:                                     # noqa: BLE001
+        LOG.warning("SMA: unknown timezone %r, using America/Mexico_City", name)
+        return MX_TZ
+
 DEFAULT_TIMEOUT_SEC = 30
 
 # Endpoint sets per environment. Keep these constants close to the docs they
@@ -52,16 +66,66 @@ DEFAULT_TIMEOUT_SEC = 30
 # are easy to track.
 ENDPOINTS = {
     "sandbox": {
+        # Both verified against developer.sma.de/api-access-control (2026-09-11).
         "token":    "https://sandbox-auth.smaapis.de/oauth2/token",
         "bc_base":  "https://sandbox.smaapis.de/oauth2/v2",
         "api_base": "https://sandbox.smaapis.de/monitoring/v1",
     },
     "production": {
+        # token + bc_base verified against developer.sma.de/api-access-control
+        # (2026-09-11): "Productive: auth.smaapis.de/oauth2/token" and
+        # "Productive: POST async-auth.smaapis.de/oauth2/v2/bc-authorize".
         "token":    "https://auth.smaapis.de/oauth2/token",
         "bc_base":  "https://async-auth.smaapis.de/oauth2/v2",
+        # NOT VERIFIED. SMA publishes the token and consent hosts but not the
+        # host that serves the Monitoring data in production; async-auth is the
+        # consent host, so this is almost certainly wrong. It stays as a
+        # placeholder rather than a second guess: set SMA_API_BASE once SMA
+        # confirms the host, and no code changes. See API_BASE_ENV below.
         "api_base": "https://async-auth.smaapis.de/monitoring/v1",
     },
 }
+
+# Operator override for the production data host (see the note above). Set it
+# to the full base, e.g. "https://smaapis.de/monitoring/v1".
+API_BASE_ENV = "SMA_API_BASE"
+
+
+# Device measurement sets, best first. The name is NOT "pvGeneration": that is
+# SMA's word for the data *category* in the sandbox docs, while the set name the
+# API actually accepts comes back from GET /devices/{id}/measurements/sets. The
+# one real capture we hold (tests/fixtures/sma/live_inverter_sets_16.json) lists
+# ["Sensor", "EnergyAndPowerPv", "PowerDc", "PowerAc"] for an inverter and [] for
+# a sensor device. So we ask the device what it has instead of hard-coding a
+# guess — the Stage 6 scaffold guessed, and would have 404'd on every call.
+INVERTER_SET_PREFERENCE = ("EnergyAndPowerPv", "PowerAc", "PowerDc", "pvGeneration")
+
+
+def sets_of(response: Any) -> List[str]:
+    """The set names in a GET /devices/{id}/measurements/sets response."""
+    if not isinstance(response, dict):
+        return []
+    return [str(x) for x in (response.get("sets") or []) if x]
+
+
+def pick_set(available: Any, preference: Any = INVERTER_SET_PREFERENCE) -> Optional[str]:
+    """The best measurement set this device offers, or None when it offers
+    none we can read (a Satellit Sensor returns an empty list). ``available``
+    may be the raw response or an already-extracted list."""
+    names = available if isinstance(available, list) else sets_of(available)
+    have = {str(n).lower(): str(n) for n in names if n}
+    for want in preference:
+        hit = have.get(want.lower())
+        if hit:
+            return hit
+    return None
+
+
+def api_base(environment: str, override: Optional[str] = None) -> str:
+    """The Monitoring data host: the override when one is given, else the
+    built-in for the environment. Pure, so the override is testable."""
+    ov = (override or "").strip().rstrip("/")
+    return ov or ENDPOINTS[environment]["api_base"]
 
 # SMA inverter operational state strings → online (1) / offline (3).
 # Source: SMA Monitoring API docs, device.status field. We start conservative
@@ -115,6 +179,7 @@ class SMAClient:
         timeout_sec: int = DEFAULT_TIMEOUT_SEC,
         session: Optional[requests.Session] = None,
         site_timezone: str = "America/Mexico_City",
+        api_base_override: str = "",
     ) -> None:
         if not client_id:
             raise ValueError("client_id is required")
@@ -133,10 +198,15 @@ class SMAClient:
         self._client_secret = client_secret
         self._login_hint = login_hint
         self._environment = env
-        self._endpoints = ENDPOINTS[env]
+        self._endpoints = dict(ENDPOINTS[env])
+        self._endpoints["api_base"] = api_base(env, api_base_override or os.environ.get(API_BASE_ENV))
         self._timeout = timeout_sec
         self._session = session or requests.Session()
-        self._site_tz = MX_TZ if site_timezone == "America/Mexico_City" else MX_TZ
+        # Both SMA plants are in Mexico, so MX_TZ is the right default — but
+        # the argument used to be accepted and thrown away (both branches of
+        # the old conditional were MX_TZ), which would silently misread a
+        # plant anywhere else.
+        self._site_tz = _zone(site_timezone)
 
         # Filled by login()
         self._client_token: Optional[str] = None

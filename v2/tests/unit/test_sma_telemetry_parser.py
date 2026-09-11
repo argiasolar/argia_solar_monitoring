@@ -225,45 +225,71 @@ class _FakePlant:
 
 
 class TestFetchInverterTelemetry:
+    """v252: the loop asks GET /devices/{id}/measurements/sets first and calls
+    the set the device names. It used to hard-code "pvGeneration", which the
+    real capture in tests/fixtures/sma/ shows is not a set the API serves."""
+
+    SETS = {"sets": ["Sensor", "EnergyAndPowerPv", "PowerDc", "PowerAc"]}
+
+    def _client(self, *data, sets=None):
+        """A client whose listing call answers with set names and whose data
+        calls answer with ``data`` in order (an exception is raised)."""
+        client = MagicMock()
+        queue = list(data)
+        listing = self.SETS if sets is None else sets
+
+        def _get(path, params=None):
+            if path.endswith("/measurements/sets"):
+                if isinstance(listing, Exception):
+                    raise listing
+                return listing
+            item = queue.pop(0) if len(queue) > 1 else queue[0]
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        client._get_json.side_effect = _get
+        return client
+
+    def _data_paths(self, client):
+        return [c.args[0] for c in client._get_json.call_args_list
+                if not c.args[0].endswith("/measurements/sets")]
     def test_empty_list_no_calls(self):
         client = MagicMock()
         result = fetch_inverter_telemetry(client, _FakePlant(), [])
         assert result == []
         client._get_json.assert_not_called()
 
-    def test_one_inverter_one_call(self):
-        client = MagicMock()
-        client._get_json.return_value = _pv_response(power=10000.0)
+    def test_one_inverter_one_data_call(self):
+        client = self._client(_pv_response(power=10000.0))
         result = fetch_inverter_telemetry(
             client, _FakePlant(), [_FakeInverter("DEV1")],
         )
         assert len(result) == 1
-        client._get_json.assert_called_once()
+        assert len(self._data_paths(client)) == 1
 
     def test_correct_endpoint(self):
-        client = MagicMock()
-        client._get_json.return_value = _pv_response(power=10000.0)
+        client = self._client(_pv_response(power=10000.0))
         fetch_inverter_telemetry(
             client, _FakePlant(), [_FakeInverter("DEV1")],
         )
-        path = client._get_json.call_args.args[0]
-        assert path == "/devices/DEV1/measurements/sets/pvGeneration"
+        paths = [c.args[0] for c in client._get_json.call_args_list]
+        assert paths == ["/devices/DEV1/measurements/sets",
+                         "/devices/DEV1/measurements/sets/EnergyAndPowerPv"]
 
     def test_multiple_inverters(self):
-        client = MagicMock()
-        client._get_json.return_value = _pv_response(power=10000.0)
+        client = self._client(_pv_response(power=10000.0))
         result = fetch_inverter_telemetry(
             client, _FakePlant(),
             [_FakeInverter(f"DEV{i}") for i in range(3)],
         )
         assert len(result) == 3
+        assert len(self._data_paths(client)) == 3
 
     def test_404_continues_to_next_inverter(self):
-        client = MagicMock()
-        client._get_json.side_effect = [
-            SMAAPIError("404 not available"),
-            _pv_response(power=10000.0),
-        ]
+        client = self._client(
+            SMAAPIError("404 not available"), _pv_response(power=10000.0),
+        )
         result = fetch_inverter_telemetry(
             client, _FakePlant(),
             [_FakeInverter("BAD"), _FakeInverter("GOOD")],
@@ -287,17 +313,22 @@ class TestFetchInverterTelemetry:
                 client, _FakePlant(), [_FakeInverter("DEV1")],
             )
 
-    def test_rate_limit_raises(self):
-        client = MagicMock()
-        client._get_json.side_effect = SMAAPIError("rate-limited HTTP 429")
+    def test_rate_limit_raises_from_the_data_call(self):
+        client = self._client(SMAAPIError("rate-limited HTTP 429"))
+        with pytest.raises(SMAAPIError, match="rate-limited"):
+            fetch_inverter_telemetry(
+                client, _FakePlant(), [_FakeInverter("DEV1")],
+            )
+
+    def test_rate_limit_on_the_listing_call_also_aborts_the_run(self):
+        client = self._client({}, sets=SMAAPIError("rate-limited HTTP 429"))
         with pytest.raises(SMAAPIError, match="rate-limited"):
             fetch_inverter_telemetry(
                 client, _FakePlant(), [_FakeInverter("DEV1")],
             )
 
     def test_empty_response_returns_no_row(self):
-        client = MagicMock()
-        client._get_json.return_value = {}  # no set
+        client = self._client({})  # device lists sets, but the set has no data
         result = fetch_inverter_telemetry(
             client, _FakePlant(), [_FakeInverter("DEV1")],
         )

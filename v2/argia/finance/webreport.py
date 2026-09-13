@@ -252,7 +252,25 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
     .card, .panel {{ border: 1px solid #d5d4cc; break-inside: avoid; }}
     .badge, .card, .note {{ -webkit-print-color-adjust: exact;
                             print-color-adjust: exact; }}
-    @page {{ margin: 12mm; }}
+    /* v254 — the page must FIT the sheet on its own. The screen layout is
+       1080px wide; A4 with 12mm margins is ~700px. A person pressing Ctrl+P
+       never saw the difference because Chrome's print dialog shrinks to fit,
+       but the weekly mail is rendered by headless chromium --print-to-pdf,
+       which has no such heuristic and simply CLIPS the overflow. Every
+       emailed report was losing debt service, loan position and both DSCR
+       columns off the right edge — silently, including the amber covenant
+       warnings. Never rely on a print dialog to make the report fit. */
+    @page {{ size: A4 portrait; margin: 10mm; }}
+    .wrap {{ max-width: none; width: auto; padding: 0 2mm; }}
+    .cards {{ grid-template-columns: repeat(5, 1fr); gap: 8px; }}
+    .card {{ padding: 10px 11px; }}
+    .card .val {{ font-size: 18px; }}
+    .card .lbl {{ font-size: 10.5px; }}
+    .row {{ grid-template-columns: 1fr 1fr; }}
+    table {{ font-size: 9.5px; }}
+    th, td {{ padding: 3px 4px; }}
+    .sn {{ font-size: 8.5px; }}
+    .badge {{ font-size: 9px; padding: 1px 7px; }}
   }}
 </style></head><body><div class="wrap">
   <header style="display:block; margin-bottom:16px;">

@@ -1907,16 +1907,20 @@ var P={data_js};
 var map=L.map('map',{{scrollWheelZoom:true}});
 // Streets by default (Tomasz, v186) — the map opens as a readable
 // road map and satellite is one click away in the layer control.
-// Esri World Imagery is the satellite layer (no API key) with a
-// place-name overlay. CARTO was dropped in v177.1: its anonymous
-// tiles started demanding an API key.
+// Both layers are Esri ArcGIS Online (no API key), the same host the
+// satellite layer has always used. CARTO went in v177.1 (its anonymous
+// tiles started demanding a key) and OpenStreetMap went in v253:
+// osm.org blocked us by referer under their Tile Usage Policy, which
+// forbids systematic or commercial use of their volunteer-run servers —
+// the portal was serving every visitor "Access blocked" tiles instead
+// of a map. We are not entitled to free tiles from volunteers.
 var sat=L.layerGroup([
  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
   {{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}}),
  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{{z}}/{{y}}/{{x}}',
   {{maxZoom:19}})]);
-var streets=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
- {{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}});
+var streets=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',
+ {{attribution:'&copy; Esri, HERE, Garmin, OpenStreetMap contributors',maxZoom:19}});
 streets.addTo(map);
 {pv_js}
 L.control.layers({{'Streets':streets,'Satellite':sat}},{pv_overlays},

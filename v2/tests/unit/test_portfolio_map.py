@@ -160,12 +160,34 @@ class TestV177_1Feedback:
     def test_carto_tiles_are_gone(self):
         assert "cartocdn" not in GEN_SRC   # anonymous use now refused
 
-    def test_both_basemaps_offered(self):
-        assert ("server.arcgisonline.com/ArcGIS/rest/services/"
-                "World_Imagery") in GEN_SRC
+    def test_no_tiles_are_taken_from_volunteer_run_servers(self):
+        """v253: osm.org blocked the portal by referer under their Tile Usage
+        Policy and every visitor got 'Access blocked' squares instead of a
+        map. Their servers are donated and their policy forbids this use, so
+        the portal must never point a tile layer at them again — including
+        the mirrors people reach for when the main host stops answering."""
+        for host in ("tile.openstreetmap.org", "tile.osm.org",
+                     "a.tile.openstreetmap", "b.tile.openstreetmap",
+                     "c.tile.openstreetmap", "tile.openstreetmap.de",
+                     "tiles.wmflabs.org"):
+            assert host not in GEN_SRC, f"{host} is a volunteer tile server"
+
+    def test_both_basemaps_offered_and_both_come_from_esri(self):
+        base = "server.arcgisonline.com/ArcGIS/rest/services/"
+        assert base + "World_Imagery" in GEN_SRC          # satellite
         assert "World_Boundaries_and_Places" in GEN_SRC   # name overlay
-        assert "tile.openstreetmap.org" in GEN_SRC
+        assert base + "World_Street_Map" in GEN_SRC       # streets (was OSM)
         assert "L.control.layers" in GEN_SRC
+
+    def test_every_tile_layer_credits_its_source(self):
+        """A basemap without attribution is a licence breach waiting to
+        happen — which is how the OSM block started."""
+        import re
+        layers = re.findall(r"L\.tileLayer\('([^']+)'", GEN_SRC)
+        assert len(layers) == 3, layers
+        assert "&copy; Esri" in GEN_SRC
+        assert "OpenStreetMap contributors" in GEN_SRC    # Esri's data credit
+        assert all(u.startswith("https://server.arcgisonline.com/") for u in layers), layers
 
     def test_no_lifetime_tiles_in_kpi_row(self):
         seg = GEN_SRC.split("tiles = f'''")[1].split("'''")[0]

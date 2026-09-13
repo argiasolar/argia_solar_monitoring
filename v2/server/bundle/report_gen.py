@@ -1609,10 +1609,26 @@ def financial_body():
  <a class="btn live" href="/invoices/">{t("Invoice annexes","Anexos de facturación")}</a>
 </div>
 <style>
-/* v204: the mailed PDF is this page printed — one A4 page, no exceptions */
+/* v204: the mailed PDF is this page printed — one A4 page, no exceptions.
+   v255: that page is now LANDSCAPE. The per-asset table has nine columns
+   (asset, type, expected, actual, O&M, debt service, loan position and both
+   DSCRs) and never fitted the 194mm of A4 portrait at 8mm margins. Nobody
+   noticed for months because the two ways of making this PDF disagree about
+   overflow: a person pressing Ctrl+P gets Chrome's print dialog, which
+   shrinks to fit, while scripts/financial_mail.py renders with
+   `chromium --print-to-pdf`, which has NO shrink-to-fit and simply clips.
+   So every weekly mail lost debt service, loan position and both DSCR
+   columns off the right edge — silently, including the amber covenant
+   warnings, which are the whole point of the report. Landscape gives 281mm
+   and the table fits at its normal size; the page has always had vertical
+   room to spare. Never let this table depend on a print dialog again. */
 td.asset{{white-space:nowrap;}}
 @media print{{
- @page{{size:A4 portrait;margin:8mm;}}
+ @page{{size:A4 landscape;margin:8mm;}}
+ /* safety valve: if a tenth column ever arrives, the asset name wraps and
+    the report gets taller — it does not silently lose a column. */
+ td.asset{{white-space:normal;}}
+ #tbl_assets{{width:100%;max-width:100%;}}
  body{{font-size:11px;}}
  .tiles.oneline{{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:6px;margin:8px 0;}}
  .tile{{padding:6px 8px;}} .thero{{font-size:20px;}} .tlabel{{font-size:10px;}}

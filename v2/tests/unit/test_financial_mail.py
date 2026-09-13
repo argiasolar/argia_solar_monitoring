@@ -70,13 +70,24 @@ class TestMailShape:
     def test_pdf_is_a_one_pager(self):
         """v204: the mailed PDF is the financial page printed; the print
         rules keep it on one A4 page — short asset names, 5 tiles in a
-        row, no methodology card."""
+        row, no methodology card.
+
+        v255: that sheet is LANDSCAPE. This test used to assert portrait,
+        which is what the page really declared — and what silently clipped
+        debt service, loan position and both DSCR columns off every mailed
+        report, because `chromium --print-to-pdf` has no shrink-to-fit. The
+        one-page intent is unchanged; only the orientation that makes nine
+        columns fit. See tests/unit/test_finance_print_fit.py."""
         import pathlib
         src = (pathlib.Path(__file__).resolve().parents[2] / "server" / "bundle" / "report_gen.py"
                ).read_text(encoding="utf-8")
-        fin = src[src.index("def financial_page"):src.index("def financial_page") + 12000]
+        # v255: slice to the end of financial_body, not a magic 12000 chars —
+        # adding a comment used to push assertions out of the window.
+        start = src.index("def financial_page")
+        end = src.index("\ndef ", src.index("def financial_body"))
+        fin = src[start:end]
         # the page is an f-string: braces are doubled in the source
-        assert "@page{{size:A4 portrait;margin:8mm;}}" in fin
+        assert "@page{{size:A4 landscape;margin:8mm;}}" in fin
         assert "repeat(5,minmax(0,1fr))!important" in fin
         assert ".audit,.rangebar,.pdfrow,footer{{display:none!important;}}" in fin
         assert "const shortName=(m.name||k).split(" in fin and 'td.asset{{white-space:nowrap;}}' in fin

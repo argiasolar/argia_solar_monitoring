@@ -139,3 +139,62 @@ class TestTheRenderedPdfKeepsEveryColumn:
         assert [c for c in COLUMNS if c not in text], (
             "removing the print CSS no longer truncates the PDF — either the "
             "layout changed or this harness stopped exercising the real path")
+
+
+# --------------------------------------------------------------------------
+# v255 — the page the WEEKLY MAIL actually renders
+#
+# v254 fixed argia/finance/webreport.py, which is a real page (it is what
+# scripts/financial_report_publish.py publishes) but NOT the one that gets
+# mailed. scripts/financial_mail.py prints
+# /www/hosting/portal.argia.com.mx/www/report/financial/index.html, which the
+# portal builds from server/bundle/report_gen.py::financial_body(). Verified on
+# pio06: the live page carries two @page rules — portal_chrome's landscape one
+# and financial_body's inline portrait one — and the inline block, being later
+# in the document, wins. The rendered MediaBox was 594.96 x 841.92 (A4
+# portrait), byte-identical to the truncated PDF Tomasz received.
+# --------------------------------------------------------------------------
+
+RG_SRC = (V2 / "server" / "bundle" / "report_gen.py").read_text(encoding="utf-8")
+PC_SRC = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
+
+
+def _fin_print_block() -> str:
+    """financial_body()'s own <style> — the rules that win on the mailed page."""
+    blk = RG_SRC.split("the mailed PDF is this page printed", 1)[1]
+    return blk.split("</style>", 1)[0]
+
+
+class TestTheMailedPageFitsItsSheet:
+    def test_the_nine_column_table_is_printed_landscape(self):
+        """194mm of A4 portrait never fitted nine columns. 281mm does."""
+        blk = _fin_print_block()
+        assert "@page{{size:A4 landscape" in blk, blk[:400]
+        assert "size:A4 portrait" not in blk
+
+    def test_the_chrome_and_the_page_now_agree_on_orientation(self):
+        """Both stylesheets reach the mailed page; when they disagreed the
+        later one won by accident rather than by decision."""
+        assert "@page{size:A4 landscape" in PC_SRC          # portal chrome
+        assert "@page{{size:A4 landscape" in _fin_print_block()
+
+    def test_the_asset_column_may_wrap_when_printing(self):
+        """The safety valve: a tenth column must make the report taller, not
+        quietly push a column off the sheet."""
+        blk = _fin_print_block()
+        assert "td.asset{{white-space:normal" in blk
+        assert "#tbl_assets{{width:100%" in blk
+
+    def test_why_it_broke_is_recorded_where_the_rule_lives(self):
+        blk = _fin_print_block().lower()
+        assert "print-to-pdf" in blk and "clip" in blk
+
+    def test_the_mail_still_renders_this_exact_page(self):
+        """If the mail ever points somewhere else, these tests stop meaning
+        anything — pin the path and the flags they were written against."""
+        mail = (V2 / "scripts" / "financial_mail.py").read_text(encoding="utf-8")
+        assert 'os.path.join(WEBROOT, "report", "financial", "index.html")' in mail
+        assert "--print-to-pdf=" in mail
+        assert "--scale" not in mail      # the CLI has no scale flag; CSS must fit
+        assert "write('report/financial/index.html', financial_report())" in \
+            (V2 / "server" / "bundle" / "portal_gen.py").read_text(encoding="utf-8")

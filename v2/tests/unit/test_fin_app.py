@@ -132,7 +132,8 @@ class TestSecret:
         assert get(client, "/finance/", "TOMASZ").status_code == 200
 
     def test_me_endpoint_drives_the_hidden_card(self, client):
-        assert get(client, "/finance/me", "tomasz").get_json() == {"user": "tomasz", "allowed": True}
+        assert get(client, "/finance/me", "tomasz").get_json() == {
+            "user": "tomasz", "allowed": True, "areas": ["finance", "projects"]}
         assert get(client, "/finance/me", "juan").get_json()["allowed"] is False
         assert get(client, "/finance/me", "").get_json()["allowed"] is False
 
@@ -148,9 +149,9 @@ class TestSecret:
     def test_landing_card_hidden_by_default_and_prefixes_gated(self):
         pg = (V2 / "server/bundle/portal_gen.py").read_text(encoding="utf-8")
         ch = (V2 / "server/bundle/portal_chrome.py").read_text(encoding="utf-8")
-        assert "class=\"card dest{' finonly' if key in ('finance', 'projects') else ''}\"" in pg
+        assert "class=\"card dest{f' finonly area-{key}' if key in ('finance', 'projects') else ''}\"" in pg   # v256: tagged per area
         assert ".finonly{display:none!important}" in ch and "fetch('/finance/me'" in ch
-        assert "querySelectorAll('.finonly').forEach(x=>x.classList.remove('finonly'))" in ch   # v245: not style.display='' (that re-hid the cards)
+        assert "classList.remove('finonly')" in ch and "d.areas" in ch   # v245: not style.display='' (that re-hid the cards); v256: per area
         ac = (V2 / "server/bundle/auth_core.py").read_text(encoding="utf-8")
         assert "'/finance/': ALL" in ac and "'/projects/': ALL" in ac
         ng = (V2 / "server/bundle/nginx-argia_session.conf").read_text(encoding="utf-8")
@@ -237,3 +238,63 @@ class TestProjects:
         for n, sql in client.fake.calls:
             if n in ("accounts", "ar", "ap", "projects", "pos"):
                 assert "entity_id = 'DEMO-MX'" in sql, n
+
+
+class TestScopedGrants:
+    """v256 — one allow-list had always gated finance AND projects together, so
+    granting someone "the projects module" also handed over the P&L, the bank
+    balances, the supplier ledger and the salaries-and-fees drill-down. A line
+    may now name the areas it grants; a bare line still grants everything."""
+
+    def _allow(self, tmp_path, monkeypatch, text, emails=None):
+        f = tmp_path / "fin_allow.txt"
+        f.write_text(text, encoding="utf-8")
+        monkeypatch.setattr(F, "ALLOW_FILE", str(f))
+        monkeypatch.setattr(F, "email_of", lambda u: (emails or {}).get(u, ""))
+        return f
+
+    def test_a_projects_grant_opens_projects_and_nothing_else(self, client, tmp_path, monkeypatch):
+        self._allow(tmp_path, monkeypatch, "eduardo.fraga@argia.com.mx  projects\n",
+                    {"eduardo": "eduardo.fraga@argia.com.mx"})
+        assert get(client, "/projects/", "eduardo").status_code == 200
+        for shut in ("/finance/", "/finance/ar/", "/finance/ap/", "/finance/bank/",
+                     "/finance/pl/", "/finance/costs/", "/finance/suppliers/",
+                     "/finance/savio/", "/finance/exceptions/"):
+            assert get(client, shut, "eduardo").status_code == 403, shut
+
+    def test_a_bare_line_still_grants_everything(self, client, tmp_path, monkeypatch):
+        self._allow(tmp_path, monkeypatch, "# the office\nvit\n")
+        assert get(client, "/finance/", "vit").status_code == 200
+        assert get(client, "/projects/", "vit").status_code == 200
+        assert F.areas_of("vit") == frozenset(F.AREAS)
+
+    def test_the_me_endpoint_reports_only_the_areas_granted(self, client, tmp_path, monkeypatch):
+        self._allow(tmp_path, monkeypatch, "eduardo  projects\nvit\n")
+        assert get(client, "/finance/me", "eduardo").get_json() == {
+            "user": "eduardo", "allowed": True, "areas": ["projects"]}
+        assert get(client, "/finance/me", "vit").get_json()["areas"] == ["finance", "projects"]
+        assert get(client, "/finance/me", "juan").get_json() == {
+            "user": "juan", "allowed": False, "areas": []}
+
+    def test_the_file_format_is_forgiving_in_the_ways_a_person_would_get_it_wrong(self, tmp_path, monkeypatch):
+        self._allow(tmp_path, monkeypatch,
+                    "  ana   PROJECTS  \n"                 # padding and case
+                    "bea\tfinance,projects\n"              # a tab, a comma
+                    "cris projects # only the portfolio\n"  # a trailing comment
+                    "dora nonsense\n"                       # an unknown area
+                    "\n   \n# just a comment\n")
+        assert F.areas_of("ana") == frozenset({"projects"})
+        assert F.areas_of("bea") == frozenset(F.AREAS)
+        assert F.areas_of("cris") == frozenset({"projects"})
+        assert F.areas_of("dora") == frozenset(F.AREAS), "an unreadable scope must not silently lock someone out"
+        assert F.areas_of("nobody") == frozenset()
+
+    def test_a_missing_allow_file_grants_nothing_extra(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(F, "ALLOW_FILE", str(tmp_path / "absent.txt"))
+        monkeypatch.setattr(F, "email_of", lambda u: "")
+        assert F.allow_file_entries() == {}
+        assert F.areas_of("eduardo") == frozenset()
+
+    def test_naming_someone_twice_adds_their_areas_rather_than_dropping_one(self, tmp_path, monkeypatch):
+        self._allow(tmp_path, monkeypatch, "ana projects\nana finance\n")
+        assert F.areas_of("ana") == frozenset(F.AREAS)

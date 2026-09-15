@@ -62,24 +62,63 @@ def email_of(username):
         return ''
 
 
+# v256 — a grant can be scoped. One allow-list has always gated BOTH the
+# finance module and the projects module, so "give Eduardo the projects
+# module" used to mean handing over the P&L, the bank balances, the supplier
+# ledger and the salaries-and-fees drill-down as well. A line may now name
+# the areas it grants:
+#
+#     tania.moreno@argia.com.mx              # everything, as before
+#     eduardo.fraga@argia.com.mx  projects   # the projects module only
+#     someone@argia.com.mx        finance,projects
+#
+# A bare line still means every area, so nothing that worked before changes.
+AREAS = ('finance', 'projects')
+
+
 def allow_file_entries(path=None):
+    """{identity -> frozenset(areas)} from the allow file. The identity is a
+    portal username or an email; the areas default to all of them."""
+    out = {}
     try:
         with open(path or ALLOW_FILE, encoding='utf-8') as fh:
-            return {ln.split('#', 1)[0].strip().lower() for ln in fh if ln.split('#', 1)[0].strip()}
+            for ln in fh:
+                body = ln.split('#', 1)[0].strip()
+                if not body:
+                    continue
+                parts = body.replace('\t', ' ').split(None, 1)
+                who = parts[0].strip().lower()
+                named = {a.strip().lower() for a in parts[1].replace(',', ' ').split()} if len(parts) > 1 else set()
+                areas = {a for a in named if a in AREAS} or set(AREAS)
+                out[who] = frozenset(out.get(who, frozenset()) | areas)
     except OSError:
-        return set()
+        return {}
+    return out
 
 
-def allowed(username, email_lookup=None):
+def areas_of(username, email_lookup=None):
+    """Which areas this person may open — empty when they may open none."""
     email_lookup = email_lookup or email_of
     u = (username or '').strip().lower()
     if not u:
-        return False
-    extra = allow_file_entries()
-    if u in ALLOWED_USERS or u in extra:
-        return True
+        return frozenset()
+    entries = allow_file_entries()
+    if u in ALLOWED_USERS:
+        return frozenset(AREAS)
+    if u in entries:
+        return entries[u]
     email = (email_lookup(u) or '').strip().lower()
-    return bool(email) and (email in ALLOWED_EMAILS or email in extra)
+    if not email:
+        return frozenset()
+    if email in ALLOWED_EMAILS:
+        return frozenset(AREAS)
+    return entries.get(email, frozenset())
+
+
+def allowed(username, email_lookup=None, area=None):
+    """True when the person may open ``area`` (any area when not given)."""
+    got = areas_of(username, email_lookup)
+    return bool(got) if area is None else (area in got)
 
 
 def actor() -> str:
@@ -515,15 +554,16 @@ def page_project(pid: str) -> Optional[str]:
 
 
 # --------------------------------------------------------------- routes
-def _gate():
-    """403 for anyone off the allow-list; v248: ``?ccy=MXN|USD|`` sets the
-    display-currency cookie and comes back to the same page."""
-    if 'ccy' in request.args and allowed(actor()):
+def _gate(area='finance'):
+    """403 for anyone whose grant does not cover ``area``; v248:
+    ``?ccy=MXN|USD|`` sets the display-currency cookie and comes back to the
+    same page. v256: the projects module is a separate area from finance."""
+    if 'ccy' in request.args and allowed(actor(), area=area):
         pref = request.args.get('ccy', '')
         resp = redirect(request.path)
         resp.set_cookie('fin_ccy', pref if pref in ('MXN', 'USD') else '', max_age=365 * 86400, samesite='Lax', path='/')
         return resp
-    if not allowed(actor()):
+    if not allowed(actor(), area=area):
         return PC.page('No access', f'<div style="max-width:520px;margin:60px auto;text-align:center"><h1 class="pt">{t("No access", "Sin acceso")}</h1>'
                                     f'<p class="muted">{t("This part of the portal is not open to your account.", "Esta sección no está disponible para su cuenta.")}</p>'
                                     f'<a class="btn" href="/">{t("Back to the portal", "Volver al portal")}</a></div>'), 403
@@ -532,7 +572,8 @@ def _gate():
 
 @app.get('/finance/me')
 def me():
-    return jsonify({'user': actor(), 'allowed': allowed(actor())})
+    areas = sorted(areas_of(actor()))
+    return jsonify({'user': actor(), 'allowed': bool(areas), 'areas': areas})
 
 
 def mode() -> str:
@@ -621,12 +662,12 @@ def finance_exceptions():
 
 @app.get('/projects/')
 def projects_index():
-    return _gate() or (_books().page_portfolio() if mode() == 'books' else page_portfolio())
+    return _gate('projects') or (_books().page_portfolio() if mode() == 'books' else page_portfolio())
 
 
 @app.get('/projects/<pid>/')
 def project_one(pid):
-    g = _gate()
+    g = _gate('projects')
     if g:
         return g
     pid = pid.strip().upper()[:16]

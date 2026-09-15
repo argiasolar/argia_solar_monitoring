@@ -113,7 +113,7 @@ def landing():
          'Portafolio, hitos, presupuesto, OC, margen, salud.', ''),
     ]
     cards = ''.join(f'''
-   <a href="{path}" id="tile-{key}" class="card dest{' finonly' if key in ('finance', 'projects') else ''}" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
+   <a href="{path}" id="tile-{key}" class="card dest{f' finonly area-{key}' if key in ('finance', 'projects') else ''}" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
     <div style="display:flex;align-items:center;justify-content:space-between"><span style="width:44px;height:44px;border-radius:11px;background:#e6f7f5;display:flex;align-items:center;justify-content:center">{ico(key, 24, "#05847d", 1.9)}</span><span style="color:#b6bec8">{ico("arrow", 18)}</span></div>
     <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-weight:800;font-size:19px;color:var(--deep)">{t(en, es)}</span><span class="mono muted">{html.escape(ext) if ext else path.rstrip("/")}</span></div>
     <div class="tblurb" style="font-size:13.5px;color:var(--ink2)" data-en="{html.escape(ben, quote=True)}" data-es="{html.escape(bes, quote=True)}">{html.escape(ben)}</div>

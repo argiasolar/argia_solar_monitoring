@@ -452,8 +452,14 @@ window.addEventListener('DOMContentLoaded',()=>{
   if(d&&d.allowed)document.querySelectorAll('.askonly').forEach(x=>x.style.display='');}).catch(()=>{});
  fetch('/finance/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   /* v245: the landing cards carry an inline display:flex, so the hide rule is !important and the
-     reveal drops the class (clearing the inline style would have hidden them - Tomasz saw exactly that) */
-  if(d&&d.allowed)document.querySelectorAll('.finonly').forEach(x=>x.classList.remove('finonly'));}).catch(()=>{});
+     reveal drops the class (clearing the inline style would have hidden them - Tomasz saw exactly that)
+     v256: a grant can cover finance, projects or both, so reveal only what this person may open. */
+  if(!d||!d.allowed)return;
+  var ar=d.areas||['finance','projects'];
+  ar.forEach(function(a){document.querySelectorAll('.finonly.area-'+a).forEach(function(x){x.classList.remove('finonly');});});
+  /* anything marked finance-or-projects but not tagged with an area stays for full grants only */
+  if(ar.length>1)document.querySelectorAll('.finonly').forEach(function(x){x.classList.remove('finonly');});
+ }).catch(()=>{});
  document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();location.href='/ask/';}});
 });
 </script>'''

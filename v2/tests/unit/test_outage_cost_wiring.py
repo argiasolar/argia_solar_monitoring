@@ -56,6 +56,23 @@ class TestTheSnapshotJobComputesIt:
             assert needed in blk, needed
         assert "lost_kwh_intraday" in blk and "loss_phrase" in blk
 
+    def test_the_inverters_are_collapsed_per_timestamp_not_averaged(self):
+        """v257 regression, caught on live data: averaging across
+        inverter-samples multiplied every loss by the inverter count and
+        claimed GTO1 had lost 2,118 kWh before 09:30 — more than the
+        plant can make in a morning."""
+        blk = SNAP.split("def loss_notes(")[1].split("\n@instrument")[0]
+        assert "GROUP BY t.ts_utc, t.plant_key" in blk
+        assert "sum(t.power_w) / 1000.0" in blk, "plant kW is the SUM of its inverters"
+        assert "lost_kwh_intraday(samples" in blk, "the tested function does the maths"
+
+    def test_a_missing_power_reading_is_not_turned_into_a_zero_in_sql(self):
+        """Once SAG's datalogger dropped, power came back NULL. money.py
+        treats None as no production; coalescing it to 0.0 in SQL would
+        have hidden which plants were merely quiet."""
+        blk = SNAP.split("def loss_notes(")[1].split("\n@instrument")[0]
+        assert "coalesce(t.power_w" not in blk
+
     def test_a_pricing_failure_never_blocks_the_outage_alert(self):
         """An alert about a dead plant must go out even if the money
         lookup is down — that was the whole lesson of 2026-09-16."""

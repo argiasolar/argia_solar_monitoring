@@ -181,46 +181,70 @@ def _read_vendor_thermal(now_utc: dt.datetime):
 
 # ------------------------------------------------------------------ v257
 def loss_notes(plants, now_utc):
-    """{plant_key: "≈ 512 kWh lost — $1,284 MXN"} for plants dark today.
+    """{plant_key: "≈ 512 kWh lost — $1,284 MXN so far today"}.
 
     Tomasz, 2026-09-16: "show the bleeding in MXN". The model is
     nameplate x measured irradiance x the plant's PR baseline, priced at
-    the month's PPA tariff — see argia/analytics/money.py. Everything is
-    read from PostgreSQL, so the pure acute evaluator stays pure. Never
-    raises: a missing price must not stop an outage alert going out.
+    the PPA tariff — the arithmetic lives in argia/analytics/money.py and
+    is unit-tested there.
+
+    The SQL collapses the inverters to ONE ROW PER TIMESTAMP first. A
+    first cut averaged across inverter-samples instead, which multiplied
+    every figure by the inverter count: GTO1 came out at "2,118 kWh lost,
+    $4,184 MXN" before 09:30, more than the plant can physically make in
+    a morning. A money number in an alert has to be right or absent.
+
+    A NULL power reading stays None (not 0): money.py counts a missing
+    reading as zero production, which is what an outage looks like once
+    the datalogger drops, while an irradiance gap is skipped entirely.
+    Never raises — a pricing failure must not stop an outage alert.
     """
     from argia.analytics import money as M
     try:
         from argia.store.pgq import psql_rows
         rows = psql_rows(
             "SET statement_timeout='20s';"
-            " SELECT t.plant_key,"
-            "        sum(coalesce(t.irradiance_wm2,0)) / nullif(count(*),0),"
-            "        count(*), coalesce(sum(t.power_w),0) / nullif(count(*),0),"
-            "        max(p.kwp_dc), max(p.pr_baseline), max(p.tariff_mxn_per_kwh)"
-            "   FROM telemetry t JOIN plant p ON p.plant_key = t.plant_key"
-            "  WHERE t.ts_utc > now() - interval '12 hours'"
-            "    AND (t.ts_utc AT TIME ZONE 'America/Mexico_City')::date"
-            "        = (now() AT TIME ZONE 'America/Mexico_City')::date"
-            "  GROUP BY t.plant_key;")
+            " SELECT s.plant_key, s.irr, s.plant_kw, s.kwp, s.pr, s.tariff FROM ("
+            "   SELECT t.ts_utc, t.plant_key,"
+            "          max(t.irradiance_wm2) AS irr,"
+            "          sum(t.power_w) / 1000.0 AS plant_kw,"
+            "          max(p.kwp_dc) AS kwp, max(p.pr_baseline) AS pr,"
+            "          max(p.tariff_mxn_per_kwh) AS tariff"
+            "     FROM telemetry t JOIN plant p ON p.plant_key = t.plant_key"
+            "    WHERE p.active"
+            "      AND (t.ts_utc AT TIME ZONE 'America/Mexico_City')::date"
+            "          = (now() AT TIME ZONE 'America/Mexico_City')::date"
+            "    GROUP BY t.ts_utc, t.plant_key) s"
+            " ORDER BY s.plant_key;")
     except Exception as e:                        # noqa: BLE001
         log.warning("loss notes unavailable (%s) — alerts go out without a peso figure", e)
         return {}
-    out = {}
-    for r in rows:
+
+    def _f(v):
         try:
-            pk = r[0]
-            irr = float(r[1] or 0)
-            n = int(r[2] or 0)
-            actual_kw = float(r[3] or 0) / 1000.0
-            kwp, pr = float(r[4] or 0), float(r[5] or 0)
-            tariff = M.tariff_mxn(None, float(r[6]) if r[6] not in (None, "") else None)
-        except (TypeError, ValueError, IndexError):
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    per = {}
+    for r in rows:
+        if not r or not r[0]:
             continue
-        if not kwp or n <= 0:
+        pk = r[0]
+        samples, meta = per.setdefault(pk, ([], {}))
+        samples.append((_f(r[1]), _f(r[2])))      # (irradiance W/m2, plant kW or None)
+        meta.setdefault("kwp", _f(r[3]))
+        meta.setdefault("pr", _f(r[4]))
+        meta.setdefault("tariff", _f(r[5]))
+
+    out = {}
+    for pk, (samples, meta) in per.items():
+        kwp = meta.get("kwp")
+        if not kwp or not samples:
             continue
-        lost = M.lost_kwh_intraday([(irr, actual_kw)] * n, kwp, pr, interval_min=5.0)
+        lost = M.lost_kwh_intraday(samples, kwp, meta.get("pr"), interval_min=5.0)
         if lost > 0:
+            tariff = M.tariff_mxn(None, meta.get("tariff"))
             out[pk] = M.loss_phrase(lost, tariff, estimated=True) + " so far today"
     return out
 

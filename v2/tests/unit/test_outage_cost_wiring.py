@@ -62,7 +62,11 @@ class TestTheSnapshotJobComputesIt:
         claimed GTO1 had lost 2,118 kWh before 09:30 — more than the
         plant can make in a morning."""
         blk = SNAP.split("def loss_notes(")[1].split("\n@instrument")[0]
-        assert "GROUP BY t.ts_utc, t.plant_key" in blk
+        # each inverter is written with its OWN ts_utc, so grouping by the
+        # raw timestamp still yields one row per inverter — bucket to the
+        # 5-minute slot, then sum the inverters inside it.
+        assert "floor(extract(epoch FROM t.ts_utc)/300)*300" in blk
+        assert "t.ts_utc, t.plant_key) s" not in blk
         assert "sum(t.power_w) / 1000.0" in blk, "plant kW is the SUM of its inverters"
         assert "lost_kwh_intraday(samples" in blk, "the tested function does the maths"
 

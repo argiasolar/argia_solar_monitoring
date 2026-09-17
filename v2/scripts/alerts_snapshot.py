@@ -188,11 +188,15 @@ def loss_notes(plants, now_utc):
     the PPA tariff — the arithmetic lives in argia/analytics/money.py and
     is unit-tested there.
 
-    The SQL collapses the inverters to ONE ROW PER TIMESTAMP first. A
-    first cut averaged across inverter-samples instead, which multiplied
-    every figure by the inverter count: GTO1 came out at "2,118 kWh lost,
-    $4,184 MXN" before 09:30, more than the plant can physically make in
-    a morning. A money number in an alert has to be right or absent.
+    The SQL buckets samples into FIVE-MINUTE SLOTS and sums the inverters
+    inside each slot. Two earlier cuts got this wrong and both inflated
+    the figure by roughly the inverter count: the first averaged across
+    inverter-samples, and the second grouped by ``ts_utc`` — which looks
+    right but is not, because each inverter is written with its own
+    timestamp, so a six-inverter plant produced six "ticks" per real
+    tick, each priced against the whole plant's nameplate. GTO1 read
+    2,093 kWh lost before 09:30 against 553 kWh actually produced. A
+    money number in an alert has to be right or absent.
 
     A NULL power reading stays None (not 0): money.py counts a missing
     reading as zero production, which is what an outage looks like once
@@ -205,7 +209,8 @@ def loss_notes(plants, now_utc):
         rows = psql_rows(
             "SET statement_timeout='20s';"
             " SELECT s.plant_key, s.irr, s.plant_kw, s.kwp, s.pr, s.tariff FROM ("
-            "   SELECT t.ts_utc, t.plant_key,"
+            "   SELECT to_timestamp(floor(extract(epoch FROM t.ts_utc)/300)*300) AS slot,"
+            "          t.plant_key,"
             "          max(t.irradiance_wm2) AS irr,"
             "          sum(t.power_w) / 1000.0 AS plant_kw,"
             "          max(p.kwp_dc) AS kwp, max(p.pr_baseline) AS pr,"
@@ -214,7 +219,7 @@ def loss_notes(plants, now_utc):
             "    WHERE p.active"
             "      AND (t.ts_utc AT TIME ZONE 'America/Mexico_City')::date"
             "          = (now() AT TIME ZONE 'America/Mexico_City')::date"
-            "    GROUP BY t.ts_utc, t.plant_key) s"
+            "    GROUP BY 1, t.plant_key) s"
             " ORDER BY s.plant_key;")
     except Exception as e:                        # noqa: BLE001
         log.warning("loss notes unavailable (%s) — alerts go out without a peso figure", e)

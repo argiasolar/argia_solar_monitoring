@@ -171,7 +171,7 @@ class TestMailIntegration:
         assert "tickets = _ticket_briefs()" in d and "_attach_to_tickets(result.opened + result.touched, open_tickets" in d
         assert "tickets=tickets)" in d
         s = (v2 / "scripts/alerts_snapshot.py").read_text(encoding="utf-8")
-        assert "TK.load_open_briefs()" in s and "tickets=tickets)" in s
+        assert "TK.load_open_briefs()" in s and "tickets=tickets" in s
         mg = (v2 / "server/monitoring_gen.py").read_text(encoding="utf-8")
         assert "TICKET_BY_ALERT" in mg and '/maintenance/new/?alert=' in mg and 'data-en="Ticket"' in mg
 

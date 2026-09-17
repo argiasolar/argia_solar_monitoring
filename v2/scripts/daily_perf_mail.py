@@ -138,6 +138,46 @@ def gather_yesterday(today: dt.date):
     return out
 
 
+def gather_yesterday_cost(today: dt.date):
+    """v257 — what yesterday's shortfall COST, per plant and in total.
+
+    Tomasz, 2026-09-16: "show how much money this issue costs us". No
+    model is needed once the day is closed: ``expected_kwh`` is already
+    the irradiance-based expectation stamped nightly, so lost = expected
+    - actual, priced at the plant's PPA tariff. The five CAPEX plants
+    have no per-kWh tariff, so they contribute kWh and no pesos rather
+    than a fabricated zero. Returns ({plant: (lost_kwh, mxn|None)},
+    total_kwh, total_mxn|None); never raises."""
+    from argia.analytics import money as M
+    d = (today - dt.timedelta(days=1)).isoformat()
+    try:
+        from argia.store.pgq import psql_rows
+        rows = psql_rows(
+            "SET statement_timeout='20s';"
+            " SELECT dp.plant_key, dp.expected_kwh, dp.energy_kwh, p.tariff_mxn_per_kwh"
+            "   FROM daily_production dp JOIN plant p ON p.plant_key = dp.plant_key"
+            f"  WHERE dp.prod_date = '{d}' AND p.active;")
+    except Exception as e:                       # noqa: BLE001
+        LOG.warning("cost of yesterday unavailable (%s) — report goes out without it", e)
+        return {}, 0.0, None
+    per, pairs = {}, []
+    for r in rows:
+        try:
+            pk = r[0]
+            exp = float(r[1]) if r[1] not in (None, "") else None
+            act = float(r[2]) if r[2] not in (None, "") else None
+            tariff = M.tariff_mxn(None, float(r[3]) if r[3] not in (None, "") else None)
+        except (TypeError, ValueError, IndexError):
+            continue
+        lost = M.lost_kwh_day(exp, act)
+        if not lost:
+            continue
+        per[pk] = (lost, M.cost_mxn(lost, tariff))
+        pairs.append((lost, tariff))
+    kwh, mxn = M.total_cost(pairs)
+    return per, kwh, mxn
+
+
 def gather_mtd(today: dt.date):
     """{plant: (mtd_kwh, paired_kwh, expected_kwh)} through yesterday,
     from the closed daily_production rows. Paired = production on days
@@ -534,7 +574,8 @@ def describe_issue(key: str, labels=None) -> str:
 
 
 def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
-              alerts, maint, today: dt.date, now_hm: str, now=None) -> dict:
+              alerts, maint, today: dt.date, now_hm: str, now=None,
+              cost=None) -> dict:
     """Assemble everything the templates need. Pure, unit-tested."""
     ppa_keys = {k for k, _, _ in plants}
     rows = []
@@ -568,6 +609,9 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
             "mtd_kwh": mtd_kwh, "vs_exp": vs_exp,
             "status": status, "cls": cls,
         })
+    # v257: what yesterday's shortfall cost (Tomasz: "show how much money
+    # this issue costs us"). Absent cost -> the report renders as before.
+    lost_by_plant, lost_kwh, lost_mxn = (cost or ({}, 0.0, None))
     tot_today = sum(r["kwh_today"] for r in rows)
     tot_yday = sum(v for v in (r["kwh_yday"] for r in rows)
                    if v is not None)
@@ -591,6 +635,7 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
     return {
         "date": today.isoformat(), "time": now_hm, "rows": rows,
         "tot_today": tot_today, "tot_yday": tot_yday,
+        "lost_kwh": lost_kwh, "lost_mxn": lost_mxn, "lost_by_plant": lost_by_plant,
         "tot_mtd": tot_mtd,
         "tot_vs_exp": (100.0 * tot_paired / tot_exp
                        if tot_exp > 0 else None),
@@ -618,12 +663,33 @@ def _num(v, dec=0) -> str:
     return f"{v:,.{dec}f}" if v is not None else "—"
 
 
+def _money(v) -> str:
+    """v257 — pesos, whole. '—' when the sites involved carry no tariff."""
+    from argia.analytics import money as M
+    return M.fmt_mxn(v)
+
+
+def _lost_caption(data: dict) -> str:
+    """The small line under the Yesterday tile: what the day's shortfall
+    cost. Silent on a day that met expectation — no bad news is news."""
+    lost = data.get("lost_kwh") or 0
+    if lost <= 0:
+        return "closed"
+    mxn = data.get("lost_mxn")
+    if mxn is None:
+        return f"closed \u2014 {_num(lost)} kWh below expectation"
+    return f"closed \u2014 {_num(lost)} kWh lost = {_money(mxn)}"
+
+
 def render_text(data: dict) -> str:
     """Plain-text alternative — grep-able archive copy. Pure."""
     L = [f"ARGIA — Daily PPA performance, {data['date']} "
          f"(as of {data['time']} MX)", "",
          f"Fleet today:   {_num(data['tot_today'])} kWh (live, preliminary)",
-         f"Yesterday:     {_num(data['tot_yday'])} kWh (closed)",
+         f"Yesterday:     {_num(data['tot_yday'])} kWh (closed)"
+         + (f"  \u2014 lost {_num(data.get('lost_kwh'))} kWh"
+            + (f" = {_money(data.get('lost_mxn'))}" if data.get("lost_mxn") is not None else "")
+            if data.get("lost_kwh") else ""),
          f"Month to date: {_num(data['tot_mtd'])} kWh"
          f" — {_pct(data['tot_vs_exp'])} of weather expectation", ""]
     for r in data["rows"]:
@@ -679,7 +745,7 @@ def render_html(data: dict) -> str:
                 "preliminary"),
         '<td style="width:10px"></td>',
         tile % ("Yesterday", e(_num(data["tot_yday"])) + " kWh",
-                "closed"),
+                e(_lost_caption(data))),
         '<td style="width:10px"></td>',
         tile % ("Month to date", e(_num(data["tot_mtd"])) + " kWh",
                 "through yesterday"),
@@ -848,7 +914,8 @@ def main(argv=None) -> int:
     data = summarize(gather_plants(), gather_today(),
                      gather_inverter_counts(), gather_yesterday(today),
                      gather_mtd(today), alerts, maint, today,
-                     now_mx.strftime("%H:%M"))
+                     now_mx.strftime("%H:%M"),
+                     cost=gather_yesterday_cost(today))
     if not data["rows"]:
         LOG.error("no active PPA plants found — nothing to report")
         return 1

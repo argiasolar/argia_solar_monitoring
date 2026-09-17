@@ -33,6 +33,7 @@ about data, heat without loss or a flag without loss is WARNING.
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import logging
 import re
@@ -67,6 +68,73 @@ def unmailed(records: Sequence[AlertRecord],
 
 
 DIGEST_METRIC = "daily_digest"
+
+# ---------------------------------------------------------------- v257
+# A CRITICAL that is still open is still costing money. Until now an
+# alert was mailed once, ever: SAG went dark at 12:46 on 2026-09-16, one
+# mail went out at 13:30, and nothing more was said while the plant sat
+# at zero for the rest of the afternoon. An unresolved CRITICAL is now
+# re-mailed on a cadence, but only while the sun is up — nobody is woken
+# at 03:00 for a plant that cannot produce anyway.
+REMAIL_AFTER_HOURS = 3.0
+REMAIL_DAY_START_MX = 7
+REMAIL_DAY_END_MX = 19
+_MAILED_PREFIX = "mailed@"
+
+
+def last_mailed_at(record: AlertRecord) -> Optional[dt.datetime]:
+    """When this alert was last mailed, from the ``mailed@<iso>`` token
+    kept alongside the channels. None when it has never been mailed (or
+    predates the stamp), which the caller treats as 'mail it now'."""
+    for tok in (record.channels_sent or "").split(","):
+        tok = tok.strip()
+        if tok.startswith(_MAILED_PREFIX):
+            try:
+                v = dt.datetime.fromisoformat(tok[len(_MAILED_PREFIX):].replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return v if v.tzinfo else v.replace(tzinfo=dt.timezone.utc)
+    return None
+
+
+def stamp_mailed(record: AlertRecord, now_utc: dt.datetime) -> AlertRecord:
+    """Record 'email' plus when, without disturbing the other channels —
+    ``unmailed()`` still matches on the bare 'email' token."""
+    keep = [t.strip() for t in (record.channels_sent or "").split(",")
+            if t.strip() and not t.strip().startswith(_MAILED_PREFIX)]
+    if "email" not in keep:
+        keep.append("email")
+    keep.append(_MAILED_PREFIX + now_utc.astimezone(dt.timezone.utc)
+                .replace(microsecond=0).isoformat().replace("+00:00", "Z"))
+    return dataclasses.replace(record, channels_sent=",".join(keep))
+
+
+def due_for_remail(records: Sequence[AlertRecord], now_utc: dt.datetime,
+                   now_mx_hour: int, every_hours: float = REMAIL_AFTER_HOURS,
+                   excluded=None) -> List[AlertRecord]:
+    """OPEN CRITICALs that were mailed, are still happening, and have not
+    been mentioned for ``every_hours``. Daylight only."""
+    from argia.alerts import subscriptions
+    if not (REMAIL_DAY_START_MX <= now_mx_hour < REMAIL_DAY_END_MX):
+        return []
+    out = []
+    for r in records:
+        if r.state != AlertState.OPEN or r.metric == DIGEST_METRIC:
+            continue
+        if (r.severity or "").upper() != "CRITICAL":
+            continue
+        if "email" not in {c.strip() for c in (r.channels_sent or "").split(",")}:
+            continue                      # never mailed: unmailed() owns it
+        if excluded is not None and not subscriptions.is_mailable(r.plant_key, excluded):
+            continue
+        last = last_mailed_at(r)
+        if last is None:
+            continue                      # mailed before stamps existed; wait for the next open
+        if (now_utc - last).total_seconds() >= every_hours * 3600.0:
+            out.append(r)
+    out.sort(key=lambda r: (r.opened_utc, r.alert_id))
+    return out[:MAX_PER_RUN]
+
 _TAG = re.compile(r"\s*\[(?:CRITICAL|WARNING|INFO)\]\s*$")
 _BRACKET_PK = re.compile(r"^\[[A-Z0-9]{3,6}\]\s*")
 _RANK = {"CRITICAL": 0, "WARNING": 1}
@@ -322,8 +390,11 @@ def group_views(alerts: Sequence[AlertRecord],
 
 
 def mark_mailed(records: Sequence[AlertRecord], mailed_ids: set,
-                ) -> List[AlertRecord]:
-    return [mark_channels_sent(r, ["email"]) if r.alert_id in mailed_ids else r
+                now_utc: Optional[dt.datetime] = None) -> List[AlertRecord]:
+    """v257: stamp WHEN as well as that it went, so a still-open CRITICAL
+    can be re-mailed on a cadence instead of once and never again."""
+    now = now_utc or dt.datetime.now(dt.timezone.utc)
+    return [stamp_mailed(r, now) if r.alert_id in mailed_ids else r
             for r in records]
 
 
@@ -354,7 +425,8 @@ def mail_new_alerts(records: Sequence[AlertRecord],
                     morning: bool = False,
                     when_mx: str = "",
                     now_utc: Optional[dt.datetime] = None,
-                    tickets: Optional[Dict[str, "object"]] = None) -> List[AlertRecord]:
+                    tickets: Optional[Dict[str, "object"]] = None,
+                    now_mx_hour: Optional[int] = None) -> List[AlertRecord]:
     """Mail every unmailed OPEN alert of ``severities`` to its subscribers;
     return the records with 'email' marked on the ones that went out.
     ``morning`` (the 06:30 daily run) adds the still-open reminder and
@@ -364,6 +436,16 @@ def mail_new_alerts(records: Sequence[AlertRecord],
     excluded = subscriptions.load_excluded_plants()
     cands = [r for r in unmailed(records, severities)
              if subscriptions.is_mailable(r.plant_key, excluded)][:MAX_PER_RUN]
+    # v257: a CRITICAL still open hours later is still losing money — say
+    # so again rather than letting one 13:30 mail be the whole warning.
+    now_for_remail = now_utc or dt.datetime.now(dt.timezone.utc)
+    mx_hour = int((now_mx_hour if now_mx_hour is not None
+                   else (now_for_remail - dt.timedelta(hours=6)).hour))
+    again = [r for r in due_for_remail(records, now_for_remail, mx_hour, excluded=excluded)
+             if r.alert_id not in {c.alert_id for c in cands}]
+    if again:
+        LOG.info("ledger mail: %d CRITICAL still open, re-mailing", len(again))
+    cands = (cands + again)[:MAX_PER_RUN]
     open_crit = [r for r in records if r.state == AlertState.OPEN and r.metric != DIGEST_METRIC
                  and (r.severity or "").upper() == "CRITICAL"
                  and subscriptions.is_mailable(r.plant_key, excluded)]
@@ -415,4 +497,4 @@ def mail_new_alerts(records: Sequence[AlertRecord],
         else:
             LOG.error("ledger mail: send FAILED for %s — will retry next run",
                       ", ".join(emails))
-    return mark_mailed(records, mailed) if mailed else list(records)
+    return mark_mailed(records, mailed, now_utc=now_for_remail) if mailed else list(records)

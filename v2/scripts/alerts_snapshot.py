@@ -179,6 +179,52 @@ def _read_vendor_thermal(now_utc: dt.datetime):
     return state
 
 
+# ------------------------------------------------------------------ v257
+def loss_notes(plants, now_utc):
+    """{plant_key: "≈ 512 kWh lost — $1,284 MXN"} for plants dark today.
+
+    Tomasz, 2026-09-16: "show the bleeding in MXN". The model is
+    nameplate x measured irradiance x the plant's PR baseline, priced at
+    the month's PPA tariff — see argia/analytics/money.py. Everything is
+    read from PostgreSQL, so the pure acute evaluator stays pure. Never
+    raises: a missing price must not stop an outage alert going out.
+    """
+    from argia.analytics import money as M
+    try:
+        from argia.store.pgq import psql_rows
+        rows = psql_rows(
+            "SET statement_timeout='20s';"
+            " SELECT t.plant_key,"
+            "        sum(coalesce(t.irradiance_wm2,0)) / nullif(count(*),0),"
+            "        count(*), coalesce(sum(t.power_w),0) / nullif(count(*),0),"
+            "        max(p.kwp_dc), max(p.pr_baseline), max(p.tariff_mxn_per_kwh)"
+            "   FROM telemetry t JOIN plant p ON p.plant_key = t.plant_key"
+            "  WHERE t.ts_utc > now() - interval '12 hours'"
+            "    AND (t.ts_utc AT TIME ZONE 'America/Mexico_City')::date"
+            "        = (now() AT TIME ZONE 'America/Mexico_City')::date"
+            "  GROUP BY t.plant_key;")
+    except Exception as e:                        # noqa: BLE001
+        log.warning("loss notes unavailable (%s) — alerts go out without a peso figure", e)
+        return {}
+    out = {}
+    for r in rows:
+        try:
+            pk = r[0]
+            irr = float(r[1] or 0)
+            n = int(r[2] or 0)
+            actual_kw = float(r[3] or 0) / 1000.0
+            kwp, pr = float(r[4] or 0), float(r[5] or 0)
+            tariff = M.tariff_mxn(None, float(r[6]) if r[6] not in (None, "") else None)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not kwp or n <= 0:
+            continue
+        lost = M.lost_kwh_intraday([(irr, actual_kw)] * n, kwp, pr, interval_min=5.0)
+        if lost > 0:
+            out[pk] = M.loss_phrase(lost, tariff, estimated=True) + " so far today"
+    return out
+
+
 @instrument("alerts_snapshot")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
@@ -217,7 +263,8 @@ def main(argv=None) -> int:
     breaches = evaluate_acute(
         samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
         absent_gap_hours=span_h if span_h >= 2.0 else None,
-        configured_inverters=configured, rated_kw=rated, vendor_thermal=vendor)
+        configured_inverters=configured, rated_kw=rated, vendor_thermal=vendor,
+        loss_note=loss_notes(portfolio.active_plants(), now_utc))
     candidates = [candidate_from_acute_breach(b) for b in breaches]
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)
@@ -256,7 +303,8 @@ def main(argv=None) -> int:
     except Exception:  # noqa: BLE001
         tickets = {}
     records = mail_new_alerts(result.records, dry_run=args.dry_run, severities=("CRITICAL",),
-                              when_mx=mx.strftime("%Y-%m-%d %H:%M"), tickets=tickets)
+                              when_mx=mx.strftime("%Y-%m-%d %H:%M"), tickets=tickets,
+                              now_utc=now_utc, now_mx_hour=mx.hour)
     mailed = records != list(result.records)
 
     if args.dry_run:

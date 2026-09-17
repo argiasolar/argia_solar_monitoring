@@ -14,6 +14,19 @@ import pytest
 from argia.alerts import ledger_mail as LM
 from argia.core.alerts_state import AlertRecord, AlertState
 
+
+def _toks(record):
+    """v257: channel tokens, ignoring the mailed@<iso> stamp."""
+    return {t.strip() for t in (record.channels_sent or "").split(",")
+            if t.strip() and not t.strip().startswith("mailed@")}
+
+
+def _stamp(record):
+    from argia.alerts.ledger_mail import last_mailed_at
+    return last_mailed_at(record)
+
+
+
 V2 = pathlib.Path(__file__).resolve().parents[2]
 
 
@@ -56,7 +69,10 @@ class TestPure:
 
     def test_mark_mailed(self):
         out = LM.mark_mailed([rec(1, sent="sheet"), rec(2)], {"ALT-20260904-001"})
-        assert out[0].channels_sent == "email,sheet" and out[1].channels_sent == ""
+        # v257: the channel list now also carries WHEN it was mailed, so a
+        # still-open CRITICAL can be re-mailed on a cadence.
+        assert _toks(out[0]) >= {"email", "sheet"} and _stamp(out[0]) is not None
+        assert out[1].channels_sent == ""
 
 
 class TestIO:
@@ -82,7 +98,7 @@ class TestIO:
     def test_scoped_subscribers_that_see_nothing_mark_handled(self, monkeypatch):
         monkeypatch.setattr(LM, "recipients", lambda: [("qro@x", frozenset({"QRO1"}))])
         out = LM.mail_new_alerts([rec(1, "GTO1")])
-        assert out[0].channels_sent == "email"
+        assert _toks(out[0]) >= {"email"} and _stamp(out[0]) is not None
 
     def test_send_marks_only_delivered(self, monkeypatch):
         from argia.alerts import emailer
@@ -94,7 +110,7 @@ class TestIO:
         monkeypatch.setattr(emailer, "send", fake_send)
         out = LM.mail_new_alerts([rec(1, "GTO1"), rec(2, "NL1")])
         assert sent == ["gto@x", "all@x"]
-        assert out[0].channels_sent == "email"          # GTO1 went to gto@x
+        assert _toks(out[0]) >= {"email"} and _stamp(out[0]) is not None   # GTO1 went to gto@x
         assert out[1].channels_sent == ""               # NL1 only in the failed mail -> retry
 
     def test_dry_run_sends_nothing_marks_nothing(self, monkeypatch, caplog):
@@ -227,3 +243,71 @@ class TestGroupedByPlant:
                ).read_text(encoding="utf-8")
         assert "emailer.build_html_email(subject, body, html, cfg[\"SMTP_USER\"], emails)" in src
         assert "subscriptions.is_mailable(r.plant_key, excluded)" in src
+
+
+class TestRemailAnUnresolvedCritical:
+    """v257 — SAG went dark at 12:46 on 2026-09-16, one mail went out at
+    13:30, and nothing more was said while the plant sat at zero all
+    afternoon. A CRITICAL that is still open is still costing money."""
+
+    import datetime as _dt
+    T0 = _dt.datetime(2026, 9, 16, 19, 30, tzinfo=_dt.timezone.utc)   # 13:30 MX
+
+    def _rec(self, **kw):
+        from argia.core.alerts_state import AlertRecord, AlertState
+        base = dict(alert_id="a1", alert_key="mex1:plant:plant_offline", plant_key="MEX1",
+                    inverter_sn="", metric="plant_offline", severity="CRITICAL",
+                    state=AlertState.OPEN, opened_utc=self.T0.isoformat(),
+                    last_seen_utc=self.T0.isoformat(), resolved_utc="", value=0.0,
+                    threshold=None, message="MEX1: ALL 3 at 0 W", channels_sent="")
+        base.update(kw)
+        return AlertRecord(**base)
+
+    def test_the_stamp_round_trips(self):
+        import datetime as dt
+        from argia.alerts.ledger_mail import last_mailed_at, stamp_mailed
+        r = stamp_mailed(self._rec(), self.T0)
+        assert "email" in r.channels_sent and last_mailed_at(r) == self.T0
+        assert last_mailed_at(self._rec(channels_sent="email")) is None
+        assert last_mailed_at(self._rec(channels_sent="email,mailed@nonsense")) is None
+
+    def test_it_is_re_mailed_once_the_cadence_has_passed(self):
+        import datetime as dt
+        from argia.alerts.ledger_mail import due_for_remail, stamp_mailed
+        r = stamp_mailed(self._rec(), self.T0)
+        assert due_for_remail([r], self.T0 + dt.timedelta(hours=2), 15) == []
+        assert len(due_for_remail([r], self.T0 + dt.timedelta(hours=3), 16)) == 1
+        assert len(due_for_remail([r], self.T0 + dt.timedelta(hours=5), 18)) == 1
+
+    def test_never_outside_daylight(self):
+        """Nobody is woken at 03:00 for a plant that cannot produce anyway."""
+        import datetime as dt
+        from argia.alerts.ledger_mail import due_for_remail, stamp_mailed
+        r = stamp_mailed(self._rec(), self.T0)
+        late = self.T0 + dt.timedelta(hours=12)
+        assert due_for_remail([r], late, 3) == []
+        assert due_for_remail([r], late, 6) == []
+        assert due_for_remail([r], late, 19) == []
+        assert len(due_for_remail([r], late, 7)) == 1
+        assert len(due_for_remail([r], late, 18)) == 1
+
+    def test_only_open_criticals_and_never_the_unmailed_or_the_digest(self):
+        import datetime as dt
+        from argia.core.alerts_state import AlertState
+        from argia.alerts.ledger_mail import DIGEST_METRIC, due_for_remail, stamp_mailed
+        later = self.T0 + dt.timedelta(hours=4)
+        assert due_for_remail([stamp_mailed(self._rec(severity="WARNING"), self.T0)], later, 16) == []
+        assert due_for_remail([stamp_mailed(self._rec(state=AlertState.RESOLVED), self.T0)], later, 16) == []
+        assert due_for_remail([stamp_mailed(self._rec(metric=DIGEST_METRIC), self.T0)], later, 16) == []
+        # never mailed at all -> unmailed() owns it, not the re-mailer
+        assert due_for_remail([self._rec()], later, 16) == []
+
+    def test_re_mailing_pushes_the_clock_forward_so_it_does_not_repeat_every_tick(self):
+        import datetime as dt
+        from argia.alerts.ledger_mail import due_for_remail, stamp_mailed
+        r = stamp_mailed(self._rec(), self.T0)
+        t1 = self.T0 + dt.timedelta(hours=4)
+        assert len(due_for_remail([r], t1, 16)) == 1
+        r2 = stamp_mailed(r, t1)                    # it just went out again
+        assert due_for_remail([r2], t1 + dt.timedelta(minutes=30), 17) == []
+        assert len(due_for_remail([r2], t1 + dt.timedelta(hours=3), 18)) == 1

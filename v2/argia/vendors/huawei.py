@@ -165,6 +165,37 @@ class HuaweiClient:
 
     # ----------------------- inverter snapshots -----------------------
 
+    def fetch_alarms(self, station_codes, begin_ms: int, end_ms: int,
+                     language: str = "en_US") -> List[Dict[str, Any]]:
+        """v257 — the vendor's own alarm list (``POST /thirdData/getAlarmList``).
+
+        Captured against the live account 2026-09-17: the response is
+        ``{"success": true, "failCode": 0, "data": [ ... ]}`` and each
+        record carries alarmId / alarmName / alarmCause / repairSuggestion
+        / lev / status / devTypeId / esnCode / raiseTime. Huawei writes the
+        cause and the fix itself, so nothing here needs a catalog.
+
+        ``station_codes`` may be one code or an iterable; the API takes
+        them comma-separated. Returns the raw records — parsing lives in
+        ``argia.vendors.huawei_alarms`` and is pure.
+        """
+        if not isinstance(station_codes, str):
+            station_codes = ",".join(str(c).strip() for c in station_codes if str(c).strip())
+        if not station_codes:
+            return []
+        self.login()
+        body = {"stationCodes": station_codes, "beginTime": int(begin_ms),
+                "endTime": int(end_ms), "language": language}
+        payload = self._post_json("/getAlarmList", body)
+        if not isinstance(payload, dict):
+            return []
+        if payload.get("success") is False:
+            LOG.warning("Huawei getAlarmList failCode=%s %s",
+                        payload.get("failCode"), str(payload.get("message"))[:120])
+            return []
+        data = payload.get("data")
+        return data if isinstance(data, list) else []
+
     def fetch_inverter_snapshots(
         self,
         plant: PlantConfig,

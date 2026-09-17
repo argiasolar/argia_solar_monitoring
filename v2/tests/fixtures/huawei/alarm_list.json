@@ -1,0 +1,55 @@
+{
+ "success": true,
+ "failCode": 0,
+ "params": {"stationCodes": "NE=00000001,NE=00000002", "language": "en_US"},
+ "data": [
+  {
+   "alarmCause": "The server has not received the network connection request from the device.",
+   "alarmId": 999999999,
+   "alarmName": "Network Connection Error",
+   "alarmType": 0,
+   "causeId": -1,
+   "devName": "Logger-0000A0000000",
+   "devTypeId": 63,
+   "esnCode": "0000A0000000",
+   "lev": 2,
+   "raiseTime": 1789651007006,
+   "repairSuggestion": "1. Check whether the device is powered on and running properly. 2. Check the network between the device and the management system.",
+   "stationCode": "NE=00000001",
+   "stationName": "DEMO PLANT ONE",
+   "status": 1
+  },
+  {
+   "alarmCause": "A major fault has occurred on the internal circuit of the device.",
+   "alarmId": 2064,
+   "alarmName": "Device Fault",
+   "alarmType": 0,
+   "causeId": 20,
+   "devName": "Inverter 3",
+   "devTypeId": 1,
+   "esnCode": "XX0000000000",
+   "lev": 2,
+   "raiseTime": 1789564008000,
+   "repairSuggestion": "1. If any DC SWITCH is OFF, do not turn on the AC or DC switch. Contact your vendor or technical support.",
+   "stationCode": "NE=00000001",
+   "stationName": "DEMO PLANT ONE",
+   "status": 1
+  },
+  {
+   "alarmCause": "The string is abnormal.",
+   "alarmId": 2011,
+   "alarmName": "String Reverse Connection",
+   "alarmType": 0,
+   "causeId": 1,
+   "devName": "Inverter 1",
+   "devTypeId": 1,
+   "esnCode": "XX0000000001",
+   "lev": 3,
+   "raiseTime": 1789560000000,
+   "repairSuggestion": "Check whether the PV string is reversely connected.",
+   "stationCode": "NE=00000002",
+   "stationName": "DEMO PLANT TWO",
+   "status": 2
+  }
+ ]
+}

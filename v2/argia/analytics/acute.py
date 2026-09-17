@@ -147,6 +147,7 @@ def evaluate_acute(
     configured_inverters: Optional[Dict[str, List[str]]] = None,
     rated_kw: Optional[Dict] = None,
     vendor_thermal: Optional[Dict[Tuple[str, str], Tuple[dt.datetime, str, int]]] = None,
+    loss_note: Optional[Dict[str, str]] = None,
 ) -> List[AcuteBreach]:
     """Evaluate the acute conditions against the newest samples.
 
@@ -253,12 +254,17 @@ def evaluate_acute(
             # 0 W; only measured zeros make a dark plant
             powers = [r[3] for r in rows if r[3] is not None]
             if powers and all(p <= 0 for p in powers):
+                # v257 (Tomasz): a dark plant is money leaving the
+                # building — say how much, when we can price it.
+                cost = (loss_note or {}).get(plant, "")
                 breaches.append(AcuteBreach(
                     metric="plant_offline", plant_key=plant, inverter_sn="",
                     severity=Severity.CRITICAL, value=0.0,
                     message=(f"{plant}: ALL {len(powers)} reporting "
                              f"inverter(s) at 0 W at "
-                             f"{now_mx:%H:%M} MX [CRITICAL]"),
+                             f"{now_mx:%H:%M} MX"
+                             + (f" \u2014 {cost}" if cost else "")
+                             + " [CRITICAL]"),
                 ))
 
     # --- per-inverter: silent while a sibling produces (v203) ---

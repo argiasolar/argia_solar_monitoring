@@ -195,7 +195,10 @@ h2.ct{font-size:15px;margin:0;font-weight:700}
 @media(max-width:1000px){.g5,.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.g5,.g4,.g3,.g2{grid-template-columns:1fr}.wrap{padding:18px 14px 32px}}
 /* header — the one pattern */
-header.ph{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
+/* v260 (Tomasz): no hairline under the header — the section title and its
+   tabs read as part of the page, not as a bar bolted above it. The active
+   tab already carried the page colour, so only the rule beside it had to go. */
+header.ph{background:#fff;position:sticky;top:0;z-index:40}
 .phrow{max-width:1280px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:18px;height:60px}
 .wm{display:flex;align-items:center;gap:9px;color:var(--deep)}.wm .wmb{width:26px;height:26px;border-radius:7px;background:var(--teal);display:flex;align-items:center;justify-content:center}
 .wm .wmt{font-weight:800;font-size:17px;letter-spacing:.16em}.wm .wmlogo{height:34px;width:auto;display:block}

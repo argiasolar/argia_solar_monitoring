@@ -529,3 +529,32 @@ class TestV238FinancialCurrency:
         pg = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         assert 'all amounts MXN, sin IVA (LaaS USD fees at the loan FX)' in pg
         assert ".thero .unit{" in (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
+
+
+class TestTheHeaderJoinsThePage:
+    """v260 (Tomasz, 2026-09-19): "remove the line that separates the section
+    title from the page so it looks like part of the page". The active tab
+    already carried the page colour and broke the rule where it sat; what
+    remained was the hairline running to the left of the tabs and away to the
+    right, which read as a bar bolted above the page."""
+
+    SRC = (V2 / "server/bundle/portal_chrome.py").read_text(encoding="utf-8")
+
+    def test_the_header_carries_no_bottom_rule(self):
+        hdr = [ln for ln in self.SRC.splitlines() if ln.startswith("header.ph{")]
+        assert len(hdr) == 1, hdr
+        assert "border-bottom" not in hdr[0], hdr[0]
+        assert "position:sticky" in hdr[0], "the header must still stick"
+
+    def test_the_active_tab_still_wears_the_page_colour(self):
+        """That is what makes it read as part of the page rather than a
+        chip floating above it — removing it would bring the seam back."""
+        assert ".tab.on{" in self.SRC
+        on = self.SRC.split(".tab.on{", 1)[1].split("}", 1)[0]
+        assert "background:var(--bg)" in on
+        assert "inset 0 3px 0 var(--teal)" in on, "the teal marker identifies the open tab"
+
+    def test_the_inactive_tabs_keep_their_own_edges(self):
+        tab = self.SRC.split("\n.tab{", 1)[1].split("}", 1)[0]
+        assert "border:1px solid var(--line)" in tab and "border-bottom:0" in tab
+        assert "border-radius:9px 9px 0 0" in tab, "folder shape, open at the bottom"

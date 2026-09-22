@@ -40,6 +40,7 @@ import logging
 from typing import Dict, List, Optional
 
 from argia.core.config import Portfolio
+from argia.core.text import plain as _plain
 from argia.core import co2 as co2reg
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.sheets import SheetsClient
@@ -333,6 +334,11 @@ def _logo_uri() -> str:
 
 def render_annex_html(payload: Dict, generated_at: str,
                       default_ym: Optional[str] = None) -> str:
+    return _plain(_render_annex_html(payload, generated_at, default_ym))   # v262
+
+
+def _render_annex_html(payload: Dict, generated_at: str,
+                       default_ym: Optional[str] = None) -> str:
     """Self-contained HTML factura in the Looker layout: header with
     client + ARGIA identity and the period picker, four stat cards,
     the daily generation chart (bars, teórica + expectativa lines,

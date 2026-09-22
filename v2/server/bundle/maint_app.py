@@ -33,6 +33,7 @@ from flask import Flask, abort, redirect, request, send_file
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from plain_text import plain                    # noqa: E402  (v262)
 sys.path.insert(0, os.environ.get('ARGIA_V2_DIR', '/root/argia_v2/v2'))
 
 import portal_chrome as PC                              # noqa: E402
@@ -42,6 +43,14 @@ from argia.maintenance import tickets as TK             # noqa: E402
 from argia.store import pgq                             # noqa: E402
 
 app = Flask(__name__)
+
+
+@app.after_request
+def _no_em_dash(r):
+    """v262: no em dash leaves this app - whatever a stored note says."""
+    if r.mimetype == 'text/html' and not r.direct_passthrough:
+        r.set_data(plain(r.get_data(as_text=True)))
+    return r
 FILES_DIR = os.environ.get('ARGIA_TICKET_FILES', '/opt/argia/tickets')
 MAX_UPLOAD = 15 * 1024 * 1024
 ALLOWED_EXT = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.txt', '.csv', '.xlsx', '.docx', '.zip', '.mp4', '.heic'}

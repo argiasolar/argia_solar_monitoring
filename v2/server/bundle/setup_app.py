@@ -33,6 +33,7 @@ from flask import Flask, request, make_response, redirect
 sys_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.insert(0, sys_dir)
+from plain_text import plain                    # noqa: E402  (v262)
 try:
     from argia_logo import LOGO_ALT, LOGO_URI
 except ImportError:
@@ -53,6 +54,14 @@ AREA_LABEL = {'financial': 'Financial Report', 'capex': 'CAPEX overview',
               **{p: p.upper() + ' plant page' for p in PLANTS}}
 
 app = Flask(__name__)
+
+
+@app.after_request
+def _no_em_dash(r):
+    """v262: no em dash leaves this app - whatever a stored note says."""
+    if r.mimetype == 'text/html' and not r.direct_passthrough:
+        r.set_data(plain(r.get_data(as_text=True)))
+    return r
 
 
 def _csrf_token():

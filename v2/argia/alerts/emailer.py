@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 import smtplib
+
+from argia.core.text import plain as _plain
 import socket
 from email.message import EmailMessage
 from typing import Dict, List, Optional
@@ -71,6 +73,7 @@ def build_email(subject: str, body: str, sender: str,
                 recipients: List[str]) -> EmailMessage:
     """Plain-text alert mail. Pure."""
     msg = EmailMessage()
+    subject, body = _plain(subject), _plain(body)   # v262: no em dash in any mail
     msg["Subject"] = subject
     msg["From"] = f"ARGIA Monitoring <{sender}>"
     msg["To"] = ", ".join(recipients)
@@ -90,7 +93,7 @@ def build_html_email(subject: str, plain: str, html: str, sender: str,
     referenced from the HTML as <img src="cid:...">. This is the ONLY
     way logos render in Gmail - data: URIs are stripped there (v180)."""
     msg = build_email(subject, plain, sender, recipients)
-    msg.add_alternative(html, subtype="html")
+    msg.add_alternative(_plain(html), subtype="html")   # v262
     if images:
         html_part = msg.get_payload()[-1]
         for cid, (data, subtype) in images.items():

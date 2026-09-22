@@ -505,9 +505,10 @@ def main(argv=None) -> int:
                        records=all_records(),
                        zips=month_zips(args.out_root),
                        generated_at=_now().strftime("%Y-%m-%d %H:%M MX"))
+    from argia.core.text import plain as _plain
     with open(os.path.join(args.out_root, "index.html"), "w",
               encoding="utf-8") as f:
-        f.write(idx)
+        f.write(_plain(idx))                          # v262
     LOG.info("index written; months published: %s",
              sorted(scan_months(args.out_root)))
     return 0

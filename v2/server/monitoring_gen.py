@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argia_logo import LOGO_ALT, LOGO_URI
+from plain_text import plain                       # v262: no em dash leaves a page
 
 # fault-code catalog from the repo checkout (documented vendor states)
 sys.path.insert(0, '/root/argia_v2/v2')
@@ -2025,7 +2026,7 @@ def write(rel, content):
     p = os.path.join(OUTROOT, 'monitoring', rel)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'w', encoding='utf-8') as fh:
-        fh.write(content)
+        fh.write(plain(content))                     # v262
     os.chmod(p, 0o644)
 
 
@@ -2035,7 +2036,7 @@ def write_root(rel, content):
     p = os.path.join(OUTROOT, rel)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'w', encoding='utf-8') as fh:
-        fh.write(content)
+        fh.write(plain(content))                     # v262
     os.chmod(p, 0o644)
 
 

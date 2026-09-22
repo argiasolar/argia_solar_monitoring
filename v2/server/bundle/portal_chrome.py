@@ -20,6 +20,8 @@ import html
 import re
 import unicodedata
 
+from plain_text import plain            # v262: no em dash leaves a page
+
 try:
     from argia_logo import LOGO_ALT, LOGO_URI   # the official wordmark, PNG data URI
 except ImportError:                          # never in production; keeps the module pure in odd test paths
@@ -524,12 +526,12 @@ def page(title, body, section=None, on='', refresh=0, extra_head='', tabs=None, 
     tables are read on screen, not printed to A4 - so no sideways
     scrollbar under a 12-column table."""
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ''
-    return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f'<meta name="robots" content="noindex,nofollow">{meta}'
-            f'<title>{html.escape(title)} - ARGIA</title><link rel="icon" href="/favicon.png">'
-            f'<style>{CSS}</style>{extra_head}</head><body' + (' class="wide"' if wide else '') + '>'
-            f'{header(section, on, tabs)}<div class="wrap">{body}</div>{JS}</body></html>')
+    return plain('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+                 '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                 f'<meta name="robots" content="noindex,nofollow">{meta}'
+                 f'<title>{html.escape(title)} - ARGIA</title><link rel="icon" href="/favicon.png">'
+                 f'<style>{CSS}</style>{extra_head}</head><body' + (' class="wide"' if wide else '') + '>'
+                 f'{header(section, on, tabs)}<div class="wrap">{body}</div>{JS}</body></html>')
 
 
 def print_button(label_en='Print / PDF', label_es='Imprimir / PDF'):

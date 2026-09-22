@@ -21,6 +21,8 @@ Pure parts (semaphores, allocation, SVG, HTML) are unit-tested; the
 from __future__ import annotations
 
 import html as _html
+
+from argia.core.text import plain as _plain
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -555,6 +557,10 @@ def _esc(x) -> str:
 
 
 def render_html(data: ReportData) -> str:
+    return _plain(_render_html(data))                # v262: no em dash in the PDF
+
+
+def _render_html(data: ReportData) -> str:
     crit_plants = {a.plant_key for a in data.alerts
                    if a.severity == "CRITICAL"}
     any_plants = {a.plant_key for a in data.alerts}

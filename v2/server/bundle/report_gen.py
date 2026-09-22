@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argia_logo import LOGO_ALT, LOGO_URI  # official wordmark, transparent PNG data URI
+from plain_text import plain               # v262: no em dash leaves a page
 from argia_client_logos import CLIENT_LOGOS  # plant_key -> (display name, grayscale data URI)
 sys.path.insert(0, '/root/argia_v2/v2')
 try:
@@ -2004,7 +2005,7 @@ def write(rel, content):
     p = os.path.join(OUTROOT, rel)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'w', encoding='utf-8') as fh:
-        fh.write(content)
+        fh.write(plain(content))                     # v262
     os.chmod(p, 0o644)
     print(f'  {rel:24} {len(content):>8,} B')
 

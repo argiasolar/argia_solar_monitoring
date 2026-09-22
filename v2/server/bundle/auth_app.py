@@ -30,12 +30,21 @@ from flask import Flask, request, make_response, redirect
 
 import auth_core as ac
 import setup_app as sa
+from plain_text import plain                    # v262
 
 AUTH_DIR = os.environ.get('ARGIA_AUTH_DIR', '/opt/argia/auth')
 SESSION_DB = os.path.join(AUTH_DIR, 'sessions.db')
 SECRET_PATH = os.path.join(AUTH_DIR, 'session.key')
 
 app = Flask(__name__)
+
+
+@app.after_request
+def _no_em_dash(r):
+    """v262: no em dash leaves this app - whatever a stored note says."""
+    if r.mimetype == 'text/html' and not r.direct_passthrough:
+        r.set_data(plain(r.get_data(as_text=True)))
+    return r
 _SECRET = None
 
 

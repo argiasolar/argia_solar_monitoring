@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from typing import List
 
+from argia.core.text import plain as _plain
+
 # Only these fields are embedded - keeps the payload small and the contract
 # explicit. Adding a field to the page starts here.
 PLANT_FIELDS = [
@@ -90,7 +92,7 @@ def render(plant_rows: List[dict], inverter_rows: List[dict],
         "inverter_rows": _slim(inverter_rows, INVERTER_FIELDS),
         "status_colors": STATUS_COLORS,
     }
-    return _template().replace("__DATA__", _embed_json(payload))
+    return _plain(_template().replace("__DATA__", _embed_json(payload)))   # v262
 
 
 _TEMPLATE = """<!DOCTYPE html>

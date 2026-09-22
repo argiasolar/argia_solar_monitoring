@@ -40,6 +40,7 @@ from flask import Flask, request, jsonify, make_response
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from plain_text import plain                    # noqa: E402  (v262)
 sys.path.insert(0, os.environ.get('ARGIA_V2_DIR', '/root/argia_v2/v2'))
 
 try:
@@ -62,6 +63,14 @@ MAX_QUESTION = 1000
 MAX_HISTORY = 12                 # turns kept for follow-ups ("why?")
 
 app = Flask(__name__)
+
+
+@app.after_request
+def _no_em_dash(r):
+    """v262: no em dash leaves this app - whatever a stored note says."""
+    if r.mimetype == 'text/html' and not r.direct_passthrough:
+        r.set_data(plain(r.get_data(as_text=True)))
+    return r
 
 
 # ------------------------------------------------------------- identity

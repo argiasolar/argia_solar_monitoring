@@ -28,6 +28,7 @@ OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/portal.argia.com.m
 sys.argv = sys.argv[:1]                            # the imports must not see our argv
 
 import portal_chrome as C                          # noqa: E402
+from plain_text import plain                       # noqa: E402
 from argia_client_logos import CLIENT_LOGOS        # noqa: E402
 import report_gen as RG                            # noqa: E402  (loads PG)
 import monitoring_gen as MG                        # noqa: E402  (loads PG)
@@ -480,7 +481,7 @@ def write(rel, content):
     p = os.path.join(OUTROOT, rel)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'w', encoding='utf-8') as fh:
-        fh.write(content)
+        fh.write(plain(content))                     # v262: nothing from PG smuggles an em dash in
     os.chmod(p, 0o644)
 
 

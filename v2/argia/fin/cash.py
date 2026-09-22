@@ -3,7 +3,7 @@
 A statement is opening balance + lines = closing balance, or it is
 refused whole. A line has one natural key (the bank's id when there is
 one, else account + date + amount + description hash) so a re-upload
-adds nothing. A line reconciles once — a split must sum to the line.
+adds nothing. A line reconciles once - a split must sum to the line.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def check_statement(st: Statement) -> List[str]:
 
 
 def new_lines(st: Statement, known_keys: Iterable[str]) -> List[BankLine]:
-    """The lines an import may add — the rest already exist (scenario 67)."""
+    """The lines an import may add - the rest already exist (scenario 67)."""
     known = set(known_keys)
     return [l for l in st.lines if l.key not in known]
 
@@ -90,7 +90,7 @@ class Match:
 
 def reconcile(line: BankLine, existing: Sequence[Match], new: Sequence[Match]) -> List[Match]:
     """Attach matches to a line. A line reconciles once unless split, and
-    a split must sum exactly to the line — never more, never a second
+    a split must sum exactly to the line - never more, never a second
     full match (scenario 29)."""
     for m in list(existing) + list(new):
         if m.line_key != line.key:
@@ -116,7 +116,7 @@ def reconciled_state(line: BankLine, matches: Sequence[Match]) -> str:
 
 
 def unreconcile(line: BankLine, matches: Sequence[Match], target_ref: str) -> Tuple[List[Match], Optional[Match]]:
-    """Remove one match; the caller records the event (audit — scenario 29)."""
+    """Remove one match; the caller records the event (audit - scenario 29)."""
     keep, gone = [], None
     for m in matches:
         if m.line_key == line.key and m.target_ref == target_ref and gone is None:

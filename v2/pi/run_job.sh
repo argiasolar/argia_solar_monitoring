@@ -12,7 +12,7 @@ LOG="$LOG_DIR/$NAME.log"
 set -a; source "$HOME/.argia_env"; set +a
 export GOOGLE_CREDENTIALS="$(cat "$GOOGLE_CREDENTIALS_FILE")"
 cd "$REPO_DIR/v2"
-# the scripts import the argia package relative to v2/ — same
+# the scripts import the argia package relative to v2/ - same
 # PYTHONPATH=. every workflow uses (2026-07-06 smoke-test catch:
 # without it, ModuleNotFoundError on the first tick)
 export PYTHONPATH="$REPO_DIR/v2"

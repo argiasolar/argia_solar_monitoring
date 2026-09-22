@@ -1,5 +1,5 @@
 """
-Thresholds — Stage 7.1.
+Thresholds - Stage 7.1.
 
 Reads the ``Thresholds`` tab from the sheet. One row per
 (plant_key, metric, severity). Returns a queryable structure.
@@ -30,7 +30,7 @@ QRO1 for metric pr_daily severity WARNING", we prefer a QRO1-specific row
 over an "ALL" row. If neither exists, that check is silently skipped for
 that plant.
 
-Stage 7.1 ships the LOADER ONLY. No engine that USES the thresholds yet —
+Stage 7.1 ships the LOADER ONLY. No engine that USES the thresholds yet -
 that's Stage 7.4. We deliberately separate these so you can populate the
 sheet, run unit tests against the loader, and validate your data is clean
 BEFORE any production code starts firing alerts based on it.
@@ -139,7 +139,7 @@ class ThresholdSet:
             if key in idx:
                 LOG.warning(
                     "Duplicate threshold (plant=%s metric=%s severity=%s) "
-                    "— keeping first, ignoring rest",
+                    "- keeping first, ignoring rest",
                     t.plant_key, t.metric, t.severity.value,
                 )
                 continue
@@ -202,7 +202,7 @@ THRESHOLDS_HEADER = [
     "value", "duration_min", "enabled", "channels", "notes",
 ]
 
-# Defaults written into a freshly-created Thresholds tab. Conservative —
+# Defaults written into a freshly-created Thresholds tab. Conservative -
 # none of these will fire if you don't have telemetry yet. Tune later.
 DEFAULT_THRESHOLDS: List[List[str]] = [
     # Inverter offline: WARNING after 15min, CRITICAL after 60min
@@ -271,7 +271,7 @@ def _parse_channels(raw) -> FrozenSet[str]:
     invalid = parts - VALID_CHANNELS
     if invalid:
         LOG.warning(
-            "Unknown channels %s — valid: %s", invalid, sorted(VALID_CHANNELS),
+            "Unknown channels %s - valid: %s", invalid, sorted(VALID_CHANNELS),
         )
     return frozenset(valid)
 
@@ -311,7 +311,7 @@ def load_thresholds(sheets: SheetsClient) -> ThresholdSet:
 
         if metric not in KNOWN_METRICS:
             LOG.warning(
-                "Thresholds row %d: unknown metric '%s' — skipping. "
+                "Thresholds row %d: unknown metric '%s' - skipping. "
                 "Valid metrics: %s", i, metric, sorted(KNOWN_METRICS),
             )
             continue
@@ -319,7 +319,7 @@ def load_thresholds(sheets: SheetsClient) -> ThresholdSet:
         severity = _parse_severity(row.get("severity"))
         if severity is None:
             LOG.warning(
-                "Thresholds row %d: invalid severity '%s' — skipping",
+                "Thresholds row %d: invalid severity '%s' - skipping",
                 i, row.get("severity"),
             )
             continue
@@ -327,7 +327,7 @@ def load_thresholds(sheets: SheetsClient) -> ThresholdSet:
         condition = _parse_condition(row.get("condition"))
         if condition is None:
             LOG.warning(
-                "Thresholds row %d: invalid condition '%s' — skipping",
+                "Thresholds row %d: invalid condition '%s' - skipping",
                 i, row.get("condition"),
             )
             continue
@@ -342,7 +342,7 @@ def load_thresholds(sheets: SheetsClient) -> ThresholdSet:
         if condition == Condition.DURATION and duration_min <= 0:
             LOG.warning(
                 "Thresholds row %d: condition='duration' but duration_min=%d. "
-                "Skipping — this threshold would never fire.",
+                "Skipping - this threshold would never fire.",
                 i, duration_min,
             )
             continue
@@ -374,11 +374,11 @@ def create_thresholds_tab_if_missing(sheets: SheetsClient) -> bool:
     True if it created/populated the tab, False if it was already populated.
 
     This is a CONVENIENCE for first-time setup. Production code should not
-    call this — it's intended for the docs runbook to point at."""
+    call this - it's intended for the docs runbook to point at."""
     sheets.ensure_tab("Thresholds")
     existing = sheets.read_range("Thresholds", "A1:I1")
     if existing and any(str(c).strip() for c in (existing[0] if existing else [])):
-        LOG.info("Thresholds tab already has a header — leaving alone")
+        LOG.info("Thresholds tab already has a header - leaving alone")
         return False
 
     sheets.ensure_header("Thresholds", THRESHOLDS_HEADER)

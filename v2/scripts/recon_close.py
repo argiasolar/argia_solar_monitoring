@@ -5,7 +5,7 @@ checks (see argia.recon.engine) over the month's nightly counter
 snapshots + interval telemetry and writes ``reconciliation_monthly``.
 
 A PASS month auto-closes (closed_by='auto'). REVIEW/FAIL stay OPEN for
-a manual close in the portal — and the invoice annex is gated on a
+a manual close in the portal - and the invoice annex is gated on a
 closed month, so nothing mis-reconciled can be invoiced.
 
 A month that was already closed MANUALLY is never overwritten (the
@@ -59,7 +59,7 @@ def month_inputs(first: dt.date, last: dt.date) -> Dict[str, dict]:
 
     # v206: Σ of the daily references (inverter counters; vendor plant
     # daily only where higher). Rows written before v206 have no
-    # reference column — GREATEST of the two sides is the same rule.
+    # reference column - GREATEST of the two sides is the same rule.
     for r in psql_rows(
             "SELECT plant_key, sum(interval_kwh), avg(completeness_pct),"
             " sum(coalesce(reference_kwh, greatest(interval_kwh, vendor_daily_kwh))),"
@@ -127,7 +127,7 @@ def close_month(ref_month: str, dry_run: bool) -> int:
     for p in portfolio.active_plants():
         pk = p.plant_key
         if pk in manually_closed:
-            LOG.info("%s %s: manually closed — untouched", ref_month, pk)
+            LOG.info("%s %s: manually closed - untouched", ref_month, pk)
             continue
         s = inputs.get(pk, {})
         mc = E.monthly_close(
@@ -184,7 +184,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
 
     if args.month:

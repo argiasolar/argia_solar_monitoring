@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A stand-in for api.savio.mx — serves the committed demo fixtures with
+"""A stand-in for api.savio.mx - serves the committed demo fixtures with
 the real API's shapes (cursor pages, include=cfdis,items, 429 with
 Retry-After on demand) on 127.0.0.1:8530 so the sync job and the
 finance pages can be exercised end to end on pio06 without a Savio key

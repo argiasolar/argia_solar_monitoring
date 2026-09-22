@@ -1,6 +1,6 @@
-# Stage 4.1 — Rich Huawei telemetry from getDevRealKpi
+# Stage 4.1 - Rich Huawei telemetry from getDevRealKpi
 
-What Stage 4 left blank, Stage 4.1 fills in — by extracting every available
+What Stage 4 left blank, Stage 4.1 fills in - by extracting every available
 field from the same ``getDevRealKpi`` response we were already calling.
 
 ## What changed
@@ -58,7 +58,7 @@ DEBUG huawei dataItemMap for ES2470051825 has 27 fields: ['ab_u', 'active_power'
       'bc_u', 'ca_u', 'day_cap', 'efficiency', 'elec_freq', 'inverter_state', ...]
 ```
 
-If you see fields in that list that the parser isn't reading — tell me and
+If you see fields in that list that the parser isn't reading - tell me and
 we'll add them.
 
 ## Files added/changed
@@ -73,14 +73,14 @@ v2/docs/stage4_1_huawei_rich_telemetry.md        ~ this file
 ```
 
 **Files unchanged (deliberately):**
-- `v2/argia/vendors/huawei.py` — the existing `HuaweiClient` is untouched.
+- `v2/argia/vendors/huawei.py` - the existing `HuaweiClient` is untouched.
   The new `fetch_inverter_telemetry` lives in `huawei_telemetry.py` and calls
   the client's existing `_post_json` / `_ensure_logged_in`. This avoids any
   risk of breaking the daily/snapshot10m paths that still use
   `fetch_inverter_snapshots`.
-- `v2/argia/telemetry/schema.py` — schemas unchanged. Same 142-col wide and
+- `v2/argia/telemetry/schema.py` - schemas unchanged. Same 142-col wide and
   15-col narrow.
-- All Growatt files — unchanged.
+- All Growatt files - unchanged.
 
 ## Migration
 
@@ -90,7 +90,7 @@ Easier than Stage 4. No schema change, no sheet-tab wipe.
 cd ~/Documents/argia_solar_monitoring/v2
 # unzip the Stage 4.1 delivery on top
 unzip -o ~/Downloads/argia_mont_v2_stage4_1.zip
-# nothing to git rm — pure additions and one rewrite
+# nothing to git rm - pure additions and one rewrite
 ```
 
 Stage and verify:
@@ -127,17 +127,17 @@ CI green → ready to verify live.
 
 ## Verification path
 
-### Step 1 — Dry-run MEX1 with DEBUG logging
+### Step 1 - Dry-run MEX1 with DEBUG logging
 
 GitHub → Actions → **v2 Telemetry 5m (all vendors)** → Run workflow:
 - dry_run: ✓ checked
 - plant_key: `MEX1`
 - log_level: **DEBUG**
 
-The log will print every inverter's raw dataItemMap keys. Save this output —
+The log will print every inverter's raw dataItemMap keys. Save this output -
 it's the ground truth for what Huawei exposes for your hardware.
 
-### Step 2 — Live MEX1
+### Step 2 - Live MEX1
 
 Same workflow:
 - dry_run: ☐ unchecked
@@ -155,7 +155,7 @@ Then open `Telemetry_MEX1` in the sheet. The wide row should now show:
 - `temperature_c`: now populated (was blank in Stage 4)
 - `fault_code`: now reflects inverter_state/run_state combo, not just "0"
 
-### Step 3 — Live all vendors
+### Step 3 - Live all vendors
 
 dry_run unchecked, plant_key empty. Same expectations + Growatt rows continue
 to look as they did in Stage 3/4.
@@ -166,18 +166,18 @@ to look as they did in Stage 3/4.
 bit us in Stage 2 with the Growatt truncation bug. The parser is defensive
 (multiple key variants, blanks on miss), but if Huawei returns field names
 we haven't anticipated, those cells stay blank. The DEBUG mode is the
-mitigation — first live run, you can SEE exactly what's there.
+mitigation - first live run, you can SEE exactly what's there.
 
 **2. Some fields stay structurally blank.** The wide schema was built for
 Growatt's data shape (per-string voltages and currents, two-channel fault
 codes). Huawei doesn't expose those, so those columns stay blank. Not a bug
-— a vendor-shape mismatch we documented in Stage 4.
+a vendor-shape mismatch we documented in Stage 4.
 
 **3. `efficiency_pct` and `reactive_power_var` are parsed but not yet
 written to the wide row.** They're on `HuaweiTelemetryRow`, available for
 future use, but the wide schema doesn't have columns for them. If you want
 them surfaced, we can add columns to the schema (bump COLUMN_VERSION, wipe
-the tabs, redeploy — same drill as Stage 3→4).
+the tabs, redeploy - same drill as Stage 3→4).
 
 **4. `huawei.py` not modified.** The new `fetch_inverter_telemetry` lives in
 `huawei_telemetry.py` and reaches into the client's `_post_json` directly.

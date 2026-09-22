@@ -1,4 +1,4 @@
-"""Reconciliation engine — PURE functions, no I/O.
+"""Reconciliation engine - PURE functions, no I/O.
 
 Four checks at month close (external reconciliation advice, 2026-08):
     CHECK 1  Σ interval (our 5-min telemetry)  vs  Σ vendor daily counters
@@ -8,7 +8,7 @@ Four checks at month close (external reconciliation advice, 2026-08):
 
 Billing control priority (most tamper-proof first): lifetime delta >
 vendor monthly > Σ vendor daily > Σ interval. Interval data is analytics
-and verification — a comms gap between 13:00 and 17:00 must never shrink
+and verification - a comms gap between 13:00 and 17:00 must never shrink
 an invoice, because the cumulative counter still captured it.
 
 Statuses follow the AGS PASS / REVIEW / FAIL convention (AGS-701 §7);
@@ -27,7 +27,7 @@ DAILY_REVIEW_PCT = 3.0
 MONTHLY_PASS_PCT = 0.5
 MONTHLY_REVIEW_PCT = 1.5
 # Below this interval completeness the interval sum is expected to
-# undercount — CHECK 1 then informs, it does not fail the close.
+# undercount - CHECK 1 then informs, it does not fail the close.
 COMPLETENESS_MIN_PCT = 95.0
 
 STATUS_PASS = "PASS"
@@ -36,7 +36,7 @@ STATUS_FAIL = "FAIL"
 STATUS_NO_DATA = "NO_DATA"
 
 BASIS_DAILY_REF = "inverter_counter_daily_sum"
-"""v206: Σ over the month of the daily reference — the inverters' own
+"""v206: Σ over the month of the daily reference - the inverters' own
 eToday counters (the vendor plant-daily only where it is higher)."""
 BASIS_LIFETIME = "lifetime_delta"
 BASIS_MONTHLY = "vendor_monthly"
@@ -51,7 +51,7 @@ def variance_pct(measured: Optional[float],
 
     Both zero -> 0.0 (a no-production day matching is a match). Reference
     zero but measured non-zero, or either side missing -> None (undefined
-    — the caller flags it rather than dividing by zero).
+    - the caller flags it rather than dividing by zero).
     """
     if measured is None or reference is None:
         return None
@@ -83,11 +83,11 @@ BASIS_VENDOR_DAILY = "vendor_plant_daily"
 def reference_kwh(inverter_counter_kwh: Optional[float],
                   vendor_daily_kwh: Optional[float]
                   ) -> tuple[Optional[float], str]:
-    """The day's energy reference — v206, Tomasz 2026-09-05: "always
+    """The day's energy reference - v206, Tomasz 2026-09-05: "always
     prefer the inverter counter, it is the only way we can prove it to
     the customer". Σ of the inverters' own eToday registers wins; the
     vendor's plant-daily figure (server-side, built from uploaded 5-min
-    data — SLP2 2026-09-04 lost the 145 kWh of a link gap that way) is
+    data - SLP2 2026-09-04 lost the 145 kWh of a link gap that way) is
     used only when it is HIGHER by more than DAILY_PASS_PCT, i.e. when
     our own sampling missed part of the day. Never lowers. Pure."""
     if inverter_counter_kwh is None and vendor_daily_kwh is None:
@@ -107,7 +107,7 @@ def daily_recon(interval_kwh: Optional[float],
                 completeness_pct: Optional[float]) -> DailyRecon:
     """Judge one plant-day. ``interval_kwh`` is Σ of the inverters' own
     eToday counters as we sampled them; the vendor plant-daily figure is
-    the cross-check. v206: the inverter counters are the reference — a
+    the cross-check. v206: the inverter counters are the reference - a
     vendor figure BELOW them is the vendor's upload gap (REVIEW, never
     FAIL); a vendor figure ABOVE them is our collection gap (the
     reference rises to it, never lowers)."""
@@ -120,20 +120,20 @@ def daily_recon(interval_kwh: Optional[float],
         notes.append("no inverter counters and no vendor counter")
     elif vendor_daily_kwh is None:
         status = STATUS_REVIEW
-        notes.append("no vendor daily counter — inverter counters only")
+        notes.append("no vendor daily counter - inverter counters only")
     elif interval_kwh is None:
         status = STATUS_REVIEW
-        notes.append("no inverter counters — collection gap, vendor plant daily only")
+        notes.append("no inverter counters - collection gap, vendor plant daily only")
     elif var is None:
         status = STATUS_REVIEW
-        notes.append("vendor counter 0 but inverter counters non-zero — counter anomaly")
+        notes.append("vendor counter 0 but inverter counters non-zero - counter anomaly")
     elif (completeness_pct is not None
           and completeness_pct < COMPLETENESS_MIN_PCT):
         # Our undercount is EXPECTED here; the vendor counter still
         # captured the day. Flag, never FAIL on our own gap (AGS-901 R6).
         status = STATUS_REVIEW
         notes.append(f"completeness {completeness_pct:.1f}% < "
-                     f"{COMPLETENESS_MIN_PCT:g}% — undercount expected "
+                     f"{COMPLETENESS_MIN_PCT:g}% - undercount expected "
                      f"({var:+.2f}%)")
     elif abs(var) <= DAILY_PASS_PCT:
         status = STATUS_PASS
@@ -144,7 +144,7 @@ def daily_recon(interval_kwh: Optional[float],
         # counters are the reference and the proof
         status = STATUS_REVIEW
         notes.append(f"inverter counters {var:+.2f}% above the vendor plant "
-                     "daily — vendor upload gap; inverter counters kept")
+                     "daily - vendor upload gap; inverter counters kept")
     elif abs(var) <= DAILY_REVIEW_PCT:
         status = STATUS_REVIEW
         notes.append(f"inverter counters vs vendor {var:+.2f}% (> {DAILY_PASS_PCT:g}%)")
@@ -162,7 +162,7 @@ def daily_recon(interval_kwh: Optional[float],
 
 
 # ---------------------------------------------------------------------------
-# Monthly close — the four checks + billing-basis selection.
+# Monthly close - the four checks + billing-basis selection.
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class MonthlyClose:
@@ -184,7 +184,7 @@ def lifetime_delta(lifetime_start_kwh: Optional[float],
                    lifetime_end_kwh: Optional[float]) -> Optional[float]:
     """Month energy from two lifetime-counter snapshots (end of previous
     month, end of this month). A negative delta means a counter reset or
-    inverter swap — returned as None so it can never become an invoice."""
+    inverter swap - returned as None so it can never become an invoice."""
     if lifetime_start_kwh is None or lifetime_end_kwh is None:
         return None
     d = round(lifetime_end_kwh - lifetime_start_kwh, 3)
@@ -203,7 +203,7 @@ def select_billing(lifetime_delta_kwh: Optional[float],
 
     v206: the Σ of the daily references (inverter counters, vendor plant
     daily only where higher) is FIRST when every day of the month has
-    one — the customer can verify it register by register. The lifetime
+    one - the customer can verify it register by register. The lifetime
     delta and the vendor monthly counter follow (plant-level vendor
     figures), then Σ vendor daily, then the bare interval sum. Any Σ
     only qualifies with EVERY day covered; a partial sum silently
@@ -238,14 +238,14 @@ def monthly_close(interval_sum_kwh: Optional[float],
     MONTHLY_PASS_PCT and a counter-based billing value exists; FAIL when a
     check exceeds MONTHLY_REVIEW_PCT; REVIEW in between, for coverage
     gaps, or when billing had to fall back below the counter sources.
-    CHECK 1 (interval vs counters) informs — with low completeness an
+    CHECK 1 (interval vs counters) informs - with low completeness an
     interval undercount is expected and must not fail the close.
     """
     notes: List[str] = []
     ld = lifetime_delta(lifetime_start_kwh, lifetime_end_kwh)
     if (lifetime_start_kwh is not None and lifetime_end_kwh is not None
             and ld is None):
-        notes.append("lifetime counter went BACKWARDS — reset/swap? "
+        notes.append("lifetime counter went BACKWARDS - reset/swap? "
                      "excluded from billing")
 
     c1 = variance_pct(interval_sum_kwh, vendor_daily_sum_kwh)
@@ -259,7 +259,7 @@ def monthly_close(interval_sum_kwh: Optional[float],
     # v206 cross-check: the plant-level counters against the Σ of daily
     # inverter-counter references. A lifetime delta ABOVE the sum means
     # days where we had no inverter data at all; BELOW means the vendor
-    # lost uploads (the SLP2 pattern) — informational either way.
+    # lost uploads (the SLP2 pattern) - informational either way.
     c3 = variance_pct(daily_ref_sum_kwh, ld) if basis == BASIS_DAILY_REF else None
 
     hard_checks = [c for c in (c2, c4) if c is not None]
@@ -272,18 +272,18 @@ def monthly_close(interval_sum_kwh: Optional[float],
     elif any(abs(c) > MONTHLY_REVIEW_PCT for c in hard_checks):
         status = STATUS_FAIL
         notes.append("counter sources disagree beyond "
-                     f"{MONTHLY_REVIEW_PCT:g}% — investigate before billing")
+                     f"{MONTHLY_REVIEW_PCT:g}% - investigate before billing")
     elif any(abs(c) > MONTHLY_PASS_PCT for c in hard_checks):
         status = STATUS_REVIEW
         notes.append("counter sources agree only within "
                      f"{MONTHLY_REVIEW_PCT:g}%")
     elif basis == BASIS_INTERVAL:
         status = STATUS_REVIEW
-        notes.append("billing fell back to the INTERVAL sum — no vendor "
+        notes.append("billing fell back to the INTERVAL sum - no vendor "
                      "counter available; verify manually")
     elif not hard_checks and basis == BASIS_DAILY_SUM:
         status = STATUS_REVIEW
-        notes.append("single counter source (Σ daily) — no independent "
+        notes.append("single counter source (Σ daily) - no independent "
                      "cross-check possible")
     else:
         status = STATUS_PASS
@@ -296,7 +296,7 @@ def monthly_close(interval_sum_kwh: Optional[float],
     if c3 is not None:
         if abs(c3) > MONTHLY_REVIEW_PCT:
             notes.append(f"CHECK3 Σ inverter-counter references vs lifetime "
-                         f"delta {c3:+.2f}% — "
+                         f"delta {c3:+.2f}% - "
                          + ("days without inverter data? verify before billing"
                             if c3 < 0 else "vendor upload gaps; counters kept"))
             if status == STATUS_PASS and c3 < 0:
@@ -306,7 +306,7 @@ def monthly_close(interval_sum_kwh: Optional[float],
                          f"delta {c3:+.2f}%")
     # v242 (Mirek's QA): a PASS that rests on the vendor alone (no
     # lifetime register to cross-check, no full month of inverter-counter
-    # references) says so — the customer can verify it only on the
+    # references) says so - the customer can verify it only on the
     # vendor portal. Informational; the status is Tomasz's call.
     if (status == STATUS_PASS and ld is None
             and basis in (BASIS_MONTHLY, BASIS_DAILY_SUM)):
@@ -316,11 +316,11 @@ def monthly_close(interval_sum_kwh: Optional[float],
     if c1 is not None:
         if low_completeness:
             notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}% "
-                         f"(completeness {completeness_pct:.1f}% — "
+                         f"(completeness {completeness_pct:.1f}% - "
                          "undercount expected; our 5-min sampling, not the "
                          "billing counters)")
         elif abs(c1) > MONTHLY_REVIEW_PCT:
-            notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}% — telemetry "
+            notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}% - telemetry "
                          "pipeline losing data despite good completeness")
             if status == STATUS_PASS:
                 status = STATUS_REVIEW
@@ -341,7 +341,7 @@ def effective_completeness(tick_pct: Optional[float],
 
     The GTO2 lesson, round two (2026-08-27): with Inverter 2's
     monitoring comms dead, tick completeness read 100% while the
-    interval sum was guaranteed ~25% under the vendor counter — recon
+    interval sum was guaranteed ~25% under the vendor counter - recon
     FAILed every single day for a cause that was already known, alerted
     and tracked. Scaling by reporting/configured turns that into an
     honest sub-95% REVIEW ("undercount expected") without hiding

@@ -149,7 +149,7 @@ class TestPerMpptEnergyRouting:
 
 
 # ============================================================
-# Regression tests — Stage 4.1 behaviors that must keep working
+# Regression tests - Stage 4.1 behaviors that must keep working
 # ============================================================
 
 
@@ -201,7 +201,7 @@ class TestStage41RegressionFields:
 
 
 class TestStage41RegressionBlanks:
-    """Columns Huawei never populates — must STILL be blank in Stage 4.2."""
+    """Columns Huawei never populates - must STILL be blank in Stage 4.2."""
 
     def _col_idx(self, name: str) -> int:
         return PLANT_SCHEMA.columns.index(name)
@@ -227,7 +227,7 @@ class TestStage41RegressionBlanks:
 
 
 # ============================================================
-# Common row (narrow Argia tab) — unchanged in Stage 4.2
+# Common row (narrow Argia tab) - unchanged in Stage 4.2
 # ============================================================
 
 

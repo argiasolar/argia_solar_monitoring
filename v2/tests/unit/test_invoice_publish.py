@@ -36,7 +36,7 @@ class TestScan:
                                    ("TAIGENE", True, True)]}
 
     def test_multiword_factura_names_survive_the_parse(self, tmp_path):
-        """PLASTIC_OMNIUM has an underscore of its own — the yyyymm
+        """PLASTIC_OMNIUM has an underscore of its own - the yyyymm
         must be split off the END, not the first underscore."""
         root = publish_tree(tmp_path, {
             "2026-07": [("PLASTIC_OMNIUM", True)]})
@@ -173,7 +173,7 @@ class TestIndexCarriesTheRegister:
 
     def test_no_record_renders_a_dash_not_a_crash(self):
         page = ip.render_index(self.MONTHS)
-        assert "&mdash;" in page
+        assert " - " in page
 
 
 class TestDrivePush:

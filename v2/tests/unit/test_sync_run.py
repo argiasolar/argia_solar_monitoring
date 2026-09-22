@@ -1,4 +1,4 @@
-"""v188 — the run log moves from the SyncRuns sheet tab to PostgreSQL.
+"""v188 - the run log moves from the SyncRuns sheet tab to PostgreSQL.
 
 Locks: the SQL is built correctly and safely from the SyncRuns-shaped row
 both writers already produce; the sheet tab is OFF by default and only
@@ -126,7 +126,7 @@ class TestSheetTabIsOffByDefault:
 
 class TestNothingReadsSyncRuns:
     def test_no_live_reader_of_the_tab(self):
-        """The tab may be switched off because nothing reads it back —
+        """The tab may be switched off because nothing reads it back -
         keep it that way."""
         import re
         for p in list((V2 / "scripts").glob("*.py")) + \

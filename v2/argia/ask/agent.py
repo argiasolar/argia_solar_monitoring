@@ -4,7 +4,7 @@
 ``complete(system, messages, tools) -> response`` where the response has
 the Anthropic Messages shape (``content`` blocks, ``stop_reason``,
 ``usage``). Tests drive it with a scripted fake; production uses
-``AnthropicLLM`` — a thin ``requests`` call, no SDK to install on pio06.
+``AnthropicLLM`` - a thin ``requests`` call, no SDK to install on pio06.
 
 What the model may do: choose tools, read their JSON, write the answer.
 What it may not do: invent numbers. The system prompt says so, and the
@@ -50,31 +50,31 @@ returns an error or empty data, say exactly what is missing instead of guessing.
 when the question needs them (e.g. "why" -> generation, then inverter \
 performance and alarm history for the bad days). When no fixed tool covers \
 the question, call describe_tables, then query_database with ONE read-only \
-SELECT that aggregates in SQL — never page through raw rows.
+SELECT that aggregates in SQL - never page through raw rows.
 3. Say which period and which data freshness the answer is based on when it \
 matters. daily_production is stamped once a day by the KPI job; telemetry is \
 5-minute live data.
 4. Money comes ONLY from get_revenue (earned) or get_lost_generation (missed). \
-Never multiply kWh by a tariff yourself, never add up plants yourself — if \
+Never multiply kWh by a tariff yourself, never add up plants yourself - if \
 a total is needed, call the tool without a plant. CAPEX plants earn nothing.
 5. TABLES: whenever the answer carries numbers for more than one item (plants, \
 days, inverters, months, charges), present them as a pipe table, one row per \
 item, and END THE TABLE WITH A SUMMARY ROW (label it TOTAL, or AVERAGE for \
-ratios) taken from the tool's "totals" field — never computed by you. The \
+ratios) taken from the tool's "totals" field - never computed by you. The \
 tool says whether a figure is a sum or a kWp-weighted mean; keep that. Then \
 one or two sentences with the finding. No headings, no emojis, no bullet \
-lists of everything you saw. Under 150 words of prose. Name an inverter as the tools do — label AND serial, \
-"Inverter 3 (JGMAE65009)" — never the label alone; the serial is what the \
+lists of everything you saw. Under 150 words of prose. Name an inverter as the tools do - label AND serial, \
+"Inverter 3 (JGMAE65009)" - never the label alone; the serial is what the \
 technician reads on the machine.
 6. LANGUAGE: answer in {language}, whatever language the question is in.
-7. Do not list sources yourself — the interface shows the tool results you used.
+7. Do not list sources yourself - the interface shows the tool results you used.
 8. THE STANDARD: for anything about design rules, requirements, tolerances, \
 checklists, terminology or "what does the standard/AGS say", call \
 search_standard (in the answer language) and quote or paraphrase the slide, \
-citing it as "ARGIA Golden Standard, slide N — title". Never answer standard \
+citing it as "ARGIA Golden Standard, slide N - title". Never answer standard \
 questions from memory.
 9. Read-only: if asked to change, create or send anything, say it is not \
-available yet — except tickets: people open and update those at \
+available yet - except tickets: people open and update those at \
 https://portal.argia.com.mx/maintenance/ (say so).
 10. MAINTENANCE TICKETS: for "open tickets", "who is working on", "what is \
 being done about", "status / history / solution of ticket TK-…", call \
@@ -231,7 +231,7 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
     """Run the question to a final text answer.
 
     ``history`` is prior turns as ``[{"role": "user"|"assistant",
-    "content": str}, ...]`` — final texts only, so a follow-up ("why?")
+    "content": str}, ...]`` - final texts only, so a follow-up ("why?")
     keeps its context without replaying every tool payload.
     """
     t0 = time.monotonic()
@@ -271,7 +271,7 @@ def ask(question: str, rows: Callable[[str], List[List[str]]], llm: Any,
             messages.append({"role": "user", "content": results})
         else:
             ans.error = f"no final answer after {max_turns} turns"
-    except Exception as e:                        # noqa: BLE001 — surfaced, logged
+    except Exception as e:                        # noqa: BLE001 - surfaced, logged
         ans.error = f"{type(e).__name__}: {e}"
     ans.latency_ms = int((time.monotonic() - t0) * 1000)
     return ans

@@ -1,4 +1,4 @@
-"""v212 — reconciliation retries: the nightly run goes back over the
+"""v212 - reconciliation retries: the nightly run goes back over the
 open window and re-fetches the vendor's day for plant-days that still
 reconcile badly because of OUR gap. Never lowers; closed months frozen;
 PASS days and vendor-side gaps are left alone."""
@@ -33,15 +33,15 @@ class TestNeedsRetry:
         assert R.needs_retry(None, None, None)
 
     def test_review_our_gap_retries(self):
-        assert R.needs_retry("REVIEW", "no inverter counters — collection gap, vendor plant daily only", None)
-        assert R.needs_retry("REVIEW", "no vendor daily counter — inverter counters only", 100.0)
-        assert R.needs_retry("REVIEW", "completeness 61.1% < 95% — undercount expected (-30.00%)", 61.1)
+        assert R.needs_retry("REVIEW", "no inverter counters - collection gap, vendor plant daily only", None)
+        assert R.needs_retry("REVIEW", "no vendor daily counter - inverter counters only", 100.0)
+        assert R.needs_retry("REVIEW", "completeness 61.1% < 95% - undercount expected (-30.00%)", 61.1)
         assert R.needs_retry("REVIEW", "inverter counters vs vendor -2.00% (> 1%)", 80.0)   # low completeness
 
     def test_review_vendor_gap_is_not_ours(self):
-        # SLP2 2026-09-04: the inverters hold MORE than the vendor — the
+        # SLP2 2026-09-04: the inverters hold MORE than the vendor - the
         # vendor lost uploads; our counters are complete and kept
-        assert not R.needs_retry("REVIEW", "inverter counters +10.60% above the vendor plant daily — vendor upload gap; inverter counters kept", 100.0)
+        assert not R.needs_retry("REVIEW", "inverter counters +10.60% above the vendor plant daily - vendor upload gap; inverter counters kept", 100.0)
         # a plain 2% REVIEW with full completeness: nothing new to fetch
         assert not R.needs_retry("REVIEW", "inverter counters vs vendor -2.00% (> 1%)", 100.0)
 
@@ -55,11 +55,11 @@ class TestWindowAndSelection:
     def test_select_missing_rows_and_bad_days_not_closed_or_pass(self):
         dates = ["2026-08-30", "2026-08-31", "2026-09-01", "2026-09-02"]
         rows = [
-            ("GTO1", "2026-08-30", "REVIEW", "no inverter counters — collection gap, vendor plant daily only", ""),
+            ("GTO1", "2026-08-30", "REVIEW", "no inverter counters - collection gap, vendor plant daily only", ""),
             ("GTO1", "2026-08-31", "PASS", "ok", "100"),
             ("GTO1", "2026-09-01", "FAIL", "inverter counters vs vendor -5.00% (> 3%)", "100"),
             # 2026-09-02 has no row -> retry
-            ("MEX1", "2026-09-01", "REVIEW", "inverter counters +8.00% above the vendor plant daily — vendor upload gap; inverter counters kept", "100"),
+            ("MEX1", "2026-09-01", "REVIEW", "inverter counters +8.00% above the vendor plant daily - vendor upload gap; inverter counters kept", "100"),
             ("MEX1", "2026-09-02", "PASS", "ok", "100"),
         ]
         closed = [("GTO1", "2026-08")]           # August closed for GTO1
@@ -124,7 +124,7 @@ class TestRetryPass:
 
     def test_fetches_only_the_flagged_days_and_reconciles_them(self, monkeypatch):
         recon_rows = [
-            ["GTO1", "2026-09-03", "REVIEW", "completeness 40.0% < 95% — undercount expected (-50.00%)", "40"],
+            ["GTO1", "2026-09-03", "REVIEW", "completeness 40.0% < 95% - undercount expected (-50.00%)", "40"],
             ["GTO1", "2026-09-04", "PASS", "ok", "100"],
             ["GTO1", "2026-09-05", "PASS", "ok", "100"],
             ["NL1", "2026-09-03", "PASS", "ok", "100"],
@@ -179,7 +179,7 @@ class TestWiring:
         assert '"--retry-days", type=int, default=R.RETRY_DAYS' in src
         assert "total += retry_pass(active, portfolio, brand_by_plant," in src
         assert "frozen = closed_plant_months(dates)" in src
-        assert 'LOG.info("recon %s %s: month closed — KPI row frozen"' in src
+        assert 'LOG.info("recon %s %s: month closed - KPI row frozen"' in src
         # the heal is skipped for frozen plant-months, before any SQL
         i = src.index("in frozen:")
         j = src.index("psql_exec(B.build_fix_sql(")

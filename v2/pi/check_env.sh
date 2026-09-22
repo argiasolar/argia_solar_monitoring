@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pi/check_env.sh — audit env vars required by Argia_Mont v2.
+# pi/check_env.sh - audit env vars required by Argia_Mont v2.
 #
 # Run on the Pi BEFORE the first cron execution:
 #   bash pi/check_env.sh
@@ -35,7 +35,7 @@ check_var() {
 }
 
 echo "================================================================"
-echo "Argia_Mont v2 — environment variable audit"
+echo "Argia_Mont v2 - environment variable audit"
 echo "================================================================"
 echo
 echo "Google Sheets:"

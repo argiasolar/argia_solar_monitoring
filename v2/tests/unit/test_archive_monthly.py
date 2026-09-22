@@ -75,7 +75,7 @@ class TestLocateMonthBlock:
         assert b.count == 0
 
     def test_serial_dates_via_date_key(self):
-        # KPI_Daily stores date_iso as a serial — same normalizer as upsert.
+        # KPI_Daily stores date_iso as a serial - same normalizer as upsert.
         from argia.kpi.reconcile import date_key
         data = [["date_iso", "plant_key"],
                 [_serial("2026-06-30"), "SLP1"],
@@ -104,7 +104,7 @@ class TestVerifyAndBudget:
 
 
 class TestDriveClientRequestShapes:
-    """DriveClient with an injected fake service — request shapes only."""
+    """DriveClient with an injected fake service - request shapes only."""
 
     def _svc(self):
         svc = MagicMock()
@@ -171,7 +171,7 @@ class TestDatetimeFormatColumns:
         assert cols == [(1, "yyyy-mm-dd")]
 
     def test_telemetry_header_maps_timestamp_mx_only(self):
-        # timestamp_utc is TEXT at the source — must NOT be reformatted.
+        # timestamp_utc is TEXT at the source - must NOT be reformatted.
         cols = datetime_format_columns(
             ["timestamp_utc", "timestamp_mx", "vendor"])
         assert cols == [(2, "yyyy-mm-dd hh:mm:ss")]

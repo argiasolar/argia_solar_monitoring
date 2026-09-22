@@ -6,7 +6,7 @@ and emails as service@argia.com.mx. New alerts mail immediately,
 active ones re-mail every 6 h, recoveries mail once.
 
 v223: the PLANT conditions (plant dark / stale, inverter silent) left
-this mailer — they duplicated the alert ledger's own rules (acute
+this mailer - they duplicated the alert ledger's own rules (acute
 ``data_stale`` / ``plant_offline`` / ``inverter_silent``, the daily
 tier) with worse evidence and no explanation, and at 06:07 MX they
 called a plant that had not woken up yet "CRITICAL", twice (Tomasz,
@@ -19,7 +19,7 @@ monitoring-internal alerts (disk, failed jobs, reconciliation, sensor
 drift) go to the administrator only (v217, ARGIA_MAIL_ADMIN); CAPEX
 plants are never mailed; plants are named, codes are detail.
 Recipients with identical views share one message. Without
-/root/.argia_mail the run still tracks state and logs — it never
+/root/.argia_mail the run still tracks state and logs - it never
 crashes and never spams.
 """
 
@@ -76,7 +76,7 @@ def gather_failed_units() -> List[Tuple[str, str]]:
             capture_output=True, text=True, timeout=20)
         props = dict(ln.split("=", 1) for ln in r.stdout.splitlines()
                      if "=" in ln)
-        # Judge by systemd's verdict, not the raw exit code — units may
+        # Judge by systemd's verdict, not the raw exit code - units may
         # declare SuccessExitStatus (argia-kpi exits 1 on a partial day
         # by design, e.g. QRO1 dark; that is not a failure).
         result = props.get("Result", "success")
@@ -91,7 +91,7 @@ def gather_failed_units() -> List[Tuple[str, str]]:
 def gather_satellite_drift() -> List[Tuple[str, str, str, str]]:
     """Latest satellite_check verdict per plant, recent runs only (a
     check that stopped running must not nag forever from stale rows).
-    Table may not exist before the first satcheck run — that's a clean
+    Table may not exist before the first satcheck run - that's a clean
     empty, not an error."""
     try:
         return [(r[0], r[1], r[2], r[3][:200]) for r in psql_rows(
@@ -106,7 +106,7 @@ def gather_satellite_drift() -> List[Tuple[str, str, str, str]]:
 
 def gather_cfe_status() -> Optional[dict]:
     """CFE pipeline status for monitor.cfe_alerts(). None while the
-    pipeline is not deployed (table absent or empty) — silent."""
+    pipeline is not deployed (table absent or empty) - silent."""
     try:
         rows = psql_rows(
             "SELECT round(extract(epoch FROM (now() - heartbeat_ts))"
@@ -158,7 +158,7 @@ def load_state() -> Tuple[Dict[str, tuple], Dict[str, str]]:
 
 def persist(active: List[monitor.Alert], sent_keys: List[str],
             recovered: List[str]) -> None:
-    """v223: the INSERT branch also stamps last_sent — before, a key seen
+    """v223: the INSERT branch also stamps last_sent - before, a key seen
     for the first time was mailed, inserted WITHOUT last_sent, and
     mailed again on the next tick as "never sent" (SAG 06:07 + 06:37,
     2026-09-07)."""
@@ -212,7 +212,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     ensure_tables()
     now = dt.datetime.now(dt.timezone.utc)
@@ -227,7 +227,7 @@ def main(argv=None) -> int:
                       bool(cfg), len(emails))
             return 1
         msg = emailer.build_email(
-            "[ARGIA] test — alert mailer is live",
+            "[ARGIA] test - alert mailer is live",
             "This is a test from the ARGIA alert mailer on pio06.\n"
             "You receive plant/server/infrastructure alerts here.\n"
             "Manage recipients: https://portal.argia.com.mx/setup/",
@@ -243,7 +243,7 @@ def main(argv=None) -> int:
     disk = shutil.disk_usage("/")
     disk_pct = 100.0 * disk.used / disk.total
 
-    # a plant under a logged maintenance window never alarms — logging an
+    # a plant under a logged maintenance window never alarms - logging an
     # event (any category) in /setup/ is the official way to silence a
     # known-down plant (e.g. QRO1) without losing the paper trail
     try:
@@ -253,7 +253,7 @@ def main(argv=None) -> int:
             " OR end_ts >= now());")}
     except RuntimeError:
         in_maint = set()
-    # v223: no plant-dark / plant-stale / inverter-silent here any more —
+    # v223: no plant-dark / plant-stale / inverter-silent here any more -
     # the alert ledger (alerts_snapshot / alerts_daily) owns plant and
     # inverter conditions, with the vendor counter as evidence
     s_alerts = [a for a in monitor.satellite_alerts(
@@ -266,12 +266,12 @@ def main(argv=None) -> int:
                                    today=now_mx.date())
               + monitor.drift_alerts(gather_drift(), now=now))
     # v204: only the mailed portfolios (ARGIA_MAIL_PORTFOLIOS, default PPA)
-    # page anyone — CAPEX plants stay on the portal and in the ledger.
+    # page anyone - CAPEX plants stay on the portal and in the ledger.
     # v217: the filter sits on what is SENT, not on what is tracked, so
     # the state stays true and a held alert is simply sent next tick;
     # when the plant table is unreachable every plant alert is held.
     excluded = subscriptions.load_excluded_plants()
-    # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest —
+    # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest -
     # the 07:07 MX tick, after the whole morning chain has run.
     digest = now_mx.hour == 7 and now_mx.minute < 30
     state, sev_by_key = load_state()
@@ -300,7 +300,7 @@ def main(argv=None) -> int:
 
     if (to_send or mail_recovered) and not args.dry_run:
         if cfg and rcpt:
-            # one message per distinct filtered view — a plant-scoped
+            # one message per distinct filtered view - a plant-scoped
             # subscriber sees only his plants, never infra noise
             sent_keys: List[str] = []
             names = naming.load_names()      # v217: names first, codes as detail
@@ -313,7 +313,7 @@ def main(argv=None) -> int:
                            + (f", {n_crit} critical" if n_crit else "")
                            + (f", {len(g_recovered)} recovered"
                               if g_recovered else "")
-                           + (" — daily digest" if digest and not n_crit
+                           + (" - daily digest" if digest and not n_crit
                               else ""))
                 body = monitor.render_body(
                     g_alerts, g_recovered,
@@ -326,13 +326,13 @@ def main(argv=None) -> int:
                 if ok:
                     sent_keys.extend(a.key for a in g_alerts)
             # a held alert (portfolio filter) is handled by the decision
-            # not to mail it — stamp it like a send so it follows the
+            # not to mail it - stamp it like a send so it follows the
             # normal cadence instead of being re-decided every tick
             sent_keys.extend(a.key for a in dropped)
             persist(active, sorted(set(sent_keys)), recovered)
         else:
             LOG.warning("alerts pending but mail not configured "
-                        "(config=%s recipients=%d) — state tracked, "
+                        "(config=%s recipients=%d) - state tracked, "
                         "no mail", bool(cfg), len(rcpt))
             persist(active, [], recovered)
     elif not args.dry_run:

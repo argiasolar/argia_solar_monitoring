@@ -1,8 +1,8 @@
-"""Argia_Mont — nightly satellite irradiance cross-check (Open-Meteo).
+"""Argia_Mont - nightly satellite irradiance cross-check (Open-Meteo).
 
 Runs on pio06 daily at 06:20 MX (argia-satcheck.timer), right after
 argia-kpi has stamped yesterday's irradiance, and BEFORE argia-mailer's
-next tick — so a drift verdict lands in the same morning's alert mail.
+next tick - so a drift verdict lands in the same morning's alert mail.
 
 Per active plant with coordinates: fetch ~40 days of satellite daily GHI,
 build the measured/satellite ratio series from daily_production
@@ -125,7 +125,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.error("ARGIA_PG_MIRROR not enabled — nothing to do")
+        LOG.error("ARGIA_PG_MIRROR not enabled - nothing to do")
         return 2
     try:
         plants = plant_coords()
@@ -144,7 +144,7 @@ def main(argv=None) -> int:
     for pk, lat, lon in plants:
         try:
             sat = parse_daily_ghi(fetch_json(build_url(lat, lon)))
-        except Exception as e:  # noqa: BLE001 — one plant must not kill the run
+        except Exception as e:  # noqa: BLE001 - one plant must not kill the run
             LOG.error("%s: Open-Meteo fetch failed: %s", pk, e)
             failures += 1
             continue
@@ -159,7 +159,7 @@ def main(argv=None) -> int:
                  dc.drift_pct if dc.drift_pct is not None else "-",
                  dc.recent_median, dc.baseline_median,
                  dc.n_recent, dc.n_baseline,
-                 " — " + dc.note if dc.status != "OK" else "")
+                 " - " + dc.note if dc.status != "OK" else "")
         if not args.dry_run:
             try:
                 psql_exec(upsert_sql(pk, dc))

@@ -2,7 +2,7 @@
 5-minute telemetry with argia.analytics.thermal and stores thermal_daily
 (per inverter: peak, hours hot, events, ΔT vs peers / ambient, suspected
 derating minutes, lost kWh, cooling health, and since v222 the minutes
-the inverter ITSELF reported thermal derating — Growatt DeratingMode
+the inverter ITSELF reported thermal derating - Growatt DeratingMode
 Tinv/Tboost out of telemetry_detail) and thermal_bins (the
 temperature-binned actual/expected ratios behind the derating curve).
 
@@ -126,7 +126,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     if a.report:
         report(a.report.upper())

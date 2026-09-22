@@ -5,7 +5,7 @@ Born 2026-07-03: a silent edit left ``production_statement`` out of
 runtime error), no unit test executes the script's main loop, and the live
 run crashed. This module closes the class: for every operational script,
 every global name referenced anywhere in its code must resolve in the
-module namespace or builtins — a missing import fails HERE, at test time.
+module namespace or builtins - a missing import fails HERE, at test time.
 """
 
 from __future__ import annotations
@@ -49,5 +49,5 @@ def test_every_referenced_global_resolves(modname):
         if not hasattr(module, n) and not hasattr(builtins, n)
     )
     assert not missing, (
-        f"{modname} references undefined global(s): {missing} — "
+        f"{modname} references undefined global(s): {missing} - "
         f"almost certainly a missing import")

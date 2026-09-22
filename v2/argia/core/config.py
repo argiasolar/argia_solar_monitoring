@@ -1,13 +1,13 @@
-"""Config loader — Stage 7.3.
+"""Config loader - Stage 7.3.
 
 Adds two optional Plants columns: ``pr_baseline`` (clean-state PR for
 soiling math) and ``tariff_mxn_per_kwh`` (energy price for dollar
 projections).
 
 Stage 7.3 also adds **load-time validation warnings** when kwp_dc looks
-suspicious — the live data revealed several plants where the field is
+suspicious - the live data revealed several plants where the field is
 under-set, which produces nonsensical PR values downstream. We don't
-refuse to load — we WARN, because fixing the sheet is independent of
+refuse to load - we WARN, because fixing the sheet is independent of
 the pipeline being functional.
 """
 
@@ -71,18 +71,18 @@ class PlantConfig:
     """Energy price for the customer at this site, MXN/kWh. Used to
     convert PR loss into pesos for cost-benefit decisions."""
 
-    # v61 — finance layer
+    # v61 - finance layer
     om_cost_monthly_mxn: Optional[float] = None
     """Average monthly O&M cost for this plant, MXN (manual entry).
     Feeds the investor report's opex line; prorated for partial
     ranges. None/blank = not provided, opex line shows 0 for the
     plant with a footnote."""
 
-    # v74 — visibility flags. Two axes, deliberately separate:
+    # v74 - visibility flags. Two axes, deliberately separate:
     # `active` is the MACHINE axis (telemetry/KPI/alerts) and is the
     # only flag that can stop data capture. The columns below are the
     # REPORT axis: they control where a plant appears, never what is
-    # collected — a wrong value here can hide a plant but can never
+    # collected - a wrong value here can hide a plant but can never
     # silently lose data. `portfolio` is a pure label (grouping,
     # badges, future per-portfolio reports); it controls nothing.
     portfolio: str = "PPA"
@@ -90,7 +90,7 @@ class PlantConfig:
     show_daily_report: bool = True
     show_financial: bool = True
 
-    # v77 — client delivery. Non-blank routes this plant into a
+    # v77 - client delivery. Non-blank routes this plant into a
     # per-client daily report mailed via the notifier channel of the
     # same name (Recipients rows per channel). Blank = internal only.
     # Independent of show_daily_report, which governs the INTERNAL
@@ -120,7 +120,7 @@ class Portfolio:
 
     def active_plants(self) -> List[PlantConfig]:
         """MACHINE axis: telemetry, KPI, alerts. Report flags never
-        filter here — hiding a plant must not stop its data."""
+        filter here - hiding a plant must not stop its data."""
         return [p for p in self.plants.values() if p.active]
 
     def dashboard_plants(self) -> List[PlantConfig]:
@@ -139,7 +139,7 @@ class Portfolio:
 
     def for_client_channel(self, channel: str) -> "Portfolio":
         """A portfolio VIEW for one client: only that channel's active
-        plants, with show_daily_report forced True — the internal flag
+        plants, with show_daily_report forced True - the internal flag
         hides a plant from ARGIA's report, never from the client's own
         (the whole point of the channel). Alerts scoping then covers
         exactly the client's plants for free."""
@@ -177,7 +177,7 @@ PLANTS_HEADER_V71 = PLANTS_HEADER_V70 + [
     "system_losses_pct", "commissioning_date", "notes",
 ]
 
-# Stage 7.3 — 2 new columns at end
+# Stage 7.3 - 2 new columns at end
 PLANTS_HEADER = PLANTS_HEADER_V71 + [
     "pr_baseline", "tariff_mxn_per_kwh",
 ]
@@ -202,7 +202,7 @@ KNOWN_PORTFOLIOS = ("PPA", "CAPEX", "PROLOGIS")
 def _flag_default_true(value, column: str, plant_key: str) -> bool:
     """Report-visibility flags: BLANK means TRUE (migration is a
     behavioral no-op), an explicit falsy hides, and an unrecognized
-    value warns and shows — erring on visibility, never on silent
+    value warns and shows - erring on visibility, never on silent
     hiding."""
     s = normalize_text(value).lower()
     if s == "":
@@ -211,7 +211,7 @@ def _flag_default_true(value, column: str, plant_key: str) -> bool:
         return False
     if s in ("true", "yes", "y", "1", "x"):
         return True
-    LOG.warning("Plants.%s for %s: unrecognized value %r — treating as "
+    LOG.warning("Plants.%s for %s: unrecognized value %r - treating as "
                 "TRUE (visible)", column, plant_key, value)
     return True
 
@@ -232,7 +232,7 @@ def _portfolio_label(value, plant_key: str) -> str:
     if s == "":
         return "PPA"
     if s not in KNOWN_PORTFOLIOS:
-        LOG.warning("Plants.portfolio for %s: unknown label %r (kept — "
+        LOG.warning("Plants.portfolio for %s: unknown label %r (kept - "
                     "known: %s)", plant_key, s,
                     "/".join(KNOWN_PORTFOLIOS))
     return s
@@ -259,12 +259,12 @@ def _warn_plant_sanity(plant: PlantConfig, log: logging.Logger) -> None:
     """Best-effort warnings at load time. Pure logging, no raises."""
     if plant.kwp_dc <= 0 and plant.active:
         log.warning(
-            "[%s] kwp_dc is 0 or missing on Plants tab — PR will be None",
+            "[%s] kwp_dc is 0 or missing on Plants tab - PR will be None",
             plant.plant_key,
         )
     if plant.kwp_ac <= 0 and plant.active:
         log.warning(
-            "[%s] kwp_ac is 0 or missing on Plants tab — capacity factor will be None",
+            "[%s] kwp_ac is 0 or missing on Plants tab - capacity factor will be None",
             plant.plant_key,
         )
     if plant.kwp_dc > 0 and plant.kwp_ac > 0:
@@ -272,7 +272,7 @@ def _warn_plant_sanity(plant: PlantConfig, log: logging.Logger) -> None:
         if ratio < 1.0:
             log.warning(
                 "[%s] kwp_dc (%.1f) < kwp_ac (%.1f). DC nameplate is usually "
-                "1.1-1.3× AC nameplate — kwp_dc likely set to single-inverter "
+                "1.1-1.3× AC nameplate - kwp_dc likely set to single-inverter "
                 "rating instead of plant total. Expect PR > 1.0.",
                 plant.plant_key, plant.kwp_dc, plant.kwp_ac,
             )
@@ -295,8 +295,8 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
 
     Stage 7.3: AB column range to fit the 2 new Plants fields. Old
     sheets with fewer columns still load (missing cells → None)."""
-    # v198: through the config door — the sheet tabs or PostgreSQL
-    # plant/inverter, per ARGIA_CONFIG_SOURCE. AZ: headroom —
+    # v198: through the config door - the sheet tabs or PostgreSQL
+    # plant/inverter, per ARGIA_CONFIG_SOURCE. AZ: headroom -
     # pr_baseline sits at AJ, past the old AB cutoff.
     from argia.core.config_pg import inverters_records, plants_records
     plants_raw = plants_records(sheets, "A1:AZ")
@@ -305,7 +305,7 @@ def load_portfolio(sheets: SheetsClient) -> Portfolio:
 
 
 def portfolio_from_records(plants_raw, inverters_raw) -> Portfolio:
-    """The record lists (dicts keyed by column name — what the config
+    """The record lists (dicts keyed by column name - what the config
     door returns, or the JSON snapshot the Pi keeps) -> Portfolio.
     v214: split out so the Pi's outage watch can run without any
     database or sheet."""
@@ -373,7 +373,7 @@ def portfolio_from_records(plants_raw, inverters_raw) -> Portfolio:
 
         if plant_key in plants:
             LOG.warning(
-                "Duplicate plant_key '%s' in Plants tab — keeping first", plant_key,
+                "Duplicate plant_key '%s' in Plants tab - keeping first", plant_key,
             )
             continue
         plants[plant_key] = cfg
@@ -388,7 +388,7 @@ def portfolio_from_records(plants_raw, inverters_raw) -> Portfolio:
 
         if plant_key not in plants:
             LOG.warning(
-                "Inverters row references unknown plant_key '%s' — skipping",
+                "Inverters row references unknown plant_key '%s' - skipping",
                 plant_key,
             )
             continue
@@ -405,7 +405,7 @@ def portfolio_from_records(plants_raw, inverters_raw) -> Portfolio:
         )
         if inv.rated_kw <= 0 and inv.active:
             LOG.warning(
-                "[%s/%s] rated_kw is 0 on Inverters tab — peer ranking "
+                "[%s/%s] rated_kw is 0 on Inverters tab - peer ranking "
                 "will not work for this inverter",
                 plant_key, sn,
             )

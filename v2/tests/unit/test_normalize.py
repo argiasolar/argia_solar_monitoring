@@ -71,7 +71,7 @@ class TestSafeInt:
         assert safe_int(42) == 42
 
     def test_float_truncates(self):
-        # Python int(3.7) is 3 — same here
+        # Python int(3.7) is 3 - same here
         assert safe_int(3.7) == 3
 
     def test_negative_float_truncates_toward_zero(self):
@@ -154,7 +154,7 @@ class TestNormalizeSn:
         assert normalize_sn("abc123") == "ABC123"
 
     def test_strip_internal_whitespace(self):
-        # Some APIs return "ES24 70051825" — must collapse to "ES2470051825"
+        # Some APIs return "ES24 70051825" - must collapse to "ES2470051825"
         assert normalize_sn("ES24 70051825") == "ES2470051825"
 
     def test_strip_outer_whitespace(self):
@@ -187,7 +187,7 @@ class TestPick:
         assert pick({"a": "null", "b": "y"}, ["a", "b"]) == "y"
 
     def test_zero_is_kept(self):
-        # 0 should NOT be skipped — it's a valid value
+        # 0 should NOT be skipped - it's a valid value
         assert pick({"a": 0, "b": 1}, ["a", "b"]) == 0
 
     def test_no_match_returns_none(self):
@@ -232,8 +232,8 @@ class TestSiteIdValidators:
         [
             ("9275498", True),
             ("10069072", True),
-            ("123456", True),  # 6 digits — minimum
-            ("123456789012", True),  # 12 digits — maximum
+            ("123456", True),  # 6 digits - minimum
+            ("123456789012", True),  # 12 digits - maximum
             ("12345", False),  # too short
             ("1234567890123", False),  # too long
             ("NE=35314736", False),
@@ -263,7 +263,7 @@ class TestSiteIdValidators:
         "value,expected",
         [
             ("123456", True),
-            ("1234", True),  # 4 digits — minimum
+            ("1234", True),  # 4 digits - minimum
             ("123", False),  # too short
             ("NE=123456", False),
             ("", False),

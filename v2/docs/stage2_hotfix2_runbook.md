@@ -1,4 +1,4 @@
-# Stage 2 Hotfix 2 — Re-capture corrupt MAXHistory fixtures
+# Stage 2 Hotfix 2 - Re-capture corrupt MAXHistory fixtures
 
 ## Root cause
 
@@ -65,9 +65,9 @@ suite, with the 13 failures and 16 errors gone).
 ## If the recapture itself fails
 
 The script exits with:
-- `2` — login failed. Check `GROWATT_USERNAME`/`GROWATT_PASSWORD` env vars.
-- `3` — config error (creds not set).
-- `1` — partial: some SNs succeeded, others failed. Logs show which.
+- `2` - login failed. Check `GROWATT_USERNAME`/`GROWATT_PASSWORD` env vars.
+- `3` - config error (creds not set).
+- `1` - partial: some SNs succeeded, others failed. Logs show which.
 
 Most likely cause if it fails: Growatt no longer has data for date
 `2026-05-11` (they keep ~30 days of history; today is `2026-05-13`, so this

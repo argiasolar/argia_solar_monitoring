@@ -38,7 +38,7 @@ class TestWayBackToReports:
         assert "Reports" in block
 
     def test_reports_link_is_same_origin(self):
-        """One host now — no hostname, so no second login."""
+        """One host now - no hostname, so no second login."""
         assert "https://report.argia.com.mx" not in MON
 
     def test_setup_page_also_offers_the_way_back(self):
@@ -104,7 +104,7 @@ class TestSinglePdfButton:
         assert "pdfrow" in REP[max(0, i - 260):i]
 
     def test_toolbar_has_no_pdf_button(self):
-        """chrome_top ends where pdf_bottom begins — the bottom row is
+        """chrome_top ends where pdf_bottom begins - the bottom row is
         allowed to print, the toolbar above it is not."""
         i = REP.index("def chrome_top")
         assert "window.print()" not in REP[i:REP.index("def pdf_bottom")]
@@ -138,6 +138,6 @@ class TestNoAccessPage:
         assert "Sin acceso" in body and "No access" in body
 
     def test_challenge_still_sent_so_the_prompt_appears_first(self):
-        """error_page must not rewrite the status to 200 — the browser
+        """error_page must not rewrite the status to 200 - the browser
         needs the 401 + WWW-Authenticate to offer the sign-in box."""
         assert "error_page 401 =200" not in AUTH

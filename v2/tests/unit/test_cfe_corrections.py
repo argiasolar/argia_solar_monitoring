@@ -1,4 +1,4 @@
-"""v239 — the cfe_tariff corrections register: the file, the comparison
+"""v239 - the cfe_tariff corrections register: the file, the comparison
 with the table, the idempotent UPDATEs, the drift hook."""
 from __future__ import annotations
 

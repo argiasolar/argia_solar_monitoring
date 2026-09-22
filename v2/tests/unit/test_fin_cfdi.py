@@ -1,5 +1,5 @@
 """Scenario 16 (supplier invoice import), 40 (taxes), 46 (cancelled
-CFDI), 47 (payment complements), 62/67 (UUID once) — CFDI 4.0 parsing."""
+CFDI), 47 (payment complements), 62/67 (UUID once) - CFDI 4.0 parsing."""
 from __future__ import annotations
 
 from decimal import Decimal

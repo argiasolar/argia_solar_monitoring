@@ -19,7 +19,7 @@ class TestTheButtonExists:
         assert 'href="invoices/"' in block
 
     def test_as_a_full_card_on_the_landing_nav(self):
-        """Feedback 2026-09-01: the footer link alone was invisible —
+        """Feedback 2026-09-01: the footer link alone was invisible -
         'I still cant see the invoice button'. Now a first-class card
         beside Financial Report."""
         i = REP.index('class="nav navbig"')
@@ -39,7 +39,7 @@ class TestTheButtonExists:
     def test_it_is_not_admin_gated_in_the_markup(self):
         """financial users are not all admins; nginx+auth_core gate it
         by the financial grant, the markup must not hide it further.
-        The anchor carries no class at all — the neighbouring Setup
+        The anchor carries no class at all - the neighbouring Setup
         link is the adminonly one."""
         assert '<a href="invoices/">' in REP
 

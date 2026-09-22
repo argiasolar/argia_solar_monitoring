@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily CFE tariff ingest — after the Pi's 08:10 MX push
+Description=Daily CFE tariff ingest - after the Pi's 08:10 MX push
 
 [Timer]
 OnCalendar=*-*-* 09:15:00 America/Mexico_City

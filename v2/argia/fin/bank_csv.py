@@ -2,7 +2,7 @@
 
 One parser per bank format, registered by name; each is a pure function
 over the file's text and is pinned by a fixture in tests. Unknown
-formats are refused — a guessed column mapping is how a debit becomes
+formats are refused - a guessed column mapping is how a debit becomes
 a credit. The generic format below is the portal's own CSV (what a
 person exports from the bank and normalises once); bank-native
 formats are added in Phase 1 from the sample files Tomasz drops.
@@ -36,7 +36,7 @@ def register(name: str):
 def parse(fmt: str, text: str, account: str) -> Statement:
     fn = REGISTRY.get(fmt)
     if fn is None:
-        raise BankFormatError(f"unknown bank format {fmt!r} — known: {sorted(REGISTRY)}")
+        raise BankFormatError(f"unknown bank format {fmt!r} - known: {sorted(REGISTRY)}")
     return fn(text, account)
 
 

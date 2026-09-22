@@ -250,7 +250,7 @@ class TestInstallmentLabel:
             assert installment_label(sched, pk, "2026-07") == label, pk
 
     def test_slp1_handoff_between_loans(self):
-        # L1 ends 2026-05 (24/24), L2 starts 2026-06 — completed loan
+        # L1 ends 2026-05 (24/24), L2 starts 2026-06 - completed loan
         # drops out, so July shows only the active refinance
         from argia.finance.loans import installment_label
         sched = _schedule()

@@ -1,6 +1,6 @@
 """The /ask/ service through Flask's test client: who gets in, what the
 API returns, that every answer is logged. The model is scripted and
-the database is the fake from test_ask_tools — no network, no PG."""
+the database is the fake from test_ask_tools - no network, no PG."""
 
 import importlib
 import json
@@ -140,7 +140,7 @@ def test_nginx_and_systemd_wire_the_same_port():
 
 
 def test_page_json_is_valid_javascript_strings():
-    """The page template is a Python string holding JS — make sure the
+    """The page template is a Python string holding JS - make sure the
     escapes survive: a '\\n' inside the JS must reach the browser as the
     two characters backslash-n, not as a newline inside a JS literal."""
     import ask_app as aa

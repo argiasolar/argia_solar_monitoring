@@ -6,19 +6,19 @@ telemetry + KPI + config, and rewrites both tabs in place. Readers:
 dashboard_html_publish (the live dashboard page), report.daily (live
 "expected so far", intraday buckets, conditions) and kpi_eod /
 maintenance.deemed (measured energy inside a partial-day maintenance
-window). Nothing is entered by hand and nothing is history — the window
+window). Nothing is entered by hand and nothing is history - the window
 is recomputed from its sources every tick.
 
 So the PostgreSQL twin is two tables with the tabs' exact columns
 (``dashboard.PLANT_COLUMNS`` / ``INVERTER_COLUMNS``), rewritten
 atomically per run (DELETE + INSERT in one transaction: a reader never
-sees an empty table), and served back as ``read_table`` dicts — dates as
-ISO text, bucket_ts as 'YYYY-MM-DD HH:MM:SS', numbers typed — which the
+sees an empty table), and served back as ``read_table`` dicts - dates as
+ISO text, bucket_ts as 'YYYY-MM-DD HH:MM:SS', numbers typed - which the
 readers already parse through date_key / safe_float.
 
     ARGIA_DASHBOARD_SOURCE = sheet | both | pg      (v195 default: sheet)
 
-  sheet  write the tabs, readers read the tabs — today's behaviour
+  sheet  write the tabs, readers read the tabs - today's behaviour
   both   write BOTH from the same matrices (the parity run), readers
          read PostgreSQL
   pg     PostgreSQL only; the tabs are no longer written

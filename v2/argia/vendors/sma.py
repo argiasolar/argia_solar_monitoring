@@ -21,7 +21,7 @@ Honest limitations:
 - Sandbox only simulates ennexOS plants with 15-minute resolution.
 - Some endpoints are unavailable in sandbox (per SMA support email).
   We log warnings and continue when individual endpoints 404.
-- Power factor / per-phase data depends on what the sandbox returns — we
+- Power factor / per-phase data depends on what the sandbox returns - we
   build defensively and let DEBUG logs reveal what's actually in the response.
 
 Modeled after Stage 5 SolarEdgeClient: same VendorClient Protocol surface,
@@ -48,7 +48,7 @@ LOG = logging.getLogger("argia.vendors.sma")
 
 
 def _zone(name: str):
-    """The plant's tz, falling back to Mexico when the name is unknown — a bad
+    """The plant's tz, falling back to Mexico when the name is unknown - a bad
     timezone string must never take the 5-minute pipeline down."""
     if not name or name == "America/Mexico_City":
         return MX_TZ
@@ -97,7 +97,7 @@ API_BASE_ENV = "SMA_API_BASE"
 # one real capture we hold (tests/fixtures/sma/live_inverter_sets_16.json) lists
 # ["Sensor", "EnergyAndPowerPv", "PowerDc", "PowerAc"] for an inverter and [] for
 # a sensor device. So we ask the device what it has instead of hard-coding a
-# guess — the Stage 6 scaffold guessed, and would have 404'd on every call.
+# guess - the Stage 6 scaffold guessed, and would have 404'd on every call.
 INVERTER_SET_PREFERENCE = ("EnergyAndPowerPv", "PowerAc", "PowerDc", "pvGeneration")
 
 
@@ -202,7 +202,7 @@ class SMAClient:
         self._endpoints["api_base"] = api_base(env, api_base_override or os.environ.get(API_BASE_ENV))
         self._timeout = timeout_sec
         self._session = session or requests.Session()
-        # Both SMA plants are in Mexico, so MX_TZ is the right default — but
+        # Both SMA plants are in Mexico, so MX_TZ is the right default - but
         # the argument used to be accepted and thrown away (both branches of
         # the old conditional were MX_TZ), which would silently misread a
         # plant anywhere else.
@@ -216,7 +216,7 @@ class SMAClient:
     # ===== public VendorClient interface =====
 
     def login(self) -> None:
-        """Three-step SMA auth. Idempotent — won't re-run if token still
+        """Three-step SMA auth. Idempotent - won't re-run if token still
         valid and consent already accepted in this client lifetime."""
         if self._token_valid() and self._logged_in_at_consent:
             return
@@ -234,7 +234,7 @@ class SMAClient:
               ?Period=Day&Date={date_iso}
 
         EnergyMix is the plant-level measurement set per SMA FAQ. Returns
-        None when no data is available — common in sandbox (limited data).
+        None when no data is available - common in sandbox (limited data).
         """
         self.login()
         try:
@@ -259,7 +259,7 @@ class SMAClient:
 
         SMA's deviceLevel measurement sets include ``pvGeneration`` which
         contains power + energy fields. The exact shape varies between
-        ennexOS and Sunny Portal Classic — we parse defensively.
+        ennexOS and Sunny Portal Classic - we parse defensively.
         """
         if not inverters:
             return []
@@ -380,7 +380,7 @@ class SMAClient:
                 f"{resp.text[:200]}"
             )
 
-        # Hard terminal states — no recovery in this run
+        # Hard terminal states - no recovery in this run
         if bc_state in ("rejected", "expired", "revoked"):
             raise SMAConsentError(
                 f"SMA consent state is '{bc_state}'. Resource owner did "
@@ -390,11 +390,11 @@ class SMAClient:
         # If consent is already accepted, skip the status PUT entirely
         if bc_state == "accepted":
             LOG.info(
-                "SMA consent already 'accepted' — skipping status PUT"
+                "SMA consent already 'accepted' - skipping status PUT"
             )
             return
 
-        # State is 'pending' or unknown — proceed with Step 3
+        # State is 'pending' or unknown - proceed with Step 3
         if self._environment == "sandbox":
             self._simulate_sandbox_consent()
         else:
@@ -450,9 +450,9 @@ class SMAClient:
             if resp.status_code == 404:
                 # Stage 6.2: SMA returns 404 when the consent record is no
                 # longer in a 'pending' state (already accepted, or never
-                # existed). Either way we have nothing to do — short-circuit.
+                # existed). Either way we have nothing to do - short-circuit.
                 LOG.info(
-                    "SMA sandbox status PUT returned 404 — consent is not "
+                    "SMA sandbox status PUT returned 404 - consent is not "
                     "in 'pending' state (already accepted, or expired). "
                     "Treating as success."
                 )
@@ -519,7 +519,7 @@ class SMAClient:
     def _get_json(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Single low-level GET against the Monitoring API.
 
-        Tests mock THIS method. Refresh-on-401 not implemented yet — SMA
+        Tests mock THIS method. Refresh-on-401 not implemented yet - SMA
         tokens are typically long-lived (~1 hour) and the script runs are
         much shorter, so we'd see a 401 only if creds are revoked.
         """
@@ -533,7 +533,7 @@ class SMAClient:
                 f"client token rejected (consent revoked?). {resp.text[:200]}"
             )
         if resp.status_code == 404:
-            # Sandbox documents that some endpoints are unavailable —
+            # Sandbox documents that some endpoints are unavailable -
             # propagate as APIError so caller can warn-and-continue
             raise SMAAPIError(
                 f"SMA {path} returned HTTP 404: endpoint not available "
@@ -563,7 +563,7 @@ class SMAClient:
 
         SMA's EnergyMix shape varies; we look for several common keys.
         Returns None when the response doesn't contain a usable value
-        (rather than throwing — sandbox sometimes returns empty sets).
+        (rather than throwing - sandbox sometimes returns empty sets).
         """
         if not isinstance(response, dict):
             return None

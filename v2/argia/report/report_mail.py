@@ -5,7 +5,7 @@ mailed the morning ("yesterday") and evening ("today") PDFs to the
 'reporting' recipients. It died silently; the sheet path is being
 retired anyway. report_daily now mails the PDF it just rendered to the
 'reports' channel of mail_subscription (managed in /setup/, portal users
-only) — fail CLOSED like the notifier: no subscriber, no mail, logged.
+only) - fail CLOSED like the notifier: no subscriber, no mail, logged.
 Never raises: the report is already rendered and uploaded; a mail
 problem must not turn the run red.
 """
@@ -18,12 +18,12 @@ from typing import List, Tuple
 LOG = logging.getLogger("argia.report.report_mail")
 
 CHANNEL = "reports"
-LABEL = {"morning_yesterday": "Morning report — yesterday's full day",
-         "evening_today": "Evening report — today so far"}
+LABEL = {"morning_yesterday": "Morning report - yesterday's full day",
+         "evening_today": "Evening report - today so far"}
 
 KINDS_ENV = "ARGIA_REPORT_MAIL_KINDS"
 DEFAULT_KINDS = ""
-"""v204 (Tomasz 2026-09-05: "we are still getting the old Daily Report —
+"""v204 (Tomasz 2026-09-05: "we are still getting the old Daily Report -
 stop sending it"): no PDF daily mails by default. The PDFs are still
 rendered to Drive and the portal; set ARGIA_REPORT_MAIL_KINDS to
 'morning_yesterday' and/or 'evening_today' to mail them again."""
@@ -39,10 +39,10 @@ def kinds_enabled(env=None) -> frozenset:
 def subject_body(date_iso: str, kind: str) -> Tuple[str, str]:
     """Pure."""
     label = LABEL.get(kind, kind)
-    subject = f"[ARGIA] Daily report {date_iso} — {label.split(' — ')[0]}"
+    subject = f"[ARGIA] Daily report {date_iso} - {label.split(' - ')[0]}"
     body = (f"ARGIA fleet daily report for {date_iso}.\n"
             f"{label}.\n\nThe PDF is attached; the HTML edition is in the "
-            f"Reports folder on Drive.\n\n— ARGIA Monitoring (service@argia.com.mx)\n")
+            f"Reports folder on Drive.\n\n- ARGIA Monitoring (service@argia.com.mx)\n")
     return subject, body
 
 
@@ -57,20 +57,20 @@ def send_report(pdf_path: str, date_iso: str, kind: str,
     """True when the mail went out (or would, in dry-run)."""
     from argia.alerts import emailer
     if kind not in kinds_enabled():
-        LOG.info("report mail: '%s' not in %s=%s — not mailed (the PDF is on "
+        LOG.info("report mail: '%s' not in %s=%s - not mailed (the PDF is on "
                  "Drive and the portal)", kind, KINDS_ENV,
                  ",".join(sorted(kinds_enabled())) or "(none)")
         return False
     if not pdf_path or not os.path.exists(pdf_path):
-        LOG.warning("report mail: no PDF to attach — nothing sent")
+        LOG.warning("report mail: no PDF to attach - nothing sent")
         return False
     try:
         rcpt = recipients()
     except Exception as e:  # noqa: BLE001
-        LOG.warning("report mail: recipients unavailable (%s) — not sent", e)
+        LOG.warning("report mail: recipients unavailable (%s) - not sent", e)
         return False
     if not rcpt:
-        LOG.warning("report mail: no enabled '%s' subscribers — not sent "
+        LOG.warning("report mail: no enabled '%s' subscribers - not sent "
                     "(subscribe in /setup/)", CHANNEL)
         return False
     subject, body = subject_body(date_iso, kind)
@@ -79,7 +79,7 @@ def send_report(pdf_path: str, date_iso: str, kind: str,
         return True
     cfg = emailer.load_smtp()
     if not cfg:
-        LOG.warning("report mail: no SMTP config — not sent")
+        LOG.warning("report mail: no SMTP config - not sent")
         return False
     msg = emailer.build_email(subject, body, cfg["SMTP_USER"], rcpt)
     with open(pdf_path, "rb") as fh:

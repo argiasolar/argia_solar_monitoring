@@ -1,14 +1,14 @@
-"""Satellite irradiance cross-check (Open-Meteo) — sensor-drift detection.
+"""Satellite irradiance cross-check (Open-Meteo) - sensor-drift detection.
 
 WHY: PR, PR_STC and expected-energy all stand on the site's own irradiance
 sensor (ShineMaster / vendor pyranometer). A drifting or dirty sensor skews
-ALL of them in the same direction, and nothing vendor-side ever disagrees —
+ALL of them in the same direction, and nothing vendor-side ever disagrees -
 only an independent reference can notice. (AGS doctrine: flag what you
 cannot verify; never let a silent input rot.)
 
 HOW: Open-Meteo daily shortwave_radiation_sum (GHI, model analysis) at the
 plant's coordinates. The site sensor measures plane-of-array; satellite
-gives horizontal — the two are NOT equal and are never compared directly.
+gives horizontal - the two are NOT equal and are never compared directly.
 Instead the measured/satellite RATIO per day is tracked: for one site and
 season that ratio is roughly stable, so a step or trend in it means a
 sensor problem (or persistent sensor shading/soiling). We compare the
@@ -17,7 +17,7 @@ and flag a relative change beyond threshold.
 
 Never used for billing. Billing stands on vendor counters (recon engine).
 
-Pure functions only — the HTTP fetch lives in scripts/satellite_check.py.
+Pure functions only - the HTTP fetch lives in scripts/satellite_check.py.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ PAST_DAYS = 40
 with slack for days lost to gaps or overcast (< MIN_DAYLIGHT_KWH_M2)."""
 
 MIN_DAYLIGHT_KWH_M2 = 0.5
-"""Days below this (either side) are skipped — the ratio of two small
+"""Days below this (either side) are skipped - the ratio of two small
 noisy numbers is meaningless."""
 
 RECENT_DAYS = 7
@@ -48,7 +48,7 @@ is not weather."""
 
 def build_url(lat: float, lon: float, past_days: int = PAST_DAYS) -> str:
     """Open-Meteo forecast-API URL (past_days gives recent history with no
-    ERA5 archive delay — model analysis is fine for drift detection)."""
+    ERA5 archive delay - model analysis is fine for drift detection)."""
     return OPEN_METEO_URL + "?" + urlencode({
         "latitude": f"{float(lat):.6f}",
         "longitude": f"{float(lon):.6f}",
@@ -63,7 +63,7 @@ def parse_daily_ghi(payload: dict) -> Dict[str, float]:
     """{date_iso: GHI kWh/m2} from an Open-Meteo daily response.
 
     Unit-aware (daily_units): MJ/m2 (the API default) → /3.6, Wh/m2 →
-    /1000, kWh/m2 → as-is. An UNKNOWN unit returns {} — a number we can't
+    /1000, kWh/m2 → as-is. An UNKNOWN unit returns {} - a number we can't
     verify the unit of is worse than no number. Null days are skipped.
     """
     try:
@@ -97,7 +97,7 @@ def ratio_series(measured: Dict[str, Optional[float]],
                  ) -> Dict[str, float]:
     """{date: measured/satellite} for days where BOTH sides are present
     and above the daylight floor. Missing either side just drops the day
-    — completeness is the drift check's problem, not this function's."""
+    - completeness is the drift check's problem, not this function's."""
     out: Dict[str, float] = {}
     for day, m in measured.items():
         s = satellite.get(day)
@@ -174,7 +174,7 @@ def drift_check(ratios: Dict[str, float],
     if abs(drift) > threshold_pct:
         status = "REVIEW"
         note = (f"measured/satellite ratio moved {drift:+.1f}% vs the"
-                " previous weeks — check the irradiance sensor"
+                " previous weeks - check the irradiance sensor"
                 " (soiling, shading, failure)")
     else:
         status = "OK"

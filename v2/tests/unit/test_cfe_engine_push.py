@@ -3,7 +3,7 @@
 Contract: CFE_ENGINE_INGEST_CONTRACT.md (2026-09-03). Locked here:
 - the fold lets cfe_scrape beat master_db_10 (contract ORDER BY),
 - SEMIPUNTA and non-engine codes never leave this host,
-- the engine's validation gates run LOCALLY before any push — one bad
+- the engine's validation gates run LOCALLY before any push - one bad
   value stops the whole overlay,
 - the secret lives only in /root/.argia_cfe_push, never in the repo,
 - the push is wired event-driven (ingest) + daily timer + alerting.
@@ -37,7 +37,7 @@ ADDERS_H1 = [R(charge="TRANSMISION", value="0.1801"), R(charge="CENACE", value="
 
 
 class TestEnergyBasis:
-    """v239 — the engine memo of 2026-09-08: scraped energy cells are
+    """v239 - the engine memo of 2026-09-08: scraped energy cells are
     CFE's integrated price, the seed is decomposed; the overlay must be
     on one basis and say which."""
 
@@ -191,7 +191,7 @@ class TestConfig:
 class TestWiring:
     def test_no_secret_literal_in_repo(self):
         # the shared secret is a 48-char hex string; the repo must not
-        # contain any such literal — config file only, never code
+        # contain any such literal - config file only, never code
         assert not re.search(r"[0-9a-f]{48}", SRC)
 
     def test_contract_sql_semantics(self):

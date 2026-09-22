@@ -1,4 +1,4 @@
-"""v198 — Sheets retirement phase 5a: Plants / Inverters config in
+"""v198 - Sheets retirement phase 5a: Plants / Inverters config in
 PostgreSQL behind ARGIA_CONFIG_SOURCE.
 
 Locks: the switch defaults to sheet; the pinned headers are the live

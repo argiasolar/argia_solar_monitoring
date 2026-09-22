@@ -1,4 +1,4 @@
-"""Loans and amortization schedules — loaders and derived queries.
+"""Loans and amortization schedules - loaders and derived queries.
 
 Design rules (learned from v1's failure modes):
 
@@ -15,7 +15,7 @@ Design rules (learned from v1's failure modes):
   projections, not commitments. ``ScheduleRow.fx_projected`` makes that
   distinction queryable.
 * Missing tabs degrade to empty results with a log line, mirroring
-  ``argia.kpi.design`` — the finance layer must never take down a job
+  ``argia.kpi.design`` - the finance layer must never take down a job
   that only wanted production KPIs.
 """
 
@@ -77,12 +77,12 @@ class ScheduleRow:
 
     def fx_projected(self, as_of: str) -> bool:
         """True when this is a USD row for a month after ``as_of``
-        ("YYYY-MM") — its MXN figure uses a projected FX rate."""
+        ("YYYY-MM") - its MXN figure uses a projected FX rate."""
         return self.is_usd and self.ref_month > as_of
 
 
 def _f(value) -> Optional[float]:
-    # safe_float strips thousands commas — the Sheets API returns
+    # safe_float strips thousands commas - the Sheets API returns
     # FORMATTED values ("94,668.89"), which plain float() rejects.
     # That parsing gap made the live schedule load empty (v64 incident).
     return safe_float(value)
@@ -122,8 +122,8 @@ def load_loans(sheets) -> Dict[str, Loan]:
     from argia.finance.pg_source import loans_records
     try:
         records = loans_records(sheets)
-    except Exception:  # noqa: BLE001 — degrade, never fail the caller
-        LOG.warning("%s tab not found — finance queries will be empty",
+    except Exception:  # noqa: BLE001 - degrade, never fail the caller
+        LOG.warning("%s tab not found - finance queries will be empty",
                     LOANS_TAB)
         return {}
     return loans_from_records(records)
@@ -139,7 +139,7 @@ def loans_from_records(records) -> Dict[str, Loan]:
         principal = _f(rec.get("principal_mxn"))
         total = _f(rec.get("total_installments"))
         if principal is None or total is None:
-            LOG.warning("%s: malformed row for %s — skipped", LOANS_TAB, lid)
+            LOG.warning("%s: malformed row for %s - skipped", LOANS_TAB, lid)
             continue
         out[lid] = Loan(
             loan_id=lid,
@@ -165,7 +165,7 @@ def load_loan_schedule(sheets) -> List[ScheduleRow]:
     try:
         records = schedule_records(sheets)
     except Exception:  # noqa: BLE001
-        LOG.warning("%s tab not found — finance queries will be empty",
+        LOG.warning("%s tab not found - finance queries will be empty",
                     SCHEDULE_TAB)
         return []
     return schedule_from_records(records)
@@ -199,7 +199,7 @@ def schedule_from_records(records) -> List[ScheduleRow]:
 
 
 # ---------------------------------------------------------------------------
-# Derived queries — the replacement for v1's stored Credit columns
+# Derived queries - the replacement for v1's stored Credit columns
 # ---------------------------------------------------------------------------
 
 def monthly_debt_service(schedule: List[ScheduleRow],
@@ -245,7 +245,7 @@ def outstanding_balance(schedule: List[ScheduleRow],
 
 def fx_exposure(schedule: List[ScheduleRow],
                 ref_month: str) -> Tuple[float, float]:
-    """(usd_denominated_mxn, total_mxn) of debt service in a month —
+    """(usd_denominated_mxn, total_mxn) of debt service in a month -
     the share of service that moves with the exchange rate."""
     usd = total = 0.0
     for row in schedule:
@@ -264,7 +264,7 @@ def portfolio_debt_service(schedule: List[ScheduleRow],
 def installment_label(schedule, plant_key: str, ym: str) -> str:
     """Human loan position for a plant at a given month, e.g. "22/84",
     or "24/24 · 2/12" when several loans pay that month (only ACTIVE
-    loans appear — a completed loan has no row and drops out, which is
+    loans appear - a completed loan has no row and drops out, which is
     the honest answer to "how many payments are still missing").
     Boundary months: "paid off" after the last installment,
     "starts YYYY-MM" before the first, "" for a plant with no loans.

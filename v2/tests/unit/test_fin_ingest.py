@@ -1,4 +1,4 @@
-"""v244 — the demo world, the Savio client and the ingest transforms
+"""v244 - the demo world, the Savio client and the ingest transforms
 (scenarios 16, 17, 26, 62, 66, 67)."""
 from __future__ import annotations
 

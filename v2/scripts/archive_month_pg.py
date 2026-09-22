@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monthly archive from PostgreSQL to Drive (v197) — replaces the
+"""Monthly archive from PostgreSQL to Drive (v197) - replaces the
 GitHub Action ``v2-archive-month`` (scripts/archive_month.py), which copied
 one month of KPI_Daily / Alerts / Telemetry_Argia from the live sheet
 into an archive spreadsheet and pruned the telemetry tab.
@@ -45,7 +45,7 @@ def previous_month(today: dt.date) -> str:
 
 
 def month_bounds(ym: str) -> Tuple[str, str]:
-    """('YYYY-MM-01', first day of the next month) — half-open. Pure."""
+    """('YYYY-MM-01', first day of the next month) - half-open. Pure."""
     y, m = int(ym[:4]), int(ym[5:7])
     nxt = dt.date(y + (m == 12), 1 if m == 12 else m + 1, 1)
     return f"{y:04d}-{m:02d}-01", nxt.isoformat()

@@ -1,4 +1,4 @@
-"""KPI sheet -> daily_production mirror SQL (P1-9). PURE — no I/O.
+"""KPI sheet -> daily_production mirror SQL (P1-9). PURE - no I/O.
 
 Retires the GitHub round-trip (kpi_eod -> sheet -> Actions export ->
 data branch -> sync_kpi, hours of lag) one hop at a time: the server
@@ -9,7 +9,7 @@ Protected upsert semantics (the sheet is ANALYTICS; the vendor counter
 is the BILLING control):
 - a blank sheet cell never overwrites stored data (COALESCE);
 - a stored row whose status_note carries vendor-counter provenance
-  keeps its energy_kwh, pr, pr_stc AND status_note — a sheet re-sync
+  keeps its energy_kwh, pr, pr_stc AND status_note - a sheet re-sync
   can never re-introduce an undercount or a stale PR. (Found in the
   2026-08-27 due diligence: the original sync_kpi COALESCE could.)
 """
@@ -141,7 +141,7 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
                     f"'%{VENDOR_NOTE_MARK}%' OR daily_production.status_note"
                     f" LIKE '%{INVERTER_NOTE_MARK}%')")
     # A CLOSED month is invoiced history: no import path may modify any
-    # column of its rows (2026-09-01 — the sibling sync_kpi.py path
+    # column of its rows (2026-09-01 - the sibling sync_kpi.py path
     # un-fixed the freshly closed August 45 minutes after the close).
     frozen = ("""EXISTS (SELECT 1 FROM reconciliation_monthly rm
        WHERE rm.plant_key = daily_production.plant_key
@@ -155,7 +155,7 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
         base = f"COALESCE(EXCLUDED.{c}, daily_production.{c})"
         if c in PROTECTED:
             # v206.2: a protected column keeps its STORED value on a
-            # counter-healed row — but an empty one is not a value to keep
+            # counter-healed row - but an empty one is not a value to keep
             # (SLP2 2026-09-04: billable_kwh stayed NULL because the guard
             # also blocked the very first stamp)
             base = (f"CASE WHEN {vendor_guard} AND daily_production.{c} IS NOT NULL"
@@ -181,7 +181,7 @@ def build_upsert_sql(rows: List[Dict[str, Any]]) -> Optional[str]:
 
 # v190 columns that were never populated on rows in CLOSED months (the
 # freeze blocks every write, new columns included). Filling a NULL can
-# never change a stored value, so this bypasses the freeze on purpose —
+# never change a stored value, so this bypasses the freeze on purpose -
 # and ONLY fills NULLs: COALESCE(stored, new), the reverse of the mirror.
 NEW_V190_COLS = ("irradiance_source", "pr_confidence", "capacity_factor",
                  "capacity_factor_confidence", "inverters_with_reboot",
@@ -192,7 +192,7 @@ NEW_V190_COLS = ("irradiance_source", "pr_confidence", "capacity_factor",
 def build_fill_nulls_sql(rows: List[Dict[str, Any]],
                          cols=NEW_V190_COLS) -> Optional[str]:
     """One UPDATE per row that sets each listed column to
-    COALESCE(stored, sheet) — i.e. fills only NULLs. Pure."""
+    COALESCE(stored, sheet) - i.e. fills only NULLs. Pure."""
     if not rows:
         return None
     stmts = []

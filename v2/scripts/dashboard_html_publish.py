@@ -7,7 +7,7 @@ uploads it to a private Google Cloud Storage bucket viewable at:
     https://storage.cloud.google.com/<bucket>/dashboard.html
 
 Upload auth reuses the SAME service account as the Sheets client
-(GOOGLE_CREDENTIALS) — grant it "Storage Object Admin" on the bucket once;
+(GOOGLE_CREDENTIALS) - grant it "Storage Object Admin" on the bucket once;
 no new secret. Viewers are plain Google accounts granted "Storage Object
 Viewer" on the bucket.
 
@@ -68,7 +68,7 @@ def coerce_rows(rows: list[dict], numeric: set) -> list[dict]:
 
 def active_plants(plant_config_rows: list[dict]) -> list[str]:
     """plant_keys for the dashboard selector: active=TRUE and not
-    explicitly hidden by show_dashboard (v74 report-axis flag —
+    explicitly hidden by show_dashboard (v74 report-axis flag -
     blank/absent means visible, mirroring parse_plants)."""
     out = []
     for r in plant_config_rows:
@@ -114,8 +114,8 @@ def upload_to_gcs(bucket: str, object_name: str, html: str,
 def run(client: SheetsClient, *, out_path: str, apply: bool,
         bucket: str | None, session=None) -> int:
     # A1:ZZ everywhere (see dashboard_update.py note): the A1:P read
-    # here silently dropped the 17th Dashboard_Inverter column —
-    # fault_events — killing the "fault today" UI from the day it
+    # here silently dropped the 17th Dashboard_Inverter column -
+    # fault_events - killing the "fault today" UI from the day it
     # shipped (v67) until this fix.
     from argia.core.config_pg import plants_records
     plant_cfg = plants_records(client, "A1:ZZ")                   # v198 door
@@ -125,7 +125,7 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
     plants = active_plants(plant_cfg)
     # v84: the Dashboard tabs now store ALL active plants (CAPEX rows
     # feed the per-client pages); this internal page must embed ONLY
-    # the show_dashboard set — filtering the rows, not just the
+    # the show_dashboard set - filtering the rows, not just the
     # selector, so hidden plants' data never ships in the payload.
     visible = set(plants)
     prows = [r for r in prows if str(r.get("plant_key", "")) in visible]
@@ -144,11 +144,11 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
         print("[dry-run] not uploading (pass --apply to publish)")
         return 0
     if not bucket:
-        print("NOTICE: GCS_DASHBOARD_BUCKET not set — skipping upload. "
+        print("NOTICE: GCS_DASHBOARD_BUCKET not set - skipping upload. "
               "Set the secret to enable publishing.")
         return 0
     upload_to_gcs(bucket, OBJECT_NAME, html, session=session)
-    print(f"[apply] uploaded to gs://{bucket}/{OBJECT_NAME} — view at "
+    print(f"[apply] uploaded to gs://{bucket}/{OBJECT_NAME} - view at "
           f"https://storage.cloud.google.com/{bucket}/{OBJECT_NAME}")
     return 0
 
@@ -160,14 +160,14 @@ def main(argv=None) -> int:
                     help="upload to GCS (default: render locally only)")
     # Default OUTSIDE the working tree (2026-07-07: writing into the
     # repo left an untracked build artifact that tripped deploy.sh's
-    # dirty-tree guard on the Pi — three pushes sat undelivered).
+    # dirty-tree guard on the Pi - three pushes sat undelivered).
     ap.add_argument("--out",
                     default=os.path.join(
                         os.environ.get("ARGIA_LOG_DIR", tempfile.gettempdir()),
                         "dashboard.html"),
                     help="local output path (default $ARGIA_LOG_DIR/"
                          "dashboard.html, falling back to the system tmp "
-                         "dir — NEVER inside the repo)")
+                         "dir - NEVER inside the repo)")
     args = ap.parse_args(argv)
     try:
         client = open_sheets()          # v199: NullSheets once retired

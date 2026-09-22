@@ -60,11 +60,11 @@ def outstanding(inv: Invoice, allocations: Iterable[Allocation]) -> Decimal:
 def allocate(inv: Invoice, existing: Sequence[Allocation], new: Allocation) -> List[Allocation]:
     """Apply one more allocation. Refused when it would exceed the
     outstanding balance, is not positive, or the invoice is not payable
-    (scenario 22/24 — an invoice cannot be paid twice)."""
+    (scenario 22/24 - an invoice cannot be paid twice)."""
     if new.invoice_ref != inv.ref:
         raise LedgerError("allocation is for another invoice")
     if inv.status in ("cancelled", "rejected", "draft", "exception"):
-        raise LedgerError(f"invoice {inv.ref} is {inv.status} — not payable")
+        raise LedgerError(f"invoice {inv.ref} is {inv.status} - not payable")
     amt = D(new.amount)
     if amt <= 0:
         raise LedgerError("allocation must be positive")
@@ -105,7 +105,7 @@ def aging(invoices: Iterable[Invoice], allocations: Sequence[Allocation], today:
           currency: Optional[str] = None) -> Dict[str, Decimal]:
     """Outstanding per bucket (current, 0-30, 31-60, 61-90, 90+) plus
     'total'. Cancelled/paid invoices contribute nothing (scenario 21/27).
-    One currency per call — mixing MXN and USD in one bucket is a lie."""
+    One currency per call - mixing MXN and USD in one bucket is a lie."""
     out: Dict[str, Decimal] = {k: Decimal("0.00") for k in ("current", "0-30", "31-60", "61-90", "90+", "total")}
     for inv in invoices:
         if currency and inv.currency != currency:
@@ -159,8 +159,8 @@ def apply_credit_note(inv: Invoice, allocations: Sequence[Allocation], credit_re
 
 def cancel(inv: Invoice, allocations: Sequence[Allocation]) -> Invoice:
     """A cancelled CFDI leaves the ledger; if money was already applied
-    the caller must first move it (an advance or a refund) — refusing
+    the caller must first move it (an advance or a refund) - refusing
     here keeps cash and the ledger consistent (scenario 46)."""
     if outstanding(inv, allocations) != D(inv.total) and inv.status not in ("cancelled",):
-        raise LedgerError(f"{inv.ref} has allocations — reverse or reassign them before cancelling")
+        raise LedgerError(f"{inv.ref} has allocations - reverse or reassign them before cancelling")
     return Invoice(inv.ref, inv.total, inv.issue_date, inv.terms_days, inv.currency, "cancelled", inv.due_date)

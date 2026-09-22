@@ -1,7 +1,7 @@
-"""Team email alerts — SMTP via the service@argia.com.mx account.
+"""Team email alerts - SMTP via the service@argia.com.mx account.
 
 Config lives in a root-only file (default /root/.argia_mail; KEY=VALUE:
-SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS) — never in the repo, env
+SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS) - never in the repo, env
 exports, or logs. Missing/incomplete config -> ``load_smtp`` returns
 None and callers log-and-skip: alerting must never crash a job.
 
@@ -22,7 +22,7 @@ LOG = logging.getLogger("argia.alerts.emailer")
 class _SMTP4(smtplib.SMTP):
     """SMTP that connects over IPv4 only. Google's IP-authorized relay
     checks the CONNECTING address: pio06 prefers IPv6, but only its
-    IPv4 (37.235.105.173) is registered — an IPv6 connection gets
+    IPv4 (37.235.105.173) is registered - an IPv6 connection gets
     '550 5.7.1 Invalid credentials for relay' (live, 2026-08-26)."""
 
     def _get_socket(self, host, port, timeout):
@@ -43,7 +43,7 @@ def parse_smtp_config(text: str) -> Optional[Dict[str, str]]:
     """KEY=VALUE lines -> config dict; None unless valid. Pure.
 
     Two modes: password auth (SMTP_PASS present) or IP-authorized relay
-    (SMTP_AUTH=none — e.g. Google Workspace smtp-relay.gmail.com with
+    (SMTP_AUTH=none - e.g. Google Workspace smtp-relay.gmail.com with
     the server IP registered; no credential exists at all)."""
     cfg: Dict[str, str] = {}
     for ln in text.splitlines():
@@ -84,11 +84,11 @@ def build_html_email(subject: str, plain: str, html: str, sender: str,
                      ) -> EmailMessage:
     """Multipart mail: plain-text body plus an HTML alternative (what
     modern clients render). Pure. The plain part is the fallback AND
-    what a human greps in an archive — never leave it empty.
+    what a human greps in an archive - never leave it empty.
 
     ``images``: {cid: (bytes, subtype)} embedded as related parts and
     referenced from the HTML as <img src="cid:...">. This is the ONLY
-    way logos render in Gmail — data: URIs are stripped there (v180)."""
+    way logos render in Gmail - data: URIs are stripped there (v180)."""
     msg = build_email(subject, plain, sender, recipients)
     msg.add_alternative(html, subtype="html")
     if images:

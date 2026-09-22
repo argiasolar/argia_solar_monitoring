@@ -42,7 +42,7 @@ class TestBillableResyncSql:
         assert out[0][3] == 4833.0
 
     def test_a_deemed_day_is_never_touched(self):
-        """billable > energy is a stamped deemed day — sacred."""
+        """billable > energy is a stamped deemed day - sacred."""
         out = run_resync([("SLP2", "2026-08-03", 1460.2, 1650.1, "x")])
         assert out[0][3] == 1650.1
         assert out[0][4] == "x"
@@ -53,7 +53,7 @@ class TestBillableResyncSql:
 
     def test_null_billable_is_not_invented(self):
         """billable NULL means the deemed engine has not stamped the day
-        — inventing a value here would bill unstamped data."""
+        - inventing a value here would bill unstamped data."""
         out = run_resync([("NL1", "2026-08-05", 3000.0, None, "")])
         assert out[0][3] is None
 
@@ -98,8 +98,8 @@ class TestImportWritersRespectTheClose:
     """The 2026-09-01 afternoon incident: argia-sync re-imported a
     pre-repair CSV 45 minutes after the August close and silently
     reverted billable_kwh on closed rows. The sync writer went with
-    v207.1 (sheets retired); the remaining writer — the protected upsert
-    in kpi_mirror used by kpi_write — (a) protects billable like energy
+    v207.1 (sheets retired); the remaining writer - the protected upsert
+    in kpi_mirror used by kpi_write - (a) protects billable like energy
     on vendor-provenance rows and (b) freezes EVERY column of any row
     whose month has a closed reconciliation."""
 

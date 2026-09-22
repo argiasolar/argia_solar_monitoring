@@ -1,7 +1,7 @@
 """Plant / server / infrastructure alert conditions + send-state logic.
 
 PURE functions: the mailer script gathers facts (PG, systemd, disk) and
-this module decides WHAT is alarming and WHEN to email about it —
+this module decides WHAT is alarming and WHEN to email about it -
 new alerts immediately, still-active ones re-sent every RESEND_HOURS,
 and a recovery mail when a condition clears. Deduplication lives in the
 ``alert_state`` table keyed by a stable alert key.
@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 RESEND_HOURS = 6
 WARN_RESEND_HOURS = 24.0
 """WARNINGs never interrupt: they ride the once-daily digest tick and
-re-send at most daily. (2026-08-27 harness — the first server night put
+re-send at most daily. (2026-08-27 harness - the first server night put
 13 mails in Tomasz's inbox, mostly WARN churn.)"""
 PLANT_STALE_MIN = 45          # in-window silence that raises an alert
 DISK_ALERT_PCT = 85.0
@@ -56,9 +56,9 @@ def plant_alerts(freshness: Dict[str, Optional[float]],
                  in_window: bool) -> List[Alert]:
     """freshness: {plant_key: minutes since last usable sample, or None
     when the plant has no data today}. Only alarms inside the MX
-    production window — a quiet plant at night is normal.
+    production window - a quiet plant at night is normal.
 
-    v223: NOT wired in the mailer any more — the alert ledger's
+    v223: NOT wired in the mailer any more - the alert ledger's
     ``data_stale`` / ``plant_offline`` rules own the plant (kept as a
     pure, tested function)."""
     out: List[Alert] = []
@@ -81,11 +81,11 @@ def plant_alerts(freshness: Dict[str, Optional[float]],
 
 def inverter_alerts(silent: List[Tuple[str, str, str]],
                     in_window: bool) -> List[Alert]:
-    """silent: [(plant, sn, label)] — inverters configured ACTIVE that
+    """silent: [(plant, sn, label)] - inverters configured ACTIVE that
     produced no usable sample today while their plant reports. This is
     the GTO2 lesson (2026-08-26): a dead inverter hides inside a plant
     that still looks green if you only count what answers. v223: not
-    wired in the mailer — the ledger's ``inverter_silent`` (acute +
+    wired in the mailer - the ledger's ``inverter_silent`` (acute +
     daily, judged by the vendor counter) owns it."""
     if not in_window:
         return []
@@ -93,7 +93,7 @@ def inverter_alerts(silent: List[Tuple[str, str, str]],
                   f"{pk}: inverter {label} silent",
                   f"Inverter {label} ({sn}) at {pk} is configured active "
                   "but produced no usable telemetry today while the rest "
-                  "of the plant reports — dead, disconnected, or "
+                  "of the plant reports - dead, disconnected, or "
                   "unmonitored.")
             for pk, sn, label in sorted(silent)]
 
@@ -115,7 +115,7 @@ def infra_alerts(failed_units: List[Tuple[str, str]],
     if not pg_ok:
         out.append(Alert("postgres-down", SEV_CRIT,
                          "PostgreSQL unreachable",
-                         "psql against argia_mont failed — collection "
+                         "psql against argia_mont failed - collection "
                          "mirror, reconciliation and portal are degraded."))
     return out
 
@@ -130,7 +130,7 @@ def recon_alerts(fail_rows: List[Tuple[str, str, str]]) -> List[Alert]:
 
 def satellite_alerts(rows: List[Tuple[str, str, str, str]]) -> List[Alert]:
     """rows: (plant, status, drift_pct, note) from the latest
-    satellite_check run. Only REVIEW alarms — OK and NO_DATA are the
+    satellite_check run. Only REVIEW alarms - OK and NO_DATA are the
     check's own bookkeeping. Key is per-plant (no date): a persisting
     drift stays ONE alert that re-sends, then recovers when the sensor
     is fixed."""
@@ -167,14 +167,14 @@ def cfe_alerts(status: Optional[dict],
     elif status.get("probe_status") != "ok":
         out.append(Alert("cfe-probe", SEV_WARN,
                          "CFE portal probe failing on the Pi",
-                         "Daily GDMTH probe did not complete — WAF "
+                         "Daily GDMTH probe did not complete - WAF "
                          "block, page change, or browser issue. See "
                          "~/cfe/logs/ on the Pi."))
     if status.get("last_csv_result") == "rejected":
         out.append(Alert("cfe-reject", SEV_WARN,
                          "CFE tariff CSV rejected by ingest",
                          "Last pushed CSV failed validation on pio06 "
-                         "— see /opt/argia/cfe_inbox/rejected/."))
+                         "- see /opt/argia/cfe_inbox/rejected/."))
     cov = (status.get("coverage_month") or "")[:7]
     if today.day >= 10 and cov < today.strftime("%Y-%m"):
         out.append(Alert("cfe-coverage", SEV_WARN,
@@ -192,13 +192,13 @@ DRIFT_MAX_AGE_H = 30.0
 def drift_alerts(report: Optional[dict], now: Optional[dt.datetime] = None) -> List[Alert]:
     """v218 status-quo harness: scripts/drift_check.py writes a JSON
     report nightly; its findings become ONE admin-only WARNING per
-    section — files that differ from git ("config-drift"), smoke
+    section - files that differ from git ("config-drift"), smoke
     answers that changed ("smoke-fail"), and a stale or missing report
     ("drift-stale") so a dead harness cannot pass for a clean one. All
     WARNING: they ride the daily digest, never the night."""
     if not report:
         return [Alert("drift-stale", SEV_WARN, "status-quo check has not run",
-                      "No drift_check report found — the argia-drift timer did not "
+                      "No drift_check report found - the argia-drift timer did not "
                       "run or could not write /root/argia_logs/drift_latest.json.")]
     now = now or dt.datetime.now(dt.timezone.utc)
     try:
@@ -219,7 +219,7 @@ def drift_alerts(report: Optional[dict], now: Optional[dt.datetime] = None) -> L
                          f"deployed files differ from git ({len(conf)} finding(s))",
                          "What runs on the server is not what is in the repo: "
                          + "; ".join(conf[:12]) + (" …" if len(conf) > 12 else "")
-                         + ". Deploy from git or commit the server's version — never leave the two apart."))
+                         + ". Deploy from git or commit the server's version - never leave the two apart."))
     if smoke:
         out.append(Alert("smoke-fail", SEV_WARN,
                          f"live checks changed ({len(smoke)} finding(s))",
@@ -236,7 +236,7 @@ def plan_sends(active: List[Alert],
                warn_digest: Optional[bool] = None,
                warn_resend_hours: float = WARN_RESEND_HOURS
                ) -> Tuple[List[Alert], List[str]]:
-    """(alerts to email now, recovered keys — ALL of them, for state).
+    """(alerts to email now, recovered keys - ALL of them, for state).
 
     ``state``: {key: (last_sent_utc, active_flag)} from alert_state.
 
@@ -246,7 +246,7 @@ def plan_sends(active: List[Alert],
       which the mailer passes once a day at 07:07 MX) and at most every
       ``warn_resend_hours``. A WARNING never interrupts the night.
     - ``warn_digest=None`` keeps the historic behavior (all severities
-      treated alike) — old callers and tests are unaffected.
+      treated alike) - old callers and tests are unaffected.
 
     The returned ``recovered`` list is EVERY cleared key (persist must
     flip them inactive); the mailer decides which recoveries are worth
@@ -297,7 +297,7 @@ def recoveries_to_mail(recovered: List[str],
     severity mails (safe side).
 
     v202: a recovery of something never mailed (``mailed_keys`` given and
-    the key not in it) is never mailed — nobody was told it was down.
+    the key not in it) is never mailed - nobody was told it was down.
     A short outage (``active_hours`` below ``min_hours``) rides along
     only when a mail goes out anyway (``with_alerts``); unknown duration
     mails (safe side)."""
@@ -327,7 +327,7 @@ def describe_key(key: str, names=None) -> str:
         who = names.plant_full(plant) if names else plant
         tail = rest.split(":", 1)[1] if ":" in rest else ""
         if head == "inverter-silent" and tail:
-            return f"{who}: {what} — {names.inverter(plant, tail) if names else tail}"
+            return f"{who}: {what} - {names.inverter(plant, tail) if names else tail}"
         if tail:
             return f"{who}: {what} {tail}"
         return f"{who}: {what}"
@@ -354,7 +354,7 @@ def render_body(to_send: List[Alert], recovered: List[str],
                 now_mx_str: str, names=None) -> str:
     """The email body. Pure, plain text, no fluff. ``names`` (v217:
     argia.alerts.naming.Names) renders plants by name, code as detail."""
-    lines = [f"ARGIA monitoring — {now_mx_str} MX", ""]
+    lines = [f"ARGIA monitoring - {now_mx_str} MX", ""]
     shown = [humanize(a, names) for a in to_send]
     crit = [a for a in shown if a.severity == SEV_CRIT]
     warn = [a for a in shown if a.severity != SEV_CRIT]

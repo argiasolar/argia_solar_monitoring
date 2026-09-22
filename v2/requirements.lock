@@ -1,4 +1,4 @@
-# Server venv freeze — pio06 /root/argia_v2/v2/.venv, captured 2026-08-27
+# Server venv freeze - pio06 /root/argia_v2/v2/.venv, captured 2026-08-27
 # (P1-10: reproducibility pin; requirements.txt stays the loose spec).
 # Rebuild identically:  pip install -r requirements.lock
 certifi==2026.7.22

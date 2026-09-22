@@ -1,6 +1,6 @@
-"""Data-staleness detector — pipeline health (plan metric ``data_stale``).
+"""Data-staleness detector - pipeline health (plan metric ``data_stale``).
 
-Answers "did telemetry actually arrive?" — independent of what the plants
+Answers "did telemetry actually arrive?" - independent of what the plants
 did. A plant with zero rows all day means the collector failed for it (or
 the vendor API did); a plant with a multi-hour daylight hole means samples
 were dropped. Either way the day's aggregates are suspect and someone
@@ -31,7 +31,7 @@ MAX_DAYLIGHT_GAP_HOURS = 6.0
 
 Generous on purpose: GitHub's scheduler routinely stretches the cadence to
 1-2 h, which must stay silent. The real 2026-06-30 failure (last sample
-13:18, then nothing) left a 6.7 h trailing hole — that must fire."""
+13:18, then nothing) left a 6.7 h trailing hole - that must fire."""
 
 
 @dataclass(frozen=True)
@@ -54,17 +54,17 @@ def evaluate_data_stale(
 
     ``timestamps_by_plant`` maps plant_key -> that day's sample timestamps
     (UTC, any order). Gaps are measured over the MX daylight window
-    INCLUDING the edges — a day whose last sample lands at 13:18 has a
+    INCLUDING the edges - a day whose last sample lands at 13:18 has a
     trailing hole to 20:00 even though no two samples are far apart.
 
-    - zero rows all day        -> WARNING (collector produced nothing —
+    - zero rows all day        -> WARNING (collector produced nothing -
                                  a DATA problem; v223: CRITICAL is reserved
                                  for a measured energy loss or a unit off;
                                  the vendor counter / reconciliation says
                                  whether energy was lost)
     - largest hole > threshold -> WARNING  (aggregates for the day suspect)
 
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     y, m, d = (int(x) for x in date_iso.split("-"))
     day_start = dt.datetime(y, m, d, CLOUD_DAYLIGHT_START_HOUR, tzinfo=MX_TZ)
@@ -76,7 +76,7 @@ def evaluate_data_stale(
         if not stamps:
             breaches.append(StaleBreach(
                 plant_key=pk, gap_hours=None, severity=Severity.WARNING,
-                message=(f"{pk}: NO telemetry arrived for {date_iso} — data feed, "
+                message=(f"{pk}: NO telemetry arrived for {date_iso} - data feed, "
                          f"production unknown until the vendor counter is read "
                          f"[WARNING]"),
             ))

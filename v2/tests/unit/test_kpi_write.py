@@ -1,4 +1,4 @@
-"""v193 — Sheets retirement phase 2b: kpi_eod writes daily_production.
+"""v193 - Sheets retirement phase 2b: kpi_eod writes daily_production.
 
 Locks: ARGIA_KPI_WRITE defaults to sheet; pg/both route upsert_kpi_rows
 and stamp_column through kpi_mirror's protected upsert (only the given

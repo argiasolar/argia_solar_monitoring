@@ -8,7 +8,7 @@ The original capture script `growatt_capture_fixtures.py` has a bug in
 `safe_parse`: it only attempts `resp.json()` when the response's
 Content-Type header contains "json". Growatt returns valid JSON with
 ``Content-Type: text/html`` for many endpoints (their bug, not ours), so
-the parse branch is skipped — the response is stored as ``_raw_text``,
+the parse branch is skipped - the response is stored as ``_raw_text``,
 and any response over 100KB gets silently truncated mid-stream.
 
 The four ``GTO1_getMAXHistory_*.json`` fixtures captured at commit
@@ -55,7 +55,7 @@ so future captures don't hit this again. The patch is:
 Exit codes
 ==========
     0  all 4 fixtures captured
-    1  partial — some captures failed (others written to disk OK)
+    1  partial - some captures failed (others written to disk OK)
     2  login failed
     3  config error (missing credentials)
 """
@@ -78,7 +78,7 @@ except ImportError:
 
 
 # -------------------------------------------------------------------------
-# Config — matches the main capture script
+# Config - matches the main capture script
 # -------------------------------------------------------------------------
 
 WEB_BASE = "https://server.growatt.com"
@@ -113,7 +113,7 @@ log = logging.getLogger("recapture")
 
 
 # -------------------------------------------------------------------------
-# Fixed safe_parse — THE FIX
+# Fixed safe_parse - THE FIX
 # -------------------------------------------------------------------------
 
 def safe_parse_fixed(resp: requests.Response) -> Any:
@@ -124,7 +124,7 @@ def safe_parse_fixed(resp: requests.Response) -> Any:
     fails outright.
 
     When the fallback is taken, the text cap is 5 MB (vs 100 KB in the
-    buggy original) — enough headroom for any plausible Growatt response.
+    buggy original) - enough headroom for any plausible Growatt response.
     """
     # Always try JSON first. resp.json() does its own decoding using
     # resp.encoding; if the body really is JSON it succeeds regardless of
@@ -255,7 +255,7 @@ def login(session: requests.Session, username: str, password: str) -> bool:
 
 
 # -------------------------------------------------------------------------
-# The capture — only getMAXHistory, only the 4 SNs
+# The capture - only getMAXHistory, only the 4 SNs
 # -------------------------------------------------------------------------
 
 def capture_max_history(session: requests.Session, out_dir: Path,
@@ -293,7 +293,7 @@ def capture_max_history(session: requests.Session, out_dir: Path,
               or "<html" in parsed["_raw_text"].lower())
     )
     if resp.status_code != 200 or is_html_error:
-        log.error("  HTTP %d, html_error=%s — not saving",
+        log.error("  HTTP %d, html_error=%s - not saving",
                    resp.status_code, is_html_error)
         return False
 
@@ -310,11 +310,11 @@ def capture_max_history(session: requests.Session, out_dir: Path,
     if isinstance(obj, dict):
         datas = obj.get("datas")
         if isinstance(datas, list):
-            log.info("  OK — %d rows in datas[]", len(datas))
+            log.info("  OK - %d rows in datas[]", len(datas))
         else:
-            log.warning("  obj has no 'datas' list — schema may have changed")
+            log.warning("  obj has no 'datas' list - schema may have changed")
     else:
-        log.warning("  response.obj is not a dict — Growatt API may have changed")
+        log.warning("  response.obj is not a dict - Growatt API may have changed")
 
     return True
 

@@ -1,11 +1,11 @@
-"""PostgreSQL ``telemetry_detail`` — the wide vendor row, kept (v203).
+"""PostgreSQL ``telemetry_detail`` - the wide vendor row, kept (v203).
 
 Every collector builds a 143-column PLANT_SCHEMA row per inverter sample
 (grid voltages and frequency, AC current, power factor, per-MPPT
 voltages and powers, per-string currents, warning/fault words, derating
 mode, PV isolation, bus voltages, string flags, GFCI). Since v184 those
-rows went to the per-plant sheet tabs — switched OFF after the cell-cap
-incidents — so the fleet has been throwing away ~130 measurements per
+rows went to the per-plant sheet tabs - switched OFF after the cell-cap
+incidents - so the fleet has been throwing away ~130 measurements per
 sample and keeping 11. Tomasz 2026-09-05: "verify if we collect all
 data, maybe we are missing something … patterns related to temperature
 before going stale, or something related to voltage".
@@ -13,7 +13,7 @@ before going stale, or something related to voltage".
 This module mirrors the wide row into ``telemetry_detail``: the scalar
 diagnostics as typed columns, the per-channel families as numeric
 arrays (vpv[16], ppv[9], istring[29], epv_today[15]). ~7k rows/day,
-~300 bytes each — a few MB a day. Same upsert semantics as
+~300 bytes each - a few MB a day. Same upsert semantics as
 ``pg_mirror`` (key = plant, sn, ts_utc), same fail-soft rule: a failed
 mirror is a warning, never a collection error.
 
@@ -216,7 +216,7 @@ def read_string_flags(first_mx_date: str, last_mx_date: str) -> List[tuple]:
 def read_derating_modes(since_utc) -> List[tuple]:
     """(ts_utc, plant_key, inverter_sn, derating_mode) for every detail
     row since ``since_utc`` that carries the Growatt DeratingMode
-    register (0 included — a unit back at 0 is no longer derating).
+    register (0 included - a unit back at 0 is no longer derating).
     The acute tier reduces it with ``acute.vendor_thermal_state``."""
     from argia.core.time_utils import parse_pg_ts
     from argia.store.pgq import psql_rows

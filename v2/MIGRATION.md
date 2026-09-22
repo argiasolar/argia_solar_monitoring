@@ -1,4 +1,4 @@
-# Argia_Mont v2 — Migration Guide
+# Argia_Mont v2 - Migration Guide
 
 v2 lives **alongside v1 in the same repo**, in a `v2/` subfolder. v1 is
 unchanged and keeps running. v2 workflows only trigger on `v2/**` changes,
@@ -10,14 +10,14 @@ run on the Pi" in about an hour.
 ## Prerequisites
 
 - [ ] You have the `Argia_Mont_v2` Google Sheet open (the one with 9 plants
-      and 21 inverters in the correct schema — Plants tab has 18 columns).
+      and 21 inverters in the correct schema - Plants tab has 18 columns).
 - [ ] You have the v1 service account JSON somewhere on disk (or you can
       retrieve it from your Pi).
 - [ ] You have admin access to the existing `argia_solar_monitoring` repo.
 
 ---
 
-## Step 1 — Drop v2 files into the repo
+## Step 1 - Drop v2 files into the repo
 
 Download `argia_mont_v2.zip`. Open a terminal at the **root** of your
 `argia_solar_monitoring` repo (the folder that contains `argia.py`,
@@ -55,7 +55,7 @@ If it's red, stop and tell me what the failure says.
 
 ---
 
-## Step 2 — Check existing GitHub Secrets
+## Step 2 - Check existing GitHub Secrets
 
 Go to your repo → **Settings** → **Secrets and variables** → **Actions**.
 You can see **names** of existing secrets but not their values.
@@ -72,7 +72,7 @@ already there:
 | `HUAWEI_USERNAME` | yes | probably yes |
 | `HUAWEI_PASSWORD` | yes | probably yes |
 | `SOLAREDGE_API_KEY` | only if QRE active | likely no |
-| `GOOGLE_SHEET_ID_V2` | **yes — NEW** | **no — you must add this** |
+| `GOOGLE_SHEET_ID_V2` | **yes - NEW** | **no - you must add this** |
 
 For any secret v1 already uses, **v2 reuses it automatically**. You do NOT
 need to know the value or re-enter it.
@@ -82,7 +82,7 @@ If v1 uses different secret NAMES (e.g. `GS_CREDS` instead of
 
 ---
 
-## Step 3 — Add the one NEW secret
+## Step 3 - Add the one NEW secret
 
 Settings → Secrets → **New repository secret**:
 - Name: `GOOGLE_SHEET_ID_V2`
@@ -93,9 +93,9 @@ Click **Add secret**.
 
 ---
 
-## Step 4 — Share the sheet with the service account
+## Step 4 - Share the sheet with the service account
 
-Find the service account email — it's the `client_email` inside the JSON
+Find the service account email - it's the `client_email` inside the JSON
 stored in `GOOGLE_CREDENTIALS`. You can't read the secret value, but you
 can find the email in Google Cloud Console (IAM & Admin → Service Accounts)
 or in the original JSON file if you kept it.
@@ -105,7 +105,7 @@ uncheck "Notify people" → Share.
 
 ---
 
-## Step 5 — Run preflight (read-only)
+## Step 5 - Run preflight (read-only)
 
 Actions tab → **v2-preflight (manual, read-only)** in the left sidebar →
 **Run workflow** → select `main` → **Run workflow**.
@@ -128,7 +128,7 @@ Fix and re-run until all green.
 
 ---
 
-## Step 6 — Daily dry-run
+## Step 6 - Daily dry-run
 
 Actions → **v2-daily-run (manual)** → Run workflow → leave defaults
 (dry_run=true, date empty=yesterday).
@@ -157,7 +157,7 @@ If something looks off, re-run with **plant_key=SLP1** to isolate.
 
 ---
 
-## Step 7 — Daily LIVE run
+## Step 7 - Daily LIVE run
 
 Same workflow, but **uncheck dry_run**. First time data touches the sheet.
 
@@ -167,11 +167,11 @@ Watch DailyProduction fill in. Verify:
 - SyncRuns shows `status=OK`
 
 **Run it again immediately.** Idempotent upsert means **row count must NOT
-grow** — existing rows update in place.
+grow** - existing rows update in place.
 
 ---
 
-## Step 8 — 10-min snapshot dry-run + live
+## Step 8 - 10-min snapshot dry-run + live
 
 Same drill: dry-run, then live. Writes to InverterSnapshot10m. Expect ~17
 rows per run (one per active inverter).
@@ -180,7 +180,7 @@ Verify: all inverter SNs appear, `status` is 1 or 3, `power_w` is sensible.
 
 ---
 
-## Step 9 — Decide whether to schedule
+## Step 9 - Decide whether to schedule
 
 Before Pi deploy or scheduled Actions:
 
@@ -207,7 +207,7 @@ runs are clean.
 
 ## What v2 does NOT do (yet)
 
-- **Anomaly alerts** (e.g. VITALMEX -51% drop) — v2 writes the row but
+- **Anomaly alerts** (e.g. VITALMEX -51% drop) - v2 writes the row but
   doesn't alert. Stage 7.
 - **Email/PDF reports** like v1.
 - **Pi crontab examples.**

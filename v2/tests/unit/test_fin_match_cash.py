@@ -165,6 +165,6 @@ class TestBankCsv:
         st = bank_csv.parse("argia_generic", txt, "BBVA-MXN")
         assert st.lines[1].date == dt.date(2026, 8, 10)
         # (300.00) in the debit column is a bank that prints debits in
-        # parentheses — it must get its own registered format, never a guess
+        # parentheses - it must get its own registered format, never a guess
         with pytest.raises(bank_csv.BankFormatError, match="unsigned"):
             bank_csv.parse("argia_generic", GENERIC.replace("300.00,,", "(300.00),,"), "X")

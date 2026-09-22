@@ -1,6 +1,6 @@
 """Daily open-alerts digest.
 
-v223: retired as an ALERT — a CRITICAL row called "daily digest" inflated
+v223: retired as an ALERT - a CRITICAL row called "daily digest" inflated
 every morning mail and read as one more problem (Tomasz 2026-09-07). The
 reminder now lives in the morning mail's "still open" section; the
 script calls ``resolve_digest_rows`` so the last digest row closes.
@@ -8,14 +8,14 @@ script calls ``resolve_digest_rows`` so the last digest row closes.
 tested helpers (the portal's counts use ``reportable_alerts``).
 
 WHY (design gap, 2026-07-06): every alert e-mails exactly ONCE (the
-Alert_Notifications dedupe — the right call against flapping). But that
+Alert_Notifications dedupe - the right call against flapping). But that
 means ongoing issues go silent: three GTO1 inverters sat in FAULT for
 days while the inbox stayed quiet, and a quiet inbox read as "all good".
 The digest restores the invariant *silence means all clear*: each
 morning, if anything is still OPEN, the daily tier appends ONE fresh
 digest alert summarizing it. The notifier mails it like any other new
 OPEN row (no Apps Script changes); the next morning's run resolves it
-and opens the next one — or stays silent once the list is empty.
+and opens the next one - or stays silent once the list is empty.
 
 Everything here is pure (no I/O) so it is fully unit-testable; the
 alerts_daily script owns persistence.
@@ -36,7 +36,7 @@ DIGEST_KEY = "portfolio:daily_digest"
 
 def reportable_alerts(records: List[AlertRecord]) -> List[AlertRecord]:
     """Active alerts as surfaces (report, dashboards) should see them:
-    OPEN/SILENCED, minus digest rows — the digest is a mail vehicle, not
+    OPEN/SILENCED, minus digest rows - the digest is a mail vehicle, not
     an issue, and must never inflate critical/warning counts."""
     return [r for r in records
             if (r.is_open() or r.is_silenced()) and r.metric != DIGEST_METRIC]
@@ -50,7 +50,7 @@ def _age_days(rec: AlertRecord, now_utc: dt.datetime) -> int:
     if opened.tzinfo is None:
         opened = opened.replace(tzinfo=dt.timezone.utc)
     # Calendar days, not floored 24h blocks: a fault open since the 5th
-    # is "2d" on the 7th — timedelta.days would understate it as 1.
+    # is "2d" on the 7th - timedelta.days would understate it as 1.
     return max(0, (now_utc.date() - opened.date()).days)
 
 
@@ -58,7 +58,7 @@ def summarize_open_alerts(
     records: List[AlertRecord], now_utc: dt.datetime,
 ) -> Optional[Tuple[str, str, str]]:
     """(severity, message, explanation) for the digest, or None when
-    nothing is open — None means the morning stays silent, by design."""
+    nothing is open - None means the morning stays silent, by design."""
     open_recs = reportable_alerts(records)
     open_recs = [r for r in open_recs if r.is_open()]
     if not open_recs:
@@ -66,7 +66,7 @@ def summarize_open_alerts(
     n_crit = sum(1 for r in open_recs if r.severity == "CRITICAL")
     n_warn = len(open_recs) - n_crit
     severity = "CRITICAL" if n_crit else "WARNING"
-    message = (f"Daily digest \u2014 still open: "
+    message = (f"Daily digest - still open: "
                f"{n_crit} critical / {n_warn} warning")
 
     groups: Dict[Tuple[str, str], List[AlertRecord]] = {}
@@ -79,7 +79,7 @@ def summarize_open_alerts(
         count = f" \u00d7{len(recs)}" if len(recs) > 1 else ""
         parts.append(f"{plant}: {label}{count} ({age}d)")
     explanation = (" \u00b7 ".join(parts)
-                   + " \u2014 this reminder repeats each morning until "
+                   + " - this reminder repeats each morning until "
                      "the list is clear.")
     return severity, message, explanation
 
@@ -100,7 +100,7 @@ class DigestResult:
 
 def resolve_digest_rows(records: List[AlertRecord],
                         now_utc: dt.datetime) -> DigestResult:
-    """v223: the digest pseudo-alert is retired — the morning mail carries
+    """v223: the digest pseudo-alert is retired - the morning mail carries
     the still-open reminder itself (ledger_mail.still_open_lines). This
     closes whatever digest rows are still open and opens nothing."""
     res = DigestResult()

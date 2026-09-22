@@ -6,10 +6,10 @@ temperature / production gauges, per-inverter status table, and the intraday
 stacked chart with the theoretical overlay.
 
 Design constraints (deliberate):
-* ONE file, data embedded as JSON — no fetch(), no CORS/cookie issues on
+* ONE file, data embedded as JSON - no fetch(), no CORS/cookie issues on
   authenticated hosts (storage.cloud.google.com), trivially testable.
 * Chart.js from the cdnjs CDN is the only external resource.
-* Pure rendering — this module does no I/O. The publish script feeds it and
+* Pure rendering - this module does no I/O. The publish script feeds it and
   ships the result, so the renderer is unit-testable end to end.
 """
 
@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import List
 
-# Only these fields are embedded — keeps the payload small and the contract
+# Only these fields are embedded - keeps the payload small and the contract
 # explicit. Adding a field to the page starts here.
 PLANT_FIELDS = [
     "date_mx", "hour_label", "plant_key", "customer", "kwp_dc",
@@ -32,7 +32,7 @@ INVERTER_FIELDS = [
     "est_loss_kwh", "fault_events",
 ]
 
-# The ARGIA wordmark — "ARGIA / Smart Energy Solutions" (transparent PNG,
+# The ARGIA wordmark - "ARGIA / Smart Energy Solutions" (transparent PNG,
 # 764x120, ~4 KiB) embedded so the page stays a single self-contained file.
 # Show it at 34px or taller: the three-line tagline blurs below that.
 LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAvwAAAB4CAMAAAC5ONZaAAAAwFBMVEUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALOy8QAAAAQHRSTlMA/tAuUKxwjwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfr+Z0gAAD/ZJREFUeNrtndmipCoMRcskwP//cZ+aFBmUIYHYFi+3bx0HjIuwCQEfj9JCS6bAg6lk73BQwFjiur+rua0jbLgFJK5l+2ptcnW0D86Czq+7WY2Oy5J6AXZZomrS4dsGh0cMPKaWrJEXHA/fvhie91zd8BzOhx/zVuF8+zZ3dUx7PwhxjSpESUsohT8PgRW/w3lx/S2wqeOh2fDbRdwpvW0DXleHbkX52fgoWau4mhhccteIKewbiPUJpIwMbAbuwl+ua+PDnx9+kHdKr7tAhAOu8EPSjwUX+JNNdv+6IXoBEPRpStg/RAPF71BUOsX/iFbHDj8u4k7pfReMnsRtFbApARuCbPcVoojtYPhAeuAXdbrdqoehHu0dD+A8+O2yDNA9sZf+49t8iXURpdFvz6PP2d73DXrgPzQy8Bi4v/SM8cyIPocdfjiqluV7+5D76dkpBILmiXqgWV4mMrv3k2DbKIX/0MgsLsYwwN/TDIcoLm74cVlG6J5j+KOx6x8Qe/jfB1DityvAj8KDTRbV0+X7bd99cQ78bllG6J4Tz78OAL4Mm4Bc8/77roe4DvxnaMjfQVr3Q+d958AP8k4pA/8DvbHwjtPML6+mCleEH7hEr6zqaa8KjulymOFHORV4Cv8ObN/1v6T9jly7DY7xevCj5EiTB77OF27HNDpm+B2TGmsIde7/5B3w/ueOXPgax3ht5DLwO6ZeX171tMIE/fedAL/8zN96I3PcLrZIzhtwn9zt3+lflcMPQmKDFb6ehoiDGh0v/LSIO6XNNxk8gn91/R9kfXI9f++BkmBb5SQXckneAaqnjSY3qNHxwm8WcafkGwjWYrZUqi/1X9f/Uf8+uZ5mchsoMdtBJqgS+N0i7WIsJ/wwqeOh0fAv4k7JQxHSguoL/+e/X2I9cv3Rsjc2oES6kFMIv5jSZg7yN7s7YrmtGQw/Lcsw3fMidy3PDEwX4Px26t9QvkfuLrq/yfq/I4xfUjnPCtinRdzFmIYCfMM8YrntMhh+I+IIisUABr78ea/Vy2/k7ud6t26Azl6bDvjdMtjFlHoiJ57OWKQAKkBjhX9ZRuqe6ElcAP9zCmt9mo1ct4d6tdLfEbQWmzCDDvgFI4y9+IP4Mo6aIYobCj8tM52Siyeu/ryO79eTIZwtJrrX/CZupSrgJ7FhplgQlh5T6DdD4TdCA6BSC0AIv/XutpJLueYYpbmhRvhLEw/mrDmb1Au5tvbPCf+ANO9tTOQK4PfXe63kmtwDB2xD1G+qgD/Vv4MS3ZOh0E1qdCPhT3U+Vkj3nGV1rr9FU1jx5g7f7DY6i+prgD+lepLIzdE9OHKUd9Yf4kD4IfXYQt1gIfyPOHPHRWd+T6Bola/VB79JYY56dA/Mgd9Ohh+TVzIyTqkU/phciB8vMQf8Mag++NOvC+aIjUIXPKATosnw2+TtScYpJZPQTAH8KYBt5k+hJRTAnzayIt0zqSY4GX5I93dCuifybPi97DH8JtUJv4cBEduhQlIAP6TR0qN77gk/Zi4kZA0XVJPWwM4x/MlI63uKIGIb402rJrOfM7Ie3XNP+F0mrCOke17icp/igQXwp1eA0We5C2SUlBr4bc6WanTPPeGH3ChfKvIbmNngowB+SN/69fMFNq2CHFk4ZWb1B/9JhyxoDtxScfwdqild/9fm2Tb9N3z/MaKFLEaX0Kh69OieW8LvloOsAS1B6KsXl7ek05HaeU/4IT+3oScIffUCebC06J47wk8Hl9EThL54waN3NWlq9Qf/kepRNBj7j1VPZoL/B/8I+A/dzk/3iKseNS5GE/w0Bn46vIqWwdjFy7GRleieG3p+c0j3T/fIqx4tuudSAzwe+E+cjpLB2MXLCVaoYinv/eCnE8/+0z3yqkeJi7kf/OaE7Z/uYSjmTNW2Lej4wd8J/6nL+ekecdWjRPfcDn576td/ukde9aTfJfzgl4XfnJKtYzD236meAic0WvfcDX4s0DTsugej8vk9dejxOekLJW8VXzM8cqTqMQ99LuZu8NuC0axjdko2c0sTW3rNwneZGoQmAH/2mUxy1QCk3igJjuJtyXtSoHvuBj8U6Hlup2T9zfnf5bMpf3RVH/7kObD/fdcsX+9y96d1obBNGEJuEG9KBk0KdM/N4MciRcPslHIfpDPx2/bgNxkTRJs0eBt87r7/gubr3F1MlZMcwxcZGSftl3Zf+G1RDJ/ZKR3BD53we24dEoMX+NJocmfNUj0adM/N4IeiKCaz7snDD9nddorhT2347F0N0wLfSL7kMiMr0D33gh8L4zi8TikPv7XB626An9bdOyGhP9avmC7JViFRSo38mK57zK3gd4WZC7xOKQ+/CyMxTfAv5/DjHitRyGzpWzKzZxMvNZffDX9hh8w8GDuCn5b013OZ4X/suhjR0W6xkdMuZmQW1XIn+Is7ZF7dcwR/EIlhhh82lrwuBkURKzfybPjs/HjTQPhdsadh1T2H8O+FDzP86fgOiBLmyl/SZN0Dl8pj6YW/3NasuucY/l3UUQ7+TetY2ZgKlAM9V/eYZbbsGgk/VfSywOiUjuHfCR9B+B/bloyS3g1rpMxM3ZP5GCn+p/C7iobO6ZRO4E9+jIsn1Bk+Ej2EQ/xVqmem7sl9EFfvHk2d8NdYmlP3nMHvCZ+OSa5T+N/Yk3DPXoWzbVHdtru4/FciufodcpVFePcGqnpWRt1jM13rF35P+OSzOnPw4/Z9xjP4X4eCbDyjzsgtugcXycLlGBz7jfvgN1W3ZNQ9p/Bvwqca/i2xbYXfGa9g8EaMsKxwdVZr0D1OFH7RMOpREfb8dc/K+J3KM9mzc9+nsidMaQYM4D8AD8RjeZVAUb3uEWXf/afwV3bIjLrnHP5V+JTAn1nMssLvfQgghJ+kgym1Rn5UDzpJFH78T+E3lTKGT/cUwP+deCoZ8G4LFc1+fuwovWE9XTaOXWvk+g8yu0s4fm3wVztyNt1TAv9H+BTATztphrrgrzZyte65hOLXBr+tbuhsQegS+D/CpzLU6X+ETgP8VO8vKnWPqOqx/yv8UC1iLJd9iuB/C59K+Gk3OTwfflOvFCt1jxFkn3M4pAp+bHDjXDOAZfC/hE/tJJcXtdcAf4ORqU57C7LPOrmrCn7bMLwxTZVshf+VeVYLv/fBUQXw2xZ3WsUhXULwa4O/XvXw6Z5C+J/Cpzq9AbzMiOnwN6ieShcjp3oA/1v4sampM3WOpfCjNwFbCr/1P3GYWMA+Ev42I1fpnkvofW3wu6agLpPuKYX/Xcs6+D3nntq6ZCj8tg2qChdjpdh3j/8Y/hbVw7bOrRj+VzUr4XeHm1YNhb/NyGkXQ8V30Cd5lMGPjQMcHt2T367QJeq5dgKZ7QrjrE7yDb5L+4GR8LcauVz3yCR0Ag3qBSfB7xo9OI/uyW9U6xIVzdY4Db8/0bXfqBbc31UGwu9apXRx7EVC9TgZgyiCv7FDrg1CZ31ibrvx1KHV5+x+Co7Ho2N1qJ4K3QMXIf/RkIIkBj81h3WvtdJtasFmI1Np+AU7imwSZ1VdaSj8rtl/VwzG7l6aVU+F7mGeg5i1Sc9Q+NsJJkUmU16g3U24AS6GRrSwjj5SCn7q0C56TKa8UIehinUPt7ud04kPhd90eO+f7pFXPWNcjBvRwvTB3zPUITUmU166nIQTzq7XpXtGwk9dEZuf7hFXPYNcDGjpxEfCb7rGrD/d02ymCnpHBCLV6J6R8PfZ9ad75FXPGN2DWjrxgfDbznmqn+4RVz2Z87lnE7VsST4QftMZqTdKTHY51eO6wfxPdc9A+Hut+tM98qrnXrpnHPy2uz8dnRVywWK7qcIb6Z5x8EN3fgKP7kFvF8GDP/k2oKTvTPyKr9MoU8JzKF2T7HVPasmiesboHqsjT3EY/NhvU47BmN1X3V9xFX4mwXmvKt0RUawZzEEG+W55LwacbjVJ4OotODh4AA7Vk9E9bgB14zvxYfBbhrbeb7Incdu24eCf/qwg7P62LUuEtBEofkjzxNq/yPY/zocfo7utNUnwusHvogcgVtVzK90zDH5g8CfdgzEXHE7g77mw96J2rV85/OGC3/DMDX4IFu3hVpMEayv8NjDa32kLs5FvpHtGwY8cFu3WPREK28Lb+AtZ68cSBeCn6OG3TyIliF3hjzeG8A2PLJPg99E9oxazOJaW3mkyijXAuvA2QQkcf2eoB34Tx2jdVhMTPpT30TCMTgNW1TMoEKliSYsdBD9Lh9zrlBJbl3x/SmC1IicAf7z8favc3zFhN7TVZDlq0DxGHpJ4pkL3tG3/XQ0/8vRynbrnMvBjAO1BTTz4kQnaIROwCnRP49C+Gn7H1M77THYZ+MOPs5fB75jkyl10DwyCn+tJ+3RPAn4CpxF+/3vYxzVBY5hVzxjdM39Ji2ncL7EWfuLq4/pMZvPtWhv8e+FzUhNe1TNT94xbn4GZfaYtO/yObXTT5ZTo8EPvquDfC5+DAa+Ekf933YNoTfOeVdXw8z1nl+7BfDtRB/9O+Kxx/iMzM8I0YgK2vhOX/eR7cROvhJ/4RvZ9Tslk9wHWB78vfFb4Td5ujEZOByKn6x43gH3DDr9hjOl26Z5n07EU7LqpFH5f+Gy5Pa99LVMPwKh6Zuqe6q+RMxdih5+zE+0bjAWZm9tn0xXC7wmfDX7MpZ4+WCW0Rt1DOlRPJfycHXK3U7IGdjvno174N+Hj76EePMD3YFYjj5mArXS9I1SPY4ffsBqSMwht14pohH8TPib3Vmh9AF4jD0k8q+zERzh+ZIeftwtlDUKvX4pTCf8qfLLwb8mgzIFDfbqHlDj+OvgtrxPhHYwd5EsqgP8rfPLwf7M6idlTD9E9VS3M6FD8lfADsxlZnZL94KoT/q/wOYD/M+9lmI08T/fAPNVj2eFH7g7UtTslfOSQUwr/R/is8GMOfvbpUlC2pGWA6jEPdvgttwtpd0rXyep87IXPaVYnu5HV6R551QMPfviB3YjNuueC8L+Fzyn8/EbWpnvUsF8DP7vq6dA9V4T/JXzO4EcBjaJL91g17NfA7/gdSLNTSsJvksi94T9Zw2ub4Tfl8D+DmS6f1fk6zQp46Xm6x01QPe4hAT8ImLDVKSXcO2z7Iri4p6Uj+BOL0MP2kIXfxZf0MjcxmonbArKUqoWEkXFEwn1xCxN2+/SQgF9A9XTonmjnjy15zEUNw3zdbAZ+ilCIrpGFHyMj2PVqUUVg8fIcIFEJFFEomnSPqOoB220XO0r1dOieZzaAt78lOi++9fdM1vsTmfWRcuun/o5w/naHJmIjv2lVcK5fk9SWPmuoM/kAIkbOADdH98gldEL1x9/L3bmMcGx2SjYf20XIPRHlen9zFinOw39wbsytt08bpYzppbqthSH7HlKFOd5DUFR3kCjGOGp4nJS1kw0IUzftTxGx0Pq690s391XZ7wFr6HEGf/aMAvhfHUWyJgmn7Q1I0EF42j/hcJqIC59HbwAAAABJRU5ErkJggg=="
@@ -98,7 +98,7 @@ _TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ARGIA — plant dashboard</title>
+<title>ARGIA - plant dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
@@ -142,7 +142,7 @@ _TEMPLATE = """<!DOCTYPE html>
                 gap:14px; margin-bottom:12px;">
       <span style="font-size:16px; font-weight:600; letter-spacing:3.5px;
                    color:#3c3b37; white-space:nowrap;">PERFORMANCE&nbsp;REPORT</span>
-      <img src="data:image/png;base64,__LOGO__" alt="ARGIA — Smart Energy Solutions"
+      <img src="data:image/png;base64,__LOGO__" alt="ARGIA - Smart Energy Solutions"
            style="height:34px; display:block;">
     </div>
     <div style="display:flex; align-items:center; justify-content:space-between;
@@ -199,7 +199,7 @@ _TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <div class="panel" style="margin-bottom:14px;">
-    <h2 id="tblTitle">Inverters — consolidated status</h2>
+    <h2 id="tblTitle">Inverters - consolidated status</h2>
     <table>
       <thead id="tblHead"></thead>
       <tbody id="tblBody"></tbody>
@@ -236,12 +236,12 @@ _TEMPLATE = """<!DOCTYPE html>
         days use the audited end-of-day KPI value, distributed across hours
         by the day's irradiance shape. The LIVE day integrates the
         instantaneous W/m&sup2; readings (trapezoidal, gaps capped at 3 h)
-        &mdash; a &plusmn;10% estimate until tonight's KPI stamp &mdash; and
+        - a &plusmn;10% estimate until tonight's KPI stamp - and
         both sides are pro-rated to the last complete hour (Mexico City).
         Irradiance for completed days comes from the plant's
         ShineMaster weather station: its STORED minute-scale history
         (~300 samples/day) is fetched from the logger and integrated
-        trapezoidally &mdash; validated July 2026 against an independent
+        trapezoidally - validated July 2026 against an independent
         weather model to &lt;1% on every plant. If that fetch fails, the
         fallback is poll-time snapshots, then a cloud-adjusted clear-sky
         model; the KPI records which source was used each day. Either
@@ -250,7 +250,7 @@ _TEMPLATE = """<!DOCTYPE html>
         <dt style="font-weight:600;">Production vs expected (%)</dt>
         <dd style="margin:0 0 8px;">Production &divide; Expected over the
         same hours. Performance vs the actual weather, not vs clear sky.
-        Judged on COMPLETED hours only &mdash; the in-flight hour is
+        Judged on COMPLETED hours only - the in-flight hour is
         excluded (datalogger upload offsets make it momentarily
         lopsided). On mornings where telemetry started late, the % is
         computed over COVERED HOURS only (marked &ldquo;&middot;covered
@@ -265,7 +265,7 @@ _TEMPLATE = """<!DOCTYPE html>
         where the plant produced. An inverter that reports telemetry while
         producing 0 kWh counts as unavailable. Buckets where the
         inverter was not observed at all (collector gaps, partial polls)
-        count as UNKNOWN and are excluded &mdash; not treated as
+        count as UNKNOWN and are excluded - not treated as
         downtime. Note: this measures
         operation; the KPI_Daily availability measures data coverage, so
         the two can differ.</dd>
@@ -278,7 +278,7 @@ _TEMPLATE = """<!DOCTYPE html>
         &ldquo;Issues&rdquo; counts inverters whose worst state of the day
         is any of these. Max &deg;C is the inverter&rsquo;s INTERNAL
         (electronics) temperature; amber &ge;65&thinsp;&deg;C, red
-        &ge;75&thinsp;&deg;C &mdash; the same bands the alert engine uses.
+        &ge;75&thinsp;&deg;C - the same bands the alert engine uses.
         Above ~75&thinsp;&deg;C the unit protects itself by derating, so
         heat becomes lost production.</dd>
 
@@ -288,7 +288,7 @@ _TEMPLATE = """<!DOCTYPE html>
         what it actually produced; priced with the plant's
         tariff_mxn_per_kwh where set. Underperformance is deliberately NOT
         included, and a whole-plant outage shows no loss here (no peers to
-        estimate from) &mdash; it shows in Production % instead.</dd>
+        estimate from) - it shows in Production % instead.</dd>
       </dl>
     </details>
   </div>
@@ -302,7 +302,7 @@ _TEMPLATE = """<!DOCTYPE html>
                 '#639922','#9FE1CB'];
   var ALL = '__ALL__';
   // statuses that count as "needing attention" on the cards / Issues column
-  // RECOVERED (v96): was OFFLINE/FAULT earlier today, producing now — still
+  // RECOVERED (v96): was OFFLINE/FAULT earlier today, producing now - still
   // listed, because the availability loss it took is real.
   var ISSUE_STATUSES = { FAULT: 1, OFFLINE: 1, DERATED: 1,
                          UNDERPERFORMING: 1, RECOVERED: 1 };
@@ -328,12 +328,12 @@ _TEMPLATE = """<!DOCTYPE html>
   // production is real and its trapezoid expected only integrates samples
   // that exist, so both sides are elapsed-matched. (Regression 2026-07-06:
   // cutting the in-progress hour hid the first data after an overnight
-  // telemetry gap — tabs had 08:19 data, the page showed zeros.)
+  // telemetry gap - tabs had 08:19 data, the page showed zeros.)
   // Completed days keep the full-day comparison.
   function cutLive(rows, day) {
     if (day !== mxTodayIso()) return rows;
     // STRICTLY before the current hour (2026-07-08): the in-flight
-    // bucket is mid-birth — datalogger phase offsets mean some inverters
+    // bucket is mid-birth - datalogger phase offsets mean some inverters
     // trail by one sample at the boundary, and judging that bucket
     // branded two healthy NL1 inverters OFFLINE with phantom loss. The
     // banner has always promised "last complete hour"; now the code
@@ -368,7 +368,7 @@ _TEMPLATE = """<!DOCTYPE html>
     o.value = d; o.textContent = d; daySel.appendChild(o);
   });
   var maxDay = days[days.length - 1];
-  // Default to TODAY (MX) when present — this is a live ops view; the
+  // Default to TODAY (MX) when present - this is a live ops view; the
   // banner explains that today's numbers are pro-rated estimates. Falls
   // back to the newest available day (e.g. a stale offline copy).
   var todayIso = mxTodayIso();
@@ -376,7 +376,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
   // A plant whose first sample arrived well after dawn had its early
   // energy rolled into the first sampled bucket, while the gap's sun is
-  // unmeasurable — the live % is then OVERSTATED. Warn, never hide.
+  // unmeasurable - the live % is then OVERSTATED. Warn, never hide.
   var LATE_START_AFTER = '06:45';
   function lateStarts(prowsAll, day) {
     if (day !== mxTodayIso()) return [];
@@ -393,7 +393,7 @@ _TEMPLATE = """<!DOCTYPE html>
   }
   // Gap mornings: the roll-in bucket holds unmeasured-sun energy, so a
   // full-day live %% is fiction. Over hours strictly AFTER it, production
-  // and expected are both measured and hour-aligned — an honest partial
+  // and expected are both measured and hour-aligned - an honest partial
   // window, labeled as such. Tonight's KPI stays the full-day truth.
   function coveredPct(prows, fromHHMM) {
     var startH = parseInt(fromHHMM, 10);
@@ -417,7 +417,7 @@ _TEMPLATE = """<!DOCTYPE html>
     el.style.display = 'block';
     el.textContent = '\u26a0 Telemetry started late today for ' +
       late.map(function (l) { return l.pk + ' (from ' + l.from + ')'; })
-          .join(', ') + ' \u2014 energy produced during the gap rolled ' +
+          .join(', ') + ' - energy produced during the gap rolled ' +
       'into the first sampled hour, but the sun for those hours could not ' +
       'be measured. Production is real; the % is overstated until ' +
       'coverage builds. Tonight\u2019s KPI corrects the full-day number.';
@@ -499,7 +499,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
   var AVAIL_OK_SET = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
   // Availability counts only ASSESSABLE buckets. NO_DATA (collector gap,
-  // partial poll) is UNKNOWN — counting it as downtime punished plants
+  // partial poll) is UNKNOWN - counting it as downtime punished plants
   // for the collector's absences: 2026-07-06, MEX1 read 80% availability
   // while producing 130% of expected with zero issues.
   var AVAIL_ASSESS = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1,
@@ -507,7 +507,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
   // Fault events for the day, from UNCUT rows: the in-flight-hour rule
   // (cutLive) protects CLASSIFICATION from mid-birth buckets, but a raw
-  // vendor fault is a fact, not a judgement — it must show regardless of
+  // vendor fault is a fact, not a judgement - it must show regardless of
   // which hour it happened in (JFM5D8900B FT=302 lesson, 2026-07-09).
   function faultEventsByInv(irowsAllDay) {
     var ev = {};
@@ -521,7 +521,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
   // v96: consolidated status. worst = worst bucket of the day; last =
   // most recent completed bucket. If worst is hard-down (OFFLINE/FAULT)
-  // but the inverter is producing in its latest bucket, it RECOVERED —
+  // but the inverter is producing in its latest bucket, it RECOVERED -
   // show that, not a stale OFFLINE. Mirrors argia.analytics.status.
   // display_status (the tested reference).
   var PROD_NOW = { ONLINE: 1, UNDERPERFORMING: 1, DERATED: 1 };
@@ -559,7 +559,7 @@ _TEMPLATE = """<!DOCTYPE html>
     list.forEach(function (a) {
       var disp = displayStatus(a.status, a.lastStatus);
       if (disp === 'RECOVERED' && a.status !== 'RECOVERED') {
-        a.reason = 'recovered \u2014 was ' + a.status.toLowerCase()
+        a.reason = 'recovered - was ' + a.status.toLowerCase()
                  + ' earlier today';
         a.status = 'RECOVERED';
       }
@@ -629,7 +629,7 @@ _TEMPLATE = """<!DOCTYPE html>
     setGauges(maxTemp, pct);
 
     document.getElementById('tblTitle').textContent =
-      'Inverters \u2014 consolidated status';
+      'Inverters - consolidated status';
     document.getElementById('tblHead').innerHTML =
       '<tr><th>Inverter</th><th class="num">kWh</th>' +
       '<th class="num">Avail</th><th class="num">Loss</th>' +
@@ -641,13 +641,13 @@ _TEMPLATE = """<!DOCTYPE html>
       var tr = document.createElement('tr');
       var av = a.availN > 0 ? Math.round(100 * a.availOk / a.availN) : null;
       // Temperature speaks the alert engine's language (amber >=65,
-      // red >=75 deg C) and explains itself — a red gauge over a mute
+      // red >=75 deg C) and explains itself - a red gauge over a mute
       // table row was unanswerable (user question, 2026-07-07).
       var tCol = a.temp === null ? '#6b6a64'
         : a.temp >= 75 ? '#a32d2d' : a.temp >= 65 ? '#854f0b' : '#1a1a19';
       var tNote = a.temp !== null && a.temp >= 65
         ? ((a.temp >= 75 ? 'hot: derating likely' : 'running hot')
-           + ' \u2014 check cooling/heatsink (derates \u226575\u00b0C)')
+           + ' - check cooling/heatsink (derates \u226575\u00b0C)')
         : '';
       var reasonTxt = a.reason || '';
       if (tNote) reasonTxt = reasonTxt
@@ -772,7 +772,7 @@ _TEMPLATE = """<!DOCTYPE html>
           lastSt[r.inverter_sn] = r.status;
         }
       });
-      // v96: fold recovery in — a hard-down inverter now producing is
+      // v96: fold recovery in - a hard-down inverter now producing is
       // RECOVERED (still an issue, but not a HARD/red one).
       Object.keys(worst).forEach(function (sn) {
         worst[sn].status = displayStatus(worst[sn].status, lastSt[sn]);
@@ -861,7 +861,7 @@ _TEMPLATE = """<!DOCTYPE html>
       pct === null ? '\u2013' : Math.round(pct) + '%';
 
     document.getElementById('tblTitle').textContent =
-      'Plants \u2014 daily summary';
+      'Plants - daily summary';
     document.getElementById('tblHead').innerHTML =
       '<tr><th>Plant</th><th class="num">kWh</th>' +
       '<th class="num">Expected</th><th class="num">%</th>' +
@@ -882,7 +882,7 @@ _TEMPLATE = """<!DOCTYPE html>
         '<td class="num" style="color:' + col + ';font-weight:600">' +
         (p.pct === null ? '\u2013'
           : fmt(p.pct) + '%' + (p.covered
-            ? ' <small title="over covered hours only \u2014 the '
+            ? ' <small title="over covered hours only - the '
               + 'late-start roll-in bucket is excluded">\u00b7c</small>'
             : '')) + '</td>' +
         '<td class="num" style="color:' + aCol2 + '">' +

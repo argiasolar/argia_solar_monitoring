@@ -1,4 +1,4 @@
-"""v208 — portal.argia.com.mx chrome and wiring (no PostgreSQL needed).
+"""v208 - portal.argia.com.mx chrome and wiring (no PostgreSQL needed).
 
 The rules Tomasz set on 2026-09-05: one header everywhere with exactly
 Home · Ask ARGIA · You plus the section's sub-tabs; customer names
@@ -108,7 +108,7 @@ class TestCarriedOver:
         assert "@media print" in C.CSS and ".face.back" in C.CSS.split("@media print")[1]
 
     def test_legacy_redirect_names_the_old_site(self):
-        r = C.redirect_page("https://report.argia.com.mx/financial/", "Financial — old site", "Financiero — sitio anterior")
+        r = C.redirect_page("https://report.argia.com.mx/financial/", "Financial - old site", "Financiero - sitio anterior")
         assert 'url=https://report.argia.com.mx/financial/' in r
 
 
@@ -311,7 +311,7 @@ class TestV212:
         css = C.skin_reset(".monbody")
         assert ".monbody .card{overflow:visible}" in css
         assert "margin-left:0;margin-right:0" in css and ".monbody .card>table{width:100%" in css
-        # every rule is scoped — nothing leaks into the portal's own cards
+        # every rule is scoped - nothing leaks into the portal's own cards
         for rule in re.findall(r"([^{}]+)\{", css):
             for sel in rule.split(","):
                 assert sel.strip().startswith(".monbody"), sel
@@ -326,7 +326,7 @@ class TestV212:
     def test_setup_keeps_one_row_of_folders(self):
         sa = (BUNDLE / "setup_app.py").read_text(encoding="utf-8")
         assert ".setupbody .dnav{display:none}" in sa
-        # the anchor chips inside a drawer survive, restyled — not hidden
+        # the anchor chips inside a drawer survive, restyled - not hidden
         assert ".setupbody .tabbar{position:static" in sa
 
 
@@ -334,7 +334,7 @@ class TestV212:
 class TestV213:
     """Tomasz 2026-09-06: same-size percentages, CFE table that fits and
     wraps its note, PPA-only map default with tiles following the
-    legend, the audit block spaced like a card — and the decommission
+    legend, the audit block spaced like a card - and the decommission
     audit's findings: performance + reconciliation pages and the
     signed-out / no-access pages on the portal."""
 
@@ -371,7 +371,7 @@ class TestV213:
 
 class TestV224Fit:
     """v224 (Tomasz, 2026-09-07 screenshots): Setup cards did not fit their
-    text — the catalog's <section class="tab"> collided with the portal
+    text - the catalog's <section class="tab"> collided with the portal
     chrome's `.tab` (the tab-bar button: white-space:nowrap, padding,
     grey background), so every note ran off the card in one line and a
     grey box framed each section. Tables wider than a card now scroll
@@ -402,7 +402,7 @@ class TestV224Fit:
 
 
 class TestV225PortalNames:
-    """v225: names first, codes as detail — on the monitoring page's open
+    """v225: names first, codes as detail - on the monitoring page's open
     alerts too (Tomasz 2026-09-07: 'fix the naming on the portal pages')."""
 
     def test_alerts_card_uses_the_naming_layer(self):
@@ -420,13 +420,13 @@ class TestV225PortalNames:
     def test_ledger_message_reads_like_the_mail(self):
         from argia.alerts import naming
         n = naming.Names({"NL1": "Plastic Omnium"}, {("NL1", "JGMAE6500G"): "Inverter 4"})
-        msg = "NL1 JGMAE6500G: day-peak temperature 72.0 degC — suspected derating 30 min vs cooler peers"
-        assert n.text(msg, "NL1", "JGMAE6500G") == "day-peak temperature 72.0 degC — suspected derating 30 min vs cooler peers"
+        msg = "NL1 JGMAE6500G: day-peak temperature 72.0 degC - suspected derating 30 min vs cooler peers"
+        assert n.text(msg, "NL1", "JGMAE6500G") == "day-peak temperature 72.0 degC - suspected derating 30 min vs cooler peers"
         assert n.inverter("NL1", "JGMAE6500G") == "Inverter 4 (JGMAE6500G)" and n.inverter_short("NL1", "JGMAE6500G") == "Inverter 4" and naming.phrase("inverter_temp_high") == "inverter running hot"
 
 
 class TestV230SerialEverywhere:
-    """v230 (Tomasz): 'if we see just Inverter 3 it is not good enough' —
+    """v230 (Tomasz): 'if we see just Inverter 3 it is not good enough' -
     every place a person reads an inverter shows label AND serial, one
     format: text 'Inverter 3 (JGMAE65009)', pages the serial in a .sn span."""
 
@@ -517,12 +517,12 @@ class TestV236ReferenceLanguage:
 
 
 class TestV238FinancialCurrency:
-    """v238 (Tomasz): the financial report showed bare numbers — every amount is MXN and says so."""
+    """v238 (Tomasz): the financial report showed bare numbers - every amount is MXN and says so."""
 
     def test_tiles_tables_and_kicker_say_mxn(self):
         rg = (BUNDLE / "report_gen.py").read_text(encoding="utf-8")
         for kid in ("k_exp", "k_act", "k_net"):
-            assert f'<span id="{kid}">—</span> <span class="unit">MXN</span>' in rg, kid
+            assert f'<span id="{kid}"> - </span> <span class="unit">MXN</span>' in rg, kid
         assert '<tr><th></th><th class="num">MXN</th></tr>' in rg                      # the two summary tables
         assert 'data-en="Exp. revenue MXN"' in rg and 'data-en="Debt service MXN"' in rg and '<th class="num">O&M MXN</th>' in rg
         assert 'all amounts MXN, sin IVA' in rg
@@ -548,7 +548,7 @@ class TestTheHeaderJoinsThePage:
 
     def test_the_active_tab_still_wears_the_page_colour(self):
         """That is what makes it read as part of the page rather than a
-        chip floating above it — removing it would bring the seam back."""
+        chip floating above it - removing it would bring the seam back."""
         assert ".tab.on{" in self.SRC
         on = self.SRC.split(".tab.on{", 1)[1].split("}", 1)[0]
         assert "background:var(--bg)" in on

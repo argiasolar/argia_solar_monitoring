@@ -1,4 +1,4 @@
-"""Data-provenance registry — the single source of audit text.
+"""Data-provenance registry - the single source of audit text.
 
 Every finance tab and column gets a short "where this number comes
 from" statement here. Two consumers:
@@ -25,7 +25,7 @@ from typing import Dict, List
 COLUMN_NOTES: Dict[str, Dict[str, str]] = {
     "Loans": {
         "loan_id": "Assigned at migration (plant + sequence, e.g. "
-                   "SLP1-L2). The unit of financial identity — a plant "
+                   "SLP1-L2). The unit of financial identity - a plant "
                    "can carry any number of loans.",
         "principal_mxn": "MXN value at booking, from bank contract via "
                          "v1 ARGIA_Solar LoanPayments (export "
@@ -56,11 +56,11 @@ COLUMN_NOTES: Dict[str, Dict[str, str]] = {
                        "loans.",
         "xr": "Exchange rate applied to that month. Past months: "
               "historical rate actually paid. Future months: v1's "
-              "projection (last known rate, 17.98) — a projection, "
+              "projection (last known rate, 17.98) - a projection, "
               "not a commitment.",
         "due_after_mxn": "Remaining repayment obligation after the "
                          "installment (v1 running balance). NOTE: this "
-                         "is principal+interest combined — v1 never "
+                         "is principal+interest combined - v1 never "
                          "stored the rate, so an interest/principal "
                          "split is not derivable from this data.",
         "installment_no": "Position in the amortization sequence.",
@@ -100,7 +100,7 @@ COLUMN_NOTES: Dict[str, Dict[str, str]] = {
     "Plants": {
         "portfolio": "Label only: PPA / CAPEX / PROLOGIS (blank = PPA). "
                      "Groups plants and feeds future per-portfolio "
-                     "reports; controls NOTHING — visibility is the "
+                     "reports; controls NOTHING - visibility is the "
                      "show_* columns, data capture is `active`.",
         "show_dashboard": "FALSE hides this plant from the performance "
                           "dashboard. Blank/TRUE = visible. Never "
@@ -158,7 +158,7 @@ COLUMN_NOTES: Dict[str, Dict[str, str]] = {
 # NOTES-tab section (freeform lines, appended once, marker-guarded)
 # ---------------------------------------------------------------------------
 
-NOTES_MARKER = "Finance layer (v60-v61) — data provenance"
+NOTES_MARKER = "Finance layer (v60-v61) - data provenance"
 
 NOTES_SECTION: List[str] = [
     "",
@@ -167,10 +167,10 @@ NOTES_SECTION: List[str] = [
     "LoanPayments (export 2026-07-08); bank amortization tables are "
     "the ultimate source. 9 loans, 589 monthly rows, 2023-09..2032-09.",
     "  - Debt service is always DERIVED by summing Loan_Schedule rows "
-    "for a month — no stored per-plant payment exists anywhere "
+    "for a month - no stored per-plant payment exists anywhere "
     "(v1's stale-SLP1 failure mode is structurally excluded).",
     "  - USD loans (LOAX1, LGTO1): payment_mxn = payment_ccy x xr. "
-    "Future months use v1's projected rate (17.98) — projections, "
+    "Future months use v1's projected rate (17.98) - projections, "
     "not commitments.",
     "  - due_after_mxn is principal+interest combined; no interest "
     "rate was ever recorded, so an interest/principal split needs the "
@@ -191,7 +191,7 @@ NOTES_SECTION: List[str] = [
     "same month so income and debt service share an FX basis.",
     "O&M (v91): the financial report opex line is the sum of APPROVED "
     "Maintenance_Events costs in the period (actual spend, attributed to "
-    "the day work started). Plants.om_cost_monthly_mxn is superseded — "
+    "the day work started). Plants.om_cost_monthly_mxn is superseded - "
     "kept only as an optional additive baseline, blank on every plant "
     "(no recurring retainers).",
     "Maintenance-day billing ('energia compensada'): deemed_day = "
@@ -213,7 +213,7 @@ NOTES_SECTION: List[str] = [
 
 def report_sources(*tabs: str) -> Dict[str, Dict[str, str]]:
     """Provenance for the given tabs, for report audit footers.
-    Unknown tab names raise — a report citing an undocumented source
+    Unknown tab names raise - a report citing an undocumented source
     should fail loudly in tests, not print an empty footer."""
     out = {}
     for tab in tabs:

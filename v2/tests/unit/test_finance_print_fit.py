@@ -1,16 +1,16 @@
-"""v254 — the emailed financial report must carry every column.
+"""v254 - the emailed financial report must carry every column.
 
 Tomasz, 2026-09-13: the weekly mailed PDF was truncated while the same page
 printed by hand from a browser was complete. Cause: the screen layout is
 1080px wide, A4 is ~700px, and the two ways of making the PDF disagree about
-what to do with the excess —
+what to do with the excess -
 
 * a person pressing Ctrl+P gets Chrome's print dialog, which shrinks to fit;
 * ``scripts/financial_mail.py`` renders with ``chromium --print-to-pdf``,
   which has no shrink-to-fit and simply CLIPS whatever overflows the sheet.
 
-So the mail lost debt service, loan position and BOTH DSCR columns — the
-covenant numbers — off the right edge, silently, every week.
+So the mail lost debt service, loan position and BOTH DSCR columns - the
+covenant numbers - off the right edge, silently, every week.
 
 These tests pin the print stylesheet that makes the page fit on its own. The
 first two are cheap and always run; the last actually drives headless chromium
@@ -118,7 +118,7 @@ class TestTheRenderedPdfKeepsEveryColumn:
         missing = [c for c in COLUMNS if c not in text]
         assert not missing, (
             f"columns clipped off the emailed PDF: {missing}. The print CSS no "
-            f"longer makes the page fit A4 — see the module docstring.")
+            f"longer makes the page fit A4 - see the module docstring.")
 
     def test_the_regression_itself_is_reproducible(self):
         """Guard against a false pass: with the print block removed, the same
@@ -137,20 +137,20 @@ class TestTheRenderedPdfKeepsEveryColumn:
             i += 1
         text = self._pdf_text(html[:start] + html[i + 1:])
         assert [c for c in COLUMNS if c not in text], (
-            "removing the print CSS no longer truncates the PDF — either the "
+            "removing the print CSS no longer truncates the PDF - either the "
             "layout changed or this harness stopped exercising the real path")
 
 
 # --------------------------------------------------------------------------
-# v255 — the page the WEEKLY MAIL actually renders
+# v255 - the page the WEEKLY MAIL actually renders
 #
 # v254 fixed argia/finance/webreport.py, which is a real page (it is what
 # scripts/financial_report_publish.py publishes) but NOT the one that gets
 # mailed. scripts/financial_mail.py prints
 # /www/hosting/portal.argia.com.mx/www/report/financial/index.html, which the
 # portal builds from server/bundle/report_gen.py::financial_body(). Verified on
-# pio06: the live page carries two @page rules — portal_chrome's landscape one
-# and financial_body's inline portrait one — and the inline block, being later
+# pio06: the live page carries two @page rules - portal_chrome's landscape one
+# and financial_body's inline portrait one - and the inline block, being later
 # in the document, wins. The rendered MediaBox was 594.96 x 841.92 (A4
 # portrait), byte-identical to the truncated PDF Tomasz received.
 # --------------------------------------------------------------------------
@@ -160,7 +160,7 @@ PC_SRC = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf
 
 
 def _fin_print_block() -> str:
-    """financial_body()'s own <style> — the rules that win on the mailed page."""
+    """financial_body()'s own <style> - the rules that win on the mailed page."""
     blk = RG_SRC.split("the mailed PDF is this page printed", 1)[1]
     return blk.split("</style>", 1)[0]
 
@@ -191,7 +191,7 @@ class TestTheMailedPageFitsItsSheet:
 
     def test_the_mail_still_renders_this_exact_page(self):
         """If the mail ever points somewhere else, these tests stop meaning
-        anything — pin the path and the flags they were written against."""
+        anything - pin the path and the flags they were written against."""
         mail = (V2 / "scripts" / "financial_mail.py").read_text(encoding="utf-8")
         assert 'os.path.join(WEBROOT, "report", "financial", "index.html")' in mail
         assert "--print-to-pdf=" in mail

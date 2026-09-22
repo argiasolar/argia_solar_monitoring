@@ -2,7 +2,7 @@
 
 The computation layer behind the investor/shareholder report. Pure
 functions over already-loaded data (Contract_Monthly, Loan_Schedule,
-KPI_Daily, PlantConfig) — the report renderer formats, this module
+KPI_Daily, PlantConfig) - the report renderer formats, this module
 decides the numbers. Rules it encodes:
 
 * Actual PPA income = Σ daily billable energy × the tariff in force
@@ -13,11 +13,11 @@ decides the numbers. Rules it encodes:
   schedule uses for the same plant-month, so income and debt service
   always share an FX basis. If a plant's schedule rows disagree on the
   month's rate (possible once a second loan exists), the first is used
-  and a warning is logged — divergence means someone updated one loan's
+  and a warning is logged - divergence means someone updated one loan's
   projection and not the other.
 * Debt service and O&M are monthly lumps; any partial period prorates
   them by elapsed calendar days (the "don't look bankrupt on the 9th"
-  rule). Revenue is never prorated — it accrues daily by nature.
+  rule). Revenue is never prorated - it accrues daily by nature.
 * DSCR = income / debt service, no IVA anywhere.
 """
 
@@ -98,7 +98,7 @@ def load_kpi_energy(sheets, period: Period) -> Dict[Tuple[str, str], float]:
         from argia.kpi.pg_kpi_source import kpi_grid
         data = kpi_grid(sheets, "A1:ZZ")      # v190: sheet or PG
     except Exception:  # noqa: BLE001
-        LOG.warning("%s not readable — actual income unavailable",
+        LOG.warning("%s not readable - actual income unavailable",
                     KPI_DAILY_TAB)
         return {}
     if not data or len(data) < 2:
@@ -124,7 +124,7 @@ def load_kpi_energy(sheets, period: Period) -> Dict[Tuple[str, str], float]:
         if not pk or not d_iso or not period.contains_iso(d_iso):
             continue
         # v91: prefer billable_kwh PER ROW, but a blank billable cell must
-        # NOT zero a day — fall back to energy_kwh for that row. The
+        # NOT zero a day - fall back to energy_kwh for that row. The
         # migration back-fills history and kpi_eod stamps billable going
         # forward, so this is belt-and-suspenders: a manually inserted or
         # half-stamped row silently dropped its income before this.
@@ -157,7 +157,7 @@ def xr_for_month(schedule: Iterable[ScheduleRow], plant_key: str,
     first = rates[0]
     if any(abs(r - first) > first * 0.005 for r in rates[1:]):
         LOG.warning("xr_for_month(%s %s): loan rows disagree on the rate "
-                    "(%s) — using %.4f; align the projections",
+                    "(%s) - using %.4f; align the projections",
                     plant_key, ym, rates, first)
     return first
 

@@ -1,4 +1,4 @@
-"""KPI sheet -> PG mirror (P1-9) — protected-upsert semantics."""
+"""KPI sheet -> PG mirror (P1-9) - protected-upsert semantics."""
 
 from argia.kpi.reconcile import date_key
 from argia.store.kpi_mirror import (
@@ -55,14 +55,14 @@ def test_upsert_sql_protects_vendor_rows():
 def test_billable_is_a_protected_column():
     """2026-09-01: the sibling sync path overwrote the repaired
     billable_kwh of the freshly closed August back to stale export
-    values 45 minutes after the close — because billable was the one
+    values 45 minutes after the close - because billable was the one
     billing column missing from the protected set."""
     assert "billable_kwh" in PROTECTED
 
 
 def test_upsert_never_touches_a_closed_month():
-    """A CLOSED month is invoiced history. EVERY column update — the
-    unprotected ones included — must first check the freeze and keep
+    """A CLOSED month is invoiced history. EVERY column update - the
+    unprotected ones included - must first check the freeze and keep
     the stored value when the row's month has a closed reconciliation.
     Count the guards: one per updated column, no exceptions."""
     sql = build_upsert_sql(normalize_rows([_rec()], date_key))

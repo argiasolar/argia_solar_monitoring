@@ -1,9 +1,9 @@
-"""Admin finance editor — pure core (no flask, importable in tests).
+"""Admin finance editor - pure core (no flask, importable in tests).
 
 Validation and SQL builders behind /setup/finance, where an admin
 adjusts the commercial inputs the financial report derives everything
 from: loan principal, future installments, FX rates, schedule length,
-O&M, LaaS fees and PPA tariffs. The report itself never stores these —
+O&M, LaaS fees and PPA tariffs. The report itself never stores these -
 it re-derives revenue, debt service and DSCR from the tables each run,
 so a saved edit shows up on the next regeneration (which the app
 triggers immediately after every write).
@@ -19,7 +19,7 @@ Honesty rules, enforced here so they are testable:
     loan sets the CCY amount and recomputes MXN through the stored xr.
     Future-month MXN figures remain projections, exactly as v1 defined
     them.
-  * Every write leaves a ``finance_audit`` row (who, when, what) —
+  * Every write leaves a ``finance_audit`` row (who, when, what) -
     a number that silently changes is indistinguishable from a bug.
 """
 
@@ -30,7 +30,7 @@ from typing import List, Optional, Sequence
 
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
-# sane bounds — a typo'd extra zero must not sail through
+# sane bounds - a typo'd extra zero must not sail through
 MAX_PAYMENT_MXN = 5_000_000.0
 MAX_PAYMENT_CCY = 500_000.0
 MAX_PRINCIPAL = 1_000_000_000.0
@@ -56,7 +56,7 @@ ENSURE_AUDIT_SQL = """CREATE TABLE IF NOT EXISTS finance_audit (
 
 def sq(value) -> str:
     """Single-quoted SQL literal (validated inputs only reach here,
-    but quote anyway — belt and braces)."""
+    but quote anyway - belt and braces)."""
     return "'" + str(value).replace("'", "''") + "'"
 
 
@@ -204,7 +204,7 @@ def sql_extend(loan_id: str, start_no: int, months: Sequence[str],
 
 
 def sql_loan_span_refresh(loan_id: str) -> str:
-    """total_installments / first / last derived from the schedule —
+    """total_installments / first / last derived from the schedule -
     the loans doctrine: never store what can be derived and go stale."""
     lid = sq(loan_id)
     return ("UPDATE loan SET"

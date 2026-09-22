@@ -1,7 +1,7 @@
-"""v203 — a single inverter going silent while its siblings produce
+"""v203 - a single inverter going silent while its siblings produce
 (Holiday Inn Express / SLP2, 2026-09-04: Inverter 1 JFM7DXN03J sent
 nothing 14:20-19:59 MX, Inverter 2 reported ~105 kW throughout; the
-vendor counter later showed +145 kWh across the gap — a datalogger
+vendor counter later showed +145 kWh across the gap - a datalogger
 link drop, no energy lost; the portal said "stale", nobody was told).
 
 Three layers: the acute detector (opens within 45 min), the daily

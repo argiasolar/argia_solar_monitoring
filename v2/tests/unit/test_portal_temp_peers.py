@@ -1,4 +1,4 @@
-"""v202 — the portal plant page gets back what the GCS dashboard had:
+"""v202 - the portal plant page gets back what the GCS dashboard had:
 day-peak inverter temperature with colour, a per-kW peer comparison and
 the open ledger alerts (Tomasz 2026-09-05: "inverter temperatures ...
 not on new dashboards"; "peer inverter comparisons").
@@ -85,7 +85,7 @@ class TestPeers:
         assert "peer_ratios({i['sn']: i['etoday'] for i in invs}, RATED.get(pk, {}))" in SRC
         assert "amber < 85%, red < 70%" in SRC
         # silent-inverter rows keep the column count (7 cells)
-        assert "'<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>'" in SRC
+        assert "'<td> - </td><td> - </td><td> - </td><td> - </td><td> - </td></tr>'" in SRC
 
 
 class TestOpenAlerts:

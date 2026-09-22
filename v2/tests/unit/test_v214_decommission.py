@@ -1,4 +1,4 @@
-"""v214 — the old site (report./monitoring./portfolio.argia.com.mx) is
+"""v214 - the old site (report./monitoring./portfolio.argia.com.mx) is
 decommissioned: every runtime link points at portal.argia.com.mx, the
 old generator units are gone, CFE is open to every signed-in user, and
 the Pi keeps working from a nightly portfolio snapshot instead of the
@@ -32,7 +32,7 @@ class TestNoOldHostLeft:
                 code = ln.split("#", 1)[0]
                 if any(h in code for h in OLD_HOSTS):
                     # the two remaining mentions are the old nginx log paths
-                    # the usage card still reads (history) — nothing served
+                    # the usage card still reads (history) - nothing served
                     if "access.log" in code:
                         continue
                     # v218: the drift harness checks that the old hosts still

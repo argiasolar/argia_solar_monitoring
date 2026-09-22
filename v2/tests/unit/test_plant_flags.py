@@ -2,7 +2,7 @@
 
 The two safety rules this feature lives or dies by, both pinned here:
 
-  1. Report flags NEVER touch data capture — a plant hidden from every
+  1. Report flags NEVER touch data capture - a plant hidden from every
      report still collects telemetry, stamps KPIs and raises alerts
      (`active` is the only machine-axis flag).
   2. Unknown values never silently hide anything: an unrecognized
@@ -106,7 +106,7 @@ class TestPerSurfaceFilters:
     def test_dashboard_parse_builds_all_active_plants(self):
         """Rewritten for v84 (was: parse skips show_dashboard=FALSE).
         The Dashboard tabs are now the STORE of live-computed metrics
-        for ALL active plants — per-client pages consume CAPEX rows —
+        for ALL active plants - per-client pages consume CAPEX rows -
         and show_dashboard filters at render time in the publisher
         (rows and selector), keeping the internal page pure-PPA."""
         rows = [
@@ -123,7 +123,7 @@ class TestPerSurfaceFilters:
 
     def test_publisher_filters_rows_to_visible_set(self):
         """v84 companion: the internal page must not EMBED hidden
-        plants' rows — filtering the selector alone would still ship
+        plants' rows - filtering the selector alone would still ship
         CAPEX data in the payload."""
         import inspect
         import scripts.dashboard_html_publish as P

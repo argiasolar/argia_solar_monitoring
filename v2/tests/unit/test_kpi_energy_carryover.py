@@ -90,7 +90,7 @@ class TestFindCarryoverCut:
 
 # --- regression: the real 2026-07-03 series ---------------------------------
 
-# SLP1 JNM7DY306G — verbatim from Telemetry_Argia
+# SLP1 JNM7DY306G - verbatim from Telemetry_Argia
 SLP1_306G = [
     (0, 4, 502.4), (6, 48, 0.1), (8, 58, 11.8), (10, 36, 59.9),
     (11, 56, 146.0), (13, 40, 278.2), (14, 40, 335.6), (15, 41, 365.7),
@@ -98,7 +98,7 @@ SLP1_306G = [
     (23, 56, 434.9),
 ]
 
-# GTO1 JFM7DXN00U — verbatim from Telemetry_Argia
+# GTO1 JFM7DXN00U - verbatim from Telemetry_Argia
 GTO1_00U = [
     (0, 2, 737.4), (6, 50, 0.9), (8, 55, 59.9), (10, 36, 192.6),
     (11, 56, 309.2), (13, 41, 398.5), (14, 41, 466.3), (15, 41, 522.8),

@@ -2,7 +2,7 @@
 49, 51, 59, 64).
 
 Every transition is a table, every refusal is a RuleError with the
-reason in words — the UI shows it, the audit stores it.
+reason in words - the UI shows it, the audit stores it.
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def closure_blockers(open_pos: int, unpaid_invoices: int, unbilled_milestones: i
 
 def close_project(blockers: Sequence[str], override_reason: str = "", authorised: bool = False) -> str:
     if blockers and not (override_reason.strip() and authorised):
-        raise RuleError("cannot close: " + "; ".join(blockers) + " — override needs a reason and authorisation")
+        raise RuleError("cannot close: " + "; ".join(blockers) + " - override needs a reason and authorisation")
     return "closed"
 
 
@@ -123,7 +123,7 @@ def late_milestones(ms: Iterable[Milestone], today: dt.date) -> List[Tuple[Miles
 
 
 def unbilled(ms: Iterable[Milestone]) -> List[Milestone]:
-    """Completed, billable, not invoiced — the exception (scenario 49)."""
+    """Completed, billable, not invoiced - the exception (scenario 49)."""
     return [m for m in ms if m.billable and m.actual is not None and not m.billed_ref]
 
 
@@ -176,7 +176,7 @@ def can_approve(approver: str, creator: str, amount: Decimal, self_approve_limit
 
 
 def po_amend(status: str, old_total: Decimal, new_total: Decimal, material_pct: Decimal = Decimal("0")) -> str:
-    """A change of amount after approval resets the approval — the new
+    """A change of amount after approval resets the approval - the new
     status; a draft simply changes (scenario 13)."""
     if status in ("closed", "cancelled"):
         raise RuleError(f"a {status} PO cannot change")
@@ -201,7 +201,7 @@ def period_guard(doc_date: dt.date, closed_through: Optional[dt.date]) -> None:
 
 
 def adjustment_date(today: dt.date, closed_through: Optional[dt.date]) -> dt.date:
-    """The first open day — where a correction to a closed month is booked."""
+    """The first open day - where a correction to a closed month is booked."""
     if closed_through and today <= closed_through:
         return closed_through + dt.timedelta(days=1)
     return today

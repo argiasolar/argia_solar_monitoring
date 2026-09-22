@@ -1,5 +1,5 @@
 {
-  "_doc": "Cell-level corrections to cfe_tariff (the CFE tariff table on pio06), fixed AT SOURCE so every consumer — the report pages, the tariff explorer, the engine overlay — reads the same value. Each entry names the cells, the correct value, who confirmed it and on what basis. scripts/cfe_corrections.py --apply writes them (idempotent, only rows whose value differs); --check reports drift and runs inside drift_check every morning. Entries with \"status\": \"proposed\" are listed but NOT applied.",
+  "_doc": "Cell-level corrections to cfe_tariff (the CFE tariff table on pio06), fixed AT SOURCE so every consumer - the report pages, the tariff explorer, the engine overlay - reads the same value. Each entry names the cells, the correct value, who confirmed it and on what basis. scripts/cfe_corrections.py --apply writes them (idempotent, only rows whose value differs); --check reports drift and runs inside drift_check every morning. Entries with \"status\": \"proposed\" are listed but NOT applied.",
   "corrections": [
     {
       "id": "D-4a",

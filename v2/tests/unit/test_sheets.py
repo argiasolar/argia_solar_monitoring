@@ -2,7 +2,7 @@
 
 We test the upsert logic by mocking the underlying Sheets API methods.
 The point is to verify the inserted/updated/unchanged accounting works
-correctly — that's the critical bit that prevents duplicate rows.
+correctly - that's the critical bit that prevents duplicate rows.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ class TestConstructor:
 
 
 class TestUpsertRows:
-    """The big one — make sure idempotency actually works."""
+    """The big one - make sure idempotency actually works."""
 
     def _setup_existing(self, client, existing_rows):
         """Helper: configure the mock to return existing_rows on read."""
@@ -49,7 +49,7 @@ class TestUpsertRows:
     def _capture_calls(self, client):
         """Capture append + batchUpdate calls on the mock service.
         v81: updates go through ONE values.batchUpdate instead of one
-        values.update per row — the per-row loop blew the Sheets
+        values.update per row - the per-row loop blew the Sheets
         60-writes/min quota once v80 overlap windows made multi-row
         updates routine (live 429s, 2026-07-10)."""
         values = client._svc.spreadsheets.return_value.values.return_value
@@ -94,7 +94,7 @@ class TestUpsertRows:
         update.assert_not_called()
 
     def test_changed_rows_updated(self, client):
-        # Existing kWh value differs from the new one — should update
+        # Existing kWh value differs from the new one - should update
         self._setup_existing(
             client,
             [
@@ -126,7 +126,7 @@ class TestUpsertRows:
                 ["date", "plant_key", "kwh"],
                 ["4/15/2026", "MEX1", 1500.0],  # will stay unchanged
                 ["4/15/2026", "MEX2", 999.0],  # will be updated
-                # MEX3 doesn't exist yet — will be inserted
+                # MEX3 doesn't exist yet - will be inserted
             ],
         )
 
@@ -164,7 +164,7 @@ class TestUpsertRows:
         assert result == {"inserted": 0, "updated": 0, "unchanged": 0}
 
     def test_composite_key_two_columns(self, client):
-        # Two rows with same plant but different dates — both inserted
+        # Two rows with same plant but different dates - both inserted
         self._setup_existing(client, [["date", "plant_key", "kwh"]])
         rows = [
             ["4/14/2026", "MEX1", 1400.0],
@@ -178,7 +178,7 @@ class TestUpsertRows:
 
 class TestFormattedReadbackEquivalence:
     """v81: Sheets returns values FORMATTED (6.0 -> "6"), so the old
-    raw-string comparison re-updated identical rows on every poll —
+    raw-string comparison re-updated identical rows on every poll -
     each a quota-costing write. Numeric equivalence must survive the
     round-trip."""
 
@@ -225,7 +225,7 @@ class TestBatchWriteCells:
 def test_blank_never_overwrites_data():
     """v89: the SolarEdge overlap window re-parses older rows WITHOUT
     the weather snapshot; each poll erased its predecessor's weather
-    (live 2026-07-11 — QRO1/GTO2 theoretical died on the client
+    (live 2026-07-11 - QRO1/GTO2 theoretical died on the client
     pages). A blank incoming cell is equivalent to any stored value;
     a stored blank still accepts new data."""
     from argia.core.sheets import _cells_equivalent, _rows_equivalent
@@ -240,11 +240,11 @@ def test_blank_never_overwrites_data():
 
 
 class TestV90UpsertCorrectness:
-    """v90 — the two halves the SolarEdge overlap exposed live
+    """v90 - the two halves the SolarEdge overlap exposed live
     (2026-07-11, updated=32/unchanged=0 every tick despite v89):
     (1) timestamp columns round-trip FORMATTED, so instant-equality
     must back up string/float equality; (2) when a row DOES update,
-    blanks in the incoming row must not erase stored data — updates
+    blanks in the incoming row must not erase stored data - updates
     merge."""
 
     def _serial(self, y, mo, d, h, mi):
@@ -270,7 +270,7 @@ class TestV90UpsertCorrectness:
         assert _rows_equivalent(stored, reparse)
 
     def test_update_merges_blanks_with_stored(self, client):
-        # power changed (real update) but weather cells arrive blank —
+        # power changed (real update) but weather cells arrive blank -
         # the written row must carry the STORED weather, not blanks
         TestUpsertRows()._setup_existing(client, [
             ["ts", "plant", "power", "irr"],

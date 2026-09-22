@@ -1,4 +1,4 @@
-"""Rich SMA inverter telemetry — parser + fetch helper.
+"""Rich SMA inverter telemetry - parser + fetch helper.
 
 SMA's pvGeneration measurement set field names vary between:
 - ennexOS plants (current, sandbox primarily simulates these)
@@ -250,7 +250,7 @@ def _set_for(sma_client: Any, plant: Any, inv: Any) -> Optional[str]:
 
     Asked once per device per run, then cached on the client. The Stage 6
     scaffold hard-coded "pvGeneration", which is the docs' category name and
-    not a set the API accepts — every telemetry call would have 404'd. The
+    not a set the API accepts - every telemetry call would have 404'd. The
     device tells us; we only choose among what it lists.
     """
     cache = getattr(sma_client, "_set_cache", None)
@@ -327,7 +327,7 @@ def fetch_inverter_telemetry(
             msg = str(e).lower()
             if "rate-limited" in msg or "429" in msg:
                 LOG.warning(
-                    "[%s/%s] rate-limited — skipping remaining inverters",
+                    "[%s/%s] rate-limited - skipping remaining inverters",
                     plant.plant_key, inv.inverter_sn,
                 )
                 raise
@@ -342,7 +342,7 @@ def fetch_inverter_telemetry(
         )
         if row is None:
             LOG.warning(
-                "[%s/%s] empty %s response — no data for this device right now",
+                "[%s/%s] empty %s response - no data for this device right now",
                 plant.plant_key, inv.inverter_sn, set_name,
             )
             continue

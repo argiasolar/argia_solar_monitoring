@@ -20,7 +20,7 @@ What one run does:
      the local backup dir, which the Pi mirrors nightly.
 
 The financial page is PPA-internal: recipients on that list see loan
-and DSCR figures, so the list — not this script — is the access
+and DSCR figures, so the list - not this script - is the access
 control, exactly as it is for alert mail. A tiny PDF (< 20 kB) means
 chromium rendered a blank/failed page: the run aborts without sending
 rather than mailing garbage.
@@ -60,7 +60,7 @@ MONTHS = ("January", "February", "March", "April", "May", "June",
 
 
 def compute_window(mode: str, today: dt.date):
-    """(d0, d1, human label) for the reporting window — pure.
+    """(d0, d1, human label) for the reporting window - pure.
 
     weekly  -> month-to-date through ``today``
     monthly -> the previous calendar month, complete
@@ -69,7 +69,7 @@ def compute_window(mode: str, today: dt.date):
         first_this = today.replace(day=1)
         d1 = first_this - dt.timedelta(days=1)
         d0 = d1.replace(day=1)
-        label = "%s %d — month close" % (MONTHS[d0.month - 1], d0.year)
+        label = "%s %d - month close" % (MONTHS[d0.month - 1], d0.year)
     else:
         d0 = today.replace(day=1)
         d1 = today
@@ -85,7 +85,7 @@ def pdf_name(mode: str, d0: str, d1: str) -> str:
 
 
 def mail_subject(label: str) -> str:
-    return "[ARGIA] Financial report — %s" % label
+    return "[ARGIA] Financial report - %s" % label
 
 
 def mail_body(label: str, d0: str, d1: str) -> str:
@@ -109,7 +109,7 @@ def find_chromium():
 def render_pdf(html_path: str, d0: str, d1: str, pdf_path: str) -> bool:
     chromium = find_chromium()
     if not chromium:
-        LOG.error("no chromium binary found — cannot render PDF")
+        LOG.error("no chromium binary found - cannot render PDF")
         return False
     url = "file://" + os.path.abspath(html_path) + "#d0=%s&d1=%s" % (d0, d1)
     r = subprocess.run(
@@ -128,7 +128,7 @@ def render_pdf(html_path: str, d0: str, d1: str, pdf_path: str) -> bool:
 
 def recipients():
     """Enabled 'financial' channel subscribers (v176), portal accounts
-    only. No plant scoping here — the financial report is one document
+    only. No plant scoping here - the financial report is one document
     and its recipient list IS the access control."""
     from argia.alerts import subscriptions
     return [e for e, _ in subscriptions.only_portal(
@@ -137,10 +137,10 @@ def recipients():
 
 
 def archive_drive(pdf_path: str, name: str, year: str):
-    """Upload to Archive/Financial_Reports/<YYYY>/ — best-effort."""
+    """Upload to Archive/Financial_Reports/<YYYY>/ - best-effort."""
     root = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
     if not root:
-        LOG.warning("GOOGLE_ARCHIVE_FOLDER_ID not set — no Drive copy")
+        LOG.warning("GOOGLE_ARCHIVE_FOLDER_ID not set - no Drive copy")
         return False
     try:
         from argia.core.drive import DriveClient
@@ -155,7 +155,7 @@ def archive_drive(pdf_path: str, name: str, year: str):
 
 
 def archive_local(pdf_path: str, name: str) -> bool:
-    """Copy into the backup dir the Pi pulls nightly — best-effort."""
+    """Copy into the backup dir the Pi pulls nightly - best-effort."""
     import shutil
     try:
         os.makedirs(BACKUP_REPORTS_DIR, exist_ok=True)
@@ -176,7 +176,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
 
     today = dt.datetime.now(MX_TZ).date()
@@ -196,11 +196,11 @@ def main(argv=None) -> int:
 
     rcpt = recipients()
     if not rcpt:
-        LOG.error("no enabled 'financial' subscribers — not sending")
+        LOG.error("no enabled 'financial' subscribers - not sending")
         return 1
     cfg = emailer.load_smtp()
     if not cfg:
-        LOG.error("no SMTP config (/root/.argia_mail) — not sending")
+        LOG.error("no SMTP config (/root/.argia_mail) - not sending")
         return 1
 
     if args.dry_run:
@@ -215,7 +215,7 @@ def main(argv=None) -> int:
         msg.add_attachment(fh.read(), maintype="application",
                            subtype="pdf", filename=name)
     if not emailer.send(msg, cfg):
-        LOG.error("send FAILED — report not delivered")
+        LOG.error("send FAILED - report not delivered")
         return 1
     LOG.info("sent %s to %d recipient(s)", name, len(rcpt))
 
@@ -224,7 +224,7 @@ def main(argv=None) -> int:
     LOG.info("archive: drive=%s local=%s",
              "OK" if drive_ok else "FAILED",
              "OK" if local_ok else "FAILED")
-    # the mail went out — archive failures are logged, not fatal
+    # the mail went out - archive failures are logged, not fatal
     return 0
 
 

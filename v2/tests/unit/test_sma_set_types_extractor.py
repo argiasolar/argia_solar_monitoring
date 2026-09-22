@@ -80,7 +80,7 @@ class TestMixedAndEdge:
         assert _set_types_from_list(response) == ["StringName", "DictName"]
 
     def test_empty_sets_array(self):
-        """A real sensor device returns this — sets exist as a key but is
+        """A real sensor device returns this - sets exist as a key but is
         an empty list. From live_device_sets_14.json (Satellit Sensor)."""
         response = {
             "plant": {"plantId": "13"},

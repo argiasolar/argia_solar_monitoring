@@ -1,15 +1,15 @@
-"""Ask ARGIA — read-only SQL for the assistant (v215, "access to all
+"""Ask ARGIA - read-only SQL for the assistant (v215, "access to all
 data"). The fixed tools stay the first choice (validated inputs, the
 numbers the reports use); this is the escape hatch for questions no
 tool covers, with guards that make it read-only whatever the model
 writes:
 
-* one statement, SELECT or WITH only — no semicolons, no comments, no
+* one statement, SELECT or WITH only - no semicolons, no comments, no
   DML/DDL/utility keywords, no ``pg_`` catalog or admin functions;
-* only allow-listed tables (the business tables — never ask_log);
+* only allow-listed tables (the business tables - never ask_log);
 * wrapped in a READ ONLY transaction with a statement timeout, rows
   capped, columns returned by name (row_to_json);
-* internal users only — customer-scoped accounts never reach it.
+* internal users only - customer-scoped accounts never reach it.
 
 Pure: ``guard`` and ``wrap`` build strings; the execution goes through
 ``rows()`` like every other tool.
@@ -33,8 +33,8 @@ ALLOWED_TABLES: Set[str] = {
 TABLE_NOTES: Dict[str, str] = {
     "plant": "one row per plant: plant_key, customer, brand, kwp_dc/kwp_ac, portfolio (PPA/CAPEX), tariff_mxn_per_kwh, lat/lon, active",
     "inverter": "configured inverters: plant_key, inverter_sn, label, rated_kw, active",
-    "telemetry": "5-minute samples: ts_utc, plant_key, inverter_sn, power_w, etoday_kwh (the inverter's own day counter), temperature_c, irradiance_wm2 — LARGE, always filter by plant and a short date range",
-    "telemetry_detail": "per-sample string/MPPT detail (wide) — LARGE",
+    "telemetry": "5-minute samples: ts_utc, plant_key, inverter_sn, power_w, etoday_kwh (the inverter's own day counter), temperature_c, irradiance_wm2 - LARGE, always filter by plant and a short date range",
+    "telemetry_detail": "per-sample string/MPPT detail (wide) - LARGE",
     "daily_production": "the KPI day: plant_key, prod_date, energy_kwh (reference), expected_kwh, billable_kwh, pr, availability, irradiance, status_note",
     "reconciliation_daily": "nightly check per plant-day: interval_kwh vs vendor_daily_kwh vs kpi_kwh, completeness_pct, variance_pct, status PASS/REVIEW/FAIL/NO_DATA, note, reference_kwh, reference_basis",
     "reconciliation_monthly": "monthly close per plant: ref_month, billing_kwh, basis, status, closed_at, closed_by, note",
@@ -45,11 +45,11 @@ TABLE_NOTES: Dict[str, str] = {
     "loan": "bank loans per asset; loan_schedule = monthly installments (payment_mxn / payment_ccy, fx)",
     "invoicing": "invoice register: month, plant, kWh billed, MXN, status, annex file",
     "cfe_tariff": "CFE tariffs: tariff_code (GDMTH...), region, month, charge_type, unit, value_mxn, source (cfe_scrape = CFE-verified)",
-    "knowledge": "ARGIA Golden Standard slides (doc='AGS', lang en/es/cz, n, title, body) — prefer search_standard",
+    "knowledge": "ARGIA Golden Standard slides (doc='AGS', lang en/es/cz, n, title, body) - prefer search_standard",
     "sync_run": "every job run: script, status, started_at, error",
-    "thermal_daily": "nightly inverter thermal health per inverter-day: peak_c, minutes_over_65/70, events, dt_peer_peak_c (vs plant peers), dt_ambient_peak_c, derating_minutes, lost_kwh (suspected thermal derating vs cooler peers), vendor_derating_minutes (the inverter's own Tinv/Tboost derating mode, Growatt only), cooling_health GOOD/WATCH/POOR — prefer get_thermal_health",
+    "thermal_daily": "nightly inverter thermal health per inverter-day: peak_c, minutes_over_65/70, events, dt_peer_peak_c (vs plant peers), dt_ambient_peak_c, derating_minutes, lost_kwh (suspected thermal derating vs cooler peers), vendor_derating_minutes (the inverter's own Tinv/Tboost derating mode, Growatt only), cooling_health GOOD/WATCH/POOR - prefer get_thermal_health",
     "thermal_bins": "temperature-binned actual/expected ratios behind the derating curve (bin_c, n, ratio_sum)",
-    "ticket": "maintenance tickets: number (TK-NL1-0001), plant_key, inverter_sn, title, category, priority P1-P4, status NEW/IN_PROGRESS/WAITING/VERIFICATION/RESOLVED/CLOSED, created_by, assigned_to, created_at, resolved_at, root_cause, resolution, lost_kwh — prefer get_tickets / get_ticket",
+    "ticket": "maintenance tickets: number (TK-NL1-0001), plant_key, inverter_sn, title, category, priority P1-P4, status NEW/IN_PROGRESS/WAITING/VERIFICATION/RESOLVED/CLOSED, created_by, assigned_to, created_at, resolved_at, root_cause, resolution, lost_kwh - prefer get_tickets / get_ticket",
     "ticket_event": "a ticket's timeline: ticket_id, ts, actor, kind (created/comment/status/assign/attachment/alert/resolution), body, meta jsonb",
     "ticket_alert": "monitoring alerts linked to a ticket: ticket_id, alert_key, first_seen, last_seen, occurrences",
     "ticket_follower": "who follows a ticket: ticket_id, username (or an e-mail address)",
@@ -68,7 +68,7 @@ _IDENT = re.compile(r"\b(?:from|join)\s+(?:only\s+)?([a-zA-Z_][\w.]*)", re.I)
 
 
 class SqlRejected(ValueError):
-    """The statement is not a plain read — returned to the model."""
+    """The statement is not a plain read - returned to the model."""
 
 
 def guard(sql: str) -> str:
@@ -86,7 +86,7 @@ def guard(sql: str) -> str:
     if m:
         raise SqlRejected(f"keyword not allowed in a read-only query: {m.group(0).upper()}")
     if re.search(r"\bpg_[a-z_]+\b|\binformation_schema\b", s, re.I):
-        raise SqlRejected("system catalogs are not readable here — use describe_tables")
+        raise SqlRejected("system catalogs are not readable here - use describe_tables")
     ctes = {c.lower() for c in re.findall(r"(?:with|,)\s*([a-zA-Z_]\w*)\s+as\s*\(", s, re.I)}
     for ident in _IDENT.findall(s):
         name = ident.split(".")[-1].lower()

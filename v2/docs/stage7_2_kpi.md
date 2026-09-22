@@ -1,4 +1,4 @@
-# Stage 7.2 — KPI computation
+# Stage 7.2 - KPI computation
 
 Pure math on a day's archived telemetry. No I/O outside reading
 ``Telemetry_Argia``. No writes. No alerts.
@@ -14,10 +14,10 @@ Pure math on a day's archived telemetry. No I/O outside reading
 
 ## What's NOT here (yet)
 
-- ❌ Writing results back to a `KPI_Daily` tab — Stage 7.3
-- ❌ Reading from archive tabs (>1 day old) — Stage 7.3
-- ❌ Multi-day trending / comparisons — Stage 7.3
-- ❌ Alerts based on KPI values — Stage 7.4
+- ❌ Writing results back to a `KPI_Daily` tab - Stage 7.3
+- ❌ Reading from archive tabs (>1 day old) - Stage 7.3
+- ❌ Multi-day trending / comparisons - Stage 7.3
+- ❌ Alerts based on KPI values - Stage 7.4
 
 ## Quick start
 
@@ -46,7 +46,7 @@ for plant in portfolio.active_plants():
     # Per-inverter energy
     energy_by_inv = compute_plant_energy(rows)
 
-    # Day's irradiance — ShineMaster first, cloud-cover fallback
+    # Day's irradiance - ShineMaster first, cloud-cover fallback
     irr = daily_irradiance_for_plant(
         rows, lat=plant.lat, date_iso=bundle.date_iso,
     )
@@ -93,7 +93,7 @@ for plant in portfolio.active_plants():
 ```
 
 Save that as `scripts/kpi_demo.py` and run it to see what KPI numbers look
-like for your portfolio. **The output is read-only** — perfect for
+like for your portfolio. **The output is read-only** - perfect for
 validating thresholds before Stage 7.4 starts firing alerts.
 
 ## Design notes (worth reading before tuning)
@@ -121,10 +121,10 @@ add proper segmented integration; until then, reboots are flagged via
 Not all PR values are equally trustworthy. The KPI structure tells you
 how it was computed:
 
-- **HIGH** — ShineMaster with ≥60 samples (5-min cadence covers 5+ hours)
-- **MEDIUM** — ShineMaster with 10-59 samples (partial day)
-- **LOW** — Cloud-cover fallback (Open-Meteo-based; ±10-15% accuracy)
-- **NONE** — No usable irradiance data
+- **HIGH** - ShineMaster with ≥60 samples (5-min cadence covers 5+ hours)
+- **MEDIUM** - ShineMaster with 10-59 samples (partial day)
+- **LOW** - Cloud-cover fallback (Open-Meteo-based; ±10-15% accuracy)
+- **NONE** - No usable irradiance data
 
 When you wire alerts in Stage 7.4, you'll want to require at least MEDIUM
 confidence before firing a "PR below target" alert. Otherwise a sensor
@@ -135,7 +135,7 @@ outage looks like a performance problem.
 You're using the cloud-cover fallback. To improve it:
 1. Fill in `lat` and `lon` on the Plants tab (Stage 7.1 added these).
 2. Optionally: point `weather_plant_id` to a Growatt plant nearby that
-   DOES have a sensor — the 5-min pipeline already pulls irradiance from
+   DOES have a sensor - the 5-min pipeline already pulls irradiance from
    that plant's ShineMaster and stamps it into the rows.
 
 The hybrid logic in `daily_irradiance_for_plant()` automatically picks
@@ -146,7 +146,7 @@ the best source available.
 The peer mean is computed across only the inverters in the plant *for
 that day*. If 3 of 4 inverters are dark, the 4th will show
 `relative_to_peer = 1.0` (perfect peer ranking)
-because it has no peers. That's not a bug — it's the right behavior for
+because it has no peers. That's not a bug - it's the right behavior for
 a metric whose only meaning is "how does this inverter compare to its
 neighbors." The alert engine should check inverter_offline first, peer
 ranking second.
@@ -176,7 +176,7 @@ Once you run the demo, sanity-check these:
 | PR | 0.70–0.88 | <0.65: dirty panels, hot day, or PR confidence is LOW; >0.95: kwp_dc wrong in sheet |
 | Capacity factor | 0.16–0.28 | <0.10: mostly cloudy; >0.30: kwp_ac wrong in sheet |
 | Irradiance kWh/m² | 5–7 (sunny) | <3: heavy overcast or sensor stuck; >8: sensor mis-calibrated |
-| Specific yield kWh/kWp | 4–6.5 (sunny) | Compare across inverters — outliers tell the story |
+| Specific yield kWh/kWp | 4–6.5 (sunny) | Compare across inverters - outliers tell the story |
 
 If a plant's PR comes back >0.95, the most common explanation in my
 experience is **kwp_dc is set to the AC rating in the Plants tab**, not

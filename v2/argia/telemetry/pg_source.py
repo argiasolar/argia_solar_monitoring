@@ -1,7 +1,7 @@
 """Telemetry from PostgreSQL, in the sheet's own shape (v189, 2026-09-04).
 
 Phase 1 of the Sheets retirement. Every consumer of ``Telemetry_Argia``
-— ``kpi.reader`` (kpi_eod), ``alerts_snapshot``, ``dashboard_update`` —
+- ``kpi.reader`` (kpi_eod), ``alerts_snapshot``, ``dashboard_update`` -
 parses a *grid* (header row + cell rows in ARGIA_SCHEMA order) or a list
 of dicts keyed by that header. This module produces exactly that from the
 ``telemetry`` table, with cells typed the way ``SheetsClient.read_range``
@@ -53,7 +53,7 @@ def sheet_write_enabled(env=None) -> bool:
 
 
 def source(env=None) -> str:
-    """'sheet' or 'pg'. Anything unrecognised is 'sheet' — never guess
+    """'sheet' or 'pg'. Anything unrecognised is 'sheet' - never guess
     towards the new path."""
     env = os.environ if env is None else env
     v = str(env.get(SOURCE_ENV, "pg")).strip().lower()
@@ -96,7 +96,7 @@ def record_to_cells(rec: Dict[str, str]) -> List[Any]:
             out.append(_status(v))
         elif col in _NUMERIC or col == "fault_code":
             # fault_code: the sheet stores '0' as the number 0 (USER_ENTERED)
-            # and 'IS=40960,RS=1' as text — mirror that
+            # and 'IS=40960,RS=1' as text - mirror that
             out.append(_num(v))
         else:
             out.append(v if v is not None else "")

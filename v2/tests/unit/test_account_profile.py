@@ -1,7 +1,7 @@
 """Self-service profile editing on /account/ (name, surname, email).
 
 Same identity rule as the password route: the account edited comes
-from the basic-auth name nginx forwards, never from the form — a user
+from the basic-auth name nginx forwards, never from the form - a user
 can only ever edit themselves.
 """
 import ast
@@ -67,7 +67,7 @@ class TestAccountPageShowsProfile(object):
 
     def test_password_success_hides_the_forms(self):
         """After a password change the browser holds stale
-        credentials — re-showing the forms would just fail."""
+        credentials - re-showing the forms would just fail."""
         assert "pw_done" in self.PAGE
 
 

@@ -5,7 +5,7 @@ Options:
   --model ID      Anthropic model id (default: ARGIA_ASK_MODEL or claude-sonnet-5)
   --lang en|es    answer language (default en)
   --tool NAME [--arg k=v ...]
-                  run ONE tool directly, no model — prints its JSON. Use it
+                  run ONE tool directly, no model - prints its JSON. Use it
                   to check what the assistant would see: the numbers come
                   from here, the model only phrases them.
   --json          print the whole Answer (tool calls, tokens, latency)

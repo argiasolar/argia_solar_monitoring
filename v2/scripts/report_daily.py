@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Argia_Mont — daily report: render HTML, print to PDF, upload to Drive.
+"""Argia_Mont - daily report: render HTML, print to PDF, upload to Drive.
 
-Evening job (report family, part 1 — e-mail comes once all report types
+Evening job (report family, part 1 - e-mail comes once all report types
 exist). Reads the day's KPI_Daily / Alerts / telemetry, renders the daily
 performance report, converts it to PDF with headless Chromium
 (playwright), and uploads BOTH files into ``Reports/`` inside the ARGIA
-archive Shared Drive. Upload is idempotent by filename — a re-run updates
+archive Shared Drive. Upload is idempotent by filename - a re-run updates
 the same Drive file instead of creating "(1)" duplicates.
 
 USAGE
@@ -107,7 +107,7 @@ def main(argv=None) -> int:
     data = build_report_data(sheets, portfolio, date_iso)
     n_kpi = sum(1 for p in data.plants if p.energy_kwh is not None)
     if n_kpi == 0:
-        log.warning("no KPI rows for %s — nothing to report "
+        log.warning("no KPI rows for %s - nothing to report "
                     "(did kpi_eod run for this date?)", date_iso)
         return 2
     log.info("Report %s: %d plants with KPI data, %d open alerts",
@@ -134,7 +134,7 @@ def main(argv=None) -> int:
             return 4
 
     if args.dry_run:
-        log.info("[DRY RUN] nothing uploaded — files left in %s", out_dir)
+        log.info("[DRY RUN] nothing uploaded - files left in %s", out_dir)
         return 0
 
     drive = DriveClient()

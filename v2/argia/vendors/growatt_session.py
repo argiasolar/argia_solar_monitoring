@@ -1,21 +1,21 @@
 """Shared Growatt session persistence + login-failure backoff.
 
 WHY (incident 2026-07-07): every 5-minute telemetry run performed fresh
-Growatt logins (web client + env client, per plant — ~200+/day). From
+Growatt logins (web client + env client, per plant - ~200+/day). From
 GitHub's rotating runner IPs that was invisible; from the Pi's single
 residential IP it looked like credential-stuffing, and after the 08:10
 power blip Growatt soft-blocked the pattern (HTTP 200, no assToken).
-Worse, while blocked, every call retried the login POST — ~8 attempts
+Worse, while blocked, every call retried the login POST - ~8 attempts
 every 5 minutes hammering a refusing endpoint, teaching the block to
 stay.
 
 Two mechanisms, file-based so they persist across the 5-minute
 processes:
 
-1. SESSION FILE — cookies saved after a successful login, loaded on
+1. SESSION FILE - cookies saved after a successful login, loaded on
    client construction, shared by BOTH Growatt clients (same site, same
    account). Result: ~1-2 logins/day instead of ~200.
-2. BACKOFF MARKER — a refused login writes a timestamp; every login
+2. BACKOFF MARKER - a refused login writes a timestamp; every login
    attempt (any client, any process) checks it first and raises
    immediately, no HTTP, until the cooldown passes. A soft block cools
    instead of being hammered permanent.
@@ -39,9 +39,9 @@ DEFAULT_SESSION_FILE = "~/.argia_growatt_session.json"
 DEFAULT_BACKOFF_FILE = "~/.argia_growatt_backoff"
 DEFAULT_COOLDOWN_S = 900  # 15 min
 # Sessions expire server-side overnight (2026-07-08: cookies saved 12:30
-# were dead by 05:00 and v47 trusted them forever — 14 errors/run, zero
+# were dead by 05:00 and v47 trusted them forever - 14 errors/run, zero
 # re-login attempts). Don't trust anything older than this.
-# 2026-07-08 second lesson: 20h was too generous — the session died at
+# 2026-07-08 second lesson: 20h was too generous - the session died at
 # ~16h idle overnight and the gate never fired. 8h forces one honest
 # morning login (~3 logins/day total, still polite).
 DEFAULT_MAX_SESSION_AGE_S = 8 * 3600
@@ -83,15 +83,15 @@ def load_cookies(http_session) -> bool:
                                        DEFAULT_MAX_SESSION_AGE_S))
         age = time.time() - float(data.get("saved_at") or 0)
         if age > max_age:
-            LOG.info("growatt session on disk is %.1fh old — not trusted, "
+            LOG.info("growatt session on disk is %.1fh old - not trusted, "
                      "fresh login", age / 3600)
             path.unlink(missing_ok=True)
             return False
         for name, value in data.get("cookies", {}).items():
             http_session.cookies.set(name, value)
         return "assToken" in data.get("cookies", {})
-    except Exception as e:  # noqa: BLE001 — best effort by contract
-        LOG.warning("growatt session load failed (%s) — fresh login", e)
+    except Exception as e:  # noqa: BLE001 - best effort by contract
+        LOG.warning("growatt session load failed (%s) - fresh login", e)
         return False
 
 
@@ -135,7 +135,7 @@ def check_backoff() -> None:
     if remaining > 0:
         raise LoginBackoff(
             f"Growatt login in backoff for another {remaining}s after a "
-            f"refused login — not attempting (prevents hammering a "
+            f"refused login - not attempting (prevents hammering a "
             f"soft-block permanent)")
 
 
@@ -163,6 +163,6 @@ def validate_web_session(http_session, base_url: str,
                              timeout=timeout_sec, allow_redirects=True)
         return r.status_code == 200 and "login" not in r.url.lower()
     except Exception as e:  # noqa: BLE001
-        LOG.warning("growatt session probe failed (%s) — treating as "
+        LOG.warning("growatt session probe failed (%s) - treating as "
                     "invalid", e)
         return False

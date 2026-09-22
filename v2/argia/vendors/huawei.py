@@ -134,7 +134,7 @@ class HuaweiClient:
         "today" makes sense.
 
         If you need a historical day, use getKpiStationDay (not implemented
-        here yet — out of scope for v2 stage 2).
+        here yet - out of scope for v2 stage 2).
         """
         self._ensure_logged_in()
         result = self._post_json(
@@ -167,7 +167,7 @@ class HuaweiClient:
 
     def fetch_alarms(self, station_codes, begin_ms: int, end_ms: int,
                      language: str = "en_US") -> List[Dict[str, Any]]:
-        """v257 — the vendor's own alarm list (``POST /thirdData/getAlarmList``).
+        """v257 - the vendor's own alarm list (``POST /thirdData/getAlarmList``).
 
         Captured against the live account 2026-09-17: the response is
         ``{"success": true, "failCode": 0, "data": [ ... ]}`` and each
@@ -176,7 +176,7 @@ class HuaweiClient:
         cause and the fix itself, so nothing here needs a catalog.
 
         ``station_codes`` may be one code or an iterable; the API takes
-        them comma-separated. Returns the raw records — parsing lives in
+        them comma-separated. Returns the raw records - parsing lives in
         ``argia.vendors.huawei_alarms`` and is pure.
         """
         if not isinstance(station_codes, str):
@@ -235,7 +235,7 @@ class HuaweiClient:
     ) -> Optional[InverterSnapshot]:
         """
         Parse one item from getDevRealKpi.data into an InverterSnapshot.
-        Pure function — fully testable from a JSON fixture.
+        Pure function - fully testable from a JSON fixture.
         """
         if not isinstance(item, dict):
             return None

@@ -1,6 +1,6 @@
 """Tests: SyncRuns job logging (argia.core.job_log).
 
-User request 2026-07-07: the sheet showed telemetry timestamps only —
+User request 2026-07-07: the sheet showed telemetry timestamps only -
 no way to know when the dashboard/KPI/alerts last ran. Every scheduled
 job now appends a SyncRuns row, including a FAILED row on crash.
 """
@@ -95,7 +95,7 @@ class TestAllJobsAreWired:
 
 class TestQuotaRetry20260708:
     """kpi-eod's ~50 stamp writes consumed the 60/min Sheets quota and
-    the SyncRuns append — the run's LAST write — got a 429: heavy jobs
+    the SyncRuns append - the run's LAST write - got a 429: heavy jobs
     silently lost their log row. One retry after the quota window."""
 
     def _run(self, side_effects, monkeypatch):

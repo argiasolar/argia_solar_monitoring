@@ -1,4 +1,4 @@
-# Stage 7.3b — Hotfix: SheetsClient missing methods + telemetry sparsity flag
+# Stage 7.3b - Hotfix: SheetsClient missing methods + telemetry sparsity flag
 
 ## The bug
 
@@ -10,7 +10,7 @@ ERROR argia.infer_specs: Failed to update Inverters[MEX1/ES2470051825]:
 ```
 
 My fault. I wrote code that called `sheets.write_cell(...)` and
-`sheets.write_row(...)` and `sheets.delete_row(...)` — none of which
+`sheets.write_row(...)` and `sheets.delete_row(...)` - none of which
 existed on the real `SheetsClient`. The unit tests used bare `MagicMock()`,
 which auto-invents any attribute access, so my tests "passed" calling
 non-existent methods. Classic mock-blind-spot bug.
@@ -30,14 +30,14 @@ path needed) and you hadn't run `--prune-apply` yet.
 
 `argia/core/sheets.py` now has three new methods:
 
-- `write_cell(tab, row, col, value, value_input_option="RAW")` — single-cell update
-- `write_row(tab, row, values, value_input_option="USER_ENTERED")` — write whole row starting at col A
-- `delete_row(tab, row)` — delete one row, shifting subsequent rows up (uses batchUpdate's deleteDimension)
+- `write_cell(tab, row, col, value, value_input_option="RAW")` - single-cell update
+- `write_row(tab, row, values, value_input_option="USER_ENTERED")` - write whole row starting at col A
+- `delete_row(tab, row)` - delete one row, shifting subsequent rows up (uses batchUpdate's deleteDimension)
 
 Plus a `_col_to_a1` helper (1→A, 27→AA) and tab-GID caching for delete_row.
 
 **No changes to call sites.** The existing `kpi_daily.py` and
-`infer_plant_specs.py` already use these method names — they just
+`infer_plant_specs.py` already use these method names - they just
 needed the methods to exist.
 
 ## What I also added: a regression test against bare MagicMock
@@ -45,7 +45,7 @@ needed the methods to exist.
 `tests/unit/test_sheets_writes.py::TestSpecCatchesMissingMethods` uses
 `MagicMock(spec=SheetsClient)` instead of bare `MagicMock()`. With
 `spec=`, calling a method that doesn't exist on the real class raises
-`AttributeError` — which is what should happen.
+`AttributeError` - which is what should happen.
 
 I'll roll this discipline forward into future test files. Honest:
 this should have been caught in 7.3 not 7.3b.
@@ -67,7 +67,7 @@ PYTHONPATH=. python scripts/infer_plant_specs.py --apply
 
 ## SEPARATE OBSERVATION: the telemetry pipeline is writing way too few rows
 
-Worth surfacing — this is not a Stage 7.x bug but it's blocking 7.x from giving meaningful output.
+Worth surfacing - this is not a Stage 7.x bug but it's blocking 7.x from giving meaningful output.
 
 The `infer_plant_specs.py --apply` output showed:
 
@@ -76,7 +76,7 @@ Loaded 95 telemetry rows
 GTO1   JFM5D8900B   Days=1
 GTO1   JFM7DXN00T   Days=1
 [... 25 more inverters with Days=1 ...]
-SLP1   JNM7DY306D   Days=0  — no telemetry rows for this inverter
+SLP1   JNM7DY306D   Days=0  - no telemetry rows for this inverter
 ```
 
 That's **95 rows / 30 inverters / 7 days = ~0.45 rows per inverter per day.**
@@ -85,7 +85,7 @@ A healthy 5-minute cadence over a ~10-hour daylight window would give
 
 This is consistent with the irradiance fallback we saw earlier (only
 2-6 ShineMaster samples per day on 7 plants). It's not "the script is
-too strict at 2 days minimum" — it's that the upstream telemetry pipeline
+too strict at 2 days minimum" - it's that the upstream telemetry pipeline
 hasn't been writing meaningful row counts.
 
 ### Likely causes (in order of probability)

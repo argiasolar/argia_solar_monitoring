@@ -1,4 +1,4 @@
-"""Daily performance report — HTML generator (report family, part 1).
+"""Daily performance report - HTML generator (report family, part 1).
 
 Renders one day of the fleet as a self-contained HTML document: semaphore
 rail, production-vs-theoretical chart, alerts with plain-language
@@ -6,11 +6,11 @@ explanations, and per-plant sections (facts, per-inverter specific-yield
 chart with peer median, inverter table with flags).
 
 Design contract, kept deliberately honest:
-- Every number comes from KPI_Daily / Alerts / telemetry — the report
+- Every number comes from KPI_Daily / Alerts / telemetry - the report
   COMPOSES, it never recomputes plant-level metrics differently from the
   pipeline (one truth, two renderings).
 - Per-inverter "theoretical" is the plant theoretical split by nameplate
-  share, and the footer says so — one method, stated, which is what fixes
+  share, and the footer says so - one method, stated, which is what fixes
   the old report's contradictory-percentage bug.
 - Semaphore and flag logic mirror the alert engine's severity bands.
 
@@ -54,7 +54,7 @@ LOG = logging.getLogger("argia.report.daily")
 
 GREEN, AMBER, RED, GRAY = "green", "amber", "red", "gray"
 MAINT = "maint"   # v92: plant in a logged maintenance window (not a fault)
-# Dashboard-family palette — one visual language across page and PDF
+# Dashboard-family palette - one visual language across page and PDF
 COLORS = {GREEN: "#0E8A6D", AMBER: "#B7791F", RED: "#A32D2D", GRAY: "#9aa39e"}
 
 
@@ -93,7 +93,7 @@ class PlantDay:
     # from a fault so the plant reads neutral, not red.
     maintenance_note: Optional[str] = None
     # v88: (hour_label, production_kwh, theoretical_kwh) per completed
-    # 60-min bucket, from Dashboard_Plant — rendered as the hourly
+    # 60-min bucket, from Dashboard_Plant - rendered as the hourly
     # chart on small (client) reports
     buckets: List[Tuple[str, float, float]] = field(default_factory=list)
 
@@ -166,7 +166,7 @@ def _median(vals: List[float]) -> float:
 
 def short_name(p: PlantDay) -> str:
     """Customer name for compact display: cut at ' PPA', at ' (' and at
-    the first comma. The ' (' cut is for CAPEX-style names —
+    the first comma. The ' (' cut is for CAPEX-style names -
     "SMS (CDMX,MEX)" rendered as the broken "SMS (CDMX" under the
     comma-only rule (user report 2026-07-10). PPA names are unaffected:
     the ' PPA' cut fires first for them."""
@@ -197,7 +197,7 @@ def fleet_stats(plants: List[PlantDay],
     fx = sum(p.expected_kwh or 0 for p in plants)
     # Portfolio %% only from plants the KPI layer deemed measurable
     # (2026-07-08: a block day halved measured sun; kpi withheld every
-    # production_pct and wrote "unreliable" — but this function divided
+    # production_pct and wrote "unreliable" - but this function divided
     # raw sums anyway and the report shouted 183%% two lines under an
     # INCOMPLETE DAY verdict).
     ge = sum(p.energy_kwh or 0 for p in plants
@@ -247,7 +247,7 @@ def summary_sentence(stats: Dict[str, Optional[float]],
         bits.append(f"{stats['availability'] * 100:.0f}% availability")
     sentence = f"{port_title}: " + ", ".join(bits)
     if stats["income_mxn"]:
-        sentence += (f" \u2014 \u2248${stats['income_mxn']:,.0f} MXN "
+        sentence += (f" - \u2248${stats['income_mxn']:,.0f} MXN "
                      f"income and {stats['co2_kg'] / 1000:.1f} t "
                      f"CO\u2082 avoided")
     sentence += "."
@@ -258,12 +258,12 @@ def summary_sentence(stats: Dict[str, Optional[float]],
 
 def scoped_alerts(alerts: List[AlertRecord],
                   visible_keys: set) -> List[AlertRecord]:
-    """v76: the daily report is a PORTFOLIO-SCOPED document — its alert
+    """v76: the daily report is a PORTFOLIO-SCOPED document - its alert
     section and its verdict counters must speak only about the plants
     the report shows (show_daily_report). A CAPEX plant's open alert
     must not flip the PPA report to ATTENTION; those plants get their
     own per-client reports and channels (v77+). An alert with a blank
-    plant_key (none exist today) is kept — never silently drop
+    plant_key (none exist today) is kept - never silently drop
     something that can't be attributed."""
     return [a for a in alerts
             if not a.plant_key or a.plant_key in visible_keys]
@@ -275,7 +275,7 @@ def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
                         live: bool = False) -> Tuple[str, str, str]:
     """One verdict for the whole portfolio: (color, title, why).
 
-    Same philosophy as the plant lamps — the worst signal wins:
+    Same philosophy as the plant lamps - the worst signal wins:
       RED    any red plant, any critical alert, or fleet < 85% of plan
       AMBER  any amber plant, any warning alert, or fleet < 95%
       GRAY   every plant gray (day not fully measured)
@@ -285,7 +285,7 @@ def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
 
     ``live`` distinguishes the two honest meanings of an all-gray board
     (user report 2026-07-09): in the EVENING edition the day simply has
-    not been stamped yet — telemetry may be perfect — so the title is
+    not been stamped yet - telemetry may be perfect - so the title is
     "DAY IN PROGRESS", a state, not an alarm. "INCOMPLETE DAY" is
     reserved for final editions, where an unstamped/partial day means
     measurement genuinely failed and should read like a problem.
@@ -311,7 +311,7 @@ def portfolio_semaphore(plants: List[PlantDay], sem_of: Dict[str, str],
         if live:
             return (GRAY, "DAY IN PROGRESS",
                     "live estimate; telemetry running, day is classified "
-                    "tonight — final numbers in tomorrow's 07:05 report")
+                    "tonight - final numbers in tomorrow's 07:05 report")
         return GRAY, "INCOMPLETE DAY", "no plant fully measured yet"
     if red_names or n_crit or (fleet_pct is not None and fleet_pct < 0.85):
         return RED, "ATTENTION", " \u00b7 ".join(parts)
@@ -361,7 +361,7 @@ def svg_fleet_bars(plants: List[PlantDay],
 
 def hourly_chart(p: PlantDay) -> str:
     """v88: intraday production vs theoretical per 60-min bucket, as
-    static CSS bars (no JS — renders identically in the browser client
+    static CSS bars (no JS - renders identically in the browser client
     pages and WeasyPrint). Ghost bar = theoretical, solid bar =
     production, colored like the plant lamp. Empty when no buckets."""
     if not p.buckets:
@@ -417,7 +417,7 @@ def svg_inverter_bars(p: PlantDay) -> str:
     # Label sits BELOW the chart, hanging off the median line; it flips to
     # the left side when the median is near the right edge. Reason: at the
     # top-right it collided with the last bar's value text whenever
-    # inverters sat near the median — i.e. on every healthy plant
+    # inverters sat near the median - i.e. on every healthy plant
     # (user-reported, 2026-07-07).
     flip = mx > 0.72 * W
     out.append(f'<text x="{120 + mx + (-4 if flip else 4):.0f}" '
@@ -545,7 +545,7 @@ border-top:1px solid var(--line);padding-top:12px;line-height:1.55}
 .plant,.card,.alert,.stop{border-color:#ccc}}
 """
 
-# System font stack (dashboard family) — no external font fetch inside the
+# System font stack (dashboard family) - no external font fetch inside the
 # PDF-printing Chromium, so the PDF renders identically offline.
 _FONTS = ''
 
@@ -585,9 +585,9 @@ def render_html(data: ReportData) -> str:
         data.plants, sem_of, n_crit, n_warn, fleet_pct, live=live)
     subtitle = ("live evening estimate" if live else "KPI-final numbers")
     stats = fleet_stats(data.plants, data.date_iso)
-    # v97: on a single-client page (all plants share one customer — the
+    # v97: on a single-client page (all plants share one customer - the
     # CAPEX per-client reports, e.g. Tetra Pak = one plant) the header
-    # and sentence use the COMPANY name, not "PORTFOLIO" — it isn't a
+    # and sentence use the COMPANY name, not "PORTFOLIO" - it isn't a
     # portfolio, it's one client. The internal report (many customers)
     # stays "PORTFOLIO".
     companies = {short_name(p) for p in data.plants}
@@ -607,16 +607,16 @@ def render_html(data: ReportData) -> str:
         stat("Production", f"{stats['production_kwh']:,.0f}", " kWh")
         + stat("Of expected",
                f"{stats['pct'] * 100:.0f}" if stats["pct"] is not None
-               else "&#8212;", "%")
+               else " - ", "%")
         + stat("Availability",
                f"{stats['availability'] * 100:.0f}"
-               if stats["availability"] is not None else "&#8212;", "%")
+               if stats["availability"] is not None else " - ", "%")
         + stat(size_label, f"{stats['kwp']:,.0f}", " kWp DC")
         + (stat("Income (est.)", f"${stats['income_mxn']:,.0f}",
                 " MXN") if stats["income_mxn"] else "")
         + stat("Of design",
                f"{stats['design_pct'] * 100:.0f}"
-               if stats["design_pct"] is not None else "&#8212;", "%")
+               if stats["design_pct"] is not None else " - ", "%")
         + stat("CO&#8322; avoided", f"{stats['co2_kg'] / 1000:.1f}", " t")
     )
     # WeasyPrint needs the grid template to MATCH the card count (fixed
@@ -634,7 +634,7 @@ def render_html(data: ReportData) -> str:
                  f'<b>{n_warn}</b> warning alerts open</div>')
 
     # v98: alerts lead with the company name so a bare plant CODE isn't
-    # the only identifier — "PLASTIC OMNIUM (NL1)" instead of just "NL1",
+    # the only identifier - "PLASTIC OMNIUM (NL1)" instead of just "NL1",
     # so a reader unfamiliar with the codes knows the plant at a glance.
     # Same short_name the rail/scope use; covers the PDF email and the
     # HTML report (the only surfaces with alert cards).
@@ -663,7 +663,7 @@ def render_html(data: ReportData) -> str:
         for inv in p.inverters:
             d = inverter_dot(inv)
             th = theo.get(inv.sn)
-            pct = (f"{inv.kwh / th * 100:.0f}%" if th else "&#8212;")
+            pct = (f"{inv.kwh / th * 100:.0f}%" if th else " - ")
             chips = "".join(f'<span class="chip red">{_esc(f)}</span>'
                             for f in inv.faults)
             if inv.rel:
@@ -679,11 +679,11 @@ def render_html(data: ReportData) -> str:
                 f'<td class="mono">{_esc(inv.label or inv.sn)}'
                 f'<span class="sn">{_esc(inv.sn)}</span></td>'
                 f'<td class="num">{inv.kwh:,.1f}</td>'
-                f'<td class="num">{(f"{th:,.0f}" if th else "&#8212;")}</td>'
+                f'<td class="num">{(f"{th:,.0f}" if th else " - ")}</td>'
                 f'<td class="num">{pct}</td>'
                 f'<td class="num">'
-                f'{(f"{inv.tmax_c:.1f}" if inv.tmax_c is not None else "&#8212;")}</td>'
-                f'<td>{chips or "&#8212;"}</td></tr>')
+                f'{(f"{inv.tmax_c:.1f}" if inv.tmax_c is not None else " - ")}</td>'
+                f'<td>{chips or " - "}</td></tr>')
 
         def fact(k, v):
             return (f'<div class="fact"><div class="fk">{k}</div>'
@@ -694,23 +694,23 @@ def render_html(data: ReportData) -> str:
                                f'<span class="fu">kWh</span>')
             + fact("Theoretical",
                    f'{p.expected_kwh:,.0f} <span class="fu">kWh</span>'
-                   if p.expected_kwh else "&#8212;")
+                   if p.expected_kwh else " - ")
             + fact("Of plan",
                    f'{p.production_pct*100:.0f}<span class="fu">%</span>'
-                   if p.production_pct is not None else "&#8212;")
+                   if p.production_pct is not None else " - ")
             + fact("Of design",
                    f'{(p.energy_kwh or 0)/p.design_kwh*100:.0f}'
                    f'<span class="fu">%</span>'
-                   if p.design_kwh else "&#8212;")
+                   if p.design_kwh else " - ")
             + fact("Cloud cover",
                    f'{p.cloud_pct:.0f}<span class="fu">%</span>'
-                   if p.cloud_pct is not None else "&#8212;")
+                   if p.cloud_pct is not None else " - ")
             + fact("Availability",
                    f'{p.availability*100:.0f}<span class="fu">%</span>'
-                   if p.availability is not None else "&#8212;")
+                   if p.availability is not None else " - ")
             + fact("Soiling/drift",
                    f'{p.soiling*100:.0f}<span class="fu">%</span>'
-                   if p.soiling is not None else "&#8212;")
+                   if p.soiling is not None else " - ")
         )
         maint_badge = ('<span class="badge maint">MAINTENANCE</span>'
                        if p.maintenance_note else '')
@@ -736,12 +736,12 @@ def render_html(data: ReportData) -> str:
     return (
         f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width,'
-        f'initial-scale=1"><title>ARGIA Daily &#8212; {data.date_iso}'
+        f'initial-scale=1"><title>ARGIA Daily - {data.date_iso}'
         f'</title>{_FONTS}<style>{_CSS}</style></head><body>'
         f'<div class="wrap"><header>'
         f'<div class="lockup"><span class="title">PERFORMANCE&nbsp;'
         f'REPORT</span><img src="data:image/png;base64,{LOGO_B64}" '
-        f'alt="ARGIA — Smart Energy Solutions"></div>'
+        f'alt="ARGIA - Smart Energy Solutions"></div>'
         f'<div class="subrow"><span class="kind">Daily performance '
         f'report &#183; {subtitle}</span>'
         f'<span class="date">{data.date_iso}</span></div></header>'
@@ -750,7 +750,7 @@ def render_html(data: ReportData) -> str:
         f'repeat({max(1, len(data.plants))},1fr)">{rail}</div>'
         f'<div class="fleetline mono">{fleetline}</div>'
         + ((
-            f'<h2>Production vs theoretical &#8212; per plant</h2>'
+            f'<h2>Production vs theoretical - per plant</h2>'
             f'<div class="card">{svg_fleet_bars(data.plants, sem_of)}'
             f'<div style="color:var(--mut);font-size:12px;'
             f'margin-top:6px">'
@@ -759,12 +759,12 @@ def render_html(data: ReportData) -> str:
             f'irradiance &#215; expected factor).</div></div>'
         ) if len(data.plants) > 3 else "")
         # v89: on client pages (one plant per customer) this section
-        # duplicated the plant card + hourly chart — removed there
-        + f'<h2>Alerts &#8212; {len(data.alerts)} open</h2>{alerts_html}'
+        # duplicated the plant card + hourly chart - removed there
+        + f'<h2>Alerts - {len(data.alerts)} open</h2>{alerts_html}'
         f'<h2>Plants</h2>{plants_html}'
         f'<footer>Generated from Argia_Mont_v2 &#183; KPI_Daily '
         f'{data.date_iso} &#183; Per-inverter theoretical = plant '
-        f'theoretical split by nameplate share. Semaphores &#8212; plant: '
+        f'theoretical split by nameplate share. Semaphores - plant: '
         f'red &lt;85% of plan / low availability / critical alert; amber '
         f'&lt;95% or open warning; green otherwise; gray = day not fully '
         f'measured. Inverter: red = critical peer lag or &#8805;75 '
@@ -772,9 +772,9 @@ def render_html(data: ReportData) -> str:
         f'Irradiance: ShineMaster stored minute-scale history '
         f'(~300 samples/day, trapezoidal), validated to &lt;1% against an '
         f'independent weather model; snapshot/cloud-model fallback when '
-        f'the fetch fails &#8212; KPI records the source per day. '
+        f'the fetch fails - KPI records the source per day. '
         f'Of design = production vs the contract design estimate '
-        f'(PVsyst/Helioscope monthly kWh &#247; calendar days) &#8212; '
+        f'(PVsyst/Helioscope monthly kWh &#247; calendar days) - '
         f'static, unaffected by sensor outages. The portfolio %% counts '
         f'only plants whose sun was reliably measured that day; energy, '
         f'income and CO&#8322; always count every plant. Income (est.) = '
@@ -834,7 +834,7 @@ def live_conditions_from_dashboard(rows, date_iso: str,
                                    ) -> Dict[str, Dict[str, float]]:
     """v89: live cloud cover and availability per plant from the same
     Dashboard_Plant buckets (the interactive dashboard's own live
-    sources — single engine). Cloud = mean of buckets that carry it;
+    sources - single engine). Cloud = mean of buckets that carry it;
     availability = mean of inverters_reporting/inverters_total over
     buckets with any production or irradiance (skeleton rows for
     future hours carry zeros and must not count)."""
@@ -877,7 +877,7 @@ def live_conditions_from_dashboard(rows, date_iso: str,
 def live_expected_from_dashboard(rows, date_iso: str,
                                  now_mx: dt.datetime) -> Dict[str, float]:
     """v85: live 'expected so far' per plant from the Dashboard_Plant
-    hourly buckets — the SAME engine and numbers the interactive
+    hourly buckets - the SAME engine and numbers the interactive
     dashboard headlines (kWp x measured irradiance x expected factor
     per 60-min bucket), so the report cannot drift from it. Rules:
     only the report's date; the in-flight bucket is excluded
@@ -903,7 +903,7 @@ def live_expected_from_dashboard(rows, date_iso: str,
 def synthesize_live_energy(invs) -> Optional[float]:
     """Plant energy from the day's telemetry (sum of per-inverter EToday
     maxima) for reports that run before kpi-eod stamps the day. None when
-    telemetry has nothing — the caller keeps its honest empty state."""
+    telemetry has nothing - the caller keeps its honest empty state."""
     vals = [i.kwh for i in invs if i.kwh is not None]
     return round(sum(vals), 1) if vals else None
 
@@ -942,11 +942,11 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
         }
 
     # Contract design fallback: evening (live) editions and pre-stamp
-    # days have no KPI design cell — compute it from the Design_Monthly
+    # days have no KPI design cell - compute it from the Design_Monthly
     # tab directly. Static data, so this is exact, not an estimate.
     design_map = load_design_monthly(sheets)
 
-    # v92: which plants are in a logged maintenance window on this date —
+    # v92: which plants are in a logged maintenance window on this date -
     # drives the badge and the neutral (non-red) lamp.
     maint_by_plant = plant_maintenance_on_date(
         load_maintenance_events(sheets), date_iso)
@@ -989,7 +989,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
 
     plants: List[PlantDay] = []
     # v85: live editions borrow "expected so far" from the dashboard's
-    # intraday buckets (single engine — no second estimator). Loaded
+    # intraday buckets (single engine - no second estimator). Loaded
     # once; a missing/empty tab degrades to the old design-only view.
     try:
         from argia.report import dashboard_pg as _DP       # v195 door
@@ -1015,11 +1015,11 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             live = synthesize_live_energy(invs)
             if live is not None:
                 # Evening report before kpi-eod has stamped the day
-                # (2026-07-08: this path NEVER worked — it demanded KPI
+                # (2026-07-08: this path NEVER worked - it demanded KPI
                 # rows that only exist next morning; SyncRuns exposed the
                 # silent exit-2 on its first instrumented night).
                 energy, dc = live, "live"
-                note = ("Live evening estimate from telemetry — final "
+                note = ("Live evening estimate from telemetry - final "
                         "numbers in tomorrow's 07:05 report.")
                 cond = live_cond.get(plant.plant_key, {})
                 if cloud_val is None:
@@ -1045,7 +1045,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                         note = ("Live evening estimate from telemetry; "
                                 "expected is a live \u00b110% estimate "
                                 "from measured irradiance, pro-rated to "
-                                "the last complete hour — final numbers "
+                                "the last complete hour - final numbers "
                                 "in tomorrow's 07:05 report.")
         plants.append(PlantDay(
             plant_key=plant.plant_key,

@@ -1,4 +1,4 @@
-"""Unit tests — argia.ask.tools against a fake database.
+"""Unit tests - argia.ask.tools against a fake database.
 
 The fake answers by the ``/*tag:...*/`` comment each query carries, so
 these tests pin the numbers the assistant is handed, not SQL text.
@@ -79,7 +79,7 @@ def test_resolve_plant_unknown_lists_vocabulary(db):
 
 def test_resolve_plant_ambiguous(db):
     with pytest.raises(T.ToolError, match="ambiguous"):
-        T.resolve_plant(db, "o")          # Taigene? no — 'Some Owner', 'Gone Co'
+        T.resolve_plant(db, "o")          # Taigene? no - 'Some Owner', 'Gone Co'
 
 
 def test_resolve_plant_never_interpolates_raw_input(db):

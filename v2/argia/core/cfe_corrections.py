@@ -78,7 +78,7 @@ def _txt(s: str) -> str:
 
 
 def apply_sql(reg: dict, rows: Iterable[Tuple[str, str, str, str, str]]) -> List[str]:
-    """One UPDATE per confirmed cell whose table value differs — never
+    """One UPDATE per confirmed cell whose table value differs - never
     touches a cell that already matches, never inserts (a cell the seed
     does not have is reported by compare, not invented here)."""
     table = {(r[0], r[1], r[2], r[3]): float(r[4]) for r in rows if len(r) >= 5 and r[4] not in ("", None)}
@@ -93,7 +93,7 @@ def apply_sql(reg: dict, rows: Iterable[Tuple[str, str, str, str, str]]) -> List
 
 
 def select_sql(reg: dict, include_proposed: bool = True) -> str:
-    """The rows compare/apply need — only the register's cells."""
+    """The rows compare/apply need - only the register's cells."""
     keys = wanted(reg, include_proposed=include_proposed)
     codes = sorted({k[0] for k in keys})
     if not codes:

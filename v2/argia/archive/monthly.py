@@ -1,4 +1,4 @@
-"""Monthly archive logic — plan #8 (pure parts).
+"""Monthly archive logic - plan #8 (pure parts).
 
 At month end, the month's rows from the live Argia_Mont_v2 spreadsheet are
 copied into a fresh archive spreadsheet ``Argia_Mont_Archive_YYYY_MM`` on
@@ -91,7 +91,7 @@ def locate_month_block(
     """Find the month's rows in a tab's full data (header at data[0]).
 
     ``key_of(row)`` must return the row's "YYYY-MM-DD" day (or "" when the
-    row can't be dated — such rows never match a month). Contiguity is
+    row can't be dated - such rows never match a month). Contiguity is
     checked explicitly: matching rows must form one unbroken block for the
     prune to be allowed.
     """
@@ -127,5 +127,5 @@ def verify_copy(block: MonthBlock, archived_data_rows: int) -> Tuple[bool, str]:
     month's rows."""
     if archived_data_rows == block.count:
         return True, f"{block.tab}: {archived_data_rows} rows verified"
-    return False, (f"{block.tab}: VERIFY FAILED — source month has "
+    return False, (f"{block.tab}: VERIFY FAILED - source month has "
                    f"{block.count} rows, archive has {archived_data_rows}")

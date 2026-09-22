@@ -1,11 +1,11 @@
 """Outage-mode PPA plant watch (runs on the Pi, cron every 30 min).
 
 While pio06 is healthy it does ALL plant alerting (severity-aware,
-from real telemetry) — and it must stay the only holder of the vendor
+from real telemetry) - and it must stay the only holder of the vendor
 sessions, so this script normally exits without touching anything.
 
 When the report-site watchdog has declared the server DOWN, nobody is
-watching the plants — so this script takes over the bare-minimum
+watching the plants - so this script takes over the bare-minimum
 question: are the PPA plants still producing? It polls the vendor
 clouds directly (no session conflict: the dead server is not polling)
 and pushes an ntfy alert when a plant's today-energy counter stops
@@ -126,7 +126,7 @@ def main() -> int:
     if not (DAY_START <= hour <= DAY_END):
         return 0                    # night: zero production is normal
 
-    # v214: the workbook is retired — the plant list comes from the
+    # v214: the workbook is retired - the plant list comes from the
     # portfolio snapshot pulled nightly with the backups (pull_backup.sh)
     from argia.core.config import portfolio_from_records
     with open(PORTFOLIO_JSON, encoding="utf-8") as fh:
@@ -135,7 +135,7 @@ def main() -> int:
         snap.get("plants", []), snap.get("inverters", [])).active_plants()
               if p.portfolio == "PPA"]
     log("outage mode: checking %d PPA plant(s)" % len(plants))
-    # v217: name first, code as the detail — never "NL2" alone
+    # v217: name first, code as the detail - never "NL2" alone
     from argia.alerts.naming import short_customer
     name = {p.plant_key: "%s (%s)" % (short_customer(p.customer), p.plant_key)
             if short_customer(p.customer) else p.plant_key for p in plants}

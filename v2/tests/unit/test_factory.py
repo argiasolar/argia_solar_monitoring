@@ -69,7 +69,7 @@ class TestGrowatt:
             build_client_for(plant)
 
     def test_growatt_with_partial_web_credentials_raises(self, monkeypatch):
-        # username set but password not — should fail (no token either)
+        # username set but password not - should fail (no token either)
         monkeypatch.delenv("GROWATT_API_TOKEN", raising=False)
         monkeypatch.setenv("GROWATT_USERNAME", "user1")
         monkeypatch.delenv("GROWATT_PASSWORD", raising=False)

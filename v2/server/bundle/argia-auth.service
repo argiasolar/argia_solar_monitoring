@@ -1,7 +1,7 @@
 [Unit]
 # Session login for report.argia.com.mx. nginx asks this service on
 # EVERY request (auth_request), so if it is down the whole site fails
-# closed — hence Restart=always and a two-second backoff.
+# closed - hence Restart=always and a two-second backoff.
 #
 # It runs the same way argia-setup does (python3 straight to Flask,
 # threaded, bound to loopback). If throughput ever becomes the issue,

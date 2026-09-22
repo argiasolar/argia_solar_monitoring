@@ -1,27 +1,27 @@
-"""v245 — readers for the CONTPAQi® exports the accountants drop in
+"""v245 - readers for the CONTPAQi® exports the accountants drop in
 ``ACCOUNTING/Accounting Reporting/<year>/<n>.- <Month>/`` every month.
 
 Three prints, all "report as a spreadsheet" (a header block, then rows
 whose meaning depends on their shape, then totals):
 
-* ``MMYY Polizas Argia.xlsx``    — *Diarios y Pólizas*: every journal
+* ``MMYY Polizas Argia.xlsx``    - *Diarios y Pólizas*: every journal
   entry of the year to date. A póliza header row (date, type, number,
   concept) is followed by its lines (line no., reference, account, name,
   journal, segment, debit, credit). The SEGMENT is the business-case
-  number (701 = operation costs, 1473 = the Quijote roof, …) — the
+  number (701 = operation costs, 1473 = the Quijote roof, …) - the
   join key to the project overview and the PMO sheets.
-* ``MMYY Auxiliares Argia.xlsx`` — *Movimientos auxiliares*: the same
+* ``MMYY Auxiliares Argia.xlsx`` - *Movimientos auxiliares*: the same
   lines regrouped per account with the account's opening balance and a
   running balance. This is where each BANK ACCOUNT's statement lives
   (102-01-xxx) and where AR/AP per counterparty come from.
-* ``Balanza`` (a sheet of the accountants' workbook) — trial balance:
+* ``Balanza`` (a sheet of the accountants' workbook) - trial balance:
   opening, debits, credits, closing per account.
 
 Everything here is pure: the callers hand in ``rows`` (a list of tuples,
 one per spreadsheet row, as openpyxl yields them) and get dataclasses
 back. No file I/O, no dependency on openpyxl, so the unit tests run on a
 synthetic print with the same shape (``tests/fixtures/fin/contpaq``) and
-never on the real books — the repository is public.
+never on the real books - the repository is public.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def class_nature(account: str) -> str:
     return "credit" if account[:1] in ("2", "3", "4") else "debit"
 
 
-BANK_PREFIX = "102-01-"        # Bancos nacionales — one sub-account per bank account
+BANK_PREFIX = "102-01-"        # Bancos nacionales - one sub-account per bank account
 AR_PREFIX = "105-01-"          # Clientes
 AP_PREFIX = "201-01-"          # Proveedores
 
@@ -307,7 +307,7 @@ def parse_auxiliares(rows: Sequence[Sequence]) -> AuxiliaresPrint:
     Row shapes:
       account: '102-01-001' | name | … | 'Saldo inicial :' | opening
       movement: date | kind | number | concept | reference | debit | credit | balance
-      totals : 'Total …' rows and blanks — skipped.
+      totals : 'Total …' rows and blanks - skipped.
     Summary accounts (102-00-000) also carry an opening row; they are kept
     (with no movements) so callers can read group openings.
     """
@@ -396,7 +396,7 @@ def parse_balanza(rows: Sequence[Sequence]) -> List[BalanceRow]:
 def cross_check(pol: PolizasPrint, aux: AuxiliaresPrint) -> List[str]:
     """Pólizas and Auxiliares are two prints of the same books: per detail
     account, Σdebits and Σcredits must agree. Returns the findings (empty =
-    consistent) — a mismatch means a truncated export, not a parser bug."""
+    consistent) - a mismatch means a truncated export, not a parser bug."""
     sums: Dict[str, List[Decimal]] = {}
     for j in pol.journals:
         for l in j.lines:
@@ -404,7 +404,7 @@ def cross_check(pol: PolizasPrint, aux: AuxiliaresPrint) -> List[str]:
             s[0] += l.debit
             s[1] += l.credit
     findings = []
-    # the pólizas print can carry entries the auxiliares (and the balanza) do not — an
+    # the pólizas print can carry entries the auxiliares (and the balanza) do not - an
     # unposted or later-deleted póliza; balances come from the auxiliares, so this is a
     # finding to read, never a reason to stop the import
     for acct, (dr, cr) in sorted(sums.items()):

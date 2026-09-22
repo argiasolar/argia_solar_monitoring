@@ -6,7 +6,7 @@ client's plants and uploads it to GCS as ``<channel>.html``:
 
     tetrapack.html   sms.html   budenheim.html   hirschmann.html
 
-Nothing is mailed — no Report_Outbox row, no Drive upload; this is the
+Nothing is mailed - no Report_Outbox row, no Drive upload; this is the
 give-the-client-a-URL path. Isolation is inherited from v76/v77: the
 page can only contain the channel's plants and the channel's alerts.
 
@@ -17,7 +17,7 @@ morning run after kpi-eod turns yesterday's numbers final.
 
 Bucket: GCS_CLIENT_BUCKET, falling back to GCS_DASHBOARD_BUCKET.
 CAUTION before granting any client viewer rights: bucket permissions
-are bucket-wide — clients sharing one bucket can open each other's
+are bucket-wide - clients sharing one bucket can open each other's
 pages. Per-client buckets are the isolation lever when onboarding.
 
 Usage (from v2/):
@@ -55,7 +55,7 @@ _TOKEN = re.compile(r"^[a-z0-9_]+$")
 
 
 def object_name(channel: str) -> str:
-    """``<channel>.html`` — and refuse anything that isn't a clean
+    """``<channel>.html`` - and refuse anything that isn't a clean
     channel token, because this string becomes a public-ish URL path.
     Config already normalizes channels; this is the defensive layer."""
     if not _TOKEN.match(channel or ""):
@@ -93,7 +93,7 @@ def main(argv=None) -> int:
     channels = ([args.channel] if args.channel
                 else portfolio.client_channels())
     if not channels:
-        print("no client channels configured — nothing to do")
+        print("no client channels configured - nothing to do")
         return 0
 
     bucket = (os.environ.get("GCS_CLIENT_BUCKET", "").strip()
@@ -111,7 +111,7 @@ def main(argv=None) -> int:
             continue
         view = portfolio.for_client_channel(channel)
         if not view.plants:
-            print("channel %r: no active plants — skipped" % channel)
+            print("channel %r: no active plants - skipped" % channel)
             continue
         try:
             data = build_report_data(client, view, date_iso)
@@ -130,11 +130,11 @@ def main(argv=None) -> int:
             continue
         if not bucket:
             print("NOTICE: no GCS bucket configured (GCS_CLIENT_BUCKET /"
-                  " GCS_DASHBOARD_BUCKET) — rendered only.")
+                  " GCS_DASHBOARD_BUCKET) - rendered only.")
             continue
         try:
             upload_to_gcs(bucket, name, html)
-            print("[apply] gs://%s/%s — view at "
+            print("[apply] gs://%s/%s - view at "
                   "https://storage.cloud.google.com/%s/%s"
                   % (bucket, name, bucket, name))
         except Exception as e:  # noqa: BLE001
@@ -142,7 +142,7 @@ def main(argv=None) -> int:
             failed.append(channel)
 
     if not args.apply:
-        print("[dry-run] files in %s — nothing uploaded" % out_dir)
+        print("[dry-run] files in %s - nothing uploaded" % out_dir)
     return 5 if failed else 0
 
 

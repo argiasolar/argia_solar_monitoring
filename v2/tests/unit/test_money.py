@@ -1,7 +1,7 @@
-"""v257 — what an outage costs, in pesos (Tomasz 2026-09-16: "show the
-bleeding in MXN"). The numbers below are SAG's real shape — 597.78 kWp,
+"""v257 - what an outage costs, in pesos (Tomasz 2026-09-16: "show the
+bleeding in MXN"). The numbers below are SAG's real shape - 597.78 kWp,
 PR baseline 0.86, tariff 2.508 MXN/kWh, and the 2026-09-16 close of
-1730.2 kWh actual against 3169.9 expected — so the tests fail if the
+1730.2 kWh actual against 3169.9 expected - so the tests fail if the
 arithmetic ever stops matching the plant that prompted the feature."""
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class TestIntradayLoss:
         assert M.lost_kwh_intraday(samples, SAG_KWP, SAG_PR) == pytest.approx(514.1, abs=0.2)
 
     def test_no_reading_at_all_counts_as_zero_production(self):
-        """SAG went from 0 W to no value once the datalogger dropped — the
+        """SAG went from 0 W to no value once the datalogger dropped - the
         loss must not disappear with the reading."""
         blind = [(1000.0, None)] * 12
         dark = [(1000.0, 0.0)] * 12
@@ -71,7 +71,7 @@ class TestClosedDayLoss:
         lost = M.lost_kwh_day(3169.9, 1730.2)
         assert lost == pytest.approx(1439.7, abs=0.1)
         assert M.cost_mxn(lost, SAG_TARIFF) == pytest.approx(3610.76, abs=0.5)
-        assert M.loss_phrase(lost, SAG_TARIFF, estimated=False) == "1,440 kWh lost — $3,611 MXN"
+        assert M.loss_phrase(lost, SAG_TARIFF, estimated=False) == "1,440 kWh lost - $3,611 MXN"
 
     def test_a_good_day_costs_nothing_even_when_it_beat_expectation(self):
         assert M.lost_kwh_day(2660.5, 2776.5) == 0.0
@@ -118,5 +118,5 @@ class TestFleetTotal:
         assert M.total_cost([(None, SAG_TARIFF)]) == (0.0, None)
 
     def test_formatting(self):
-        assert M.fmt_mxn(3610.76) == "$3,611 MXN" and M.fmt_mxn(None) == "—"
-        assert M.fmt_kwh(1439.7) == "1,440 kWh" and M.fmt_kwh(None) == "—"
+        assert M.fmt_mxn(3610.76) == "$3,611 MXN" and M.fmt_mxn(None) == " - "
+        assert M.fmt_kwh(1439.7) == "1,440 kWh" and M.fmt_kwh(None) == " - "

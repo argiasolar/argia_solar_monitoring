@@ -1,4 +1,4 @@
-# Stage 4.2 — Fix Huawei per-MPPT semantics + add phase voltages
+# Stage 4.2 - Fix Huawei per-MPPT semantics + add phase voltages
 
 Two targeted fixes based on live daylight data observations from May 14.
 
@@ -44,7 +44,7 @@ Inverter 2 (ES2470051826):
   epv1_today_kwh (Stage 4.1) = 56822.68  ← way too high
   
 Math: if 1 MPPT did 56k kWh today, but whole inverter did 180 kWh,
-the data is broken by ~300x — confirming Wh ≠ kWh and not daily.
+the data is broken by ~300x - confirming Wh ≠ kWh and not daily.
 
 Stage 4.2 behavior:
   epv1_today_kwh = blank          # Huawei doesn't expose per-MPPT daily

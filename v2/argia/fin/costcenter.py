@@ -1,12 +1,12 @@
-"""v248 — cost centres: where the money goes when it is not a project.
+"""v248 - cost centres: where the money goes when it is not a project.
 
 The accountants already give every póliza line a *segment*: the 4-digit
 business case for project money, and a handful of internal codes for the
 rest (701 OPERATION COSTS, 702/703/749 offices, 706 PAYROLL, a code per
 person paid on fees, 1195 the León warehouse, 888 training, 1100/1387
 warranties…). The catalogue here turns that list into something a reader
-can group: every code gets a *kind* and, for the people, one group —
-SALARIES & FEES — so the cost page shows one line for payroll instead of
+can group: every code gets a *kind* and, for the people, one group -
+SALARIES & FEES - so the cost page shows one line for payroll instead of
 twenty names (Tomasz, 2026-09-10).
 
 Pure: ``classify`` decides from the accountants' project list, ``canon``
@@ -120,7 +120,7 @@ def label(code, name: Optional[str] = None, kind: str = PROJECT) -> str:
     COSTS' for a cost centre. ``code`` may be None (tracker rows without one)."""
     n = canon(name)
     if code in (None, ''):
-        return n or '—'
+        return n or ' - '
     c = int(code)
     head = f'ARG{c:04d}' if kind == PROJECT and c >= 1000 else str(c)   # the ARGnnnn folders start at 1000; older codes stay bare
     return f'{head} · {n}' if n else head

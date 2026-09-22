@@ -37,7 +37,7 @@ SAFETY
 
 EXIT CODES
     0  all fixtures captured
-    1  partial — some endpoints failed (fixtures written for the ones that worked)
+    1  partial - some endpoints failed (fixtures written for the ones that worked)
     2  could not log in
     3  config error (missing credentials, etc.)
 """
@@ -221,7 +221,7 @@ def login(session: requests.Session, username: str, password: str) -> bool:
 
 
 # -------------------------------------------------------------------------
-# Capture functions — one per endpoint
+# Capture functions - one per endpoint
 # -------------------------------------------------------------------------
 
 def capture_get_devices_by_plant(session: requests.Session, out_dir: Path,
@@ -300,7 +300,7 @@ def capture_get_plant_data(session: requests.Session, out_dir: Path,
 
 def capture_alert_plant_event(session: requests.Session, out_dir: Path,
                                 plant_id: str, plant_key: str) -> None:
-    """The unknown endpoint — the alert/event feed. Most interesting capture."""
+    """The unknown endpoint - the alert/event feed. Most interesting capture."""
     log.info("Capturing alertPlantEvent for plant %s...", plant_key)
     url = f"{WEB_BASE}/panel/alertPlantEvent?plantId={plant_id}"
     resp = session.get(url, timeout=DEFAULT_TIMEOUT)
@@ -396,7 +396,7 @@ def capture_max_day_chart(session: requests.Session, out_dir: Path,
                            plant_id: str, plant_key: str,
                            inverter_sn: str, date_iso: str) -> None:
     """Day chart data (probably the same 5-min granularity, chart-friendly format).
-    Captured for completeness — may or may not be redundant with getMAXHistory."""
+    Captured for completeness - may or may not be redundant with getMAXHistory."""
     log.info("Capturing getMAXDayChart for %s on %s...", inverter_sn, date_iso)
     url = f"{WEB_BASE}/panel/max/getMAXDayChart"
     body = {
@@ -487,7 +487,7 @@ def main(argv=None) -> int:
 
     # Login
     if not login(session, username, password):
-        log.error("Could not log in — check credentials")
+        log.error("Could not log in - check credentials")
         return 2
 
     failures = 0
@@ -544,7 +544,7 @@ def main(argv=None) -> int:
         log.info("Using inverter SNs from --inverter-sns flag: %s", inverter_sns)
     elif args.plant_id in HARDCODED_INVERTER_SNS and \
             len(discovered_sns) < len(HARDCODED_INVERTER_SNS[args.plant_id]):
-        # Discovery returned fewer than we know exist — use hardcoded
+        # Discovery returned fewer than we know exist - use hardcoded
         inverter_sns = HARDCODED_INVERTER_SNS[args.plant_id]
         log.info("Auto-discovery returned %d SN(s), using hardcoded list of %d for plant %s: %s",
                  len(discovered_sns), len(inverter_sns), args.plant_id, inverter_sns)

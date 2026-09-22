@@ -1,4 +1,4 @@
-# Ask ARGIA — phase 0 runbook (v187, 2026-09-04)
+# Ask ARGIA - phase 0 runbook (v187, 2026-09-04)
 
 A chat assistant over the monitoring database. Read-only. One user
 (tomasz.zemelka@argia.com.mx). Anthropic Messages API, model
@@ -31,7 +31,7 @@ maintenance_event. Table written: `ask_log` (created on first use).
 ## Deploy on pio06
 
 ```bash
-# 0. API key — console.anthropic.com → API keys → create, name "argia-ask".
+# 0. API key - console.anthropic.com → API keys → create, name "argia-ask".
 #    Root-only file, never in the repo, env or a unit file:
 install -m 600 /dev/null /root/.argia_ask
 printf 'ANTHROPIC_API_KEY=%s\n' 'sk-ant-PASTE-HERE' > /root/.argia_ask
@@ -42,7 +42,7 @@ cd /root/argia_v2 && git fetch origin && git checkout ask-phase0 && git pull
 cd v2 && python3 -m pytest tests/unit/test_ask_tools.py tests/unit/test_ask_agent.py tests/unit/test_ask_app.py -q
 #    expect: 53 passed, 9 skipped (the live golden set)
 
-# 2. the tools against the real database — no model, no key needed
+# 2. the tools against the real database - no model, no key needed
 python3 -m argia.ask --tool get_portfolio_overview | head -40
 python3 -m argia.ask --tool get_generation --arg plant=GTO1 --arg date_from=2026-09-01 --arg date_to=2026-09-03
 python3 -m argia.ask --tool get_inverter_performance --arg plant=GTO1 --arg date=yesterday
@@ -79,13 +79,13 @@ other account gets 403.
 
 Sonnet 5 is USD 2 / 10 per million input / output tokens. A question is
 roughly 3–8 k input tokens (system prompt + tool JSON) and a few hundred
-output — about USD 0.01–0.03 per question. `ask_log` records tokens per
+output - about USD 0.01–0.03 per question. `ask_log` records tokens per
 answer; `SELECT sum(input_tokens)*2e-6 + sum(output_tokens)*1e-5 FROM ask_log;`
 is the bill so far in USD.
 
 ## Regression
 
-- Offline (every CI run): `test_golden_offline` — the scripted model
+- Offline (every CI run): `test_golden_offline` - the scripted model
   follows each case's tool plan and the harness must hand it every figure
   the answer needs. Add a case whenever a real question goes wrong.
 - Live (on demand, costs a few cents):

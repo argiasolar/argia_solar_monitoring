@@ -1,5 +1,5 @@
 """
-Time utilities — DST-correct.
+Time utilities - DST-correct.
 
 v1 used ``datetime.utcnow() + timedelta(hours=-6)`` which:
   - breaks during DST (Mexico observes DST in some regions)
@@ -16,7 +16,7 @@ import re
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-# Mexico City — covers all Argia plant locations.
+# Mexico City - covers all Argia plant locations.
 # (CDMX, GTO, NL, OAX, SLP all use America/Mexico_City)
 MX_TZ = ZoneInfo("America/Mexico_City")
 UTC = dt.timezone.utc
@@ -102,7 +102,7 @@ def parse_provider_datetime(value: Any) -> Optional[dt.datetime]:
     Supports:
       - epoch seconds (10-digit integer)
       - epoch milliseconds (13-digit integer)
-      - ``"YYYY-MM-DD HH:MM:SS"`` (assumed UTC — defensive)
+      - ``"YYYY-MM-DD HH:MM:SS"`` (assumed UTC - defensive)
       - ``"YYYY-MM-DDTHH:MM:SS"`` (ISO, with or without tz)
       - ``"YYYY/MM/DD HH:MM:SS"``
 
@@ -117,7 +117,7 @@ def parse_provider_datetime(value: Any) -> Optional[dt.datetime]:
     if value is None:
         return None
 
-    # numeric epoch — detect ms vs s by digit count
+    # numeric epoch - detect ms vs s by digit count
     if isinstance(value, (int, float)):
         n = int(value)
         # 13 digits ≈ ms (year 2001 onwards in ms is 13 digits)
@@ -135,7 +135,7 @@ def parse_provider_datetime(value: Any) -> Optional[dt.datetime]:
     if re.fullmatch(r"\d{13}", s):
         return _from_epoch(int(s) // 1000)
 
-    # ISO with TZ — let fromisoformat handle it (Python 3.11+ supports trailing Z)
+    # ISO with TZ - let fromisoformat handle it (Python 3.11+ supports trailing Z)
     iso_candidate = s.replace("Z", "+00:00")
     try:
         parsed = dt.datetime.fromisoformat(iso_candidate)
@@ -145,7 +145,7 @@ def parse_provider_datetime(value: Any) -> Optional[dt.datetime]:
     except ValueError:
         pass
 
-    # Common provider formats — assume UTC (caller can re-anchor if needed)
+    # Common provider formats - assume UTC (caller can re-anchor if needed)
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
         try:
             naive = dt.datetime.strptime(s, fmt)

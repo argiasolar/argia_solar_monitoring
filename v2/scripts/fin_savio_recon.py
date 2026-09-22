@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v247 — run the Savio plugin: fetch invoices + payments from Savio (the
+"""v247 - run the Savio plugin: fetch invoices + payments from Savio (the
 loopback mock until the real key is in /root/.argia_savio), compare them
 with the AR tracker and the books' bank deposits in PostgreSQL, store the
 findings in savio_check (replaced whole), print the summary.
@@ -86,7 +86,7 @@ def main(argv=None) -> int:
     print(f"savio recon ({source}): invoices {rec.invoices_matched}/{rec.invoices} matched, payments {rec.payments_matched}/{rec.payments} with a deposit,"
           f" deposits {rec.deposits_matched}/{rec.deposits} explained ({rec.deposits_internal} internal), accounts checked {rec.accounts_checked}, findings {len(rec.findings)}")
     for f in rec.findings[:40]:
-        print(f"  [{f.severity}] {f.kind} {f.savio_ref} {f.our_ref} {f.amount:,.2f} {f.currency} — {f.detail}")
+        print(f"  [{f.severity}] {f.kind} {f.savio_ref} {f.our_ref} {f.amount:,.2f} {f.currency} - {f.detail}")
     if a.apply:
         rows = SR.rows_for(rec, ENTITY)
         cols = list(rows[0].keys())

@@ -1,7 +1,7 @@
 """
 SolarEdge Monitoring API client.
 
-Cleanest of the four vendors — official REST API, API-key auth, JSON
+Cleanest of the four vendors - official REST API, API-key auth, JSON
 everywhere. No scraping, no session cookies, no AJAX endpoint discovery.
 
 Endpoints used:
@@ -117,7 +117,7 @@ class SolarEdgeClient:
         Latest telemetry per inverter. Power in W, status normalized to 1/3,
         ``etoday_kwh`` derived from totalEnergy diff over today.
 
-        One HTTP call per inverter — be mindful of rate limits.
+        One HTTP call per inverter - be mindful of rate limits.
         """
         if not inverters:
             return []
@@ -162,7 +162,7 @@ class SolarEdgeClient:
         resp = self._session.get(url, params=merged, timeout=self._timeout)
         if resp.status_code in (401, 403):
             raise SolarEdgeAuthError(
-                f"SolarEdge {path} returned HTTP {resp.status_code} — "
+                f"SolarEdge {path} returned HTTP {resp.status_code} - "
                 f"api_key rejected"
             )
         if resp.status_code == 429:
@@ -260,7 +260,7 @@ class SolarEdgeClient:
         if not isinstance(telemetries, list) or not telemetries:
             return None
 
-        # Sort defensively — API usually returns chronological but verify
+        # Sort defensively - API usually returns chronological but verify
         def _entry_ts(entry: Dict[str, Any]) -> str:
             return str(entry.get("date", ""))
 

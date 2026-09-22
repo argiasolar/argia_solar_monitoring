@@ -1,4 +1,4 @@
-"""v192 — Sheets retirement phase 3b: Invoicing_Overview -> the
+"""v192 - Sheets retirement phase 3b: Invoicing_Overview -> the
 PostgreSQL invoicing register.
 
 Locks: the switch defaults to sheet; the PG grid has the sheet's shape

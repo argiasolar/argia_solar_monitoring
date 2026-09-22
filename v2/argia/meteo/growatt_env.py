@@ -146,7 +146,7 @@ def fetch_env_day(
     """All (timestamp, W/m²) points for one day, deduped and sorted.
 
     `web` must provide get_env_history(plant_id, datalog_sn, addr, day_iso,
-    start) with plant-context seeding. Network errors raise — the caller
+    start) with plant-context seeding. Network errors raise - the caller
     decides whether dense irradiance is best-effort.
     """
     points: List[Tuple[dt.datetime, float]] = []

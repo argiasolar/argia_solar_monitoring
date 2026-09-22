@@ -1,4 +1,4 @@
-"""Minimal Google Drive client — only what the monthly archive needs.
+"""Minimal Google Drive client - only what the monthly archive needs.
 
 Separate from SheetsClient on purpose: it needs the broader ``drive``
 scope, and the Drive API must be ENABLED in the service account's GCP
@@ -7,7 +7,7 @@ verifies both before the archive is ever run.
 
 Files the service account creates are owned by the service account, so the
 archive spreadsheets are created INSIDE a folder that the human shared with
-the SA — that's what makes them visible in the human's Drive. Google-native
+the SA - that's what makes them visible in the human's Drive. Google-native
 spreadsheets consume no storage quota, so SA quota is a non-issue.
 """
 
@@ -63,7 +63,7 @@ class DriveClient:
     # ---------- archive-file management ----------
 
     def find_spreadsheet(self, folder_id: str, title: str) -> Optional[str]:
-        """Spreadsheet id of ``title`` inside ``folder_id`` — or None.
+        """Spreadsheet id of ``title`` inside ``folder_id`` - or None.
 
         Makes archive creation idempotent: a re-run reuses the existing file
         instead of creating "Archive_2026_07 (1)"-style duplicates.

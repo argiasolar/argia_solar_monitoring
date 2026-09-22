@@ -180,7 +180,7 @@ class TestPerMpptLifetimeEnergy:
 
 
 # ============================================================
-# Stage 4.1 tests — must keep passing (regression safety net)
+# Stage 4.1 tests - must keep passing (regression safety net)
 # ============================================================
 
 

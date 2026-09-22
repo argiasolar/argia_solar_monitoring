@@ -70,7 +70,7 @@ class TestPlantSemaphore:
 
     def test_maintenance_overrides_to_neutral(self):
         # a plant in a logged window reads MAINT even when production is
-        # deep red and even with a critical alert — it is not a fault
+        # deep red and even with a critical alert - it is not a fault
         assert plant_semaphore(
             _plant(pp=0.10, maint="known maintenance"), True, True) == MAINT
 
@@ -104,8 +104,8 @@ class TestAllocateTheoretical:
 class TestRenderSmoke:
     def _data(self):
         gto = _plant("GTO1", pp=0.7497, av=0.7833, e=3731.9, x=4977.98,
-                     note="Below plan (75%) — inverter availability 78% "
-                          "— see Alerts",
+                     note="Below plan (75%) - inverter availability 78% "
+                          "- see Alerts",
                      inv=[_inv("JFM7DXN00T", 899.5),
                           _inv("JFM7DXN013", 432.8, t=49.9,
                                faults=["FT=302"], rel=("CRITICAL", 0.584))])
@@ -129,7 +129,7 @@ class TestRenderSmoke:
         # lamp is the neutral maint colour, and the window note leads.
         gto = _plant("GTO1", pp=0.30, av=0.4, e=800.0, x=2955.0,
                      note="Below plan.",
-                     maint="known maintenance \u2014 awaiting parts (ongoing)")
+                     maint="known maintenance - awaiting parts (ongoing)")
         html = render_html(ReportData(date_iso="2026-07-14", plants=[gto],
                                       alerts=[]))
         assert ">MAINTENANCE<" in html
@@ -148,7 +148,7 @@ class TestRenderSmoke:
         # inverter table with flags and allocation
         assert "JFM7DXN013" in html and "FT=302" in html
         assert "peer median" in html                       # chart annotation
-        # honesty footer — updated with the dense-irradiance rollout
+        # honesty footer - updated with the dense-irradiance rollout
         assert "nameplate share" in html
         assert "minute-scale history" in html
         assert "validated to &lt;1%" in html
@@ -202,7 +202,7 @@ class TestDriveUpload:
 
 
 class TestDashboardFamilyStyle20260707:
-    """The PDF is the customer-facing sibling of the dashboard — one
+    """The PDF is the customer-facing sibling of the dashboard - one
     visual language. Also: no external font fetch inside the PDF-printing
     Chromium, so the PDF renders identically offline."""
 
@@ -223,7 +223,7 @@ class TestDashboardFamilyStyle20260707:
 class TestMedianLabelPlacement20260707:
     """User-reported: 'peer median' overlapped the last bar's value text.
     The label now hangs BELOW the chart and flips sides near the right
-    edge — collision-impossible by construction."""
+    edge - collision-impossible by construction."""
 
     def test_label_below_bars_and_height_extended(self):
         p = _plant(inv=[_inv(sn="A", kwh=700, rated=100),
@@ -279,7 +279,7 @@ class TestPlantNamesAndCaptionClipping20260707:
 
 def test_fleet_summary_is_prominent():
     """User request 2026-07-07: the fleet line under the tiles was 13px
-    muted — now a 16px card strip with bold key numbers."""
+    muted - now a 16px card strip with bold key numbers."""
     html = render_html(TestRenderSmoke()._data())
     assert "font-size:16px" in html.split(".fleetline{")[1].split("}")[0]
     assert "<b>" in html.split('class="portnums"')[1].split("</div>")[0]
@@ -424,12 +424,12 @@ class TestPortfolioSummary20260707:
 def test_rail_is_single_row_grid():
     """User review on A4: long customer names made the flex rail wrap to
     two rows in the PDF while the browser fit one. The rail is now a
-    grid with one equal column per plant — always one row, names wrap
+    grid with one equal column per plant - always one row, names wrap
     INSIDE their tile, robust to fleet growth."""
     html = render_html(TestRenderSmoke()._data())
     assert "grid" in html.split(".rail{")[1].split("}")[0]
     # WeasyPrint does NOT support auto-fit (measured: 6 tiles collapsed
-    # to 6 rows) — the column count is injected per render instead
+    # to 6 rows) - the column count is injected per render instead
     assert "auto-fit" not in html
     n = len(TestRenderSmoke()._data().plants)
     assert f'style="grid-template-columns:repeat({n},1fr)"' in html
@@ -440,7 +440,7 @@ class TestOutboxChannel20260707:
     """Four recipient lists (om/reporting/shareholders/invoicing) are
     routed by the notifier via a channel column on Report_Outbox rows.
     Daily reports default to 'reporting'; future monthly/invoicing jobs
-    just pass their channel — the notifier needs no further changes."""
+    just pass their channel - the notifier needs no further changes."""
 
     def _sheets(self):
         from argia.core.sheets import SheetsClient
@@ -467,7 +467,7 @@ class TestOutboxChannel20260707:
 
 class TestLiveEveningEstimate20260708:
     """The 20:45 evening report demanded KPI rows that only exist after
-    next morning's kpi-eod — it exited 2 every night of its life, and
+    next morning's kpi-eod - it exited 2 every night of its life, and
     SyncRuns exposed it on its first instrumented night. Plants without a
     KPI row now carry a telemetry-derived live estimate, honestly
     labeled."""
@@ -498,7 +498,7 @@ class TestLiveEveningEstimate20260708:
 
 class TestFleetPctObeysKpiGate20260708:
     """Block day: kpi withheld every production_pct ("sun measurement
-    unreliable") yet fleet_stats divided raw sums — the portfolio card
+    unreliable") yet fleet_stats divided raw sums - the portfolio card
     said 183% under an INCOMPLETE DAY verdict. The portfolio % now uses
     only plants the KPI layer deemed measurable."""
 
@@ -565,7 +565,7 @@ class TestVsDesignInReport20260708:
 class TestAuditTextsCurrent20260708:
     def test_footer_documents_this_weeks_calculations(self):
         """The methodology footer is the defense of every number on a
-        page that reaches customers — it must keep pace with the math."""
+        page that reaches customers - it must keep pace with the math."""
         html = render_html(TestRenderSmoke()._data())
         footer = html.split("<footer>")[1]
         for phrase in ("Of design", "0.444", "kWp-weighted",
@@ -604,7 +604,7 @@ class TestDesignCardAndEveningFallback20260708:
 
 class TestEditionAwareVerdict:
     """User report 2026-07-09: the evening edition headlined
-    'INCOMPLETE DAY' although telemetry ran perfectly all day — the day
+    'INCOMPLETE DAY' although telemetry ran perfectly all day - the day
     simply had no KPI stamps yet. All-gray must read as a state in the
     live edition and as an alarm only in the final one."""
 
@@ -644,7 +644,7 @@ class TestEditionAwareVerdict:
 
 
 class TestScopedAlerts:
-    """v76: the daily report speaks only about its own plants — a CAPEX
+    """v76: the daily report speaks only about its own plants - a CAPEX
     plant's critical alert must not appear in the section nor flip the
     PPA verdict to ATTENTION."""
 
@@ -755,7 +755,7 @@ class TestClientPagePresentation:
 
 class TestLiveExpectedFromDashboard:
     """v85: live editions borrow 'expected so far' from Dashboard_Plant
-    buckets — same engine as the interactive dashboard, so the report
+    buckets - same engine as the interactive dashboard, so the report
     cannot drift from it. Sheets values arrive formatted (house rule)."""
 
     def _rows(self):
@@ -766,10 +766,10 @@ class TestLiveExpectedFromDashboard:
              "plant_key": "QRO1", "theoretical_kwh": "1,203.4"},
             {"date_mx": "7/11/2026", "hour_label": "13:00",
              "plant_key": "QRO1", "theoretical_kwh": "1,310.6"},
-            # in-flight bucket — must be excluded
+            # in-flight bucket - must be excluded
             {"date_mx": "7/11/2026", "hour_label": "14:00",
              "plant_key": "QRO1", "theoretical_kwh": "500"},
-            # other date and other plant — ignored / separate
+            # other date and other plant - ignored / separate
             {"date_mx": "7/10/2026", "hour_label": "12:00",
              "plant_key": "QRO1", "theoretical_kwh": "999"},
             {"date_mx": "7/11/2026", "hour_label": "12:00",
@@ -844,7 +844,7 @@ class TestSunriseGuardAndIncomeCard:
 
 class TestHourlyChart:
     """v88: client pages get the intraday 60-min chart (production vs
-    theoretical per bucket) — same Dashboard_Plant rows v85 reads, as
+    theoretical per bucket) - same Dashboard_Plant rows v85 reads, as
     static CSS bars. Internal 6-plant report unchanged."""
 
     def _rows(self):
@@ -855,7 +855,7 @@ class TestHourlyChart:
             {"date_mx": "7/11/2026", "hour_label": "09:00",
              "plant_key": "NL2", "total_kwh": "48.1",
              "theoretical_kwh": "82.0"},
-            # in-flight at 10:xx — excluded on the live day
+            # in-flight at 10:xx - excluded on the live day
             {"date_mx": "7/11/2026", "hour_label": "10:00",
              "plant_key": "NL2", "total_kwh": "12",
              "theoretical_kwh": "30"},
@@ -917,7 +917,7 @@ class TestLiveConditions:
              "plant_key": "QRO1", "total_kwh": "59", "irradiance_kwh_m2":
              "0.27", "cloud_cover_pct": "72.5", "inverters_total": "4",
              "inverters_reporting": "3"},
-            # skeleton future bucket: zeros — must not count
+            # skeleton future bucket: zeros - must not count
             {"date_mx": "7/11/2026", "hour_label": "18:00",
              "plant_key": "QRO1", "total_kwh": "0", "irradiance_kwh_m2":
              "0", "cloud_cover_pct": "", "inverters_total": "4",
@@ -938,16 +938,16 @@ class TestLiveConditions:
 
     def test_fleet_section_absent_on_client_pages(self):
         html = TestClientPagePresentation()._render([_plant("NL2")])
-        assert "Production vs theoretical &#8212; per plant" not in html
+        assert "Production vs theoretical - per plant" not in html
         six = [_plant(k) for k in ("SLP1", "SLP2", "GTO1", "MEX1",
                                    "NL1", "MEX2")]
         html6 = TestClientPagePresentation()._render(six)
-        assert "Production vs theoretical &#8212; per plant" in html6
+        assert "Production vs theoretical - per plant" in html6
 
 
 class TestAlertCompanyName20260713:
     """v98: alert cards lead with the company name so a plant CODE isn't
-    the only identifier — 'PLASTIC OMNIUM (NL1)', not just 'NL1'."""
+    the only identifier - 'PLASTIC OMNIUM (NL1)', not just 'NL1'."""
 
     def _report(self, sn=""):
         nl1 = _plant(pk="NL1", name="PLASTIC OMNIUM PPA land (Monterrey, NL)",

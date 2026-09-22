@@ -1,20 +1,20 @@
-"""Inverter health detection — ``inverter_relative``.
+"""Inverter health detection - ``inverter_relative``.
 
-Catches an inverter under-producing relative to its plant peers — including
+Catches an inverter under-producing relative to its plant peers - including
 the nasty case that a plain offline check MISSES: an inverter reporting
 status = ONLINE while putting out ~0, its siblings producing normally. (Real
-example: MEX1 Inverter 2 on 2026-07-02 — online, 0 W, while Inverters 1 and 3
+example: MEX1 Inverter 2 on 2026-07-02 - online, 0 W, while Inverters 1 and 3
 did ~79 kW each. See tests/fixtures/health/mex1_inv2_dead_20260702.json.)
 
 This is CONFIG-INDEPENDENT: it compares each inverter to the mean of its plant
 peers, so it needs no plant kwp, no expected factor, no tariff. That's why it's
 safe to build before the feed's config truths (e.g. GTO1 605.9 vs 818.33) are
-settled — unlike ``pr_daily`` / ``energy_daily_pct``, which divide by that
+settled - unlike ``pr_daily`` / ``energy_daily_pct``, which divide by that
 config and must wait.
 
 WHAT THIS MODULE IS
     A PURE detector. Given a set of contemporaneous inverter production values
-    (5-min power, or a daily energy total — the function is unit-agnostic) and
+    (5-min power, or a daily energy total - the function is unit-agnostic) and
     two thresholds, it returns which inverters breach and at what severity.
     It reads nothing, writes nothing, and holds no state.
 
@@ -28,14 +28,14 @@ Honest limitations
 ==================
 1. **Needs a production floor.** At night / dawn / dusk every inverter is near
    zero, so a naive ratio (5 W vs a 50 W peer mean) would fire false CRITICALs.
-   The caller MUST pass ``min_peer_floor`` — a production level the peer mean
+   The caller MUST pass ``min_peer_floor`` - a production level the peer mean
    must clear before any judgement is made. The engine will derive it from
    nameplate (e.g. peers must be above ~5% of rated). This pure function
    defaults it to 0.0 for testability, but 0.0 in production would be noisy.
 
 2. **Needs at least two inverters.** A single-inverter plant has no peers to
    compare against, so it's skipped (no judgement). Those plants need
-   ``inverter_offline`` / ``plant_offline`` instead — a later increment.
+   ``inverter_offline`` / ``plant_offline`` instead - a later increment.
 
 3. **Peer mean is leave-one-out.** Each inverter is compared to the mean of the
    OTHERS, so a dead unit doesn't dilute its own ratio. If enough peers die that
@@ -68,7 +68,7 @@ DEFAULT_CRIT_BELOW = 0.70
 class InverterReading:
     """One inverter's production at one moment (or over one day).
 
-    ``value`` is a production magnitude — instantaneous power in W, or daily
+    ``value`` is a production magnitude - instantaneous power in W, or daily
     energy in kWh. The detector doesn't care which, as long as every reading in
     a single call uses the same unit.
 
@@ -136,7 +136,7 @@ def evaluate_inverter_relative(
         warn_below: ratio under which a WARNING is raised (default 0.85).
         crit_below: ratio under which a CRITICAL is raised (default 0.70).
         min_peer_floor: the peer mean must exceed this (same unit as ``value``)
-            before an inverter is judged — guards against night/low-light false
+            before an inverter is judged - guards against night/low-light false
             positives. See "Honest limitations" #1.
 
     Returns:
@@ -146,7 +146,7 @@ def evaluate_inverter_relative(
     if crit_below > warn_below:
         # Misconfiguration guard: CRITICAL must be the tighter (lower) bound.
         LOG.warning(
-            "crit_below (%.3f) > warn_below (%.3f) — thresholds look swapped",
+            "crit_below (%.3f) > warn_below (%.3f) - thresholds look swapped",
             crit_below, warn_below,
         )
 
@@ -175,8 +175,8 @@ def evaluate_inverter_relative(
         raw_total = sum(r.value for r in plant_readings)     # floor gate (raw)
 
         for r in plant_readings:
-            # Floor gate on RAW peer production — "are the peers actually
-            # producing?" — kept in the caller's raw unit regardless of scaling.
+            # Floor gate on RAW peer production - "are the peers actually
+            # producing?" - kept in the caller's raw unit regardless of scaling.
             raw_peer_mean = (raw_total - r.value) / (n - 1)
             if raw_peer_mean <= min_peer_floor:
                 continue  # peers not producing enough to judge fairly
@@ -210,7 +210,7 @@ def evaluate_inverter_relative(
                 threshold=threshold,
                 message=(
                     f"{plant_key} {r.inverter_sn}: {pct:.0f}% of peer mean "
-                    f"({r.value:.0f} vs {peer_mean:.0f}) — below "
+                    f"({r.value:.0f} vs {peer_mean:.0f}) - below "
                     f"{threshold:.0%} [{sev.value}]"
                 ),
             ))

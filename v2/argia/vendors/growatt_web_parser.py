@@ -14,7 +14,7 @@ The Growatt web UI is undocumented and inconsistent:
 
 * Envelope: every endpoint returns ``{"result": int, "obj": ..., "msg": ...}``
   where ``result == 1`` means success. Other values mean "no data", "auth
-  failed", or "endpoint not supported on this account" — Growatt does not
+  failed", or "endpoint not supported on this account" - Growatt does not
   document which is which. We treat anything other than ``result == 1`` as
   a structured failure that the caller decides what to do with.
 
@@ -29,7 +29,7 @@ The Growatt web UI is undocumented and inconsistent:
 
 * ``getDevicesByPlant.obj.max`` only returns ONE inverter per device-type
   bucket, not all of them. This is a known Growatt API quirk we can't fix
-  here — callers maintain their own SN list.
+  here - callers maintain their own SN list.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def check_envelope(response: Any) -> int:
     """
     Validate the top-level Growatt envelope and return the integer ``result``.
 
-    Does NOT raise for non-1 results — many endpoints return ``result: 0``
+    Does NOT raise for non-1 results - many endpoints return ``result: 0``
     as a valid "no data" signal. Caller decides how to interpret.
 
     Raises GrowattParseError only when the response is structurally invalid
@@ -166,7 +166,7 @@ class MAXHistoryRow:
     One 5-minute history sample from getMAXHistory.
 
     Only the most-used fields are broken out. The full ~155-field dict is
-    preserved in ``raw`` — use the field-family helpers
+    preserved in ``raw`` - use the field-family helpers
     (``per_mppt_voltages``, etc.) or access ``raw`` directly for the rest.
 
     Units:
@@ -364,7 +364,7 @@ def compute_day_total_kwh_from_history(
     Growatt's ``eacToday`` is a running total that resets at midnight, so
     the day-end value is just ``max(eacToday)``. We take the max rather
     than the latest because the meter occasionally re-emits a smaller
-    value (timing glitch) in the last sample — taking max is more robust.
+    value (timing glitch) in the last sample - taking max is more robust.
 
     Returns ``None`` when no row has a usable ``eacToday``.
     """
@@ -384,7 +384,7 @@ def build_inverter_snapshot(
 
     Status inference: if ``pac_w`` is > 0 OR we have a non-zero
     ``eac_today_kwh`` and the timestamp is fresh, status is online (1).
-    Fault codes trump this — non-zero fault_code_1 marks the inverter
+    Fault codes trump this - non-zero fault_code_1 marks the inverter
     offline (3). This mirrors v1 behaviour.
 
     ``timestamp_utc`` priority: calendar (MX-local → UTC) → time_str (assumed
@@ -599,14 +599,14 @@ def _parse_device_item(item: Any, bucket: str) -> Optional[Device]:
 
 @dataclass(frozen=True)
 class Alert:
-    """A single alert entry. Shape is approximate — we don't have a real
+    """A single alert entry. Shape is approximate - we don't have a real
     populated alert fixture yet. Update when we capture one.
 
     The fields we DO know exist:
-      * ``deviceSn``  — inverter SN
-      * ``alarmCode`` / ``warnCode``  — the alarm identifier
-      * ``alarmTime`` / ``time``  — when it fired (string)
-      * ``alarmDesc`` / ``msg`` — human description (may be missing)
+      * ``deviceSn``  - inverter SN
+      * ``alarmCode`` / ``warnCode``  - the alarm identifier
+      * ``alarmTime`` / ``time``  - when it fired (string)
+      * ``alarmDesc`` / ``msg`` - human description (may be missing)
     """
     device_sn: str
     code: str
@@ -660,7 +660,7 @@ def parse_weather(fixture_or_response: Any) -> Optional[Dict[str, Any]]:
     """
     Return the weather ``obj`` dict if present, else ``None``.
 
-    Empirically result==0 on the GTO1 fixture — Growatt's weather is often
+    Empirically result==0 on the GTO1 fixture - Growatt's weather is often
     unavailable. We expose this so callers can fall back to our own
     Open-Meteo path.
     """
@@ -679,7 +679,7 @@ def parse_list_device(fixture_or_response: Any) -> List[Device]:
     Account-wide device list. The captured fixture has result=0 (Growatt
     declined to enumerate for this account); we return [] in that case.
 
-    When populated, listDevice's shape mirrors getDevicesByPlant — same
+    When populated, listDevice's shape mirrors getDevicesByPlant - same
     bucket → [[sn, label, type], ...] structure. Re-use the same parser.
     """
     obj = extract_obj(fixture_or_response)

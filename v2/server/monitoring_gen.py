@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the ARGIA live monitoring portal — monitoring.argia.com.mx.
+"""Generate the ARGIA live monitoring portal - monitoring.argia.com.mx.
 
 v109: day archive pages + date picker, PPA cumulative tiles + gauge,
 data-completeness banners, maintenance badge, invoice-gate column.
@@ -37,7 +37,7 @@ except Exception:                                     # noqa: BLE001
     def is_normal_state(vendor, raw):
         return (raw or '').strip() in ('', '0')
 
-# v225: names first, codes as detail — on the portal too (Tomasz). The
+# v225: names first, codes as detail - on the portal too (Tomasz). The
 # naming layer of the mails (argia/alerts/naming.py); a codes-only
 # fallback keeps the page rendering without the checkout.
 try:
@@ -70,7 +70,7 @@ WINDOW = (6, 20)
 DAY_PAGES = 30          # how many past days get an archive page
 # Everything lives on ONE host now (report.argia.com.mx): reports at
 # the root, live monitoring under /monitoring/. One basic-auth prompt
-# instead of two — browsers cache credentials per hostname, so two
+# instead of two - browsers cache credentials per hostname, so two
 # hostnames could never share a login. monitoring.argia.com.mx 301s
 # here. BASE prefixes every monitoring link; REPORT_BASE is now
 # same-origin, so the per-plant "Open report" button needs no host.
@@ -117,7 +117,7 @@ for r in q("SELECT plant_key, customer, brand, kwp_dc, coalesce(portfolio,''),"
 # under /monitoring/assets/refs/ (repo v2/server/assets/refs/, both
 # languages). TAM1 (Ryder) joined in v177.3. A missing entry simply
 # renders without the link/photo, never a broken one.
-# v236 (Tomasz): the button follows the interface language — the table
+# v236 (Tomasz): the button follows the interface language - the table
 # holds the ES address, ref_link() derives the EN one (/en/ pages and
 # _EN.pdf sheets all exist, checked 2026-09-07) and the anchor carries
 # both so portal_chrome.setLang can swap the href.
@@ -151,7 +151,7 @@ def ref_link(pk, lang='en'):
 
 
 def ref_button(pk):
-    """The '⧉ Reference ↗' button, both addresses aboard (EN shown first —
+    """The '⧉ Reference ↗' button, both addresses aboard (EN shown first -
     the portal's default language); '' without a reference."""
     en, es = ref_link(pk, 'en'), ref_link(pk, 'es')
     if not es:
@@ -162,7 +162,7 @@ def ref_button(pk):
             '⧉ Reference ↗</a>')
 
 
-# Vendor monitoring portals — clicking an inverter Status pill opens the
+# Vendor monitoring portals - clicking an inverter Status pill opens the
 # brand's own portal in a new tab (login is the vendor's, not ours).
 VENDOR_PORTAL = {
     'GROWATT': 'https://server.growatt.com/',
@@ -186,7 +186,7 @@ def photo_uri(pk, thumb=False):
     return None
 
 
-# configured ACTIVE inverters — the honest denominator. Counting only
+# configured ACTIVE inverters - the honest denominator. Counting only
 # inverters that answer hides a dead one inside a green plant (GTO2
 # Inverter 2, found 2026-08-26).
 CONFIG_INV = {}   # plant -> [(sn, label, rated_kw)]
@@ -217,7 +217,7 @@ def alert_text(msg, pk, sn):
 
 
 def inverter_name(pk, sn):
-    """Text: 'Inverter 3 (JGMAE65009)' — label and serial, always (v230)."""
+    """Text: 'Inverter 3 (JGMAE65009)' - label and serial, always (v230)."""
     return NAMES.inverter(pk, sn) if (NAMES and sn) else (sn or 'plant')
 
 
@@ -235,7 +235,7 @@ def inverter_sort(pk, sn):
 
 # Dates with REAL collection (newest first, capped). Vendors sometimes
 # return rows carrying stale timestamps, which would create hollow
-# archive days — a real fleet collection day has hundreds of rows.
+# archive days - a real fleet collection day has hundreds of rows.
 DATES = [r[0] for r in q(
     f"SELECT {MX_D} AS d FROM telemetry GROUP BY 1"
     " HAVING count(*) >= 60 ORDER BY d DESC "
@@ -259,7 +259,7 @@ def temp_class(t):
 
 
 def peer_ratios(etoday_by_sn, rated_by_sn):
-    """{sn: ratio} — each inverter's kWh per rated kW against the MEDIAN
+    """{sn: ratio} - each inverter's kWh per rated kW against the MEDIAN
     of its producing peers (leave-one-out), the inverter_relative rule.
     Needs >= 1 producing peer (a two-inverter plant compares against its
     sibling, like the alert rule) and a rating for every unit compared;
@@ -311,7 +311,7 @@ for r in q("SELECT plant_key, coalesce(inverter_sn,''), metric, severity,"
             'sn': r[1], 'metric': r[2], 'sev': r[3], 'since': r[4],
             'msg': r[5], 'key': r[6]})
 
-# v226: the maintenance ticket behind an alert (open tickets only) —
+# v226: the maintenance ticket behind an alert (open tickets only) -
 # {alert_key: (number, status)}; empty before the first ticket exists
 TICKET_BY_ALERT = {}
 try:
@@ -325,7 +325,7 @@ except RuntimeError:
 
 # ------------------------------------------------- per-date aggregates
 # Latest USABLE sample per inverter per date (empty vendor replies are
-# data gaps, not outages — see 2026-08-26 MEX1 incident).
+# data gaps, not outages - see 2026-08-26 MEX1 incident).
 LATEST = {}   # date -> plant -> [inverter dict]
 for r in q("SELECT DISTINCT ON (d, plant_key, inverter_sn) * FROM ("
            f" SELECT {MX_D} AS d, plant_key, inverter_sn,"
@@ -345,7 +345,7 @@ for r in q("SELECT DISTINCT ON (d, plant_key, inverter_sn) * FROM ("
             continue
         LATEST.setdefault(d, {}).setdefault(r[1], []).append({
             # v230: the label from the inverter table (the registry), never the
-            # one stored with the sample — a renumbered unit must read the same on every day
+            # one stored with the sample - a renumbered unit must read the same on every day
             'sn': r[2], 'label': NAMES.inverter_short(r[1], r[2]) if NAMES else r[3], 'status': int(f(r[4]) or 0),
             'power_w': f(r[5]), 'etoday': f(r[6]), 'temp': f(r[7]),
             'fault': r[8] if r[8] not in ('', '0') else '',
@@ -407,11 +407,11 @@ for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh"
             (r[1], f(r[2]), f(r[3]) if r[3] not in ('', None) else None))
 
 # MTD from the day pairs, not a blind SQL sum: 'exp' counts only days
-# the KPI pipeline stamped, and 'pm' is production on THOSE SAME days —
+# the KPI pipeline stamped, and 'pm' is production on THOSE SAME days -
 # so vs-expected never divides a full month of production by a partial
 # month of expectation (the Sep-2026 outage made that failure visible:
 # Sep 1 was vendor-backfilled without an expected value and the whole
-# column read '—' / a full-vs-partial ratio).
+# column read ' - ' / a full-vs-partial ratio).
 MTD = {}          # plant -> {'prod', 'exp', 'pm'}
 _month = TODAY[:7]
 for pk, rows_ in DAILY.items():
@@ -461,7 +461,7 @@ except RuntimeError:
 
 
 def thermal_card(pk, d):
-    """The day's thermal health per inverter — the evidence behind a
+    """The day's thermal health per inverter - the evidence behind a
     temperature alarm. On the live page the newest evaluated day (the
     job runs at night for the day before)."""
     dates = THERMAL_DATES.get(pk, [])
@@ -476,10 +476,10 @@ def thermal_card(pk, d):
     trs = []
     tot_lost = 0.0
     def hm(minutes):
-        return '—' if not minutes else '%dh %02d' % (minutes // 60, minutes % 60)
+        return ' - ' if not minutes else '%dh %02d' % (minutes // 60, minutes % 60)
 
     def signed(v):
-        return '—' if v is None else '%+.1f' % v
+        return ' - ' if v is None else '%+.1f' % v
 
     tot_vendor = 0
     for r in rows:
@@ -490,17 +490,17 @@ def thermal_card(pk, d):
             '<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td><span class="pill %s">%s</span></td></tr>'
             % (inverter_html(pk, r['sn']), tone.get(r['band'], 'off'), fmt1(r['peak']),
                hm(r['min65']) if r['min65'] else '0h 00', r['events'], signed(r['dt_peer']),
-               signed(r['dt_amb']), hm(r['derating_min']), fmt1(r['lost']) if r['lost'] else '—',
-               ('<span class="pill bad">%s</span>' % hm(r['vendor_min'])) if r.get('vendor_min') else '—',
+               signed(r['dt_amb']), hm(r['derating_min']), fmt1(r['lost']) if r['lost'] else ' - ',
+               ('<span class="pill bad">%s</span>' % hm(r['vendor_min'])) if r.get('vendor_min') else ' - ',
                htone.get(r['health'], 'off'), esc(r['health'])))
     when = ('' if use == d else
             f' <span class="note" data-en="(last evaluated day: {use})" data-es="(último día evaluado: {use})">(last evaluated day: {use})</span>')
     return f'''
-<div class="card"><h2><span data-en="Thermal health — inverter temperature vs peers, suspected derating" data-es="Salud térmica — temperatura del inversor vs pares, derrateo sospechado">Thermal health — inverter temperature vs peers, suspected derating</span>{when}</h2>
+<div class="card"><h2><span data-en="Thermal health - inverter temperature vs peers, suspected derating" data-es="Salud térmica - temperatura del inversor vs pares, derrateo sospechado">Thermal health - inverter temperature vs peers, suspected derating</span>{when}</h2>
 <table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th data-en="Peak" data-es="Pico">Peak</th><th>≥65 °C</th><th data-en="Events" data-es="Eventos">Events</th><th data-en="ΔT peers" data-es="ΔT pares">ΔT peers</th><th data-en="ΔT ambient" data-es="ΔT ambiente">ΔT ambient</th><th data-en="Derating" data-es="Derrateo">Derating</th><th data-en="Lost kWh" data-es="kWh perdidos">Lost kWh</th><th data-en="Vendor derating" data-es="Derrateo del fabricante">Vendor derating</th><th data-en="Cooling" data-es="Enfriamiento">Cooling</th></tr>
-{''.join(trs)}<tr class="total"><td><b data-en="Plant" data-es="Planta">Plant</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td><b>{fmt1(tot_lost) if tot_lost else "—"}</b></td><td><b>{hm(tot_vendor) if tot_vendor else "—"}</b></td><td></td></tr></table>
-<p class="note" data-en="ARGIA operational bands on the inverter's internal temperature (not warranty limits): normal <50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the median of the plant's other inverters — the strongest sign of a cooling problem (heat sink, fan, clearance). ΔT ambient = internal minus site ambient. Derating = intervals ≥65 °C where the unit, hotter than its cooler peers by ≥5 °C, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed. Vendor derating = minutes the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) — the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Measured on ARGIA's own 5-minute data; manufacturer manuals require ventilation and derate on heat but never quantify it."
- data-es="Bandas operativas ARGIA sobre la temperatura interna del inversor (no límites de garantía): normal <50, vigilancia 50–60, aviso 60–65, alta 65–70, crítica ≥70 °C. ΔT pares = esta unidad menos la mediana de los demás inversores de la planta — la señal más fuerte de un problema de enfriamiento. ΔT ambiente = interna menos ambiente del sitio. Derrateo = intervalos ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal que ellos; kWh perdidos = esa diferencia sumada. Derrateo del fabricante = minutos en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) — la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Medido con los datos de 5 minutos de ARGIA.">
+{''.join(trs)}<tr class="total"><td><b data-en="Plant" data-es="Planta">Plant</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td><b>{fmt1(tot_lost) if tot_lost else " - "}</b></td><td><b>{hm(tot_vendor) if tot_vendor else " - "}</b></td><td></td></tr></table>
+<p class="note" data-en="ARGIA operational bands on the inverter's internal temperature (not warranty limits): normal <50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the median of the plant's other inverters - the strongest sign of a cooling problem (heat sink, fan, clearance). ΔT ambient = internal minus site ambient. Derating = intervals ≥65 °C where the unit, hotter than its cooler peers by ≥5 °C, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed. Vendor derating = minutes the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) - the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Measured on ARGIA's own 5-minute data; manufacturer manuals require ventilation and derate on heat but never quantify it."
+ data-es="Bandas operativas ARGIA sobre la temperatura interna del inversor (no límites de garantía): normal <50, vigilancia 50–60, aviso 60–65, alta 65–70, crítica ≥70 °C. ΔT pares = esta unidad menos la mediana de los demás inversores de la planta - la señal más fuerte de un problema de enfriamiento. ΔT ambiente = interna menos ambiente del sitio. Derrateo = intervalos ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal que ellos; kWh perdidos = esa diferencia sumada. Derrateo del fabricante = minutos en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) - la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Medido con los datos de 5 minutos de ARGIA.">
 ARGIA operational bands (not warranty limits): normal &lt;50, watch 50–60, warning 60–65, high 65–70, critical ≥70 °C. ΔT peers = this unit minus the plant's other inverters. Derating = hot intervals where the unit produced ≥3% less per rated kW than its cooler peers; Lost kWh = that shortfall summed. Vendor derating = minutes the inverter itself reported a temperature derating mode (Growatt Tinv/Tboost).</p></div>'''
 
 
@@ -512,10 +512,10 @@ RECON_M = [r for r in q(
 
 # performance, last 30 days (Phase F v1): PR, availability, vs expected.
 # v242 (Mirek's QA, 2026-09-08): the averages used to run over the days
-# that HAD a value — Ryder showed PR 0.996 / PR_STC 1.084 / availability
+# that HAD a value - Ryder showed PR 0.996 / PR_STC 1.084 / availability
 # 100% from ONE day while dark for six. Now: a PR needs MIN_PR_DAYS days
 # and a day above PR_MAX is an input error, not a value; a dark day (no
-# telemetry, no energy — or no row at all up to yesterday) is 0%
+# telemetry, no energy - or no row at all up to yesterday) is 0%
 # available, the same rule the plant report applies (v241).
 MIN_PR_DAYS = 7
 PR_MAX = 1.05
@@ -578,7 +578,7 @@ for r in q("SELECT plant_key, prod_date::text, pr FROM daily_production"
 
 
 def perf_avail_tiles(keys, grp=''):
-    """Two KPI tiles — Performance (30-day PR) and Availability (30d) —
+    """Two KPI tiles - Performance (30-day PR) and Availability (30d) -
     kWp-weighted across `keys` (a single plant gives its own values).
     Bands match the performance page: PR >=0.75 green / >=0.65 amber;
     availability >=98% green / >=95% amber (IEC 63019). Missing data
@@ -602,12 +602,12 @@ def perf_avail_tiles(keys, grp=''):
     g = (grp + ' ') if grp else ''
     return (
         f'<div class="kpi"><div class="v"><span{pr_cls}>'
-        f'{"—" if pr is None else f"{pr:.3f}"}</span></div>'
+        f'{" - " if pr is None else f"{pr:.3f}"}</span></div>'
         f'<div class="l" data-en="{g}performance · PR 30d"'
         f' data-es="Desempeño {grp} · PR 30d">{g}performance · PR 30d'
         '</div></div>'
         f'<div class="kpi"><div class="v"><span{av_cls}>'
-        f'{"—" if av is None else f"{100 * av:,.1f}%"}</span></div>'
+        f'{" - " if av is None else f"{100 * av:,.1f}%"}</span></div>'
         f'<div class="l" data-en="{g}availability · 30d"'
         f' data-es="Disponibilidad {grp} · 30d">{g}availability · 30d'
         '</div></div>')
@@ -634,7 +634,7 @@ def semaphore(pk):
     if not invs:
         if in_window:
             return 'bad', 'no data today', 'sin datos hoy'
-        return 'off', 'night — no data yet', 'noche — aún sin datos'
+        return 'off', 'night - no data yet', 'noche - aún sin datos'
     fresh = [i for i in invs if i['age_min'] <= STALE_MIN]
     faults = [i for i in invs if i['status'] == 3]
     powered = [i for i in fresh if i['power_w'] is not None]
@@ -768,7 +768,7 @@ window.addEventListener('DOMContentLoaded',()=>{
    const c=document.createElement('span');c.className='car';
    c.textContent='▾';el.appendChild(c);})
   .catch(()=>{el.remove();});});
-// straight to the public page — a pre-flight fetch that returns 401
+// straight to the public page - a pre-flight fetch that returns 401
 // makes the browser pop its own sign-in dialog (reported 2026-08-28)
 function argiaLogout(){location.href='/logout';}  // server ends the session, then redirects
 '''
@@ -781,14 +781,14 @@ def page(title, body, subtitle='', refresh=True):
 <meta name="robots" content="noindex,nofollow">{meta_r}
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="shortcut icon" href="/favicon.ico">
-<title>{esc(title)} — ARGIA Monitoring</title>
+<title>{esc(title)} - ARGIA Monitoring</title>
 <style>{STYLE}</style></head><body><div class="wrap">
 <div class="top"><div><h1>{esc(title)}</h1>
 <div class="sub">{subtitle}</div></div>
 <a href="/" title="ARGIA reports"><img class="logo" src="{LOGO_URI}" alt="{LOGO_ALT}"></a></div>
 {body}
-<p class="note" data-en="Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pio06.{' Live pages auto-refresh every 5 minutes.' if refresh else ' Archived day — static.'}"
- data-es="Generado {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX desde PostgreSQL en pio06.{' Las páginas en vivo se actualizan cada 5 minutos.' if refresh else ' Día archivado — estático.'}">
+<p class="note" data-en="Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pio06.{' Live pages auto-refresh every 5 minutes.' if refresh else ' Archived day - static.'}"
+ data-es="Generado {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX desde PostgreSQL en pio06.{' Las páginas en vivo se actualizan cada 5 minutos.' if refresh else ' Día archivado - estático.'}">
 Generated {NOW_MX.strftime('%Y-%m-%d %H:%M')} MX from PostgreSQL telemetry on pio06.</p>
 <script>{LANGJS}</script></div></body></html>'''
 
@@ -835,15 +835,15 @@ def date_picker(pk, current):
             f'{FIRST_DATE} (server collection start)">')
 
 
-def fmt_kwh(v, dash='—'):
+def fmt_kwh(v, dash=' - '):
     return dash if v is None else f'{v:,.1f}'
 
 
-def fmt1(v, dash='—'):
+def fmt1(v, dash=' - '):
     return dash if v is None else f'{v:,.1f}'
 
 
-def fmt_kw(v, dash='—'):
+def fmt_kw(v, dash=' - '):
     return dash if v is None else f'{v/1000.0:,.1f}'
 
 
@@ -856,7 +856,7 @@ def gauge_svg(pct, lo=70, hi=90, width=132):
 
     The value arc spans at most 180 degrees, so the SVG large-arc flag
     is ALWAYS 0. The old code used ``1 if frac > 0.5``, which made every
-    gauge above 65% draw the MAJOR arc the long way round — the broken,
+    gauge above 65% draw the MAJOR arc the long way round - the broken,
     clipped segments Tomasz reported on /ppa (108%) and /capex (69%) on
     2026-08-28. Regression-tested in tests/unit/test_gauge.py.
 
@@ -894,20 +894,20 @@ def completeness_banner(pk, d):
     msgs = []
     if d == TODAY and first_h is not None and first_h > 7:
         msgs.append((
-            f"Intraday data today starts at ~{first_h:02d}:00 MX — 5-minute "
+            f"Intraday data today starts at ~{first_h:02d}:00 MX - 5-minute "
             "collection on this server began 2026-08-26 ~12:04 MX (Pi→server "
             "migration). Daily TOTALS are still complete: they come from the "
             "inverter's own cumulative counter.",
-            f"Los datos intradía de hoy comienzan ~{first_h:02d}:00 MX — la "
+            f"Los datos intradía de hoy comienzan ~{first_h:02d}:00 MX - la "
             "colección cada 5 min en este servidor inició el 2026-08-26 "
             "~12:04 MX (migración Pi→servidor). Los TOTALES diarios están "
             "completos: provienen del contador acumulado del inversor."))
     elif comp is not None and comp < 95 and d != TODAY:
         msgs.append((
-            f"Interval data for this day is {comp:.0f}% complete — the "
+            f"Interval data for this day is {comp:.0f}% complete - the "
             "hourly bars may undercount. The daily total is vendor-counter "
             "verified" + (f" (reconciliation: {status})" if status else "") + ".",
-            f"Los datos de intervalos de este día están al {comp:.0f}% — las "
+            f"Los datos de intervalos de este día están al {comp:.0f}% - las "
             "barras horarias pueden subestimar. El total diario está "
             "verificado contra el contador del fabricante."))
     if d < FIRST_DATE:
@@ -1061,7 +1061,7 @@ def intraday_svg(pk, kwp, pr, d):
 
 
 def alerts_card(pk):
-    """Open ledger alerts for one plant — what the daily PDF lists and
+    """Open ledger alerts for one plant - what the daily PDF lists and
     what the maintenance mails announce, on the page people look at."""
     rows = ALERTS_OPEN.get(pk, [])
     if not rows:
@@ -1094,7 +1094,7 @@ def alerts_card(pk):
 def plant_page(pk, d, skin='old'):
     """One plant, one day. d == TODAY -> live page with live KPIs.
     skin='portal' (v211) returns the parts for portal.argia.com.mx:
-    {'picker', 'buttons', 'body', 'sub', 'live'} — same content, the
+    {'picker', 'buttons', 'body', 'sub', 'live'} - same content, the
     portal adds its own header and chrome."""
     meta = PLANTS[pk]
     live = d == TODAY
@@ -1119,14 +1119,14 @@ def plant_page(pk, d, skin='old'):
                                                         i['fault'])):
             detail = explain_fault(meta['brand'], i['fault']) or ''
         peak = PEAK_T.get(d, {}).get(pk, {}).get(i['sn'])
-        tnow = '—' if i['temp'] is None else f"{i['temp']:.0f}"
-        tpk = '—' if peak is None else f"{peak:.0f}"
+        tnow = ' - ' if i['temp'] is None else f"{i['temp']:.0f}"
+        tpk = ' - ' if peak is None else f"{peak:.0f}"
         tcls = temp_class(peak)
         temp = (f'<span class="pill {tcls}">{tnow} / {tpk}</span>' if tcls
                 else f'{tnow} / {tpk}')
         pr_ = peers.get(i['sn'])
         pcls = peer_class(pr_)
-        peer_txt = '—' if pr_ is None else f"{100 * pr_:.0f}%"
+        peer_txt = ' - ' if pr_ is None else f"{100 * pr_:.0f}%"
         peer_html = (f'<span class="pill {pcls}">{peer_txt}</span>' if pcls
                      else peer_txt)
         pill_html = f'<span class="pill {pill_cls}">{esc(pill_txt)}</span>'
@@ -1142,15 +1142,15 @@ def plant_page(pk, d, skin='old'):
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'
             f'<td>{peer_html}</td>'
             f'<td>{temp}</td><td>{esc(i["last_mx"])}</td></tr>')
-    # configured inverters that never answered this day — the dead ones
+    # configured inverters that never answered this day - the dead ones
     seen_sns = {i['sn'] for i in invs}
     for sn, label, rated in CONFIG_INV.get(pk, []):
         if sn in seen_sns:
             continue
         silent_pill = ('<span class="pill bad"'
-                       ' data-en="SILENT — no data this day"'
+                       ' data-en="SILENT - no data this day"'
                        ' data-es="SIN DATOS este día">'
-                       'SILENT — no data this day</span>')
+                       'SILENT - no data this day</span>')
         if portal:
             silent_pill = (f'<a class="statlink" href="{esc(portal)}"'
                            f' target="_blank" rel="noopener"'
@@ -1163,24 +1163,24 @@ def plant_page(pk, d, skin='old'):
             f' ({(rated or 0):,.0f} kW) but never reported" data-es="configurado'
             ' activo pero sin reportar">configured active'
             f' ({(rated or 0):,.0f} kW) but never reported</span></td>'
-            '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>')
+            '<td> - </td><td> - </td><td> - </td><td> - </td><td> - </td></tr>')
     recon_rows = ''.join(
         f'<tr><td>{esc(r[0])}</td><td>{fmt_kwh(f(r[1]))}</td>'
         f'<td>{fmt_kwh(f(r[2]))}</td><td>{fmt_kwh(f(r[3]))}</td>'
-        f'<td>{"—" if f(r[4]) is None else f"{f(r[4]):.0f}%"}</td>'
-        f'<td>{"—" if f(r[5]) is None else f"{f(r[5]):+.2f}%"}</td>'
+        f'<td>{" - " if f(r[4]) is None else f"{f(r[4]):.0f}%"}</td>'
+        f'<td>{" - " if f(r[5]) is None else f"{f(r[5]):+.2f}%"}</td>'
         f'<td class="st-{esc(r[6])}">{esc(r[6])}</td></tr>'
         for r in RECON_D.get(pk, [])[:7])
     daily_rows = ''.join(
         f'<tr><td><a href="{BASE + "/" + pk.lower() + "/" if dd == TODAY else f"{BASE}/{pk.lower()}/d/{dd}.html"}">{esc(dd)}</a></td>'
         f'<td>{fmt_kwh(e)}</td><td>{fmt_kwh(xx)}</td>'
-        f'<td>{"—" if not e or not xx else f"{100*e/xx:,.0f}%"}</td></tr>'
+        f'<td>{" - " if not e or not xx else f"{100*e/xx:,.0f}%"}</td></tr>'
         for dd, e, xx in reversed(DAILY.get(pk, [])[-7:]))
 
     maint = MAINT_TODAY.get(pk, [])
     maint_html = ''.join(
-        f'<div class="banner info" data-en="Maintenance logged ({esc(m["category"])}{", ongoing" if m["ongoing"] else ""}): {esc(m["note"] or "no note")} — approved customer events become deemed energy in invoicing."'
-        f' data-es="Mantenimiento registrado ({esc(m["category"])}): {esc(m["note"] or "sin nota")} — los eventos de cliente aprobados se facturan como energía compensada.">'
+        f'<div class="banner info" data-en="Maintenance logged ({esc(m["category"])}{", ongoing" if m["ongoing"] else ""}): {esc(m["note"] or "no note")} - approved customer events become deemed energy in invoicing."'
+        f' data-es="Mantenimiento registrado ({esc(m["category"])}): {esc(m["note"] or "sin nota")} - los eventos de cliente aprobados se facturan como energía compensada.">'
         f'Maintenance logged ({esc(m["category"])}): {esc(m["note"] or "no note")}</div>'
         for m in maint) if live else ''
 
@@ -1223,15 +1223,15 @@ def plant_page(pk, d, skin='old'):
     body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
-<div class="card"><h2 data-en="Inverters — {'latest sample' if live else 'last sample of the day'}" data-es="Inversores — última muestra">Inverters — latest sample</h2>
+<div class="card"><h2 data-en="Inverters - {'latest sample' if live else 'last sample of the day'}" data-es="Inversores - última muestra">Inverters - latest sample</h2>
 <table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
-<p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% — the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail."
+<p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% - the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail."
  data-es="vs pares = kWh por kW nominal de este inversor contra la mediana de los demás inversores de la planta (ámbar < 85%, rojo < 70%). °C = temperatura interna, última muestra / pico del día (ámbar ≥ 65, rojo ≥ 75). El estado proviene de la bandera del propio inversor.">vs peers = kWh per rated kW against the median of the other inverters (amber &lt; 85%, red &lt; 70%). °C = internal temperature, latest / day peak (amber ≥ 65, red ≥ 75).</p></div>
 {thermal_card(pk, d)}
 {alerts_card(pk) if live else ''}
-<div class="card"><h2 data-en="Last 7 days — production (click a date)" data-es="Últimos 7 días — producción (clic en la fecha)">Last 7 days — production (click a date)</h2>
+<div class="card"><h2 data-en="Last 7 days - production (click a date)" data-es="Últimos 7 días - producción (clic en la fecha)">Last 7 days - production (click a date)</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th>kWh</th><th data-en="Expected" data-es="Esperado">Expected</th><th>%</th></tr>{daily_rows}</table></div>
-<div class="card"><h2 data-en="Daily reconciliation — interval vs vendor counter" data-es="Conciliación diaria — intervalos vs contador">Daily reconciliation — interval vs vendor counter</h2>
+<div class="card"><h2 data-en="Daily reconciliation - interval vs vendor counter" data-es="Conciliación diaria - intervalos vs contador">Daily reconciliation - interval vs vendor counter</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th data-en="Compl." data-es="Compl.">Compl.</th><th>Δ%</th><th>Status</th></tr>{recon_rows}</table>
 <p class="note" data-en="The vendor cumulative counter is the billing control; interval data is analytics. A gap in our collection can never shrink an invoice."
  data-es="El contador acumulado del fabricante es el control de facturación; los intervalos son analítica.">The vendor cumulative counter is the billing control; interval data is analytics.</p></div>'''
@@ -1265,8 +1265,8 @@ def ppa_page():
             mtd_exp += m['exp']
             mtd_pm += m.get('pm', 0.0)
         m_exp = m.get('exp')
-        m_pct = '—' if not m_exp else f"{100*m.get('pm', 0)/m_exp:,.0f}%"
-        exp_str = '—' if m_exp is None else f'{m_exp:,.0f}'
+        m_pct = ' - ' if not m_exp else f"{100*m.get('pm', 0)/m_exp:,.0f}%"
+        exp_str = ' - ' if m_exp is None else f'{m_exp:,.0f}'
         rows.append(
             f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}</a> '
             f'<span class="tkey">{pk}</span></td>'
@@ -1281,20 +1281,20 @@ def ppa_page():
         f'<tr style="font-weight:700;background:#fafbfc"><td>TOTAL</td>'
         f'<td>{tot_kwp:,.0f}</td><td>{tot_p:,.1f}</td><td>{tot_e:,.0f}</td>'
         f'<td>{mtd_prod:,.0f}</td>'
-        f'<td>{"—" if not mtd_exp else f"{mtd_exp:,.0f}"}</td>'
-        f'<td>{"—" if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
+        f'<td>{" - " if not mtd_exp else f"{mtd_exp:,.0f}"}</td>'
+        f'<td>{" - " if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
     kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="PPA power right now" data-es="Potencia PPA ahora">PPA power right now</div></div>
 <div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="PPA energy today" data-es="Energía PPA hoy">PPA energy today</div></div>
-<div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production — month to date" data-es="Producción — mes en curso">Production — month to date</div></div>
-<div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected — month to date{'' if exp_known else ' (partial)'}" data-es="Esperado — mes en curso">Expected — month to date</div></div>
+<div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production - month to date" data-es="Producción - mes en curso">Production - month to date</div></div>
+<div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected - month to date{'' if exp_known else ' (partial)'}" data-es="Esperado - mes en curso">Expected - month to date</div></div>
 <div class="kpi gauge" title="{GAUGE_TIP}">{gauge_svg(pct) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
 </div>'''
     note = ('<p class="note" data-en="Month-to-date sums come from vendor-counter-verified daily production. Expected is the sum of daily expected values where the KPI pipeline computed them; days without an expected value are excluded from the ratio."'
             ' data-es="Los acumulados del mes provienen de producción diaria verificada contra el contador del fabricante. El esperado suma los valores diarios disponibles.">'
             'Month-to-date sums come from vendor-counter-verified daily production.</p>')
     body = controls() + kpis + (
-        '<div class="card"><h2 data-en="All PPA plants — live + month to date" data-es="Plantas PPA — en vivo + mes en curso">All PPA plants — live + month to date</h2>'
+        '<div class="card"><h2 data-en="All PPA plants - live + month to date" data-es="Plantas PPA - en vivo + mes en curso">All PPA plants - live + month to date</h2>'
         '<table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>'
         '<th data-en="Power kW" data-es="Potencia kW">Power kW</th>'
         '<th data-en="Today kWh" data-es="Hoy kWh">Today kWh</th>'
@@ -1303,7 +1303,7 @@ def ppa_page():
         '<th data-en="vs exp." data-es="vs esp.">vs exp.</th>'
         '<th data-en="Inverters" data-es="Inversores">Inverters</th><th>Status</th></tr>'
         + ''.join(rows) + '</table>' + note + '</div>')
-    return page('PPA Portfolio — Live', body,
+    return page('PPA Portfolio - Live', body,
                 'All PPA plants · live + cumulative month view')
 
 
@@ -1328,14 +1328,14 @@ def capex_page():
         if m_exp is not None:
             mtd_exp += m_exp
             mtd_pm += m.get('pm', 0.0)
-        m_pct = '—' if not m_exp else f"{100*m.get('pm', 0)/m_exp:,.0f}%"
+        m_pct = ' - ' if not m_exp else f"{100*m.get('pm', 0)/m_exp:,.0f}%"
         rows.append(
             f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}</a> '
             f'<span class="tkey">{pk}</span></td>'
             f'<td>{meta["kwp"]:,.0f}</td><td>{fmt1(power)}</td>'
             f'<td>{fmt_kwh(etoday)}</td>'
             f'<td>{m.get("prod", 0):,.0f}</td>'
-            f'<td>{"—" if m_exp is None else f"{m_exp:,.0f}"}</td>'
+            f'<td>{" - " if m_exp is None else f"{m_exp:,.0f}"}</td>'
             f'<td>{m_pct}</td><td>{fresh}/{total}</td>'
             f'<td><span class="pill {cls}">{esc(len_)}</span></td></tr>')
     pct = (100.0 * mtd_pm / mtd_exp) if mtd_exp else None
@@ -1343,20 +1343,20 @@ def capex_page():
         f'<tr style="font-weight:700;background:#fafbfc"><td>TOTAL</td>'
         f'<td>{tot_kwp:,.0f}</td><td>{tot_p:,.1f}</td><td>{tot_e:,.0f}</td>'
         f'<td>{mtd_prod:,.0f}</td>'
-        f'<td>{"—" if not mtd_exp else f"{mtd_exp:,.0f}"}</td>'
-        f'<td>{"—" if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
+        f'<td>{" - " if not mtd_exp else f"{mtd_exp:,.0f}"}</td>'
+        f'<td>{" - " if pct is None else f"{pct:,.0f}%"}</td><td></td><td></td></tr>')
     kpis = f'''<div class="kpis">
 <div class="kpi"><div class="v">{tot_p:,.1f} kW</div><div class="l" data-en="CAPEX power right now" data-es="Potencia CAPEX ahora">CAPEX power right now</div></div>
 <div class="kpi"><div class="v">{tot_e:,.0f} kWh</div><div class="l" data-en="CAPEX energy today" data-es="Energía CAPEX hoy">CAPEX energy today</div></div>
-<div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production — month to date" data-es="Producción — mes en curso">Production — month to date</div></div>
-<div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected — month to date" data-es="Esperado — mes en curso">Expected — month to date</div></div>
+<div class="kpi"><div class="v">{mtd_prod:,.0f} kWh</div><div class="l" data-en="Production - month to date" data-es="Producción - mes en curso">Production - month to date</div></div>
+<div class="kpi"><div class="v">{mtd_exp:,.0f} kWh</div><div class="l" data-en="Expected - month to date" data-es="Esperado - mes en curso">Expected - month to date</div></div>
 <div class="kpi gauge" title="{GAUGE_TIP}">{gauge_svg(pct) if pct is not None else ''}<div class="l" data-en="Production vs expected (MTD)" data-es="Producción vs esperado (MTD)">Production vs expected (MTD)</div></div>
 </div>'''
     note = ('<p class="note" data-en="CAPEX plants belong to their owners; these figures are the owners\' production. Month-to-date sums come from vendor-counter-verified daily production."'
             ' data-es="Las plantas CAPEX pertenecen a sus dueños; estas cifras son su producción. Los acumulados del mes provienen de producción diaria verificada contra el contador del fabricante.">'
             'CAPEX plants belong to their owners; these figures are the owners\' production.</p>')
     body = controls() + kpis + (
-        '<div class="card"><h2 data-en="CAPEX plants — live + month to date" data-es="Plantas CAPEX — en vivo + mes en curso">CAPEX plants — live + month to date</h2>'
+        '<div class="card"><h2 data-en="CAPEX plants - live + month to date" data-es="Plantas CAPEX - en vivo + mes en curso">CAPEX plants - live + month to date</h2>'
         '<table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>'
         '<th data-en="Power kW" data-es="Potencia kW">Power kW</th>'
         '<th data-en="Today kWh" data-es="Hoy kWh">Today kWh</th>'
@@ -1365,14 +1365,14 @@ def capex_page():
         '<th data-en="vs exp." data-es="vs esp.">vs exp.</th>'
         '<th data-en="Inverters" data-es="Inversores">Inverters</th><th>Status</th></tr>'
         + ''.join(rows) + '</table>' + note + '</div>')
-    return page('CAPEX Portfolio — Live', body,
+    return page('CAPEX Portfolio - Live', body,
                 'All CAPEX plants · live + cumulative month view')
 
 
 def pr_sparkline(pk, w=140, h=30):
     pts = [v for _d, v in PR_TREND.get(pk, [])][-30:]
     if len(pts) < 2:
-        return '<span class="note">—</span>'
+        return '<span class="note"> - </span>'
     lo, hi = min(pts), max(pts)
     rng = (hi - lo) or 0.01
     step = w / (len(pts) - 1)
@@ -1407,7 +1407,7 @@ def performance_page(skin='old'):
             pr = p.get('pr')
             av = p.get('avail')
             prod, exp = p.get('prod'), p.get('exp')
-            ratio = ('—' if not prod or not exp
+            ratio = (' - ' if not prod or not exp
                      else f'{100*prod/exp:,.0f}%')
             pr_cls = ('' if pr is None else
                       (' class="st-PASS"' if pr >= 0.75 else
@@ -1432,28 +1432,28 @@ def performance_page(skin='old'):
                 f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}'
                 f'</a> <span class="tkey">{pk}</span></td>'
                 f'<td>{meta["kwp"]:,.0f}</td>'
-                f'<td{pr_cls}>{"—" if pr is None else f"{pr:.3f}"}</td>'
-                f'<td>{"—" if prstc is None else f"{prstc:.3f}"}</td>'
+                f'<td{pr_cls}>{" - " if pr is None else f"{pr:.3f}"}</td>'
+                f'<td>{" - " if prstc is None else f"{prstc:.3f}"}</td>'
                 f'<td>{pr_sparkline(pk)}</td>'
-                f'<td{av_cls}>{"—" if av is None else f"{100*av:,.1f}%"}</td>'
-                f'<td>{"—" if prod is None else f"{prod:,.0f}"}</td>'
-                f'<td>{"—" if exp is None else f"{exp:,.0f}"}</td>'
+                f'<td{av_cls}>{" - " if av is None else f"{100*av:,.1f}%"}</td>'
+                f'<td>{" - " if prod is None else f"{prod:,.0f}"}</td>'
+                f'<td>{" - " if exp is None else f"{exp:,.0f}"}</td>'
                 f'<td>{ratio}</td></tr>')
-    t_ratio = '—' if not t_prod or not t_exp else f'{100*t_prod/t_exp:,.0f}%'
+    t_ratio = ' - ' if not t_prod or not t_exp else f'{100*t_prod/t_exp:,.0f}%'
     rows.append(
         '<tr style="font-weight:700;background:#fafbfc">'
         '<td data-en="FLEET TOTAL / kWp-weighted avg"'
         ' data-es="TOTAL FLOTA / prom. ponderado por kWp">'
         'FLEET TOTAL / kWp-weighted avg</td>'
         f'<td>{t_kwp:,.0f}</td>'
-        f'<td>{"—" if not kwp_pr else f"{w_pr/kwp_pr:.3f}"}</td>'
-        f'<td>{"—" if not kwp_prstc else f"{w_prstc/kwp_prstc:.3f}"}</td>'
+        f'<td>{" - " if not kwp_pr else f"{w_pr/kwp_pr:.3f}"}</td>'
+        f'<td>{" - " if not kwp_prstc else f"{w_prstc/kwp_prstc:.3f}"}</td>'
         '<td></td>'
-        f'<td>{"—" if not kwp_av else f"{100*w_av/kwp_av:,.1f}%"}</td>'
+        f'<td>{" - " if not kwp_av else f"{100*w_av/kwp_av:,.1f}%"}</td>'
         f'<td>{t_prod:,.0f}</td><td>{t_exp:,.0f}</td>'
         f'<td>{t_ratio}</td></tr>')
     body = ('' if skin == 'portal' else controls()) + f'''
-<div class="card"><h2 data-en="Performance — last 30 days" data-es="Desempeño — últimos 30 días">Performance — last 30 days</h2>
+<div class="card"><h2 data-en="Performance - last 30 days" data-es="Desempeño - últimos 30 días">Performance - last 30 days</h2>
 <table><tr><th data-en="Plant" data-es="Planta">Plant</th><th>kWp</th>
 <th data-en="Avg PR" data-es="PR prom.">Avg PR</th>
 <th title="temperature-corrected to 25°C cells" data-en="PR_STC" data-es="PR_STC">PR_STC</th>
@@ -1463,8 +1463,8 @@ def performance_page(skin='old'):
 <th data-en="Expected kWh" data-es="Esperado kWh">Expected kWh</th>
 <th data-en="vs exp." data-es="vs esp.">vs exp.</th></tr>
 {''.join(rows)}</table>
-<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature — only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. A PR needs at least 7 days in the window and a day above 1.05 is an input error, not a value (—); a day without telemetry and without energy counts as 0% available. Next: degradation vs the ≤0.4%/yr warranty."
- data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia — solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Un PR necesita al menos 7 días en la ventana y un día arriba de 1.05 es un error de entrada, no un valor (—); un día sin telemetría y sin energía cuenta como 0% disponible. Sigue: degradación vs garantía ≤0.4%/año.">
+<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature - only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. A PR needs at least 7 days in the window and a day above 1.05 is an input error, not a value ( - ); a day without telemetry and without energy counts as 0% available. Next: degradation vs the ≤0.4%/yr warranty."
+ data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia - solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Un PR necesita al menos 7 días en la ventana y un día arriba de 1.05 es un error de entrada, no un valor ( - ); un día sin telemetría y sin energía cuenta como 0% disponible. Sigue: degradación vs garantía ≤0.4%/año.">
 PR and availability come from the daily KPI pipeline.</p></div>'''
     if skin == 'portal':
         return body
@@ -1473,8 +1473,8 @@ PR and availability come from the daily KPI pipeline.</p></div>'''
 
 
 def recon_split(recon_m):
-    """v242 (Mirek's QA): the rows that need a decision — an OPEN
-    month (no closer yet) — apart from the closed, invoiced archive.
+    """v242 (Mirek's QA): the rows that need a decision - an OPEN
+    month (no closer yet) - apart from the closed, invoiced archive.
     Pure; order preserved (newest first)."""
     open_rows = [r for r in recon_m if not (r[5] or '').strip()]
     closed = [r for r in recon_m if (r[5] or '').strip()]
@@ -1483,7 +1483,7 @@ def recon_split(recon_m):
 
 def recon_csv(recon_m, recon_d):
     """The two reconciliation tables as CSV text (UTF-8, comma, quoted)
-    — the accountant's export Mirek asked for. Pure."""
+    - the accountant's export Mirek asked for. Pure."""
     import csv as _csv
     import io as _io
     out = _io.StringIO()
@@ -1504,7 +1504,7 @@ RECON_LEGEND_EN = (
     "CHECK 4 = the vendor's monthly counter vs the delta of the inverters' lifetime registers; "
     "CHECK 3 = Σ of the daily inverter-counter references vs that lifetime delta. "
     "These are the HARD checks: agreement within 0.5% is PASS, within 1.5% REVIEW, beyond 1.5% FAIL. "
-    "CHECK 1 = our own 5-minute telemetry summed vs the counters — it measures how much of the day WE captured "
+    "CHECK 1 = our own 5-minute telemetry summed vs the counters - it measures how much of the day WE captured "
     "(completeness), not how much the plant produced; when completeness is under 95% an undercount is expected, "
     "so CHECK 1 informs and never fails a close on its own. That is why '−21% at 69.6% completeness' can sit next to "
     "a PASS: the billing figure comes from the counters, which cover the whole month. "
@@ -1517,7 +1517,7 @@ RECON_LEGEND_ES = (
     "CHECK 4 = contador mensual del fabricante vs el delta de los registros de vida de los inversores; "
     "CHECK 3 = Σ de las referencias diarias de contadores de inversor vs ese delta de vida. "
     "Estas son las verificaciones DURAS: acuerdo dentro de 0.5% es PASS, dentro de 1.5% REVIEW, más allá FAIL. "
-    "CHECK 1 = nuestra telemetría de 5 minutos sumada vs los contadores — mide cuánto del día capturamos NOSOTROS "
+    "CHECK 1 = nuestra telemetría de 5 minutos sumada vs los contadores - mide cuánto del día capturamos NOSOTROS "
     "(completitud), no cuánto produjo la planta; con completitud bajo 95% se espera un subconteo, así que CHECK 1 informa "
     "y nunca reprueba un cierre por sí sola. Por eso '−21% con 69.6% de completitud' puede estar junto a un PASS: la cifra "
     "facturable viene de los contadores, que cubren todo el mes. "
@@ -1553,7 +1553,7 @@ def recon_page(skin='old'):
     the annex link then points at /report/invoices/.
     v242 (Mirek's QA): open months first, the closed archive collapsed,
     a plant/status filter, full notes (they were cut at 60 characters
-    on the server — the FAIL row lost the word 'billing'), the four
+    on the server - the FAIL row lost the word 'billing'), the four
     checks explained on the page, CSV export."""
     d_rows = []
     for pk in sorted(RECON_D):
@@ -1562,8 +1562,8 @@ def recon_page(skin='old'):
                 f'<tr data-plant="{esc(pk)}" data-status="{esc(r[6])}"><td>{esc(r[0])}</td><td>{pk}</td>'
                 f'<td>{fmt_kwh(f(r[1]))}</td><td>{fmt_kwh(f(r[2]))}</td>'
                 f'<td>{fmt_kwh(f(r[3]))}</td>'
-                f'<td>{"—" if f(r[4]) is None else f"{f(r[4]):.0f}%"}</td>'
-                f'<td>{"—" if f(r[5]) is None else f"{f(r[5]):+.2f}%"}</td>'
+                f'<td>{" - " if f(r[4]) is None else f"{f(r[4]):.0f}%"}</td>'
+                f'<td>{" - " if f(r[5]) is None else f"{f(r[5]):+.2f}%"}</td>'
                 f'<td class="st-{esc(r[6])}">{esc(r[6])}</td>'
                 f'<td class="note recnote" title="{esc(r[7])}">{esc(r[7])}</td></tr>')
     open_rows, closed_rows = recon_split(RECON_M)
@@ -1573,30 +1573,30 @@ def recon_page(skin='old'):
     status_opt = ''.join(f'<option value="{st}">{st}</option>' for st in ('PASS', 'REVIEW', 'FAIL', 'NO_DATA'))
     inv = '/report/invoices/' if skin == 'portal' else '/invoices/'
     filt = ('<div class="recfilter" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px">'
-            f'<label class="note"><span data-en="Plant" data-es="Planta">Plant</span> <select id="rf_plant"><option value="">—</option>{plants_opt}</select></label>'
-            f'<label class="note">Status <select id="rf_status"><option value="">—</option>{status_opt}</select></label>'
+            f'<label class="note"><span data-en="Plant" data-es="Planta">Plant</span> <select id="rf_plant"><option value=""> - </option>{plants_opt}</select></label>'
+            f'<label class="note">Status <select id="rf_status"><option value=""> - </option>{status_opt}</select></label>'
             '<a class="btn" href="reconciliation.csv" download data-en="Download CSV" data-es="Descargar CSV" style="margin-left:auto">Download CSV</a></div>')
-    no_open = ('<tr><td colspan="8" class="note" data-en="No open month — every closed month is in the archive below." '
-               'data-es="Ningún mes abierto — todos los meses cerrados están en el archivo de abajo.">No open month — every closed month is in the archive below.</td></tr>')
+    no_open = ('<tr><td colspan="8" class="note" data-en="No open month - every closed month is in the archive below." '
+               'data-es="Ningún mes abierto - todos los meses cerrados están en el archivo de abajo.">No open month - every closed month is in the archive below.</td></tr>')
     no_closed = ('<tr><td colspan="8" class="note" data-en="No monthly close yet. The first close (August) runs automatically on Sep 1 at 06:10 MX." '
                  'data-es="Aún no hay cierre mensual. El primero (agosto) corre el 1 de septiembre a las 06:10 MX.">No monthly close yet.</td></tr>')
     body = ('' if skin == 'portal' else controls(
         f'<a class="btn" href="{inv}" data-en="Invoice annexes"'
         ' data-es="Anexos de facturación">Invoice annexes</a>')) + f'''
 {RECON_NOTE_CSS}
-<div class="card"><h2 data-en="Monthly close — the invoice gate" data-es="Cierre mensual — la puerta de facturación">Monthly close — the invoice gate</h2>
+<div class="card"><h2 data-en="Monthly close - the invoice gate" data-es="Cierre mensual - la puerta de facturación">Monthly close - the invoice gate</h2>
 {filt}
-<h3 style="margin:6px 0" data-en="Open — waiting for a decision" data-es="Abiertos — esperan decisión">Open — waiting for a decision</h3>
+<h3 style="margin:6px 0" data-en="Open - waiting for a decision" data-es="Abiertos - esperan decisión">Open - waiting for a decision</h3>
 <table>{RECON_M_HEAD}
 {m_open or no_open}</table>
-<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:600" data-en="Closed and invoiced — {len(closed_rows)} plant-months" data-es="Cerrados y facturados — {len(closed_rows)} planta-meses">Closed and invoiced — {len(closed_rows)} plant-months</summary>
+<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:600" data-en="Closed and invoiced - {len(closed_rows)} plant-months" data-es="Cerrados y facturados - {len(closed_rows)} planta-meses">Closed and invoiced - {len(closed_rows)} plant-months</summary>
 <table>{RECON_M_HEAD}
 {m_closed or no_closed}</table></details>
 <p class="note" data-en="A PASS month closes automatically; REVIEW/FAIL wait for a manual close. Approved customer-maintenance events add deemed energy to billing."
  data-es="Un mes PASS cierra automáticamente; REVIEW/FAIL esperan cierre manual. Los eventos de mantenimiento de cliente aprobados agregan energía compensada.">
 A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p>
 <p class="note" data-en="{esc(RECON_LEGEND_EN)}" data-es="{esc(RECON_LEGEND_ES)}">{esc(RECON_LEGEND_EN)}</p></div>
-<div class="card"><h2 data-en="Daily reconciliation — last days, all plants" data-es="Conciliación diaria — últimos días, todas las plantas">Daily reconciliation — last days, all plants</h2>
+<div class="card"><h2 data-en="Daily reconciliation - last days, all plants" data-es="Conciliación diaria - últimos días, todas las plantas">Daily reconciliation - last days, all plants</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Plant" data-es="Planta">Plant</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th>Compl.</th><th>Δ%</th><th>Status</th><th data-en="Note" data-es="Nota">Note</th></tr>
 {''.join(d_rows)}</table></div>{RECON_JS}'''
     if skin == 'portal':
@@ -1606,7 +1606,7 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p>
 
 
 # ------------------------------------------------------- portfolio map
-# /portfolio/ — the whole fleet on one interactive map (v177, Tomasz
+# /portfolio/ - the whole fleet on one interactive map (v177, Tomasz
 # 2026-09-02): zoomable, circle area tracks kWp, lifetime + today's
 # money, click-through to each plant's performance report. Gated as
 # 'financial' in auth (it shows fleet-wide PPA revenue). Regenerates
@@ -1614,7 +1614,7 @@ A PASS month closes automatically; REVIEW/FAIL wait for a manual close.</p>
 
 # ARGIA Solar head office, León. Coordinates are the Google Maps place
 # record for "ARGIA MÉXICO" (the !3d/!4d pair in its share URL), supplied
-# by Tomasz on 2026-09-04 — v186's colonia-level estimate was ~5 km off.
+# by Tomasz on 2026-09-04 - v186's colonia-level estimate was ~5 km off.
 OFFICE = {
     'lat': 21.1731665, 'lon': -101.7041698,
     'name': 'ARGIA',
@@ -1626,7 +1626,7 @@ OFFICE = {
 
 
 def display_name(customer):
-    """Human name for the map — never the plant code (Tomasz, v177.1:
+    """Human name for the map - never the plant code (Tomasz, v177.1:
     'do not use the code names like GTO1'). 'TAIGENE PPA roof (Leon,
     GTO)' -> 'Taigene'; short all-caps acronyms (SAG, SMS) survive.
     Pure."""
@@ -1651,7 +1651,7 @@ def plant_city(customer):
 
 
 def circle_px(kwp):
-    """Marker DIAMETER in px. sqrt scale so circle AREA tracks kWp —
+    """Marker DIAMETER in px. sqrt scale so circle AREA tracks kWp -
     a linear radius would make GTO1 look 5x SLP1 instead of ~2x.
     Clamped so MEX3 (155 kWp) stays clickable and GTO1 (818) does not
     swallow the map. Pure."""
@@ -1680,7 +1680,7 @@ def portfolio_rows():
         " coalesce(brand,'') FROM plant WHERE active;") if len(r) >= 5}
     # lifetime energy + revenue: month tariff from contract_monthly
     # when set, else the plant's flat tariff (same fallback order as
-    # tariff_for in report_gen — the invoices' rule)
+    # tariff_for in report_gen - the invoices' rule)
     life = {r[0]: (f(r[1]) or 0, f(r[2]) or 0) for r in q(
         "SELECT d.plant_key, sum(d.energy_kwh),"
         " sum(d.energy_kwh * coalesce(nullif(cm.tariff_mxn,0),"
@@ -1789,16 +1789,16 @@ def portfolio_page(skin='old'):
     tot_today_mxn = sum(r['today_mxn'] or 0 for r in rows)
     tot_life_mwh = sum(r['life_mwh'] for r in rows)
     tot_life_mxn = sum(r['life_mxn'] or 0 for r in rows)
-    # per plant — SAG's contracted factor differs from the national one,
+    # per plant - SAG's contracted factor differs from the national one,
     # so a single fleet scalar would overstate the total (v186)
     co2 = sum(r['life_mwh'] * co2_factor(None, r['key']) for r in rows)
     n_live = sum(1 for r in rows if r['status'] == 'live')
     data_js = json.dumps(rows, ensure_ascii=False)
     office_js = json.dumps(OFFICE, ensure_ascii=False)
-    # v177.1 (Tomasz): NO lifetime tiles up top — they crowded the row
+    # v177.1 (Tomasz): NO lifetime tiles up top - they crowded the row
     # (lifetime figures stay on each plant's hover card); values must
     # fit their tile, so .tval scales down instead of overflowing.
-    # v213 (Tomasz): the tiles total whatever the legend has ticked —
+    # v213 (Tomasz): the tiles total whatever the legend has ticked -
     # the server renders the all-plants figures, map_tiles() in the
     # browser recomputes them from P on every toggle.
     tiles = f'''<div class="tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin:8px 0 12px">
@@ -1840,9 +1840,9 @@ def portfolio_page(skin='old'):
 <div><h2 style="font-size:13px;margin:0 0 6px;color:#0d9488"><label class="lrow" style="padding:0"><input type="checkbox" class="gtog" data-g="capex" checked> <span data-en="CAPEX plants" data-es="Plantas CAPEX">CAPEX plants</span></label></h2>
 {_leg_rows(cap_rows)}</div>
 </div>
-<p class="note" style="margin:8px 0 0" data-en="The map opens with the PPA plants; tick or untick plants or a whole group — the tiles above total the selection, and the choice is remembered in this browser."
- data-es="El mapa abre con las plantas PPA; marque o desmarque plantas o un grupo completo — los mosaicos de arriba suman la selección y se recuerda en este navegador.">
-The map opens with the PPA plants; tick or untick plants or a whole group — the tiles above total the selection, and the choice is remembered in this browser.</p>
+<p class="note" style="margin:8px 0 0" data-en="The map opens with the PPA plants; tick or untick plants or a whole group - the tiles above total the selection, and the choice is remembered in this browser."
+ data-es="El mapa abre con las plantas PPA; marque o desmarque plantas o un grupo completo - los mosaicos de arriba suman la selección y se recuerda en este navegador.">
+The map opens with the PPA plants; tick or untick plants or a whole group - the tiles above total the selection, and the choice is remembered in this browser.</p>
 </div>"""
 
     body = f'''__CONTROLS__
@@ -1905,13 +1905,13 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 <script>
 var P={data_js};
 var map=L.map('map',{{scrollWheelZoom:true}});
-// Streets by default (Tomasz, v186) — the map opens as a readable
+// Streets by default (Tomasz, v186) - the map opens as a readable
 // road map and satellite is one click away in the layer control.
 // Both layers are Esri ArcGIS Online (no API key), the same host the
 // satellite layer has always used. CARTO went in v177.1 (its anonymous
 // tiles started demanding a key) and OpenStreetMap went in v253:
 // osm.org blocked us by referer under their Tile Usage Policy, which
-// forbids systematic or commercial use of their volunteer-run servers —
+// forbids systematic or commercial use of their volunteer-run servers -
 // the portal was serving every visitor "Access blocked" tiles instead
 // of a map. We are not entitled to free tiles from volunteers.
 var sat=L.layerGroup([
@@ -1925,7 +1925,7 @@ streets.addTo(map);
 {pv_js}
 L.control.layers({{'Streets':streets,'Satellite':sat}},{pv_overlays},
  {{position:'topright'}}).addTo(map);
-function nf(v){{return v==null?'—':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
+function nf(v){{return v==null?' - ':Number(v).toLocaleString('en-US',{{maximumFractionDigits:0}})}}
 var bounds=[];var MK={{}};
 P.forEach(function(p){{
  var icon=L.divIcon({{className:'',
@@ -1953,7 +1953,7 @@ P.forEach(function(p){{
  m.on('click',function(){{window.location=REPORT_BASE+p.key.toLowerCase()+'/';}});
  MK[p.key]=m;
 }});
-// ARGIA head office — the company mark, not a plant: it is deliberately
+// ARGIA head office - the company mark, not a plant: it is deliberately
 // left out of `bounds` so the fleet framing is unchanged, and clicking
 // it leaves the portal for argia.com.mx.
 var OF={office_js};

@@ -1,7 +1,7 @@
 """Self-service password change (/account/) in the setup app.
 
 Rules that must hold, whatever the UI looks like:
-  * a user changes only their OWN password — the account comes from
+  * a user changes only their OWN password - the account comes from
     the basic-auth identity nginx forwards, never from a form field;
   * the current password must be proven before the new one is set;
   * wrong current-password attempts are throttled;
@@ -191,7 +191,7 @@ class TestNginxExposure:
         assert "portal.argia.com.mx$request_uri" in block      # v214
 
     def test_account_open_to_every_signed_in_user(self):
-        """No admin htpasswd on the /account/ location — otherwise
+        """No admin htpasswd on the /account/ location - otherwise
         exactly the people who need it most could not reach it."""
         block = self.REPORT[self.REPORT.index("location /account/"):]
         block = block[:block.index("}")]
@@ -199,7 +199,7 @@ class TestNginxExposure:
 
     def test_account_inherits_the_all_user_gate(self):
         """The location sets no auth_basic_user_file of its own, so it
-        inherits the vhost default (all.htpasswd) — every user."""
+        inherits the vhost default (all.htpasswd) - every user."""
         block = self.REPORT[self.REPORT.index("location /account/"):]
         block = block[:block.index("}")]
         assert "auth_basic_user_file" not in block

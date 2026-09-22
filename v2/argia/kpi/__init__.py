@@ -1,4 +1,4 @@
-"""Argia KPI computation — Stage 7.2.
+"""Argia KPI computation - Stage 7.2.
 
 Pure math over archived telemetry. No side effects, no I/O outside the
 explicit ``reader`` module. Computes:

@@ -81,7 +81,7 @@
    "tasks": [
     {
      "task_id": "ARG9001-T11",
-     "name": "Engineering release — prepare",
+     "name": "Engineering release - prepare",
      "phase": "3_execution",
      "start": "2026-03-26",
      "end": "2026-04-02",
@@ -90,7 +90,7 @@
     },
     {
      "task_id": "ARG9001-T12",
-     "name": "Engineering release — execute",
+     "name": "Engineering release - execute",
      "phase": "3_execution",
      "start": "2026-04-03",
      "end": "2026-04-10",
@@ -99,7 +99,7 @@
     },
     {
      "task_id": "ARG9001-T21",
-     "name": "Modules on site — prepare",
+     "name": "Modules on site - prepare",
      "phase": "3_execution",
      "start": "2026-04-30",
      "end": "2026-05-07",
@@ -108,7 +108,7 @@
     },
     {
      "task_id": "ARG9001-T22",
-     "name": "Modules on site — execute",
+     "name": "Modules on site - execute",
      "phase": "3_execution",
      "start": "2026-05-08",
      "end": "2026-05-15",
@@ -117,7 +117,7 @@
     },
     {
      "task_id": "ARG9001-T31",
-     "name": "Mechanical complete — prepare",
+     "name": "Mechanical complete - prepare",
      "phase": "3_execution",
      "start": "2026-07-01",
      "end": "2026-07-08",
@@ -126,7 +126,7 @@
     },
     {
      "task_id": "ARG9001-T32",
-     "name": "Mechanical complete — execute",
+     "name": "Mechanical complete - execute",
      "phase": "3_execution",
      "start": "2026-07-09",
      "end": "2026-07-16",
@@ -135,7 +135,7 @@
     },
     {
      "task_id": "ARG9001-T41",
-     "name": "Interconnection — prepare",
+     "name": "Interconnection - prepare",
      "phase": "3_execution",
      "start": "2026-09-10",
      "end": "2026-09-17",
@@ -144,7 +144,7 @@
     },
     {
      "task_id": "ARG9001-T42",
-     "name": "Interconnection — execute",
+     "name": "Interconnection - execute",
      "phase": "3_execution",
      "start": "2026-09-18",
      "end": "2026-09-25",
@@ -153,7 +153,7 @@
     },
     {
      "task_id": "ARG9001-T51",
-     "name": "Commissioning — prepare",
+     "name": "Commissioning - prepare",
      "phase": "3_execution",
      "start": "2026-09-25",
      "end": "2026-10-02",
@@ -162,7 +162,7 @@
     },
     {
      "task_id": "ARG9001-T52",
-     "name": "Commissioning — execute",
+     "name": "Commissioning - execute",
      "phase": "3_execution",
      "start": "2026-10-03",
      "end": "2026-10-10",
@@ -236,7 +236,7 @@
    "tasks": [
     {
      "task_id": "ARG9002-T11",
-     "name": "Contract signed — prepare",
+     "name": "Contract signed - prepare",
      "phase": "2_preparation",
      "start": "2026-06-11",
      "end": "2026-06-18",
@@ -245,7 +245,7 @@
     },
     {
      "task_id": "ARG9002-T12",
-     "name": "Contract signed — execute",
+     "name": "Contract signed - execute",
      "phase": "2_preparation",
      "start": "2026-06-19",
      "end": "2026-06-26",
@@ -254,7 +254,7 @@
     },
     {
      "task_id": "ARG9002-T21",
-     "name": "Design approved — prepare",
+     "name": "Design approved - prepare",
      "phase": "2_preparation",
      "start": "2026-08-16",
      "end": "2026-08-23",
@@ -263,7 +263,7 @@
     },
     {
      "task_id": "ARG9002-T22",
-     "name": "Design approved — execute",
+     "name": "Design approved - execute",
      "phase": "2_preparation",
      "start": "2026-08-24",
      "end": "2026-08-31",
@@ -272,7 +272,7 @@
     },
     {
      "task_id": "ARG9002-T31",
-     "name": "Construction start — prepare",
+     "name": "Construction start - prepare",
      "phase": "2_preparation",
      "start": "2026-09-11",
      "end": "2026-09-18",
@@ -281,7 +281,7 @@
     },
     {
      "task_id": "ARG9002-T32",
-     "name": "Construction start — execute",
+     "name": "Construction start - execute",
      "phase": "2_preparation",
      "start": "2026-09-19",
      "end": "2026-09-26",
@@ -290,7 +290,7 @@
     },
     {
      "task_id": "ARG9002-T41",
-     "name": "COD — prepare",
+     "name": "COD - prepare",
      "phase": "2_preparation",
      "start": "2026-12-26",
      "end": "2027-01-02",
@@ -299,7 +299,7 @@
     },
     {
      "task_id": "ARG9002-T42",
-     "name": "COD — execute",
+     "name": "COD - execute",
      "phase": "2_preparation",
      "start": "2027-01-03",
      "end": "2027-01-10",
@@ -386,7 +386,7 @@
    "tasks": [
     {
      "task_id": "ARG9003-T11",
-     "name": "Civil complete — prepare",
+     "name": "Civil complete - prepare",
      "phase": "3_execution",
      "start": "2026-06-10",
      "end": "2026-06-17",
@@ -395,7 +395,7 @@
     },
     {
      "task_id": "ARG9003-T12",
-     "name": "Civil complete — execute",
+     "name": "Civil complete - execute",
      "phase": "3_execution",
      "start": "2026-06-18",
      "end": "2026-06-25",
@@ -404,7 +404,7 @@
     },
     {
      "task_id": "ARG9003-T21",
-     "name": "Modules delivered — prepare",
+     "name": "Modules delivered - prepare",
      "phase": "3_execution",
      "start": "2026-07-12",
      "end": "2026-07-19",
@@ -413,7 +413,7 @@
     },
     {
      "task_id": "ARG9003-T22",
-     "name": "Modules delivered — execute",
+     "name": "Modules delivered - execute",
      "phase": "3_execution",
      "start": "2026-07-20",
      "end": "2026-07-27",
@@ -422,7 +422,7 @@
     },
     {
      "task_id": "ARG9003-T31",
-     "name": "Structure complete — prepare",
+     "name": "Structure complete - prepare",
      "phase": "3_execution",
      "start": "2026-09-05",
      "end": "2026-09-12",
@@ -431,7 +431,7 @@
     },
     {
      "task_id": "ARG9003-T32",
-     "name": "Structure complete — execute",
+     "name": "Structure complete - execute",
      "phase": "3_execution",
      "start": "2026-09-13",
      "end": "2026-09-20",
@@ -440,7 +440,7 @@
     },
     {
      "task_id": "ARG9003-T41",
-     "name": "Energisation — prepare",
+     "name": "Energisation - prepare",
      "phase": "3_execution",
      "start": "2026-11-10",
      "end": "2026-11-17",
@@ -449,7 +449,7 @@
     },
     {
      "task_id": "ARG9003-T42",
-     "name": "Energisation — execute",
+     "name": "Energisation - execute",
      "phase": "3_execution",
      "start": "2026-11-18",
      "end": "2026-11-25",
@@ -458,7 +458,7 @@
     },
     {
      "task_id": "ARG9003-T51",
-     "name": "Handover — prepare",
+     "name": "Handover - prepare",
      "phase": "3_execution",
      "start": "2026-11-30",
      "end": "2026-12-07",
@@ -467,7 +467,7 @@
     },
     {
      "task_id": "ARG9003-T52",
-     "name": "Handover — execute",
+     "name": "Handover - execute",
      "phase": "3_execution",
      "start": "2026-12-08",
      "end": "2026-12-15",
@@ -515,7 +515,7 @@
    "tasks": [
     {
      "task_id": "ARG9004-T11",
-     "name": "Survey — prepare",
+     "name": "Survey - prepare",
      "phase": "8_on hold",
      "start": "2026-02-09",
      "end": "2026-02-16",
@@ -524,7 +524,7 @@
     },
     {
      "task_id": "ARG9004-T12",
-     "name": "Survey — execute",
+     "name": "Survey - execute",
      "phase": "8_on hold",
      "start": "2026-02-17",
      "end": "2026-02-24",
@@ -533,7 +533,7 @@
     },
     {
      "task_id": "ARG9004-T21",
-     "name": "Install — prepare",
+     "name": "Install - prepare",
      "phase": "8_on hold",
      "start": "2026-10-12",
      "end": "2026-10-19",
@@ -542,7 +542,7 @@
     },
     {
      "task_id": "ARG9004-T22",
-     "name": "Install — execute",
+     "name": "Install - execute",
      "phase": "8_on hold",
      "start": "2026-10-20",
      "end": "2026-10-27",
@@ -603,7 +603,7 @@
    "tasks": [
     {
      "task_id": "ARG9005-T11",
-     "name": "BESS delivered — prepare",
+     "name": "BESS delivered - prepare",
      "phase": "5_review",
      "start": "2026-01-21",
      "end": "2026-01-28",
@@ -612,7 +612,7 @@
     },
     {
      "task_id": "ARG9005-T12",
-     "name": "BESS delivered — execute",
+     "name": "BESS delivered - execute",
      "phase": "5_review",
      "start": "2026-01-29",
      "end": "2026-02-05",
@@ -621,7 +621,7 @@
     },
     {
      "task_id": "ARG9005-T21",
-     "name": "Commissioned — prepare",
+     "name": "Commissioned - prepare",
      "phase": "5_review",
      "start": "2026-05-10",
      "end": "2026-05-17",
@@ -630,7 +630,7 @@
     },
     {
      "task_id": "ARG9005-T22",
-     "name": "Commissioned — execute",
+     "name": "Commissioned - execute",
      "phase": "5_review",
      "start": "2026-05-18",
      "end": "2026-05-25",
@@ -639,7 +639,7 @@
     },
     {
      "task_id": "ARG9005-T31",
-     "name": "Final acceptance — prepare",
+     "name": "Final acceptance - prepare",
      "phase": "5_review",
      "start": "2026-08-10",
      "end": "2026-08-17",
@@ -648,7 +648,7 @@
     },
     {
      "task_id": "ARG9005-T32",
-     "name": "Final acceptance — execute",
+     "name": "Final acceptance - execute",
      "phase": "5_review",
      "start": "2026-08-18",
      "end": "2026-08-25",
@@ -683,7 +683,7 @@
    "tasks": [
     {
      "task_id": "ARG9006-T11",
-     "name": "Kick-off — prepare",
+     "name": "Kick-off - prepare",
      "phase": "1_specification",
      "start": "2026-09-11",
      "end": "2026-09-18",
@@ -692,7 +692,7 @@
     },
     {
      "task_id": "ARG9006-T12",
-     "name": "Kick-off — execute",
+     "name": "Kick-off - execute",
      "phase": "1_specification",
      "start": "2026-09-19",
      "end": "2026-09-26",

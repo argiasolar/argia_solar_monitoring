@@ -40,7 +40,7 @@ def _lit(v: Any) -> str:
 def upsert(table: str, rows: Sequence[Row], key: Sequence[str], update: Optional[Sequence[str]] = None,
            never_update: Sequence[str] = ()) -> str:
     """One statement per row: INSERT ... ON CONFLICT (key) DO UPDATE SET
-    <update cols> — only the columns named in ``update`` (default: all
+    <update cols> - only the columns named in ``update`` (default: all
     non-key columns except ``never_update``) so a re-import refreshes
     what the source owns and leaves the portal's decisions alone."""
     out: List[str] = []
@@ -99,7 +99,7 @@ def supplier_invoice_row(c: CF.Cfdi, entity_id: str, supplier_ids: Dict[str, int
                          hint: Optional[dict] = None) -> Row:
     """A parsed supplier CFDI -> supplier_invoice row. ``hint`` may carry
     project_id / po_id / cost_code found by the matcher; the row status
-    starts at 'received' — the match and the approval are decisions."""
+    starts at 'received' - the match and the approval are decisions."""
     hint = hint or {}
     terms = hint.get("terms_days", 30)
     issue = dt.date.fromisoformat(c.fecha[:10])
@@ -127,14 +127,14 @@ def classify_cfdi(c: CF.Cfdi, our_rfcs: Sequence[str], known_uuids: Iterable[str
     if d == "foreign":
         reasons.append("FOREIGN_CFDI: neither RFC is ours")
     elif d == "customer":
-        reasons.append("CUSTOMER_CFDI: we are the emisor — belongs to the AR mirror, not the AP inbox")
+        reasons.append("CUSTOMER_CFDI: we are the emisor - belongs to the AR mirror, not the AP inbox")
     return ("reject" if reasons else "ingest"), reasons
 
 
 def po_hint_from_concepto(text: str, projects: Iterable[str], po_numbers: Iterable[str]) -> dict:
     """The demo CFDIs carry 'cost · project · PO' in the concept; a real
     supplier writes the PO number somewhere in the description too.
-    Returns whatever identifiers appear verbatim — never a guess."""
+    Returns whatever identifiers appear verbatim - never a guess."""
     out: dict = {}
     for p in projects:
         if p and p in text:
@@ -154,7 +154,7 @@ def exception_row(kind: str, ref: str, detail: str, entity_id: Optional[str] = N
 def statement_rows(st: Statement, own_accounts: Iterable[str], file_sha: str, file_drive_id: Optional[str] = None
                    ) -> Tuple[Row, List[Row], List[str]]:
     """(bank_statement row, bank_transaction rows, problems). A statement
-    with problems yields no rows — it loads whole or not at all."""
+    with problems yields no rows - it loads whole or not at all."""
     problems = check_statement(st)
     if problems:
         return {}, [], problems
@@ -170,7 +170,7 @@ def statement_rows(st: Statement, own_accounts: Iterable[str], file_sha: str, fi
 def snapshot_rows(snap: dict, entity_of: Dict[str, str], now_iso: str) -> Tuple[List[Row], List[Row], List[Row]]:
     """(project rows to fill NULLs only, milestone rows, task rows). The
     snapshot owns schedule: baseline/planned/actual dates, tasks,
-    progress. It never touches money or status — those stay the
+    progress. It never touches money or status - those stay the
     portal's (upsert with ``update`` limited accordingly)."""
     projects: List[Row] = []
     milestones: List[Row] = []

@@ -84,7 +84,7 @@ def _history(days=14, pr_pattern=None, plant_key="P1"):
 
 
 # ============================================================
-# assess_plant_soiling — happy paths
+# assess_plant_soiling - happy paths
 # ============================================================
 
 
@@ -256,7 +256,7 @@ class TestRollingMedian:
 
 class TestRollingAboveBaseline:
     def test_negative_loss_logged_and_not_due(self):
-        """Rolling PR is HIGHER than baseline — usually means recent cleaning
+        """Rolling PR is HIGHER than baseline - usually means recent cleaning
         or wrong baseline. Decision is NOT_DUE, notes warn."""
         history = _history(days=14, pr_pattern=[0.85] * 14)
         result = assess_plant_soiling(

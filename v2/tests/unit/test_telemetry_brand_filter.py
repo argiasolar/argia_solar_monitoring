@@ -29,7 +29,7 @@ def _plant(pk, site, secret):
 
 
 class TestQuotaPerSite:
-    """QRO1 hitting its 300/day budget must not stop GTO2 — the
+    """QRO1 hitting its 300/day budget must not stop GTO2 - the
     budgets are per site."""
 
     def _portfolio(self, plants):
@@ -58,7 +58,7 @@ class TestQuotaPerSite:
 
 class TestWeatherOnLatestRowOnly:
     """v81: current weather belongs only to each inverter's newest
-    entry — historical rows re-stamped with fresh weather churned an
+    entry - historical rows re-stamped with fresh weather churned an
     update per row per poll (and misdated the weather itself)."""
 
     @patch("scripts.telemetry_5m.write_telemetry_rows",

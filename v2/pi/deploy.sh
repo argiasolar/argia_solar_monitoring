@@ -4,7 +4,7 @@
 set -euo pipefail
 # v2's OWN clone. Never ~/argia_solar_monitoring: that is v1's live home,
 # a dirty February clone carrying unpushed production edits (discovered
-# 2026-07-06 during Phase 1 — the reset below would have destroyed them).
+# 2026-07-06 during Phase 1 - the reset below would have destroyed them).
 REPO_DIR="${ARGIA_REPO:-$HOME/argia_v2}"
 LOG="${ARGIA_LOG_DIR:-$HOME/argia_logs}/deploy.log"
 mkdir -p "$(dirname "$LOG")"
@@ -15,7 +15,7 @@ REMOTE=$(git rev-parse origin/main)
 [ "$LOCAL" = "$REMOTE" ] && exit 0
 # SAFETY GUARD: never hard-reset a directory holding uncommitted work.
 # GitHub is the only source of truth for v2, so a dirty tree here means
-# either misconfiguration (pointed at v1's home) or manual edits — both
+# either misconfiguration (pointed at v1's home) or manual edits - both
 # must be looked at by a human, not erased by a cron job.
 # --untracked-files=no (2026-07-07): reset --hard does NOT touch
 # untracked files, so they are not at risk and must not block deploys.

@@ -129,7 +129,7 @@ class TestSecurityHeaders:
 
 
 class TestRunbookCoversEveryJob:
-    """docs/OPERATIONS.md must name every timer that exists — a job nobody
+    """docs/OPERATIONS.md must name every timer that exists - a job nobody
     can find in the runbook is a job nobody will fix at 3 a.m."""
 
     def test_every_timer_is_in_the_runbook(self):

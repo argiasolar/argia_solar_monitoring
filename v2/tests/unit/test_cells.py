@@ -31,7 +31,7 @@ class TestCoerceTs:
     def test_garbage_and_bool_rejected(self):
         assert coerce_ts("not a date") is None
         assert coerce_ts(None) is None
-        assert coerce_ts(True) is None      # bool is an int subclass — guard
+        assert coerce_ts(True) is None      # bool is an int subclass - guard
 
 
 class TestCoerceDate:

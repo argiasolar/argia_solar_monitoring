@@ -146,7 +146,7 @@ class TestDesignCompat:
         assert DESIGN_TAB_CANDIDATES[0] == "Contract_Monthly"
 
     def test_design_loader_reads_contract_monthly_shape(self):
-        # kpi/design reads A1:D by header name — Contract_Monthly's
+        # kpi/design reads A1:D by header name - Contract_Monthly's
         # first four columns are exactly that shape.
         rows = _seed_rows()
         sheets = MagicMock(spec=SheetsClient)

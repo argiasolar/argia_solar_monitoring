@@ -1,7 +1,7 @@
 """The session-login service end to end, through Flask's test client.
 
 The point of this file is item 1 of the 2026-08-28 feedback: "I cannot
-log out". Under HTTP Basic that was unfixable — the browser re-sent the
+log out". Under HTTP Basic that was unfixable - the browser re-sent the
 cached password on the next click. test_logout_really_ends_the_session
 is the proof that it is fixed: after logout the session row is gone, so
 even replaying the exact cookie the browser had is anonymous again.
@@ -79,7 +79,7 @@ class TestSigningIn:
         assert b"Sign in" in r.data
 
     def test_the_form_sends_no_www_authenticate_header(self, cli):
-        """That header is what makes the browser show its own dialog —
+        """That header is what makes the browser show its own dialog -
         the exact behaviour we are replacing."""
         r = cli.get("/login")
         assert "WWW-Authenticate" not in r.headers
@@ -256,7 +256,7 @@ class TestLogoutActuallyWorks:
 
     def test_replaying_the_old_cookie_does_not_get_back_in(self, cli, app):
         """A correctly signed cookie for a deleted session is worthless
-        — which is precisely what Basic auth could not offer."""
+        - which is precisely what Basic auth could not offer."""
         sign_in(cli)
         c = app.ac.open_sessions(app.SESSION_DB)
         sid = c.execute("SELECT sid FROM sessions").fetchone()[0]

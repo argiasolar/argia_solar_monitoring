@@ -1,4 +1,4 @@
-"""Shared physical / reporting constants — single source of truth.
+"""Shared physical / reporting constants - single source of truth.
 
 Constants that must be identical across every Argia surface (daily
 report, invoicing annex, dashboard, audit text) live here so they can
@@ -14,7 +14,7 @@ from __future__ import annotations
 # This is now a REGISTER, not one number: argia.core.co2 holds the
 # SEMARNAT/CRE factor per year plus per-plant contracted overrides (SAG
 # uses 0.202 across their whole history). Prefer co2.factor(year,
-# plant_key) — it is exact for the year and plant being reported.
+# plant_key) - it is exact for the year and plant being reported.
 #
 # CO2_KG_PER_KWH stays as the plain national factor currently in force
 # (2024 onward: 0.444) for the few places that legitimately have no year

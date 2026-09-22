@@ -1,4 +1,4 @@
-"""v229 — the inverter registry: the pinned serial -> "Inverter N" map,
+"""v229 - the inverter registry: the pinned serial -> "Inverter N" map,
 the table comparison, the idempotent fix SQL and the vendor-list diff."""
 from __future__ import annotations
 
@@ -142,7 +142,7 @@ class TestVendorDiff:
             raise AssertionError(sql)
         assert IR.table_rows(rows) == [("NL1", "JGMAE6500G", "Inverter 1", True), ("NL1", "X", "", False)]
         monkeypatch.delenv("SOLAREDGE_API_KEY_MISSING", raising=False)
-        assert IR.live_findings(reg, rows) == ["GTO2: vendor list unavailable — no API key in the environment (SOLAREDGE_API_KEY_MISSING)"]
+        assert IR.live_findings(reg, rows) == ["GTO2: vendor list unavailable - no API key in the environment (SOLAREDGE_API_KEY_MISSING)"]
 
 
 class TestDriftIntegration:

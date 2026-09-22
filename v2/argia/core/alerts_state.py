@@ -1,5 +1,5 @@
 """
-Alerts state machine — Stage 7.1.
+Alerts state machine - Stage 7.1.
 
 Manages the ``Alerts`` tab as a persistent state store for active alerts.
 
@@ -10,9 +10,9 @@ A unique alert is identified by (alert_key, severity), where alert_key is
 a deterministic string built from the plant/inverter/metric being checked.
 
 States:
-    OPEN     — condition currently true; we've notified
-    RESOLVED — condition has cleared
-    SILENCED — open but suppressed by ops (manual)
+    OPEN     - condition currently true; we've notified
+    RESOLVED - condition has cleared
+    SILENCED - open but suppressed by ops (manual)
 
 Lifecycle:
     new condition → OPEN row added, notification fires once
@@ -21,7 +21,7 @@ Lifecycle:
     same condition trips again later → NEW row added in OPEN state, notification
 
 Important: this module ONLY provides the state store + transition primitives.
-It does NOT decide WHEN to open or resolve alerts — that's the alert
+It does NOT decide WHEN to open or resolve alerts - that's the alert
 engine in Stage 7.4. The separation is deliberate: you can populate
 fixtures and unit-test transitions without involving any real telemetry.
 
@@ -120,7 +120,7 @@ class AlertsLedger:
     records: Tuple[AlertRecord, ...] = ()
 
     # Index: alert_key → list of records sorted by opened_utc (oldest first).
-    # Multiple records can share an alert_key — one current OPEN/SILENCED
+    # Multiple records can share an alert_key - one current OPEN/SILENCED
     # plus any number of historical RESOLVED ones from past trips.
     _by_key: Dict[str, List[AlertRecord]] = field(default_factory=dict)
 
@@ -134,11 +134,11 @@ class AlertsLedger:
 
     def current_open(self, alert_key: str) -> Optional[AlertRecord]:
         """The currently-active (OPEN or SILENCED) record for this alert_key,
-        or None if no active alert. There should be at most one — if there
+        or None if no active alert. There should be at most one - if there
         are multiple OPENs for the same key, that's a bug we log and return
         the most recent.
 
-        Note: SILENCED is treated as "still open from the engine's POV" — the
+        Note: SILENCED is treated as "still open from the engine's POV" - the
         engine should not re-fire while silenced, but should still mark the
         condition as ongoing."""
         records = self._by_key.get(alert_key, [])
@@ -147,7 +147,7 @@ class AlertsLedger:
             return None
         if len(actives) > 1:
             LOG.warning(
-                "Multiple active records for alert_key '%s' — using newest. "
+                "Multiple active records for alert_key '%s' - using newest. "
                 "This indicates a state-store bug. Stale OPENs should be "
                 "manually moved to RESOLVED.",
                 alert_key,
@@ -185,7 +185,7 @@ def make_plant_alert_key(plant_key: str, metric: str) -> str:
 def make_alert_id(now_utc: dt.datetime, sequence: int) -> str:
     """``ALT-YYYYMMDD-NNN``. Used when creating new OPEN records.
 
-    The caller is responsible for choosing the sequence number — typically
+    The caller is responsible for choosing the sequence number - typically
     by counting existing alerts in the ledger and adding 1, or by reading
     a counter cell. Stage 7.4 will use len(ledger.records)+1, padded."""
     return f"ALT-{now_utc.strftime('%Y%m%d')}-{sequence:03d}"
@@ -199,7 +199,7 @@ def _parse_state(raw) -> AlertState:
     try:
         return AlertState(s)
     except ValueError:
-        # Default to OPEN if state is missing or garbage — but log loudly.
+        # Default to OPEN if state is missing or garbage - but log loudly.
         # The cron run will then see this as still-active.
         LOG.warning("Alerts row had invalid state '%s'; defaulting to OPEN", raw)
         return AlertState.OPEN
@@ -207,7 +207,7 @@ def _parse_state(raw) -> AlertState:
 
 def load_alerts_ledger(sheets: SheetsClient) -> AlertsLedger:
     """Read the Alerts ledger. Returns an empty ledger if the tab doesn't
-    exist or has no rows — that's the first-run state and not an error.
+    exist or has no rows - that's the first-run state and not an error.
 
     v194: ARGIA_ALERTS_SOURCE=pg reads the ``alert_ledger`` table
     instead (argia.core.alerts_pg), through the same parser. A PG read
@@ -329,7 +329,7 @@ def resolve_alert(
     """Transition an OPEN alert to RESOLVED.
 
     If already RESOLVED, returns the record unchanged (idempotent). If
-    SILENCED, also transitions to RESOLVED — silencing doesn't survive
+    SILENCED, also transitions to RESOLVED - silencing doesn't survive
     the condition clearing.
     """
     if record.state == AlertState.RESOLVED:
@@ -345,12 +345,12 @@ def resolve_alert(
 
 
 def silence_alert(record: AlertRecord) -> AlertRecord:
-    """Move OPEN → SILENCED. RESOLVED records are not silenced — returning
+    """Move OPEN → SILENCED. RESOLVED records are not silenced - returning
     unchanged would be confusing, so we log+return-unchanged but the caller
     should generally not call this on a resolved record."""
     if record.state == AlertState.RESOLVED:
         LOG.warning(
-            "silence_alert called on RESOLVED record %s — returning unchanged",
+            "silence_alert called on RESOLVED record %s - returning unchanged",
             record.alert_id,
         )
         return record
@@ -401,7 +401,7 @@ def _iso(d: dt.datetime) -> str:
 
 
 def write_ledger(sheets: SheetsClient, records) -> int:
-    """Persist the reconciled ledger — the ONE write path of the alert
+    """Persist the reconciled ledger - the ONE write path of the alert
     engine (alerts_daily, alerts_snapshot). Rows only ever update in
     place or append, so the sheet gets a single block write and PG an
     upsert keyed by alert_id. Returns rows written."""
@@ -430,14 +430,14 @@ def create_alerts_tab_if_missing(sheets: SheetsClient) -> bool:
     hdr = [str(c).strip() for c in (existing[0] if existing else [])]
     if hdr and any(hdr):
         if len([h for h in hdr if h]) < len(ALERTS_HEADER):
-            # schema grew (e.g. the 'explanation' column) — extend the
+            # schema grew (e.g. the 'explanation' column) - extend the
             # header in place; existing rows keep working, new writes fill
             # the new column(s).
             sheets.write_header_row("Alerts", ALERTS_HEADER)
             LOG.info("Alerts header extended to %d columns",
                      len(ALERTS_HEADER))
             return False
-        LOG.info("Alerts tab already has a header — leaving alone")
+        LOG.info("Alerts tab already has a header - leaving alone")
         return False
     sheets.ensure_header("Alerts", ALERTS_HEADER)
     LOG.info("Bootstrapped Alerts tab (header only)")

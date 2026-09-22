@@ -41,7 +41,7 @@ LOG = logging.getLogger("argia.meteo.growatt_irradiance")
 
 WEB_BASE = "https://server.growatt.com"
 DEFAULT_TIMEOUT_SEC = 30
-DEFAULT_MAX_GAP_SEC = 7200  # 2 hours — cap gaps to avoid wild extrapolation
+DEFAULT_MAX_GAP_SEC = 7200  # 2 hours - cap gaps to avoid wild extrapolation
 DEFAULT_MAX_PAGES = 6
 DEFAULT_PAGE_SLEEP_SEC = 0.10
 
@@ -66,7 +66,7 @@ def integrate_radiance_to_kwh_m2(
     """
     Trapezoidal integration of W/m² readings into kWh/m².
 
-    points: list of (timestamp, W/m²) tuples. Order doesn't matter — they
+    points: list of (timestamp, W/m²) tuples. Order doesn't matter - they
             will be sorted internally. Negative readings are clamped to 0.
 
     Returns kWh/m² over the time span of the points. If fewer than 2 points,
@@ -220,7 +220,7 @@ def interval_kwh_m2_from_wm2(radiance_wm2: float, interval_min: int) -> float:
     """
     Convert an instantaneous W/m² reading into the kWh/m² produced over
     ``interval_min`` minutes (assuming the reading is constant over the
-    interval — only sensible for short intervals like 10 minutes).
+    interval - only sensible for short intervals like 10 minutes).
 
     Examples:
         >>> interval_kwh_m2_from_wm2(1000.0, 60)
@@ -242,7 +242,7 @@ def interval_kwh_m2_from_wm2(radiance_wm2: float, interval_min: int) -> float:
 
 @dataclass
 class GrowattWebSession:
-    """Minimal stateful credentials container — session lives on the client."""
+    """Minimal stateful credentials container - session lives on the client."""
 
     username: str
     password: str
@@ -276,7 +276,7 @@ class GrowattIrradianceClient:
 
         self._logged_in = False
         self._reauth_done = False
-        # Shared persisted session (incident 2026-07-07) — same account,
+        # Shared persisted session (incident 2026-07-07) - same account,
         # same site as the web client; one login serves both.
         if growatt_session.load_cookies(self._http):
             self._logged_in = True
@@ -288,7 +288,7 @@ class GrowattIrradianceClient:
     def ensure_session(self) -> None:
         """No-op placeholder kept for the telemetry call site; staleness
         is detected at the point of truth in _post (HTML-instead-of-JSON
-        signature, 2026-07-08 — the v50 /index probe validated zombies)."""
+        signature, 2026-07-08 - the v50 /index probe validated zombies)."""
 
     def _login(self) -> None:
         if self._logged_in:
@@ -334,7 +334,7 @@ class GrowattIrradianceClient:
             if not self._reauth_done:
                 self._reauth_done = True
                 LOG.warning("Growatt env session stale (non-JSON from %s)"
-                            " — dropping and logging in fresh", path)
+                            " - dropping and logging in fresh", path)
                 growatt_session.drop_session()
                 self._http.cookies.clear()
                 self._logged_in = False
@@ -383,7 +383,7 @@ class GrowattIrradianceClient:
         prefer_sn: Optional[str],
         prefer_addr: Optional[int],
     ) -> List[Tuple[str, int]]:
-        """Pure helper — extract (sn, addr) pairs and apply preference."""
+        """Pure helper - extract (sn, addr) pairs and apply preference."""
         datas = (response or {}).get("datas") or []
         candidates: List[Tuple[str, int]] = []
         for d in datas:
@@ -484,7 +484,7 @@ class GrowattIrradianceClient:
         Returns the latest available W/m² reading on ``date_iso`` for the
         plant's env station. Used by the 10-min snapshot.
 
-        Not cached — always returns fresh value (the 10-min cron expects
+        Not cached - always returns fresh value (the 10-min cron expects
         latest data each call).
         """
         device = self.get_env_device(plant_id, prefer_sn, prefer_addr)
@@ -504,7 +504,7 @@ class GrowattIrradianceClient:
         """
         Returns the latest (ambient_temp_c, module_temp_c) on ``date_iso`` for
         the plant's env station. Mirrors ``fetch_current_irradiance_wm2`` and is
-        likewise uncached — the snapshot path wants fresh values each call.
+        likewise uncached - the snapshot path wants fresh values each call.
 
             ambient_temp_c <- envTemp   (Environment Temp)
             module_temp_c  <- panelTemp  (Backplane Temp; PR_STC input)
@@ -514,7 +514,7 @@ class GrowattIrradianceClient:
         Note: this issues its own getEnvHistory fetch. Slice 2 (telemetry
         wiring) can avoid a double fetch by calling ``fetch_env_history_rows``
         once and passing the rows to both ``find_latest_radiance_wm2`` and
-        ``find_latest_env_temps`` — both are pure.
+        ``find_latest_env_temps`` - both are pure.
         """
         device = self.get_env_device(plant_id, prefer_sn, prefer_addr)
         if device is None:

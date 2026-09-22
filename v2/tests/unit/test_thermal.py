@@ -1,4 +1,4 @@
-"""v216 — inverter thermal health: bands, peer deviation, thermal stress
+"""v216 - inverter thermal health: bands, peer deviation, thermal stress
 index, suspected derating with kWh loss, the derating curve and its
 knee, the SQL builders. A synthetic plant of four 125 kW inverters: three
 cool at ~95 % of rated, one hot that follows them until 65 °C and then
@@ -105,7 +105,7 @@ class TestDerating:
 
 
 class TestVendorDerating:
-    """v222 — the inverter's own DeratingMode (Growatt register 104: 5 Tboost,
+    """v222 - the inverter's own DeratingMode (Growatt register 104: 5 Tboost,
     6 Tinv) counted per inverter-day next to ARGIA's measured loss."""
 
     def test_mode_labels(self):
@@ -174,7 +174,7 @@ class TestCurve:
 
     def test_knee_is_relative_to_the_units_own_cool_level(self):
         # NL1 2026-09: a unit with more DC than its peers runs at 1.09 when cool
-        # and falls to 0.97 at 80 C — a 11 % drop, a knee, although 0.97 > 0.97*1
+        # and falls to 0.97 at 80 C - a 11 % drop, a knee, although 0.97 > 0.97*1
         bins = {60.0: (65, 65 * 1.09), 62.5: (81, 81 * 1.09), 65.0: (97, 97 * 1.11), 70.0: (100, 100 * 1.06),
                 75.0: (172, 172 * 1.05), 77.5: (303, 303 * 1.02), 80.0: (458, 458 * 0.966)}
         c = TH.derating_curve(bins)

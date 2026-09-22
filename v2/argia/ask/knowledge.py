@@ -1,4 +1,4 @@
-"""Ask ARGIA — the knowledge base (v215): the ARGIA Golden Standard
+"""Ask ARGIA - the knowledge base (v215): the ARGIA Golden Standard
 designer training (364 slides, EN/ES/CZ) parsed into PostgreSQL
 ``knowledge`` rows with full-text search, so the assistant can answer
 "what does the standard say about ..." with the slide it comes from.
@@ -6,7 +6,7 @@ designer training (364 slides, EN/ES/CZ) parsed into PostgreSQL
 The AGS page (sprinkler.agency/argiagoldenstandard/...WHITE.html) keeps
 every slide as HTML inside one inline script:
 ``const DATA = {"en": {"slides": [html, ...]}, "es": {...}, "cz": {...}}``.
-``parse_ags`` pulls that object out, strips the HTML (images included —
+``parse_ags`` pulls that object out, strips the HTML (images included -
 they are base64 blobs) and keeps per slide: language, number, title
 (first heading) and the plain text. Pure: no network, no database.
 
@@ -26,7 +26,7 @@ AGS_DOC = "AGS"
 LANGS = ("en", "es", "cz")
 _LANG_KEYS = {"en": ("en",), "es": ("es",), "cz": ("cz", "cs")}   # the page's key for Czech
 _CODE = re.compile(r"\bAGS-\d{3}[A-Z]?\b")
-MAX_TEXT = 6000          # per slide, after stripping — a slide is never longer
+MAX_TEXT = 6000          # per slide, after stripping - a slide is never longer
 
 ENSURE_SQL = """CREATE TABLE IF NOT EXISTS knowledge (
     doc        text NOT NULL,
@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_tsv ON knowledge USING gin (tsv);"""
 # ------------------------------------------------------------- parsing
 def extract_data(page_html: str) -> Dict:
     """The ``DATA`` object of the AGS page. Raises ValueError when the
-    page does not carry it (the layout changed — ingest must fail loud)."""
+    page does not carry it (the layout changed - ingest must fail loud)."""
     m = re.search(r"const\s+DATA\s*=\s*", page_html)
     if not m:
         raise ValueError("AGS page: 'const DATA =' not found")
@@ -98,7 +98,7 @@ def parse_ags(page_html: str, langs: Sequence[str] = LANGS) -> List[Dict]:
             title, body = slide_text(h or "")
             if not body:
                 continue
-            # the standard's own clause codes (AGS-104) lead the slide —
+            # the standard's own clause codes (AGS-104) lead the slide -
             # keep them in the title so a citation can name the clause
             m = _CODE.search(body[:300])
             if m and m.group(0) not in title:

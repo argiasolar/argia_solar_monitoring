@@ -1,4 +1,4 @@
-"""Deemed energy ("energía compensada") — contract-anchored.
+"""Deemed energy ("energía compensada") - contract-anchored.
 
 When a customer forces a PPA plant down, the plant is billed what it
 WOULD have produced. Per Tomasz's call (2026-07) and the existing
@@ -15,7 +15,7 @@ contract, not measured irradiance:
                             hours produce nothing, so a shutdown at
                             02:00 deems zero.
 * ``measured_in_window``  = what the plant actually made during the
-                            window (from Dashboard_Plant buckets —
+                            window (from Dashboard_Plant buckets -
                             measured data, not an estimate). Subtracted
                             so a plant that limped rather than died is
                             not double-billed. A full outage → 0 → deemed
@@ -26,10 +26,10 @@ spans midnight or a month boundary (where ``contract_daily`` changes) is
 handled correctly.
 
 No irradiance dependency: this works even when the sun sensor was also
-down, and every number traces to the signed contract — an auditor can
+down, and every number traces to the signed contract - an auditor can
 reconstruct it from Contract_Monthly alone. Honest consequence: on a
 very sunny day deemed under-compensates vs reality, on a cloudy day
-over — inherent to contract-anchoring, and presumably what the PPA text
+over - inherent to contract-anchoring, and presumably what the PPA text
 says.
 
 These are pure functions. The caller supplies ``contract_daily`` and
@@ -84,7 +84,7 @@ def deemed_kwh_for_day(day: dt.date, start: dt.datetime, end: dt.datetime,
                        *, start_h: int = DAYLIGHT_START_H,
                        end_h: int = DAYLIGHT_END_H) -> float:
     """Deemed kWh for a single day of a window. Returns 0.0 when there is
-    no contract basis (``contract_daily`` None — e.g. a CAPEX/lighting key
+    no contract basis (``contract_daily`` None - e.g. a CAPEX/lighting key
     with a blank contract_kwh) or no daylight overlap."""
     if contract_daily is None or contract_daily <= 0:
         return 0.0
@@ -142,7 +142,7 @@ def deemed_by_plant_day(events: List[MaintenanceEvent],
     of a billable ``category``.
 
     Category gating (customer only, by default) AND approval gating are
-    enforced here — argia / force_majeure / draft events contribute zero
+    enforced here - argia / force_majeure / draft events contribute zero
     deemed no matter what. If multiple events touch the same plant-day
     (overlapping shutdowns), their deemed contributions add; measured is
     scoped to each event's own window so there is no double subtraction.
@@ -169,7 +169,7 @@ def deemed_for_date(events: List[MaintenanceEvent], date_iso: str,
                     measured_for: MeasuredFn,
                     *, now: Optional[dt.datetime] = None,
                     categories=BILLABLE_CATEGORIES) -> Dict[str, float]:
-    """{plant_key: deemed_kwh} for a single day — the kpi_eod entry point
+    """{plant_key: deemed_kwh} for a single day - the kpi_eod entry point
     (it stamps one day, yesterday). Thin filter over
     :func:`deemed_by_plant_day`."""
     full = deemed_by_plant_day(events, contract_daily_for, measured_for,
@@ -185,11 +185,11 @@ def measured_in_window_from_buckets(
     """Measured energy inside a window, for the kpi_eod ``measured_for``.
 
     * Full-day window (frac ≈ 1): return the day's total ``energy_kwh``
-      — exact, no bucket read needed.
+      - exact, no bucket read needed.
     * Partial-day window: sum ``Dashboard_Plant.total_kwh`` for buckets of
       this plant+date whose hour falls inside the window.
     * Partial-day but buckets have aged out of the rolling Dashboard_Plant
-      buffer: fall back to ``energy_kwh × daylight_fraction`` — a
+      buffer: fall back to ``energy_kwh × daylight_fraction`` - a
       documented approximation (logged), never a silent zero.
 
     ``bucket_rows`` is the raw Dashboard_Plant table (list of dicts). The
@@ -223,7 +223,7 @@ def measured_in_window_from_buckets(
     if matched == 0:
         approx = (energy_kwh_full_day or 0.0) * daylight_frac
         LOG.info("deemed measured_in_window[%s %s]: no live buckets in "
-                 "window — approximating %.1f kWh from energy×daylight",
+                 "window - approximating %.1f kWh from energy×daylight",
                  pk, date_iso, approx)
         return approx
     return total

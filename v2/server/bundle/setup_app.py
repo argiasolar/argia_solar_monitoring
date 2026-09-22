@@ -2,7 +2,7 @@
 """ARGIA report access manager.
 
 Runs on 127.0.0.1:8511; nginx proxies /setup/ to it behind admin basic auth
-(/opt/argia/auth/admin.htpasswd). This app never authenticates anyone itself —
+(/opt/argia/auth/admin.htpasswd). This app never authenticates anyone itself -
 nginx does. It only manages the user database and regenerates the per-area
 htpasswd files nginx reads:
 
@@ -56,7 +56,7 @@ app = Flask(__name__)
 
 
 def _csrf_token():
-    """Persist the CSRF token across app restarts — otherwise every deploy
+    """Persist the CSRF token across app restarts - otherwise every deploy
     silently breaks forms in already-open setup tabs (live incident 2026-08-26:
     a user creation was lost that way)."""
     os.makedirs(AUTH_DIR, exist_ok=True)
@@ -192,9 +192,9 @@ def stats_table(org=None):
            '<p class="note" data-en="Derived from web-server logs. A login = a session of requests separated by 30+ min of silence; time = summed session length. Log rotation limits full history."',
            ' data-es="Derivado de los logs del servidor. Un acceso = sesión separada por 30+ min; tiempo = duración sumada de sesiones. La rotación de logs limita el histórico.">',
            'Derived from web-server logs. A login = a session of requests separated by 30+ min of silence; time = summed session length. Log rotation limits full history.</p>'
-           '<p class="note" data-en="\'no account\' = this name was typed at the login prompt but no such user exists — a failed attempt, a typo, or a deleted account\'s history."'
-           ' data-es="\'sin cuenta\' = este nombre se escribió en el login pero el usuario no existe — intento fallido, error de tipeo o historial de una cuenta eliminada.">'
-           "'no account' = this name was typed at the login prompt but no such user exists — a failed attempt, a typo, or a deleted account's history.</p>",
+           '<p class="note" data-en="\'no account\' = this name was typed at the login prompt but no such user exists - a failed attempt, a typo, or a deleted account\'s history."'
+           ' data-es="\'sin cuenta\' = este nombre se escribió en el login pero el usuario no existe - intento fallido, error de tipeo o historial de una cuenta eliminada.">'
+           "'no account' = this name was typed at the login prompt but no such user exists - a failed attempt, a typo, or a deleted account's history.</p>",
            '<table><tr><th data-en="User" data-es="Usuario">User</th>'
            '<th data-en="Last seen (UTC)" data-es="Última vez (UTC)">Last seen (UTC)</th>'
            '<th class="num" data-en="Active days" data-es="Días activos">Active days</th>'
@@ -205,7 +205,7 @@ def stats_table(org=None):
     for u, days, reqs, sess, mins, fl, last in rows:
         mins = mins or 0
         hh, mm = int(mins // 60), int(mins % 60)
-        seen = _time.strftime('%Y-%m-%d %H:%M', _time.gmtime(last)) if last else '—'
+        seen = _time.strftime('%Y-%m-%d %H:%M', _time.gmtime(last)) if last else ' - '
         badge = '' if u in known else (' <span class="pill adm" data-en="no account" '
                                        'data-es="sin cuenta">no account</span>')
         out.append(f'<tr><td><b>{html.escape(u)}</b>{badge}</td><td>{seen}</td>'
@@ -226,7 +226,7 @@ def db():
     for ddl in ('ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0',
                 "ALTER TABLE users ADD COLUMN org TEXT NOT NULL DEFAULT ''",
                 'ALTER TABLE users ADD COLUMN plant_admin INTEGER NOT NULL DEFAULT 0',
-                # who the account belongs to — shown in the header of
+                # who the account belongs to - shown in the header of
                 # every page so nobody has to guess who is signed in
                 "ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''",
@@ -290,7 +290,7 @@ def make_password(n=PW_LENGTH):
 
 def display_name(first, last, username):
     """'Eduardo Ramirez' when we know it, else the username. Never
-    empty — this string is what identifies the session on screen."""
+    empty - this string is what identifies the session on screen."""
     full = ' '.join(p for p in ((first or '').strip(),
                                 (last or '').strip()) if p)
     return full or (username or '')
@@ -351,7 +351,7 @@ def verify_pw(user, pw):
 
 
 # Wrong-current-password throttle. The page already sits behind basic
-# auth, so this is not the main defence — it stops someone poking at a
+# auth, so this is not the main defence - it stops someone poking at a
 # colleague's unlocked browser from grinding through guesses.
 PW_FAIL_MAX = 5
 PW_FAIL_WINDOW = 600.0
@@ -382,7 +382,7 @@ def pw_clear_fails(user, fails=None):
 
 
 def clean_username(raw):
-    """Usernames are stored — and written to htpasswd — in lowercase.
+    """Usernames are stored - and written to htpasswd - in lowercase.
     nginx compares the basic-auth username byte for byte, so 'Eduardo'
     never matches the 'eduardo' line. Normalising here keeps what the
     admin sees identical to what the user must type."""
@@ -520,9 +520,9 @@ def page(body, msg='', once=None, title=None, sub=None):
     once_html = ''
     if once:
         once_html = (f'<div class="card" style="border-color:#137333">'
-                     f'<b data-en="One-time password — copy it now, it is not stored:" '
-                     f'data-es="Contraseña de un solo uso — cópiala ahora, no se guarda:">'
-                     f'One-time password — copy it now, it is not stored:</b> '
+                     f'<b data-en="One-time password - copy it now, it is not stored:" '
+                     f'data-es="Contraseña de un solo uso - cópiala ahora, no se guarda:">'
+                     f'One-time password - copy it now, it is not stored:</b> '
                      f'<code style="font-size:16px">{html.escape(once)}</code></div>')
     msg_html = f'<p class="note">{html.escape(msg)}</p>' if msg else ''
     # Who is signed in, spelled out. Basic auth keeps sending cached
@@ -555,9 +555,9 @@ def page(body, msg='', once=None, title=None, sub=None):
         ' data-es="Cerrar sesión">Log out</button>'
         '</div></div>') if _me else ''
     t_en, t_es = title or ('Setup', 'Configuración')
-    s_en, s_es = sub or ('Users, plants, finance, CFE and system — one drawer each. '
+    s_en, s_es = sub or ('Users, plants, finance, CFE and system - one drawer each. '
                          'Changes apply immediately.',
-                         'Usuarios, plantas, finanzas, CFE y sistema — un cajón cada uno. '
+                         'Usuarios, plantas, finanzas, CFE y sistema - un cajón cada uno. '
                          'Los cambios aplican de inmediato.')
     if _portal_host():
         import portal_chrome as PC
@@ -565,8 +565,8 @@ def page(body, msg='', once=None, title=None, sub=None):
                 f'<div class="kicker">{PC.t("Setup", "Configuración")}</div>'
                 f'<h1 class="pt">{PC.t(t_en, t_es)}</h1>'
                 f'<div class="muted">{PC.t(s_en, s_es)}</div></div>')
-        # v212: the drawer row (.dnav — People/Plants/Finance/CFE/System)
-        # IS the folder row above; the anchor chips (.tabbar — the tabs
+        # v212: the drawer row (.dnav - People/Plants/Finance/CFE/System)
+        # IS the folder row above; the anchor chips (.tabbar - the tabs
         # inside one drawer) stay, restyled as quiet portal chips.
         extra = ('<style>' + PC.scoped_css(SETUP_CONTENT_CSS + cat.CATALOG_CSS, '.setupbody')
                  + PC.skin_reset('.setupbody') + SETUP_PORTAL_CSS + _cfe_css() + '</style>')
@@ -577,7 +577,7 @@ def page(body, msg='', once=None, title=None, sub=None):
     cfe_css = _cfe_css()
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><title>Setup — ARGIA</title>
+<meta name="robots" content="noindex,nofollow"><title>Setup - ARGIA</title>
 <style>
 body{{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#f6f7f8;color:#202124;font-size:15px;}}
 .wrap{{max-width:1040px;margin:0 auto;padding:26px 18px 48px;}}
@@ -670,10 +670,10 @@ def users_table(org=None):
     for (u, level, reports, adm, created, dis, uorg, upadm,
          fname, lname, email) in rows:
         if level == 'argia':
-            acc = '<span class="pill">argia — all reports</span>'
+            acc = '<span class="pill">argia - all reports</span>'
         else:
             names = [AREA_LABEL.get(a, a) for a in reports.split(',') if a]
-            acc = html.escape(', '.join(names) or '—')
+            acc = html.escape(', '.join(names) or ' - ')
         if adm:
             acc += ' <span class="pill adm">admin</span>'
         if upadm and uorg:
@@ -689,7 +689,7 @@ def users_table(org=None):
         mail = html.escape(email or '')
         who_cell = ((f'{who}<br>' if who else '')
                     + (f'<span class="note">{mail}</span>' if mail
-                       else ('' if who else '<span class="note">—</span>')))
+                       else ('' if who else '<span class="note"> - </span>')))
         out.append(f'''<tr><td><b>{ue}</b></td><td>{who_cell}</td><td>{acc}</td>
 <td>{html.escape(created[:16])}</td><td style="white-space:nowrap">
 <a class="btn" href="?edit={ue}" data-en="Edit access" data-es="Editar acceso">Edit access</a>
@@ -719,41 +719,41 @@ def add_form(org=None):
 <p><input type="text" name="first_name" placeholder="first name" maxlength="60">
  <input type="text" name="last_name" placeholder="surname" maxlength="60">
  <input type="text" name="email" placeholder="email" maxlength="120"></p>
-<p class="note" data-en="Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed."
- data-es="Los usuarios se guardan en minúsculas y el acceso distingue mayúsculas — debe escribirse exactamente como aparece en la lista. Los espacios alrededor de una contraseña pegada se eliminan.">
-Usernames are stored lowercase and the login is case-sensitive — the user must type it exactly as listed. Spaces around a pasted password are trimmed.</p>'''
+<p class="note" data-en="Usernames are stored lowercase and the login is case-sensitive - the user must type it exactly as listed. Spaces around a pasted password are trimmed."
+ data-es="Los usuarios se guardan en minúsculas y el acceso distingue mayúsculas - debe escribirse exactamente como aparece en la lista. Los espacios alrededor de una contraseña pegada se eliminan.">
+Usernames are stored lowercase and the login is case-sensitive - the user must type it exactly as listed. Spaces around a pasted password are trimmed.</p>'''
     if org:
-        return f'''<div class="card"><h2 data-en="Add user — your company" data-es="Agregar usuario — su empresa">Add user — your company</h2>
+        return f'''<div class="card"><h2 data-en="Add user - your company" data-es="Agregar usuario - su empresa">Add user - your company</h2>
 <form method="post" action="/setup/add">{common}
 <p class="note" data-en="The user will see only the {org.upper()} plant page."
  data-es="El usuario verá solo la página de la planta {org.upper()}.">The user will see only the {org.upper()} plant page.</p>
 <p><label><input type="checkbox" name="plant_admin" value="1">
- <span data-en="company admin — can manage your company's users and plant settings"
-  data-es="admin de empresa — gestiona usuarios y ajustes de su planta">company admin — can manage your company's users and plant settings</span></label></p>
+ <span data-en="company admin - can manage your company's users and plant settings"
+  data-es="admin de empresa - gestiona usuarios y ajustes de su planta">company admin - can manage your company's users and plant settings</span></label></p>
 <p><button class="btn" data-en="Create user" data-es="Crear usuario">Create user</button></p>
 </form></div>'''
     boxes = ''.join(
         f'<label><input type="checkbox" name="reports" value="{a}"> {AREA_LABEL[a]}</label>'
         for a in AREAS)
-    orgopts = '<option value="">—</option>' + ''.join(
+    orgopts = '<option value=""> - </option>' + ''.join(
         f'<option value="{p}">{p.upper()}</option>' for p in PLANTS)
     return f'''<div class="card"><h2 data-en="Add user" data-es="Agregar usuario">Add user</h2>
 <form method="post" action="/setup/add">{common}
 <p><label><input type="radio" name="level" value="argia">
- <b>argia</b> <span data-en="— employee, access to everything"
-  data-es="— empleado, acceso a todo">— employee, access to everything</span></label><br>
+ <b>argia</b> <span data-en="- employee, access to everything"
+  data-es="- empleado, acceso a todo">- employee, access to everything</span></label><br>
 <label><input type="radio" name="level" value="custom" checked>
- <b>custom</b> <span data-en="— only the reports checked below"
-  data-es="— solo los reportes marcados">— only the reports checked below</span></label></p>
+ <b>custom</b> <span data-en="- only the reports checked below"
+  data-es="- solo los reportes marcados">- only the reports checked below</span></label></p>
 <div class="areas">{boxes}</div>
 <p><label data-en="Company (for client users):" data-es="Empresa (para usuarios cliente):">Company (for client users):</label>
  <select name="org" class="btn">{orgopts}</select>
  <label><input type="checkbox" name="plant_admin" value="1">
- <span data-en="company admin — manages that company's users + plant settings"
-  data-es="admin de empresa — gestiona usuarios y ajustes de esa planta">company admin — manages that company's users + plant settings</span></label></p>
+ <span data-en="company admin - manages that company's users + plant settings"
+  data-es="admin de empresa - gestiona usuarios y ajustes de esa planta">company admin - manages that company's users + plant settings</span></label></p>
 <p><label><input type="checkbox" name="is_admin" value="1">
- <span data-en="ARGIA admin — full control of everything here"
-  data-es="admin ARGIA — control total aquí">ARGIA admin — full control of everything here</span></label></p>
+ <span data-en="ARGIA admin - full control of everything here"
+  data-es="admin ARGIA - control total aquí">ARGIA admin - full control of everything here</span></label></p>
 <p><button class="btn" data-en="Create user" data-es="Crear usuario">Create user</button></p>
 </form></div>'''
 
@@ -791,7 +791,7 @@ def settings_card(org, is_global):
             f'value="{e if e else ""}" placeholder="kWh" style="width:110px"></td>'
             f'<td class="num"><input type="number" step="any" min="0" name="tar_{m}" '
             f'value="{t2 if t2 else ""}" placeholder="MXN/kWh" style="width:110px"></td></tr>')
-    return f'''<div class="card"><h2><span data-en="Plant settings" data-es="Ajustes de planta">Plant settings</span> — {plant.upper()}</h2>
+    return f'''<div class="card"><h2><span data-en="Plant settings" data-es="Ajustes de planta">Plant settings</span> - {plant.upper()}</h2>
 <form method="get" action="." style="display:inline">
  <select name="plant" class="btn" onchange="this.form.submit()">{sel_p}</select>
  <select name="year" class="btn" onchange="this.form.submit()">{sel_y}</select>
@@ -808,9 +808,9 @@ def settings_card(org, is_global):
  data-es="Inversión total, MXN (para seguimiento de recuperación):">Total investment, MXN (for payback tracking):</label>
  <input type="number" step="any" min="0" name="investment" value="{inv if inv not in ('', '0', '0.00') else ''}"
   placeholder="MXN" style="width:150px"></p>
-<p class="note" data-en="Tariff = what your company pays the grid per kWh — production × tariff is shown as savings. Expected production drives the performance indicators and the grey forecast months. Blank fields are left unchanged. Reports regenerate within a minute of saving."
- data-es="Tarifa = lo que su empresa paga a la red por kWh — producción × tarifa se muestra como ahorro. La producción esperada alimenta los indicadores y los meses grises de pronóstico. Campos vacíos no se modifican. Los reportes se regeneran en un minuto.">
-Tariff = what your company pays the grid per kWh — production × tariff is shown as savings. Expected production drives the performance indicators and the grey forecast months. Blank fields are left unchanged. Reports regenerate within a minute of saving.</p>
+<p class="note" data-en="Tariff = what your company pays the grid per kWh - production × tariff is shown as savings. Expected production drives the performance indicators and the grey forecast months. Blank fields are left unchanged. Reports regenerate within a minute of saving."
+ data-es="Tarifa = lo que su empresa paga a la red por kWh - producción × tarifa se muestra como ahorro. La producción esperada alimenta los indicadores y los meses grises de pronóstico. Campos vacíos no se modifican. Los reportes se regeneran en un minuto.">
+Tariff = what your company pays the grid per kWh - production × tariff is shown as savings. Expected production drives the performance indicators and the grey forecast months. Blank fields are left unchanged. Reports regenerate within a minute of saving.</p>
 <p><button class="btn" data-en="Save settings" data-es="Guardar ajustes">Save settings</button></p>
 </form></div>'''
 
@@ -833,13 +833,13 @@ def edit_form(u):
     maxlength="120" value="{html.escape(email or '')}"></p>'''
     if not is_global:
         return f'''<div class="card" style="border-color:var(--s1,#2a78d6)">
-<h2><span data-en="Edit" data-es="Editar">Edit</span> — {html.escape(u)}</h2>
+<h2><span data-en="Edit" data-es="Editar">Edit</span> - {html.escape(u)}</h2>
 <form method="post" action="/setup/update">
 <input type="hidden" name="csrf" value="{CSRF}">
 <input type="hidden" name="username" value="{html.escape(u)}">{who}
 <p><label><input type="checkbox" name="plant_admin" value="1"{' checked' if upadm else ''}>
- <span data-en="company admin — can manage your company's users and plant settings"
-  data-es="admin de empresa — gestiona usuarios y ajustes de su planta">company admin — can manage your company's users and plant settings</span></label></p>
+ <span data-en="company admin - can manage your company's users and plant settings"
+  data-es="admin de empresa - gestiona usuarios y ajustes de su planta">company admin - can manage your company's users and plant settings</span></label></p>
 <p><button class="btn" data-en="Save changes" data-es="Guardar cambios">Save changes</button>
  <a class="btn" href="." data-en="Cancel" data-es="Cancelar">Cancel</a></p>
 </form></div>'''
@@ -849,30 +849,30 @@ def edit_form(u):
         f'{" checked" if a in have else ""}> {AREA_LABEL[a]}</label>'
         for a in AREAS)
     return f'''<div class="card" style="border-color:var(--s1,#2a78d6)">
-<h2><span data-en="Edit access" data-es="Editar acceso">Edit access</span> — {html.escape(u)}</h2>
+<h2><span data-en="Edit access" data-es="Editar acceso">Edit access</span> - {html.escape(u)}</h2>
 <form method="post" action="/setup/update">
 <input type="hidden" name="csrf" value="{CSRF}">
 <input type="hidden" name="username" value="{html.escape(u)}">{who}
 <p><label><input type="radio" name="level" value="argia"{' checked' if level == 'argia' else ''}>
- <b>argia</b> <span data-en="— employee, access to everything"
-  data-es="— empleado, acceso a todo">— employee, access to everything</span></label><br>
+ <b>argia</b> <span data-en="- employee, access to everything"
+  data-es="- empleado, acceso a todo">- employee, access to everything</span></label><br>
 <label><input type="radio" name="level" value="custom"{' checked' if level != 'argia' else ''}>
- <b>custom</b> <span data-en="— only the reports checked below"
-  data-es="— solo los reportes marcados">— only the reports checked below</span></label></p>
+ <b>custom</b> <span data-en="- only the reports checked below"
+  data-es="- solo los reportes marcados">- only the reports checked below</span></label></p>
 <div class="areas">{boxes}</div>
 <p><label><input type="checkbox" name="plant_admin" value="1"{' checked' if upadm else ''}>
  <span data-en="company admin (of the company set at creation)"
   data-es="admin de empresa (de la empresa asignada al crear)">company admin (of the company set at creation)</span></label><br>
 <label><input type="checkbox" name="is_admin" value="1"{' checked' if adm else ''}>
- <span data-en="ARGIA admin — can manage everything here"
-  data-es="admin ARGIA — puede gestionar todo aquí">ARGIA admin — can manage everything here</span></label></p>
+ <span data-en="ARGIA admin - can manage everything here"
+  data-es="admin ARGIA - puede gestionar todo aquí">ARGIA admin - can manage everything here</span></label></p>
 <p><button class="btn" data-en="Save changes" data-es="Guardar cambios">Save changes</button>
  <a class="btn" href="." data-en="Cancel" data-es="Cancelar">Cancel</a></p>
 </form></div>'''
 
 
 # ---------------------------------------------------------------------------
-# Maintenance events — the invoicing maintenance flag (v3 item 11).
+# Maintenance events - the invoicing maintenance flag (v3 item 11).
 # Stored in PostgreSQL (argia_mont.maintenance_event). Fail-closed like the
 # sheet tab it replaces: only an APPROVED 'customer' event produces deemed
 # (billable) energy at billing time; drafts and argia/force-majeure events
@@ -940,7 +940,7 @@ def maintenance_card():
                 f'<input type="hidden" name="id" value="{mid}">'
                 '<button class="btn" data-en="delete" data-es="borrar">delete</button></form>')
         badge = (f'<span class="pill">approved: {html.escape(appr)}</span>' if appr
-                 else '<span class="pill" style="background:#fdf0dc;color:#a05c00">DRAFT — not billable</span>')
+                 else '<span class="pill" style="background:#fdf0dc;color:#a05c00">DRAFT - not billable</span>')
         trs.append(
             f'<tr><td>{html.escape(pk)}</td><td>{html.escape(st)}</td>'
             f'<td>{html.escape(en) or "<i>ongoing</i>"}</td>'
@@ -957,8 +957,8 @@ def maintenance_card():
                  '<th data-en="Cost" data-es="Costo">Cost</th><th data-en="Note" data-es="Nota">Note</th>'
                  '<th>Status</th><th></th></tr>' + ''.join(trs) + '</table>'
                  if trs else '<p class="note" data-en="No maintenance events yet." data-es="Sin eventos de mantenimiento.">No maintenance events yet.</p>')
-    return f'''<div class="card"><h2 data-en="Maintenance events — the invoicing flag"
- data-es="Eventos de mantenimiento — la bandera de facturación">Maintenance events — the invoicing flag</h2>
+    return f'''<div class="card"><h2 data-en="Maintenance events - the invoicing flag"
+ data-es="Eventos de mantenimiento - la bandera de facturación">Maintenance events - the invoicing flag</h2>
 <p class="note" data-en="Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy (contract-anchored), like ARGIA_Solar Invoicing. 'argia' and 'force_majeure' are recorded but never billed. Leave End empty for an ongoing event and close it later."
  data-es="Categoría 'customer' = paro causado por el cliente: una vez APROBADO, esas horas se facturan como energía compensada (anclada al contrato). 'argia' y 'force_majeure' se registran pero nunca se facturan. Deje Fin vacío para un evento en curso.">
 Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy.</p>
@@ -986,7 +986,7 @@ def _post_done(msg, to='/setup/'):
     with the outcome in ?m=. Returning render() directly leaves the
     browser parked on the POST URL (/setup/mail/add), where every
     relative form action on the page then resolves one level too deep
-    and 404s — exactly what bit Tomasz subscribing to a second channel
+    and 404s - exactly what bit Tomasz subscribing to a second channel
     (2026-09-02)."""
     from urllib.parse import quote
     return redirect(to.split('#')[0] + '?m=' + quote(msg or '')
@@ -1007,11 +1007,11 @@ def maint_add():
     note = (request.form.get('note') or '').strip()[:200]
     if plant not in PLANTS or cat not in MAINT_CATEGORIES \
             or not _TS_RE.match(start) or (end and not _TS_RE.match(end)):
-        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: invalid plant/category/time — nothing saved')
+        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: invalid plant/category/time - nothing saved')
     try:
         cost_sql = f'{float(cost):.2f}' if cost else 'NULL'
     except ValueError:
-        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: cost must be a number — nothing saved')
+        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: cost must be a number - nothing saved')
     mx = "AT TIME ZONE 'America/Mexico_City'"
     end_sql = f"timestamp '{end.replace('T', ' ')}' {mx}" if end else 'NULL'
     ct_sql = _sqlq(ct) if ct in MAINT_COST_TYPES else 'NULL'
@@ -1021,7 +1021,7 @@ def maint_add():
          f" ({_sqlq(plant.upper())}, timestamp '{start.replace('T', ' ')}' {mx},"
          f" {end_sql}, {_sqlq(cat)}, {ct_sql}, {cost_sql}, {_sqlq(note)},"
          f" {_sqlq(me)});")
-    return _post_done(to='/setup/plants/#maintenance', msg='maintenance event logged as DRAFT — approve it to make it billable')
+    return _post_done(to='/setup/plants/#maintenance', msg='maintenance event logged as DRAFT - approve it to make it billable')
 
 
 @app.post('/maint/close')
@@ -1048,7 +1048,7 @@ def maint_approve():
         mid = 0
     psql(f'UPDATE maintenance_event SET approved_by = {_sqlq(me)} '
          f'WHERE id = {mid} AND approved_by IS NULL;')
-    return _post_done(to='/setup/plants/#maintenance', msg=f'maintenance event #{mid} approved — billable if category=customer')
+    return _post_done(to='/setup/plants/#maintenance', msg=f'maintenance event #{mid} approved - billable if category=customer')
 
 
 @app.post('/maint/delete')
@@ -1066,10 +1066,10 @@ def maint_delete():
 
 
 # ---------------------------------------------------------------------------
-# Email subscriptions (v176) — per-channel mailing lists, admin-managed.
+# Email subscriptions (v176) - per-channel mailing lists, admin-managed.
 # Channels: maintenance (live alerts, per-plant scopable), financial
 # (weekly + monthly report PDF), daily (19:00 PPA performance summary).
-# Only PORTAL USERS can subscribe — the form offers accounts with an
+# Only PORTAL USERS can subscribe - the form offers accounts with an
 # email on file, nothing free-typed. Consumed by alert_mailer,
 # financial_mail and daily_perf_mail. This SQL must stay byte-identical
 # to argia/alerts/subscriptions.ENSURE_SQL (the bundle cannot import
@@ -1077,13 +1077,13 @@ def maint_delete():
 # ---------------------------------------------------------------------------
 MAIL_CHANNELS = ('maintenance', 'financial', 'daily', 'reports')
 MAIL_CHANNEL_LABEL = {
-    'maintenance': 'Maintenance — live alerts',
+    'maintenance': 'Maintenance - live alerts',
     'financial': 'Financial reports',
     'daily': 'Daily PPA performance (19:00)',
     'reports': 'Daily PDF reports (morning + evening)',
 }
 MAIL_CHANNEL_LABEL_ES = {   # v237: the people page reads Spanish too
-    'maintenance': 'Mantenimiento — alertas en vivo',
+    'maintenance': 'Mantenimiento - alertas en vivo',
     'financial': 'Reportes financieros',
     'daily': 'Desempeño PPA diario (19:00)',
     'reports': 'Reportes PDF diarios (mañana + tarde)',
@@ -1116,7 +1116,7 @@ def _mail_ensure():
 
 def _mail_users():
     """Portal accounts eligible to receive mail: enabled, email on
-    file. [(username, display, email)] — the ONLY source of addresses."""
+    file. [(username, display, email)] - the ONLY source of addresses."""
     c = db()
     rows = c.execute("SELECT username, first_name, last_name, email"
                      " FROM users WHERE disabled=0 AND email != ''"
@@ -1149,14 +1149,14 @@ def subscriptions_card():
                  '<span class="pill" style="background:#eceef0;color:#5f6368" data-en="paused" data-es="pausada">paused</span>')
         if who is None:
             badge += (' <span class="pill" style="background:#fdeaea;'
-                      'color:#b3261e" data-en="no portal account — not mailed"'
-                      ' data-es="sin cuenta — no recibe">no portal account'
-                      ' — not mailed</span>')
+                      'color:#b3261e" data-en="no portal account - not mailed"'
+                      ' data-es="sin cuenta - no recibe">no portal account'
+                      ' - not mailed</span>')
         scope = (html.escape(plants.replace(',', ', '))
                  if plants.strip() else
                  '<i data-en="all plants" data-es="todas">all plants</i>')
         if chan != 'maintenance':
-            scope = '—'
+            scope = ' - '
         acts = (
             f'<form method="post" action="/setup/mail/toggle" style="display:inline">'
             f'<input type="hidden" name="csrf" value="{CSRF}">'
@@ -1182,7 +1182,7 @@ def subscriptions_card():
                  '<th data-en="Added by" data-es="Agregado por">Added by</th>'
                  '<th></th></tr>' + ''.join(trs) + '</table>'
                  if trs else
-                 '<p class="note" data-en="No subscriptions yet — nobody receives any email." data-es="Sin suscripciones — nadie recibe correos.">No subscriptions yet — nobody receives any email.</p>')
+                 '<p class="note" data-en="No subscriptions yet - nobody receives any email." data-es="Sin suscripciones - nadie recibe correos.">No subscriptions yet - nobody receives any email.</p>')
     user_opts = ''.join(
         f'<option value="{html.escape(u)}">{html.escape(name)} '
         f'&lt;{html.escape(em)}&gt;</option>' for u, name, em in users)
@@ -1194,17 +1194,17 @@ def subscriptions_card():
         f'<input type="checkbox" name="plants" value="{p.upper()}"> '
         f'{p.upper()}</label>' for p in PLANTS)
     add_form = (
-        '<p class="note" data-en="No portal accounts with an email on file — add the email on the user\'s account first." data-es="Ninguna cuenta con correo — agregue el correo en la cuenta primero.">'
-        'No portal accounts with an email on file — add the email on the '
+        '<p class="note" data-en="No portal accounts with an email on file - add the email on the user\'s account first." data-es="Ninguna cuenta con correo - agregue el correo en la cuenta primero.">'
+        'No portal accounts with an email on file - add the email on the '
         "user's account first.</p>" if not users else f'''
 <form method="post" action="/setup/mail/add" style="margin-top:10px">
 <input type="hidden" name="csrf" value="{CSRF}">
 <p><select name="username">{user_opts}</select>
  <select name="channel">{chan_opts}</select>
  <button class="btn" data-en="Subscribe" data-es="Suscribir">Subscribe</button></p>
-<p class="note" data-en="Plant scope — maintenance channel only. Leave all unchecked for ALL plants + server/infrastructure alerts; check specific plants to limit a person to those plants (he then gets no server alerts either)."
- data-es="Alcance por planta — solo canal de mantenimiento. Sin marcar = TODAS las plantas + alertas de servidor; marque plantas para limitar a esa persona (tampoco recibe alertas de servidor).">
-Plant scope — maintenance channel only. Unchecked = all plants +
+<p class="note" data-en="Plant scope - maintenance channel only. Leave all unchecked for ALL plants + server/infrastructure alerts; check specific plants to limit a person to those plants (he then gets no server alerts either)."
+ data-es="Alcance por planta - solo canal de mantenimiento. Sin marcar = TODAS las plantas + alertas de servidor; marque plantas para limitar a esa persona (tampoco recibe alertas de servidor).">
+Plant scope - maintenance channel only. Unchecked = all plants +
 server alerts; checked = only those plants.</p>
 <p>{plant_boxes}</p>
 </form>''')
@@ -1231,11 +1231,11 @@ def mail_add():
     uname = (request.form.get('username') or '').strip()
     chan = (request.form.get('channel') or '').strip()
     if not _mail_channel_ok(chan):
-        return _post_done(to='/setup/people/#mail', msg='subscriptions: unknown channel — nothing saved')
+        return _post_done(to='/setup/people/#mail', msg='subscriptions: unknown channel - nothing saved')
     match = [(u, n, em) for u, n, em in _mail_users() if u == uname]
     if not match:
         return _post_done(to='/setup/people/#mail', msg='subscriptions: not a portal user with an email'
-                      ' on file — nothing saved')
+                      ' on file - nothing saved')
     email = match[0][2]
     plants = ''
     if chan == 'maintenance':
@@ -1282,7 +1282,7 @@ def mail_delete():
 
 
 # ======================= finance setup (admins) =======================
-# /setup/finance — the commercial inputs behind the financial report:
+# /setup/finance - the commercial inputs behind the financial report:
 # loans, future installments, FX projections, O&M, LaaS fees, tariffs.
 # PG is the single authority (webreport reads it too); every write is
 # audited and the report page regenerates immediately.
@@ -1295,7 +1295,7 @@ REPORT_GEN = os.path.join(sys_dir, 'report_gen.py')
 
 
 def _fin_month_now():
-    """Current MX month 'YYYY-MM' — the first editable month; anything
+    """Current MX month 'YYYY-MM' - the first editable month; anything
     earlier is paid history and immutable."""
     import datetime
     from zoneinfo import ZoneInfo
@@ -1328,8 +1328,8 @@ def _fin_write(me, plant, loan_id, action, detail, sqls):
         psql(s)
     psql(fin.sql_audit(me, plant, loan_id, action, detail))
     ok = _fin_regen()
-    return ('%s — saved; financial report regenerated' % detail if ok else
-            '%s — saved, but report regeneration FAILED; it will refresh '
+    return ('%s - saved; financial report regenerated' % detail if ok else
+            '%s - saved, but report regeneration FAILED; it will refresh '
             'on the next scheduled run' % detail)
 
 
@@ -1341,12 +1341,12 @@ def _fin_fmt(v, dec=2):
     try:
         return f'{float(v):,.{dec}f}'
     except (TypeError, ValueError):
-        return '—'
+        return ' - '
 
 
 def finance_sections():
     """The Finance drawer's tabs, each a list of cards (v200 split of the
-    old single finance page — same forms, same POST routes)."""
+    old single finance page - same forms, same POST routes)."""
     psql(fin.ENSURE_AUDIT_SQL)
     m0 = _fin_month_now()
     csrf = f'<input type="hidden" name="csrf" value="{CSRF}">'
@@ -1356,9 +1356,9 @@ def finance_sections():
     # ---- loans ----
     sect['loans'] = [f'''<div class="card"><h2 data-en="How this works"
  data-es="Cómo funciona">How this works</h2>
-<p class="note" data-en="Paid history is immutable — every edit applies from the chosen month FORWARD (earliest: {m0}). USD loans: the currency amount and FX are authoritative, MXN is recomputed. Every change is logged below and the financial report regenerates immediately."
- data-es="El historial pagado es inmutable — cada cambio aplica desde el mes elegido EN ADELANTE (mínimo: {m0}). Créditos USD: el monto en divisa y el tipo de cambio mandan, el MXN se recalcula. Todo cambio queda registrado abajo y el reporte financiero se regenera de inmediato.">
-Paid history is immutable — edits apply from the chosen month forward.</p></div>''']
+<p class="note" data-en="Paid history is immutable - every edit applies from the chosen month FORWARD (earliest: {m0}). USD loans: the currency amount and FX are authoritative, MXN is recomputed. Every change is logged below and the financial report regenerates immediately."
+ data-es="El historial pagado es inmutable - cada cambio aplica desde el mes elegido EN ADELANTE (mínimo: {m0}). Créditos USD: el monto en divisa y el tipo de cambio mandan, el MXN se recalcula. Todo cambio queda registrado abajo y el reporte financiero se regenera de inmediato.">
+Paid history is immutable - edits apply from the chosen month forward.</p></div>''']
 
     loans = _fin_rows(
         "SELECT l.loan_id, l.plant_key, l.project_name, l.bank,"
@@ -1409,7 +1409,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <label data-en="End loan at" data-es="Terminar crédito en">End loan at</label>
 <input type="month" name="from_month" min="{m0}">
 <button class="btn danger" data-en="Truncate" data-es="Truncar">Truncate</button></form>''')
-        sect['loans'].append(f'''<div class="card"><h2>{e(pk)} · {e(lid)} — {e(name)}</h2>
+        sect['loans'].append(f'''<div class="card"><h2>{e(pk)} · {e(lid)} - {e(name)}</h2>
 <p class="note" style="{mono}">{e(bank)} · {ccy} ·
 <span data-en="principal" data-es="principal">principal</span> {_fin_fmt(principal)} MXN ·
 <span data-en="position" data-es="posición">position</span> {paid}/{total} · {first} → {last} ·
@@ -1432,8 +1432,8 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <input type="hidden" name="plant" value="{html.escape(pk)}">
 <input type="text" name="amount" size="9">
 <button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
-    sect['om'].append('<div class="card"><h2 data-en="O&amp;M — monthly cost (MXN)"'
-                 ' data-es="O&amp;M — costo mensual (MXN)">O&amp;M — monthly'
+    sect['om'].append('<div class="card"><h2 data-en="O&amp;M - monthly cost (MXN)"'
+                 ' data-es="O&amp;M - costo mensual (MXN)">O&amp;M - monthly'
                  ' cost (MXN)</h2><table><tr><th>Plant</th><th>Customer</th>'
                  '<th data-en="Current" data-es="Actual">Current</th>'
                  '<th data-en="New value" data-es="Nuevo valor">New value</th>'
@@ -1477,9 +1477,9 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
     sect['tariffs'].append('<div class="card"><h2 data-en="PPA tariffs (MXN/kWh)"'
                  ' data-es="Tarifas PPA (MXN/kWh)">PPA tariffs (MXN/kWh)</h2>'
                  '<p class="note" data-en="Sets a FLAT tariff from the chosen'
-                 ' month onward — contract escalations after that month are'
+                 ' month onward - contract escalations after that month are'
                  ' overwritten. Use only for renegotiations."'
-                 ' data-es="Fija una tarifa PLANA desde el mes elegido —'
+                 ' data-es="Fija una tarifa PLANA desde el mes elegido -'
                  ' las escalaciones contractuales posteriores se'
                  ' sobrescriben. Solo para renegociaciones.">Sets a FLAT'
                  ' tariff from the chosen month onward.</p><table><tr>'
@@ -1496,7 +1496,7 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
             "SELECT plant_key, customer, coalesce(pr_baseline,0),"
             " coalesce(sla_target,0), portfolio"
             " FROM plant WHERE active ORDER BY portfolio, plant_key;"):
-        cur = f'{float(prb)*100:.1f}%' if prb not in ('', '0') else '—'
+        cur = f'{float(prb)*100:.1f}%' if prb not in ('', '0') else ' - '
         sla_cur = (f'{float(sla)*100:.1f}%' if sla not in ('', '0')
                    else '98% <span class="note" data-en="(assumed)"'
                         ' data-es="(supuesto)">(assumed)</span>')
@@ -1512,19 +1512,19 @@ Paid history is immutable — edits apply from the chosen month forward.</p></di
 <input type="hidden" name="plant" value="{html.escape(pk)}">
 <input type="text" name="value" size="6" placeholder="0.98">
 <button class="btn" data-en="Set" data-es="Fijar">Set</button></form></td></tr>''')
-    sect['baselines'].append('<div class="card"><h2 data-en="Performance — PR baseline'
-                 ' &amp; availability SLA per plant" data-es="Desempeño —'
+    sect['baselines'].append('<div class="card"><h2 data-en="Performance - PR baseline'
+                 ' &amp; availability SLA per plant" data-es="Desempeño -'
                  ' línea base de PR y SLA de disponibilidad por planta">'
-                 'Performance — PR baseline &amp; availability SLA per'
+                 'Performance - PR baseline &amp; availability SLA per'
                  ' plant</h2>'
                  '<p class="note" data-en="PR baseline: clean-state'
-                 ' Performance Ratio reference (0.50–1.00, e.g. 0.85) —'
+                 ' Performance Ratio reference (0.50–1.00, e.g. 0.85) -'
                  ' sets the PR tile color and the soiling-drift line. SLA:'
                  ' per-contract availability target (0.80–1.00); until one'
                  ' is set the pages use 98% labeled as assumed. This editor'
                  ' is the authority; changes are audited and pages'
                  ' regenerate immediately." data-es="Línea base de PR:'
-                 ' referencia en estado limpio (0.50–1.00, ej. 0.85) —'
+                 ' referencia en estado limpio (0.50–1.00, ej. 0.85) -'
                  ' define el color del PR y la deriva por suciedad. SLA:'
                  ' objetivo contractual de disponibilidad (0.80–1.00);'
                  ' mientras no se fije, las páginas usan 98% marcado como'
@@ -1582,10 +1582,10 @@ def invoicing_card():
     return ('<div class="card"><h2 data-en="Invoicing register (last 36 plant-months)"'
             ' data-es="Registro de facturación (últimos 36 planta-mes)">'
             'Invoicing register (last 36 plant-months)</h2>'
-            '<p class="note" data-en="What was actually invoiced per plant-month — the annex'
+            '<p class="note" data-en="What was actually invoiced per plant-month - the annex'
             ' renders invoiced months from here. Read-only: the entry form for new months is'
             ' pending a decision (admin card vs. the reconciliation close)."'
-            ' data-es="Lo facturado por planta-mes — el anexo muestra los meses facturados'
+            ' data-es="Lo facturado por planta-mes - el anexo muestra los meses facturados'
             ' desde aquí. Solo lectura: el formulario para meses nuevos espera una decisión.">'
             'What was actually invoiced per plant-month.</p>'
             '<table><tr><th>Month</th><th>Plant</th><th>Produced kWh</th><th>Penalty kWh</th>'
@@ -1632,7 +1632,7 @@ def finance_om():
     plant = (request.form.get('plant') or '').strip().upper()
     amount = fin.parse_num(request.form.get('amount'), 0, fin.MAX_OM)
     if plant.lower() not in PLANTS + ['loax1', 'lgto1'] or amount is None:
-        return finance_page(msg='O&M: invalid plant or amount — nothing saved')
+        return finance_page(msg='O&M: invalid plant or amount - nothing saved')
     return finance_page(msg=_fin_write(
         me, plant, '', 'om',
         f'{plant}: O&M set to {amount:,.2f} MXN/month',
@@ -1651,7 +1651,7 @@ def finance_prbaseline():
         "SELECT plant_key FROM plant WHERE active;")]
     if plant not in known or value is None:
         return finance_page(msg='PR baseline: invalid plant or value '
-                                '(0.50–1.00) — nothing saved')
+                                '(0.50–1.00) - nothing saved')
     return finance_page(msg=_fin_write(
         me, plant, '', 'pr_baseline',
         f'{plant}: PR baseline set to {value*100:.1f}%',
@@ -1670,7 +1670,7 @@ def finance_sla():
         "SELECT plant_key FROM plant WHERE active;")]
     if plant not in known or value is None:
         return finance_page(msg='SLA: invalid plant or value '
-                                '(0.80–1.00) — nothing saved')
+                                '(0.80–1.00) - nothing saved')
     psql(fin.ENSURE_SLA_COL_SQL)
     return finance_page(msg=_fin_write(
         me, plant, '', 'sla_target',
@@ -1687,7 +1687,7 @@ def finance_principal():
     info = _fin_loan(lid)
     amount = fin.parse_num(request.form.get('amount'), 1, fin.MAX_PRINCIPAL)
     if not info or amount is None:
-        return finance_page(msg='principal: invalid loan or amount — nothing saved')
+        return finance_page(msg='principal: invalid loan or amount - nothing saved')
     return finance_page(msg=_fin_write(
         me, info[0], lid, 'principal',
         f'{lid}: principal set to {amount:,.2f} MXN',
@@ -1704,12 +1704,12 @@ def finance_payments():
     from_ym = fin.parse_month(request.form.get('from_month'),
                               min_month=_fin_month_now())
     if not info or not from_ym:
-        return finance_page(msg='payments: invalid loan or month — nothing saved')
+        return finance_page(msg='payments: invalid loan or month - nothing saved')
     usd = info[1] == 'USD'
     amount = fin.parse_num(request.form.get('amount'), 0,
                            fin.MAX_PAYMENT_CCY if usd else fin.MAX_PAYMENT_MXN)
     if amount is None:
-        return finance_page(msg='payments: invalid amount — nothing saved')
+        return finance_page(msg='payments: invalid amount - nothing saved')
     sql = (fin.sql_set_payment_ccy(lid, from_ym, amount) if usd
            else fin.sql_set_payment_mxn(lid, from_ym, amount))
     return finance_page(msg=_fin_write(
@@ -1729,7 +1729,7 @@ def finance_fx():
                               min_month=_fin_month_now())
     rate = fin.parse_num(request.form.get('rate'), fin.FX_MIN, fin.FX_MAX)
     if not info or info[1] != 'USD' or not from_ym or rate is None:
-        return finance_page(msg='FX: invalid loan/month/rate — nothing saved')
+        return finance_page(msg='FX: invalid loan/month/rate - nothing saved')
     return finance_page(msg=_fin_write(
         me, info[0], lid, 'fx',
         f'{lid}: FX projection {rate:.4f} USD/MXN from {from_ym}',
@@ -1746,16 +1746,16 @@ def finance_extend():
     to_ym = fin.parse_month(request.form.get('to_month'),
                             min_month=_fin_month_now())
     if not info or not to_ym:
-        return finance_page(msg='extend: invalid loan or month — nothing saved')
+        return finance_page(msg='extend: invalid loan or month - nothing saved')
     pk, ccy, last_ym, last_no = info[0], info[1], info[2], int(info[3] or 0)
     usd = ccy == 'USD'
     amount = fin.parse_num(request.form.get('amount'), 0,
                            fin.MAX_PAYMENT_CCY if usd else fin.MAX_PAYMENT_MXN)
     if amount is None:
-        return finance_page(msg='extend: invalid amount — nothing saved')
+        return finance_page(msg='extend: invalid amount - nothing saved')
     months = fin.months_seq(last_ym, to_ym)
     if not months:
-        return finance_page(msg=f'extend: {lid} already runs through {last_ym} — nothing to add')
+        return finance_page(msg=f'extend: {lid} already runs through {last_ym} - nothing to add')
     xr = None
     if usd:
         r = _fin_rows("SELECT xr FROM loan_schedule WHERE loan_id ="
@@ -1782,7 +1782,7 @@ def finance_truncate():
     from_ym = fin.parse_month(request.form.get('from_month'),
                               min_month=_fin_month_now())
     if not info or not from_ym:
-        return finance_page(msg='truncate: invalid loan or month — nothing saved')
+        return finance_page(msg='truncate: invalid loan or month - nothing saved')
     return finance_page(msg=_fin_write(
         me, info[0], lid, 'truncate',
         f'{lid}: installments from {from_ym} onward removed',
@@ -1800,7 +1800,7 @@ def finance_fee():
     amount = fin.parse_num(request.form.get('amount'), 0, fin.MAX_FEE_CCY)
     if not re.match(r'^[A-Z0-9]{3,6}$', plant) or not from_ym \
             or amount is None:
-        return finance_page(msg='fee: invalid asset/month/amount — nothing saved')
+        return finance_page(msg='fee: invalid asset/month/amount - nothing saved')
     return finance_page(msg=_fin_write(
         me, plant, '', 'fee',
         f'{plant}: LaaS fee {amount:,.2f} (native ccy) from {from_ym}',
@@ -1817,7 +1817,7 @@ def finance_tariff():
                               min_month=_fin_month_now())
     amount = fin.parse_num(request.form.get('amount'), 0.01, fin.MAX_TARIFF)
     if plant.lower() not in PLANTS or not from_ym or amount is None:
-        return finance_page(msg='tariff: invalid plant/month/amount — nothing saved')
+        return finance_page(msg='tariff: invalid plant/month/amount - nothing saved')
     return finance_page(msg=_fin_write(
         me, plant, '', 'tariff',
         f'{plant}: tariff {amount:.4f} MXN/kWh (flat) from {from_ym}',
@@ -1851,7 +1851,7 @@ def _rows(sql):
         return [['__error__', str(e)[:160]]]
 
 
-def _table(headers, rows, empty='—'):
+def _table(headers, rows, empty=' - '):
     if rows and rows[0] and rows[0][0] == '__error__':
         return f'<p class="note">unavailable: {html.escape(rows[0][1])}</p>'
     th = ''.join(f'<th>{html.escape(h)}</th>' for h in headers)
@@ -1899,9 +1899,9 @@ def ask_allow_card():
         names = None
     body = ('<p class="note">allow-list file not found</p>' if names is None else
             ('<ul>' + ''.join(f'<li>{html.escape(n)}</li>' for n in names) + '</ul>'
-             if names else '<p class="note">empty — nobody can use Ask ARGIA</p>'))
-    return ('<div class="card"><h2 data-en="Ask ARGIA — who may ask" data-es="Ask ARGIA — quién puede preguntar">'
-            'Ask ARGIA — who may ask</h2><p class="note">'
+             if names else '<p class="note">empty - nobody can use Ask ARGIA</p>'))
+    return ('<div class="card"><h2 data-en="Ask ARGIA - who may ask" data-es="Ask ARGIA - quién puede preguntar">'
+            'Ask ARGIA - who may ask</h2><p class="note">'
             f'<code>{html.escape(ASK_ALLOW)}</code>, read live by the assistant (v187.5). '
             'Edit the file to change it; a table-backed editor comes with the People drawer.</p>'
             + body + '</div>')
@@ -1915,10 +1915,10 @@ def cfe_status_card():
     if st and st[0][0] != '__error__' and len(st[0]) >= 7:
         h, ps, pr, sm, lc, lr, up = st[0]
         kv = ('<table class="kv">'
-              f'<tr><td>Heartbeat (Pi probe)</td><td>{html.escape(h) or "—"}</td></tr>'
-              f'<tr><td>Probe status</td><td>{html.escape(ps) or "—"} ({html.escape(pr) or "0"} rows)</td></tr>'
-              f'<tr><td>Sent month</td><td>{html.escape(sm) or "—"}</td></tr>'
-              f'<tr><td>Last CSV</td><td>{html.escape(lc) or "—"} — {html.escape(lr) or "—"}</td></tr>'
+              f'<tr><td>Heartbeat (Pi probe)</td><td>{html.escape(h) or " - "}</td></tr>'
+              f'<tr><td>Probe status</td><td>{html.escape(ps) or " - "} ({html.escape(pr) or "0"} rows)</td></tr>'
+              f'<tr><td>Sent month</td><td>{html.escape(sm) or " - "}</td></tr>'
+              f'<tr><td>Last CSV</td><td>{html.escape(lc) or " - "} - {html.escape(lr) or " - "}</td></tr>'
               f'<tr><td>Updated</td><td>{html.escape(up)}</td></tr></table>')
     else:
         kv = '<p class="note">no pipeline status row yet</p>'
@@ -1932,8 +1932,8 @@ def cfe_status_card():
 def cfe_push_card():
     rows = _rows("SELECT script, status, started_at::text, coalesce(left(error,100),'')"
                  " FROM sync_run WHERE script LIKE 'cfe%' ORDER BY id DESC LIMIT 8;")
-    return ('<div class="card"><h2 data-en="Engine push — last runs" data-es="Envío al Engine — últimas ejecuciones">'
-            'Engine push — last runs</h2><p class="note">cfe_ingest / cfe_push as recorded in sync_run.</p>'
+    return ('<div class="card"><h2 data-en="Engine push - last runs" data-es="Envío al Engine - últimas ejecuciones">'
+            'Engine push - last runs</h2><p class="note">cfe_ingest / cfe_push as recorded in sync_run.</p>'
             + _table(['Job', 'Status', 'Started', 'Error'], rows) + '</div>')
 
 
@@ -1949,7 +1949,7 @@ def jobs_card():
     bad = cat.parse_failed_units(failed)
     head = ('<p class="ok" data-en="No failed ARGIA units." data-es="Ningún servicio ARGIA fallido.">No failed ARGIA units.</p>'
             if not bad else '<p class="bad">FAILED: ' + html.escape(', '.join(bad)) + '</p>')
-    rows = [[t['unit'].replace('.timer', ''), t['next'] or '—', t['left'], t['last'] or '—', t['passed']]
+    rows = [[t['unit'].replace('.timer', ''), t['next'] or ' - ', t['left'], t['last'] or ' - ', t['passed']]
             for t in timers]
     return ('<div class="card"><h2 data-en="Jobs &amp; timers" data-es="Tareas y temporizadores">Jobs &amp; timers</h2>'
             + head + _table(['Unit', 'Next (server time)', 'In', 'Last', 'Ago'], rows) + '</div>')
@@ -1982,7 +1982,7 @@ def exports_card():
                  "'report_daily','financial_report_publish') ORDER BY id DESC LIMIT 12;")
     return ('<div class="card"><h2 data-en="Drive exports" data-es="Exportaciones a Drive">Drive exports</h2>'
             '<p class="note">Telemetry CSVs (nightly), monthly archive (2nd of month), invoice annexes, '
-            'daily and financial reports — the last runs.</p>'
+            'daily and financial reports - the last runs.</p>'
             + _table(['Job', 'Status', 'Started', 'Error'], rows) + '</div>')
 
 
@@ -1994,7 +1994,7 @@ def people_drawer(msg='', once=None):
                 ('access', '<div class="card"><p class="note" data-en="Per-report access is edited '
                            'per user: pick a user above and use Edit access." data-es="El acceso por '
                            'reporte se edita por usuario: elija uno arriba y use Editar acceso.">'
-                           'Per-report access is edited per user — pick a user above.</p></div>'),
+                           'Per-report access is edited per user - pick a user above.</p></div>'),
                 ('mail', subscriptions_card()),
                 ('ask', ask_allow_card())]
     return page(cat.drawer_page(d, sections), msg=msg, once=once,
@@ -2058,8 +2058,8 @@ def cfe_drawer(msg=''):
         sections += [('status', cfe_status_card()), ('push', cfe_push_card())]
     else:
         d['tabs'] = [tb for tb in d['tabs'] if tb[0] == 'explorer']
-        d['sub_en'], d['sub_es'] = ('CFE industrial tariffs — every scheme, region and charge, as CFE publishes them.',
-                                    'Tarifas industriales CFE — cada esquema, región y cargo, como las publica CFE.')
+        d['sub_en'], d['sub_es'] = ('CFE industrial tariffs - every scheme, region and charge, as CFE publishes them.',
+                                    'Tarifas industriales CFE - cada esquema, región y cargo, como las publica CFE.')
     return page(cat.drawer_page(d, sections), msg=msg, title=('CFE & tariffs', 'CFE y tarifas'),
                 sub=(d['sub_en'], d['sub_es']))
 
@@ -2079,7 +2079,7 @@ DRAWER_PAGES = {'people': people_drawer, 'plants': plants_drawer, 'finance': Non
 
 def render(msg='', once=None, drawer='people'):
     """Role-aware main page. Global admins land in the catalog (a drawer,
-    People by default — where every user action reports back); company
+    People by default - where every user action reports back); company
     admins keep the single page over their own users."""
     if not msg:
         msg = (request.args.get('m') or '')[:300]
@@ -2211,7 +2211,7 @@ def suspend():
     c.commit()
     c.close()
     sync()
-    verb = 'suspended — all sessions are now locked out' if new_state else 're-enabled'
+    verb = 'suspended - all sessions are now locked out' if new_state else 're-enabled'
     return render(msg=f'User {u} {verb}.')
 
 
@@ -2221,7 +2221,7 @@ def check_csrf():
 
 def stale_page():
     return render(msg='This page was open from before an app update, so the action '
-                      'was NOT applied. The page has been refreshed — please repeat '
+                      'was NOT applied. The page has been refreshed - please repeat '
                       'the action once.'), 409
 
 
@@ -2267,7 +2267,7 @@ def add():
     c.close()
     sync()
     return render(msg=f'User {u} created. They must type the username '
-                      f'exactly as "{u}" — logins are case-sensitive, '
+                      f'exactly as "{u}" - logins are case-sensitive, '
                       f'and the password carries no leading or '
                       f'trailing spaces.', once=once)
 
@@ -2317,7 +2317,7 @@ def settings():
     except OSError:
         pass
     return render(drawer='plants', msg=f'Settings saved for {pk} ({len(ups)} months). '
-                      'Reports are regenerating — refresh them in a minute.')
+                      'Reports are regenerating - refresh them in a minute.')
 
 
 @app.post('/password')
@@ -2360,7 +2360,7 @@ def delete():
 # ---------------------------------------------------------------- self
 # Any signed-in user changes their OWN password here. Mounted at
 # /account/ behind all.htpasswd (see snippets/argia_auth.conf), so it
-# needs no admin rights — unlike /setup/, which stays admin-only.
+# needs no admin rights - unlike /setup/, which stays admin-only.
 
 def account_page(msg='', ok=False, user='', pw_done=False):
     """My account: profile (name, surname, email) + password. One page,
@@ -2368,30 +2368,30 @@ def account_page(msg='', ok=False, user='', pw_done=False):
     tone = '#137333' if ok else '#c5221f'
     note = (f'<div class="card" style="border-color:{tone}">'
             f'<b>{html.escape(msg)}</b></div>') if msg else ''
-    if pw_done:   # password just changed — the form would only confuse
+    if pw_done:   # password just changed - the form would only confuse
         return page(note + '<div class="card"><p data-en="Your browser '
                     'still holds the old password. The next page you '
-                    'open will ask for it again — enter the new one, '
+                    'open will ask for it again - enter the new one, '
                     'and tick &quot;remember&quot; if your browser '
                     'offers it." data-es="Su navegador aún guarda la '
                     'contraseña anterior. La próxima página le '
-                    'preguntará de nuevo — escriba la nueva.">'
+                    'preguntará de nuevo - escriba la nueva.">'
                     'Your browser still holds the old password. The '
-                    'next page you open will ask for it again — enter '
+                    'next page you open will ask for it again - enter '
                     'the new one.</p></div>')
     c = db()
     row = c.execute('SELECT first_name,last_name,email,level,is_admin'
                     ' FROM users WHERE username=?', (user,)).fetchone()
     c.close()
     fname, lname, email, level, adm = row or ('', '', '', '', 0)
-    access = ('argia — all reports' if level == 'argia'
+    access = ('argia - all reports' if level == 'argia'
               else 'limited to the reports granted to you')
-    access_es = ('argia — todos los reportes' if level == 'argia'
+    access_es = ('argia - todos los reportes' if level == 'argia'
                  else 'limitado a los reportes que le fueron asignados')
     profile = f'''<div class="card">
 <h2 data-en="My details" data-es="Mis datos">My details</h2>
-<p class="note" data-en="Signed in as {html.escape(user)} · {access}{' · admin' if adm else ''}. Your username cannot be changed — ask an ARGIA admin."
- data-es="Sesión de {html.escape(user)} · {access_es}{' · admin' if adm else ''}. El usuario no se puede cambiar — pida a un administrador de ARGIA.">
+<p class="note" data-en="Signed in as {html.escape(user)} · {access}{' · admin' if adm else ''}. Your username cannot be changed - ask an ARGIA admin."
+ data-es="Sesión de {html.escape(user)} · {access_es}{' · admin' if adm else ''}. El usuario no se puede cambiar - pida a un administrador de ARGIA.">
 Signed in as {html.escape(user)} · {access}{' · admin' if adm else ''}.</p>
 <form method="post" action="profile">
 <input type="hidden" name="csrf" value="{CSRF}">
@@ -2430,7 +2430,7 @@ def account():
 def whoami():
     """Who nginx authenticated, for the header chip on the static
     pages. Lives under /account/ so it inherits that location's
-    all.htpasswd — no extra nginx rule, and it can never answer for
+    all.htpasswd - no extra nginx rule, and it can never answer for
     an unauthenticated caller."""
     u = clean_username(request.headers.get('X-Remote-User'))
     name, email, adm, level = profile_of(u) if u else ('', '', 0, '')
@@ -2451,7 +2451,7 @@ def account_change():
         return account_page('Not signed in.', user=u), 401
     wait = pw_lock_left(u)
     if wait:
-        return account_page(f'Too many wrong attempts — try again in '
+        return account_page(f'Too many wrong attempts - try again in '
                             f'{wait // 60 + 1} minute(s).', user=u), 429
     current = clean_password(request.form.get('current'))
     if not verify_pw(u, current):

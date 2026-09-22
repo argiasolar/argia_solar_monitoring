@@ -1,4 +1,4 @@
-"""v223 — less mail, each one carrying something (Tomasz, 2026-09-07):
+"""v223 - less mail, each one carrying something (Tomasz, 2026-09-07):
 
 * 2026-09-06 13:55-14:35 MX every Growatt plant went blank at once
   (PostgreSQL on pio06 unreachable for 35 min) and the daily silent rule
@@ -6,11 +6,11 @@
   collector's, never an inverter's;
 * 06:07 and 06:37 MX the infra mailer called SAG "CRITICAL: no
   telemetry today" (twice: the first-time INSERT never stamped
-  last_sent) — plant conditions leave that mailer; the ledger owns them,
+  last_sent) - plant conditions leave that mailer; the ledger owns them,
   with a WARNING for a data gap;
 * a FusionSolar row with no power, no counter and no temperature is no
   sample for the acute tier;
-* CRITICAL = energy lost or a unit off — "no telemetry" is a WARNING;
+* CRITICAL = energy lost or a unit off - "no telemetry" is a WARNING;
 * the daily_digest pseudo-alert is retired (the morning mail carries the
   still-open reminder itself).
 """
@@ -94,7 +94,7 @@ class TestSilentRuleIgnoresCollectorBlanks:
         # without the fleet context the old rule fires (comms, WARNING)
         old = evaluate_silent_gaps("GTO1", rows, self.RATED, mx(20, 0))
         assert len(old) == 1 and old[0].kind == "comms"
-        # with it: nothing — the whole fleet was blank
+        # with it: nothing - the whole fleet was blank
         assert evaluate_silent_gaps("GTO1", rows, self.RATED, mx(20, 0),
                                     collector=collector_windows(_fleet())) == []
 

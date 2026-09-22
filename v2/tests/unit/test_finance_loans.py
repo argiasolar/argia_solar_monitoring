@@ -3,7 +3,7 @@
 The reconciliation block is the migration's proof of faithfulness: the
 derived July-2026 debt service must reproduce v1's stored Credit-tab
 figures for every plant EXCEPT SLP1, where v1 is documented-wrong
-(24,622.50 stored vs 12,500.00 actually owed — its Credit row was never
+(24,622.50 stored vs 12,500.00 actually owed - its Credit row was never
 updated after the June-2026 refinance). If SLP1 ever "reconciles" to
 v1, someone has broken the fix.
 """
@@ -22,11 +22,11 @@ from argia.finance.loans import (
 
 DATA = Path(__file__).resolve().parents[2] / "data" / "finance"
 
-# v1 ARGIA_Solar Credit tab, export 2026-07-08 — stored Monthly_Payment
+# v1 ARGIA_Solar Credit tab, export 2026-07-08 - stored Monthly_Payment
 V1_CREDIT_MONTHLY_PAYMENT = {
     "GTO1": 151558.14, "LGTO1": 214944.43, "LOAX1": 340224.75,
     "MEX1": 187052.01, "MEX2": 143449.87, "NL1": 151535.81,
-    "SLP1": 24622.50,   # STALE — see module docstring
+    "SLP1": 24622.50,   # STALE - see module docstring
     "SLP2": 66223.21,
 }
 SLP1_TRUE_JULY_PAYMENT = 12500.00
@@ -100,7 +100,7 @@ class TestSeedIntegrity:
 
 
 # ---------------------------------------------------------------------------
-# Reconciliation against v1 — the migration's proof
+# Reconciliation against v1 - the migration's proof
 # ---------------------------------------------------------------------------
 
 class TestV1Reconciliation:
@@ -120,7 +120,7 @@ class TestV1Reconciliation:
 
     def test_slp1_refinance_seam_may_to_june_2026(self):
         # L1's final installment (24/24) lands in May; L2's first (1/12)
-        # in June — a clean handover with no overlap month. v1's Credit
+        # in June - a clean handover with no overlap month. v1's Credit
         # row kept quoting L1's payment after the handover.
         rows = _schedule_rows()
         may = sorted((r.loan_id, r.installment_no) for r in rows

@@ -1,12 +1,12 @@
-"""v252 — how ARGIA actually reaches SMA.
+"""v252 - how ARGIA actually reaches SMA.
 
 The Stage 6 scaffold was written before anyone had seen a real SMA response
 (its own doc predicted a "Stage 6.1 hotfix"). Three things it got wrong are
 pinned here, because each one silently returns no data rather than failing
 loudly:
 
-1. the production *data* host is a guess — SMA publishes the token and consent
-   hosts only — so it must be overridable without a code change;
+1. the production *data* host is a guess - SMA publishes the token and consent
+   hosts only - so it must be overridable without a code change;
 2. the device measurement set is discovered, never hard-coded: the one real
    capture we hold proves "pvGeneration" is not a set name the API accepts;
 3. no SMA credential is committed to this repository, which is public.
@@ -178,4 +178,4 @@ class TestNoCredentialIsCommitted:
         leaked = "a0TGLSqAs6NU5uH5" + "eFvgSSDjXNhli9eX"     # split so this test is not itself the leak
         hits = [str(p.relative_to(V2)) for p in V2.rglob("*.md")
                 if p.is_file() and leaked in p.read_text(encoding="utf-8", errors="ignore")]
-        assert not hits, f"still present in {hits} — and still in git history, so it must also be rotated with SMA"
+        assert not hits, f"still present in {hits} - and still in git history, so it must also be rotated with SMA"

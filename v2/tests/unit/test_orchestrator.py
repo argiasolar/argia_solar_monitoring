@@ -303,7 +303,7 @@ class TestRunDaily:
             date_iso="2026-05-10",
             client_factory=lambda plants: clients,
         )
-        # Second run with different value — should UPDATE, not append
+        # Second run with different value - should UPDATE, not append
         for c in clients.values():
             c.day_kwh = 250.0
         run_daily(
@@ -314,7 +314,7 @@ class TestRunDaily:
 
         # Still 2 rows total, updated values
         assert len(sheets.tabs[TAB_DAILY]) == 2
-        # Look at column index 3 (real_kwh) — should be 250 not 150
+        # Look at column index 3 (real_kwh) - should be 250 not 150
         kwh_values = {r[1]: r[3] for r in sheets.tabs[TAB_DAILY]}
         assert kwh_values["P1"] == 250.0
         assert kwh_values["P2"] == 250.0

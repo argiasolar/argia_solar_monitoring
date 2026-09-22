@@ -1,11 +1,11 @@
-"""Irradiance integration — Stage 7.2.
+"""Irradiance integration - Stage 7.2.
 
 Converts a day's W/m² readings into a single kWh/m² value.
 
 Two inputs supported:
-1. ``InverterRow.irradiance_wm2`` — from the plant's ShineMaster (or a neighbor).
+1. ``InverterRow.irradiance_wm2`` - from the plant's ShineMaster (or a neighbor).
    Sampled at telemetry cadence (typically every 5 min during daylight).
-2. ``InverterRow.cloud_cover_pct`` + plant coordinates — fallback when no
+2. ``InverterRow.cloud_cover_pct`` + plant coordinates - fallback when no
    ShineMaster reading. Uses a simple clear-sky-times-(1-cloud) model.
 
 Hybrid strategy: prefer #1 when we have ≥10 valid samples spread across the
@@ -61,7 +61,7 @@ MIN_SHINEMASTER_SAMPLES = 10
 
 # Realistic surface plane-of-array ceiling. Noon sun at AM1 tops out around
 # 1100 W/m²; the solar constant is ~1361. Readings above this are sensor
-# spikes — we CLAMP them to this value rather than drop the sample. Dropping
+# spikes - we CLAMP them to this value rather than drop the sample. Dropping
 # would remove the time point and, given the coarse ShineMaster cadence below,
 # blow a ~2h hole in the daily trapezoidal integral.
 MAX_PLAUSIBLE_WM2 = 1200.0
@@ -84,7 +84,7 @@ def _dedupe_by_timestamp(
     Filters out:
     - None readings and negatives
     - Duplicate timestamps (keeps the first one encountered after sort)
-    Clamps readings above MAX_PLAUSIBLE_WM2 down to it (sensor spikes) —
+    Clamps readings above MAX_PLAUSIBLE_WM2 down to it (sensor spikes) -
     the time point is kept so the daily integral stays connected.
     """
     if not rows:
@@ -182,7 +182,7 @@ def integrate_history_points(
 
     Same trapezoid as the snapshot path, but the input is the logger's
     stored minute-level series, so `min_samples` is stricter: fewer than
-    ~an hour of dense data means the fetch failed or the day is tiny —
+    ~an hour of dense data means the fetch failed or the day is tiny -
     the caller should fall back to the snapshot/cloud hybrid.
     """
     pts = sorted({(ts, min(max(w, 0.0), MAX_PLAUSIBLE_WM2))
@@ -221,7 +221,7 @@ def _clear_sky_kwh_m2_simple(
        (a coarse heuristic that matches NREL clear-sky averages for
        mid-latitudes ±10%)
     3. Apply (1 - cloud_fraction) × 0.7  derate
-       — the 0.7 accounts for the fact that even thick clouds let diffuse
+       - the 0.7 accounts for the fact that even thick clouds let diffuse
        radiation through
 
     Args:
@@ -252,7 +252,7 @@ def _clear_sky_kwh_m2_simple(
         return 0.0
     noon_elev_factor = sin_noon_elev  # in [0, 1]
 
-    # Clear-sky day total — heuristic
+    # Clear-sky day total - heuristic
     clear_sky_kwh_m2 = 9.0 * noon_elev_factor
 
     # Cloud derate

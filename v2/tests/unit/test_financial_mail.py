@@ -1,7 +1,7 @@
 """Tests: financial mailer windows + the backup chain's contracts.
 
 The mailer's window math is what decides which numbers the mailing
-list sees — a wrong previous-month boundary would silently ship a
+list sees - a wrong previous-month boundary would silently ship a
 wrong month-close. The shell scripts are the off-site backup chain;
 they must at least parse, and their key invariants (read-only pull,
 PGDMP integrity gate, retention counts) are locked as text so a later
@@ -31,12 +31,12 @@ class TestComputeWindow:
     def test_monthly_is_the_full_previous_month(self):
         d0, d1, label = compute_window("monthly", dt.date(2026, 9, 1))
         assert (d0, d1) == ("2026-08-01", "2026-08-31")
-        assert label == "August 2026 — month close"
+        assert label == "August 2026 - month close"
 
     def test_monthly_across_year_boundary(self):
         d0, d1, label = compute_window("monthly", dt.date(2027, 1, 1))
         assert (d0, d1) == ("2026-12-01", "2026-12-31")
-        assert label == "December 2026 — month close"
+        assert label == "December 2026 - month close"
 
     def test_monthly_handles_february(self):
         d0, d1, _ = compute_window("monthly", dt.date(2026, 3, 1))
@@ -56,9 +56,9 @@ class TestMailShape:
             "ARGIA_Financial_2026-09-01_to_2026-09-18.pdf"
 
     def test_subject_and_body_carry_the_window(self):
-        assert mail_subject("August 2026 — month close").startswith(
+        assert mail_subject("August 2026 - month close").startswith(
             "[ARGIA] Financial report")
-        body = mail_body("August 2026 — month close",
+        body = mail_body("August 2026 - month close",
                          "2026-08-01", "2026-08-31")
         assert "2026-08-01 .. 2026-08-31" in body
         assert "portal.argia.com.mx/report/financial/" in body   # v214: the portal
@@ -69,11 +69,11 @@ class TestMailShape:
 
     def test_pdf_is_a_one_pager(self):
         """v204: the mailed PDF is the financial page printed; the print
-        rules keep it on one A4 page — short asset names, 5 tiles in a
+        rules keep it on one A4 page - short asset names, 5 tiles in a
         row, no methodology card.
 
         v255: that sheet is LANDSCAPE. This test used to assert portrait,
-        which is what the page really declared — and what silently clipped
+        which is what the page really declared - and what silently clipped
         debt service, loan position and both DSCR columns off every mailed
         report, because `chromium --print-to-pdf` has no shrink-to-fit. The
         one-page intent is unchanged; only the orientation that makes nine
@@ -81,7 +81,7 @@ class TestMailShape:
         import pathlib
         src = (pathlib.Path(__file__).resolve().parents[2] / "server" / "bundle" / "report_gen.py"
                ).read_text(encoding="utf-8")
-        # v255: slice to the end of financial_body, not a magic 12000 chars —
+        # v255: slice to the end of financial_body, not a magic 12000 chars -
         # adding a comment used to push assertions out of the window.
         start = src.index("def financial_page")
         end = src.index("\ndef ", src.index("def financial_body"))
@@ -95,11 +95,11 @@ class TestMailShape:
 
 class TestReportGenWindowParams:
     def test_financial_page_reads_d0_d1_from_url(self):
-        # encoding pinned — Windows defaults to cp1250 (v167 lesson)
+        # encoding pinned - Windows defaults to cp1250 (v167 lesson)
         src = (V2 / "server/bundle/report_gen.py").read_text(encoding="utf-8")
         assert "location.hash" in src and "location.search" in src
         assert "URLSearchParams" in src
-        # strict date shape — garbage in the fragment must not stick
+        # strict date shape - garbage in the fragment must not stick
         assert r"^\d{{4}}-\d{{2}}-\d{{2}}$" in src
 
 

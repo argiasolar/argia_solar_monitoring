@@ -1,9 +1,9 @@
 """Tests: the plant-page dashboard redesign (management feedback v167).
 
 report_gen.py runs only on pio06 (it needs psql at import), so these
-are source-level invariants: every promise made to management — a
+are source-level invariants: every promise made to management - a
 tooltip on each KPI tile, the weather-expected chart line, the
-energy-at-risk estimate, the neutral coverage tile — is asserted
+energy-at-risk estimate, the neutral coverage tile - is asserted
 against the generator source, and the pure diff logic of the
 pr_baseline sync gets real unit tests.
 """
@@ -79,7 +79,7 @@ class TestWeatherExpectedLine:
         assert "return max(cfg, med_pr * (kwp or 0.0))" in SRC
 
     def test_sla_verdict_reviews_instead_of_breach_when_energy_ok(self):
-        # director's NL1 case: 93.6% availability, 102% of contract —
+        # director's NL1 case: 93.6% availability, 102% of contract -
         # produced-through-the-gap must read REVIEW, not BREACH
         assert "ranFine=xsum>0&&exsum>=0.97*xsum" in SRC
         assert "'REVIEW'" in SRC
@@ -98,12 +98,12 @@ class TestEnergyAtRisk:
         # round 3: "maybe it should be a new tile like it used to be"
         assert "avloss+=X[i]*(1-a)" in SRC
         assert 'id="t_loss"' in SRC
-        assert "Est. loss — unavailability" in SRC
+        assert "Est. loss - unavailability" in SRC
 
     def test_loss_is_priced_and_labeled_upper_bound(self):
         assert "'≤ ~$'+nf(avloss*TARIFF)+' MXN'" in SRC
         assert "const TARIFF={p[\"tariff\"] if is_ppa else 0}" in SRC
-        assert "upper bound — comms gaps count as loss" in SRC
+        assert "upper bound - comms gaps count as loss" in SRC
         assert "the ceiling, not the bill" in SRC      # tooltip honesty
 
     def test_zero_exposure_reads_as_zero_not_dash(self):
@@ -140,7 +140,7 @@ def _exec_seg(start, stop, ns):
 
 
 class TestInverter30d:
-    """The per-inverter rolling-30d aggregation (v169) — executed from
+    """The per-inverter rolling-30d aggregation (v169) - executed from
     the report_gen source, since that file only imports on pio06."""
 
     def _fns(self):
@@ -210,7 +210,7 @@ class TestInverterChart:
         assert 'onchange="argiaInvToggle(this)"' in svg          # the toggle lives in the chrome since v234
         assert 'x2="860"' in svg          # plot ends 40 px before the edge (was 12)
         assert "tkpill" not in svg        # tickets live in the table, never in the legend (v233)
-        # v233: the day box — the series ride along as JSON, the hover JS and the guide line are there
+        # v233: the day box - the series ride along as JSON, the hover JS and the guide line are there
         import json as _json, html as _html
         data = _json.loads(_html.unescape(svg.split('data-chart="', 1)[1].split('"', 1)[0]))
         assert data["labels"] == ["2026-09-01", "2026-09-02", "2026-09-03"] and data["xs"] == [54.0, 457.0, 860.0] and data["W"] == 900
@@ -259,7 +259,7 @@ class TestInverterChart:
 
     def test_card_embeds_the_chart_above_the_table(self):
         assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})" in SRC
-        # the chart's CSS lives in the portal chrome — report_gen's own stylesheet never reaches the portal pages
+        # the chart's CSS lives in the portal chrome - report_gen's own stylesheet never reaches the portal pages
         chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
         for rule in (".invchart,.hchart{position:relative", ".invlegs{", ".invleg{", ".chtip{", ".chguide{", ".tkpill{", ".sw{",
                      ".card>.invchart,.card>.hchart,.card>p.note{margin-left:20px;margin-right:20px}"):
@@ -269,7 +269,7 @@ class TestInverterChart:
         assert ".card{background:#fff;border:1px solid var(--line);border-radius:12px;position:relative}" in chrome   # h2 tooltips anchor
 
     def test_tile_values_fit_one_line(self):
-        """v233/v234 (Tomasz: the big bold numbers wrap inside the tiles) — the Map tile look:
+        """v233/v234 (Tomasz: the big bold numbers wrap inside the tiles) - the Map tile look:
         clamp(15px,1.4vw,20px), weight 700, one line."""
         chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
         assert ".tval{font-size:clamp(15px,1.4vw,20px);line-height:1.15;font-weight:700;color:var(--ink);white-space:nowrap}" in chrome
@@ -304,9 +304,9 @@ class TestInverterChart:
         assert '<p class="note" style="margin:0 20px 4px">' in SRC        # the chart note keeps the card\'s 20 px margin
         assert 'class="chguide"' in out and 'onmousemove="argiaChartHover(event,this)"' in out
         assert "+ chart +" in SRC and "Daily kWh per inverter, each from its own counter" in SRC
-        assert "Inverters — last 30 days" in SRC
+        assert "Inverters - last 30 days" in SRC
         assert "specific yield ÷ the plant median" in SRC
-        # fixed window disclosure — the date picker does not move it
+        # fixed window disclosure - the date picker does not move it
         assert "the date picker above does not move it" in SRC
 
 
@@ -332,7 +332,7 @@ class TestColoredTilesSayWhy:
 
     def test_reasons_live_on_the_flip_side(self):
         # Tomasz round 2: the reason sits on the BACK of the tile and
-        # the tile flips on hover — only when armed (.haswhy)
+        # the tile flips on hover - only when armed (.haswhy)
         assert "tl.classList.toggle('haswhy',!!html)" in SRC
         assert ".tile.haswhy:hover .flipin" in SRC
         assert "rotateY(180deg)" in SRC

@@ -1,8 +1,8 @@
-"""KPI_Daily archive — Stage 7.3.
+"""KPI_Daily archive - Stage 7.3.
 
 Append-only daily KPI persistence. One row per (date, plant_key). Live
 sheet keeps the most recent ``HOT_WINDOW_DAYS`` days (default 14); older
-rows are pruned by the EOD cron. Pruned rows are gone — there is no warm
+rows are pruned by the EOD cron. Pruned rows are gone - there is no warm
 archive in 7.3. If you need history beyond 14 days, Stage 7.6 will add a
 yearly archive tab.
 
@@ -15,19 +15,19 @@ Why 14 days and not 7 or 30:
 
 Schema (KPI_Daily tab):
 
-    date_iso              — local plant date (YYYY-MM-DD)
+    date_iso              - local plant date (YYYY-MM-DD)
     plant_key
-    energy_kwh            — end-of-day from sum of inverter etoday_kwh
-    irradiance_kwh_m2     — daily integral
-    irradiance_source     — shinemaster | cloud_cover_model | none
-    pr                    — Performance Ratio
-    pr_confidence         — HIGH | MEDIUM | LOW | NONE
-    capacity_factor       — daily CF
+    energy_kwh            - end-of-day from sum of inverter etoday_kwh
+    irradiance_kwh_m2     - daily integral
+    irradiance_source     - shinemaster | cloud_cover_model | none
+    pr                    - Performance Ratio
+    pr_confidence         - HIGH | MEDIUM | LOW | NONE
+    capacity_factor       - daily CF
     capacity_factor_confidence
-    inverters_reporting   — count of inverters that contributed energy
-    inverters_with_reboot — count of inverters that mid-day reset etoday
-    notes                 — diagnostic string from compute_plant_pr()
-    written_at_utc        — when this row was written
+    inverters_reporting   - count of inverters that contributed energy
+    inverters_with_reboot - count of inverters that mid-day reset etoday
+    notes                 - diagnostic string from compute_plant_pr()
+    written_at_utc        - when this row was written
 
 Natural key: (date_iso, plant_key). Re-running EOD for the same day
 *overwrites* that day's row (idempotent), not appends.
@@ -74,7 +74,7 @@ the reconcile; a false 'full' would let an undercounted day pass as a match."""
 
 DATA_CLASS_COL_NAME = "data_class"
 
-#: v91 — billable energy = measured energy_kwh + approved customer-deemed
+#: v91 - billable energy = measured energy_kwh + approved customer-deemed
 #: energy for the day. The finance layer prefers this column over
 #: energy_kwh (per-row) when computing PPA income.
 BILLABLE_KWH_COL_NAME = "billable_kwh"
@@ -144,7 +144,7 @@ def row_to_kpi(row: Dict) -> Optional[KpiDailyRow]:
     plant_key = normalize_text(row.get("plant_key"))
     if not date_iso or not plant_key:
         return None
-    # Validate date format — drop garbage rows defensively
+    # Validate date format - drop garbage rows defensively
     try:
         dt.date.fromisoformat(date_iso)
     except (ValueError, TypeError):
@@ -178,7 +178,7 @@ def load_kpi_daily(sheets: SheetsClient) -> List[KpiDailyRow]:
         from argia.kpi.pg_kpi_source import kpi_records
         raw = kpi_records(sheets, "A1:O")     # v190: sheet or PG
     except Exception as e:
-        LOG.warning("Could not read %s: %s — returning []", KPI_DAILY_TAB, e)
+        LOG.warning("Could not read %s: %s - returning []", KPI_DAILY_TAB, e)
         return []
     out: List[KpiDailyRow] = []
     for r in raw:
@@ -297,7 +297,7 @@ def upsert_kpi_rows(
     if not new_rows:
         return {"inserted": 0, "updated": 0, "unchanged": 0, "failed": 0}
 
-    # Validate row widths early — easier to debug than a sheets error
+    # Validate row widths early - easier to debug than a sheets error
     for i, row in enumerate(new_rows):
         if len(row) != len(KPI_DAILY_HEADER):
             raise ValueError(
@@ -379,7 +379,7 @@ def upsert_kpi_rows(
         try:
             # USER_ENTERED (not RAW) so date_iso is parsed to a real date, exactly
             # like the update path (write_row) does. A RAW insert stored date_iso
-            # as TEXT while updates stored it as a date, leaving the column mixed —
+            # as TEXT while updates stored it as a date, leaving the column mixed -
             # which breaks the downstream QUERY(IMPORTRANGE) in ARGIA_Solar (QUERY
             # infers one type per column and nulls the minority, dropping the
             # text-date rows from DailyData_v2 / Reconcile). written_at_utc's ISO
@@ -419,7 +419,7 @@ def classify_coverage(
         last MX-local hour >= cutoff -> "full"
         otherwise                    -> "partial"
 
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     if last_sample_utc is None:
         return DATA_CLASS_NO_DATA
@@ -437,7 +437,7 @@ def stamp_column(
 
     Surgical: reads KPI_Daily once, finds ``col_name`` BY NAME, maps each
     (date, plant) to its sheet row, and writes only that one cell per row.
-    Touches nothing else — safe regardless of what owns neighbouring columns.
+    Touches nothing else - safe regardless of what owns neighbouring columns.
     Shared by data_class / cloud_coverage_pct / expected_kwh / availability.
 
     Dates are normalized with ``date_key`` on both sides because KPI_Daily stores
@@ -448,7 +448,7 @@ def stamp_column(
     if not stamps:
         return 0
     # v193 (phase 2b): PostgreSQL side, per ARGIA_KPI_WRITE (see
-    # upsert_kpi_rows). A column daily_production lacks raises — loudly.
+    # upsert_kpi_rows). A column daily_production lacks raises - loudly.
     from argia.store import kpi_write
     if kpi_write.writes_pg():
         n_pg = kpi_write.stamp(col_name, stamps, date_key, dry_run=dry_run)
@@ -486,14 +486,14 @@ def stamp_column(
         key_to_row[(d, pk)] = i
 
     written = 0
-    pending = []          # (row, col, value) — flushed in ONE request
+    pending = []          # (row, col, value) - flushed in ONE request
     for (date_iso, plant_key), value in stamps.items():
         d = date_key(date_iso)
         pk = normalize_text(plant_key).upper()
         row_num = key_to_row.get((d, pk))
         if row_num is None:
             LOG.warning(
-                "stamp_column(%s): no KPI_Daily row for (%s, %s) — skipping",
+                "stamp_column(%s): no KPI_Daily row for (%s, %s) - skipping",
                 col_name, date_iso, plant_key,
             )
             continue
@@ -504,7 +504,7 @@ def stamp_column(
             continue
         pending.append((row_num, target_col + 1, value))  # 1-based col
     if pending:
-        # v86: one batchUpdate instead of one write per cell — the
+        # v86: one batchUpdate instead of one write per cell - the
         # per-cell loop blew the 60-writes/min Sheets quota at fleet
         # size 10 (live crash 2026-07-10, July KPI rerun).
         written += sheets.batch_write_cells(KPI_DAILY_TAB, pending)
@@ -552,7 +552,7 @@ def mean_cloud_cover(
     - Only samples whose MX-local hour is in [06:00, 20:00) count.
     - ``None`` values are ignored.
     - No usable samples -> ``None`` (leave the cell alone rather than fake a 0).
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     vals = []
     for ts, cloud in samples:
@@ -580,13 +580,13 @@ def compute_expected_kwh(
 
     Same formula and semantics as v1's Theoretical_kWh (verified: SLP1
     2024-03-01 = 189.2 × 6.01 × 0.73 = 830.08, matching v1's stored value),
-    using ``expected_factor`` from the Plants tab — NOT ``pr_target``, which is
+    using ``expected_factor`` from the Plants tab - NOT ``pr_target``, which is
     the aspirational drift/soiling reference, not the realistic daily
     expectation. Any missing/non-positive input -> ``None`` (never fake a 0:
     a 0 would read as "expected nothing", which is very different from
     "couldn't compute").
 
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     if not kwp_dc or kwp_dc <= 0:
         return None
@@ -608,9 +608,9 @@ def compute_specific_yield(
 ) -> Optional[float]:
     """Daily specific yield: ``energy_kwh / kwp_dc`` (kWh per installed kWp).
 
-    The size-fair comparison number — it's what the plant-vs-twin indicator
+    The size-fair comparison number - it's what the plant-vs-twin indicator
     consumes. Missing or non-positive inputs -> ``None`` (never a fake 0).
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     if energy_kwh is None or energy_kwh < 0:
         return None
@@ -624,7 +624,7 @@ def compute_specific_yield(
 PRODUCTION_PCT_COL_NAME = "production_pct"
 
 PR_PLAUSIBLE_MAX = 1.05
-"""A daily PR above this is physically impossible — the irradiance input is
+"""A daily PR above this is physically impossible - the irradiance input is
 undercounting (sparse ShineMaster days). On such days ``expected_kwh`` is
 understated, so production_pct would be inflated garbage (real July-1 case:
 164%) and soiling would read a fake 0. Both metrics blank instead."""
@@ -653,10 +653,10 @@ def compute_production_pct(
     """Real production as a fraction of expected: ``energy / expected``.
 
     The most readable plant-performance number (the 72%/111% badges of the
-    old daily report). Stored as a fraction (0.75), 4 dp — format the
+    old daily report). Stored as a fraction (0.75), 4 dp - format the
     column as % in the sheet if preferred. Missing/non-positive expected,
     or missing energy -> ``None`` (never a fake value).
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     if energy_kwh is None or energy_kwh < 0:
         return None
@@ -679,13 +679,13 @@ def compute_soiling_loss_pct(
     ``pr_baseline`` is the plant's own clean-state PR (Plants tab; derived
     as the P95 of 12 months of v1 daily PR). Today's PR at or above the
     baseline reads as 0 (cleaner than clean is not negative soiling).
-    Values are a DRIFT ESTIMATE, not a measurement — everything that
+    Values are a DRIFT ESTIMATE, not a measurement - everything that
     lowers PR (degradation, curtailment, a sick inverter) shows up here
     too; the layered alerts name those explicitly when present.
     Missing pr or baseline, or an implausible pr (> PR_PLAUSIBLE_MAX,
-    sparse-irradiance artifact — expected is understated on such days, so a
+    sparse-irradiance artifact - expected is understated on such days, so a
     soiling of 0 would be fake) -> ``None``.
-    Pure function — no I/O. Fraction, 4 dp.
+    Pure function - no I/O. Fraction, 4 dp.
     """
     if pr is None or pr <= 0 or pr > PR_PLAUSIBLE_MAX:
         return None
@@ -710,17 +710,17 @@ def production_statement(
 
     Combines the signals because no single column tells the story (real
     case: MEX1 reads 98% of plan while carrying a CRITICAL lagging
-    inverter — the soft expected_factor absorbs a sick unit). Honesty
+    inverter - the soft expected_factor absorbs a sick unit). Honesty
     rules come first: a partial day or an implausible sun measurement
     beats any percentage.
 
     Returns None when there is nothing meaningful to say (no stamp).
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     if data_class and str(data_class).lower() != DATA_CLASS_FULL:
-        return "Partial data day — daily figures not comparable."
+        return "Partial data day - daily figures not comparable."
     if (pr is not None and pr > PR_PLAUSIBLE_MAX) or production_pct == "":
-        return ("Sun measurement unreliable today — % of plan not "
+        return ("Sun measurement unreliable today - % of plan not "
                 "computed (improves after the Pi migration).")
     if production_pct is None:
         return None
@@ -740,14 +740,14 @@ def production_statement(
     tails = []
     low_avail = availability is not None and availability < 0.98
     if low_avail:
-        tails.append(f"inverter availability {availability:.0%} — see Alerts")
+        tails.append(f"inverter availability {availability:.0%} - see Alerts")
     # The drift estimate can't distinguish dirt from a sick inverter; when
     # availability already explains the shortfall, naming "soiling" would
     # over-claim (real case: GTO1's 38% drift = two faulted units, not dirt).
     if (soiling_loss_pct is not None and soiling_loss_pct >= 0.05
             and not low_avail):
         tails.append(f"est. soiling/drift loss {soiling_loss_pct:.0%}")
-    return head + (" — " + "; ".join(tails) if tails else ".")
+    return head + (" - " + "; ".join(tails) if tails else ".")
 
 
 # ---------- availability ----------
@@ -771,12 +771,12 @@ def compute_availability(
     of daylight poll-slots in which the inverter reported status=1 (online).
 
     ``samples`` is [(timestamp_utc, inverter_sn, status), ...] from telemetry.
-    ``expected_sns`` is the CONFIGURED inverter list (Inverters tab) — judging
+    ``expected_sns`` is the CONFIGURED inverter list (Inverters tab) - judging
     against config is deliberate: an inverter that dies and stops reporting
     entirely must drag availability down, not silently drop out of the mean.
 
     Slotting: daylight samples (06:00–19:59 MX) are sorted by time and
-    clustered — a gap > ``slot_gap_sec`` starts a new slot — so one poll whose
+    clustered - a gap > ``slot_gap_sec`` starts a new slot - so one poll whose
     per-device timestamps spread a few minutes still counts as ONE slot.
 
     Semantics, on purpose:
@@ -786,7 +786,7 @@ def compute_availability(
       uptime; underproduction is the performance indicators' job (plan #4).
     - No daylight slots, or no expected inverters -> ``None`` (unknowable, not 0).
 
-    Pure function — no I/O. Returned value is a 0-1 fraction, 4 dp.
+    Pure function - no I/O. Returned value is a 0-1 fraction, 4 dp.
     """
     expected = [str(s).strip() for s in expected_sns if str(s).strip()]
     if not expected:
@@ -835,7 +835,7 @@ def normalize_kpi_date_iso(sheets: SheetsClient, dry_run: bool = True) -> Dict[s
 
     ``read_range`` returns a real-date cell as a serial (number) and a text-date
     cell as a string, so a string value is the signal that a cell needs fixing.
-    Only ``date_iso`` cells are touched — nothing else. Dry-run by default.
+    Only ``date_iso`` cells are touched - nothing else. Dry-run by default.
     Returns counts: scanned / text_dates / fixed.
     """
     result = {"scanned": 0, "text_dates": 0, "fixed": 0}
@@ -864,7 +864,7 @@ def normalize_kpi_date_iso(sheets: SheetsClient, dry_run: bool = True) -> Dict[s
         result["text_dates"] += 1
         canon = date_key(cell)  # -> "YYYY-MM-DD" (or "" if unparseable)
         if not canon:
-            LOG.warning("normalize_kpi_date_iso: row %d unparseable date %r — skipping",
+            LOG.warning("normalize_kpi_date_iso: row %d unparseable date %r - skipping",
                         i, cell)
             continue
         if dry_run:
@@ -890,7 +890,7 @@ def find_prunable_rows(
     window_days: int = HOT_WINDOW_DAYS,
 ) -> List[int]:
     """Return SHEET ROW NUMBERS (1-indexed) of rows whose date is older
-    than the rolling window. Read-only — does NOT delete anything.
+    than the rolling window. Read-only - does NOT delete anything.
 
     Use this to preview a prune. The actual deletion happens via
     ``prune_old_rows`` with ``apply=True``.

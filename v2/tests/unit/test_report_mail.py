@@ -1,4 +1,4 @@
-"""v196 — the daily PDF report is mailed from the server ('reports'
+"""v196 - the daily PDF report is mailed from the server ('reports'
 channel), replacing the Report_Outbox -> Apps Script notifier path."""
 import logging
 import pathlib
@@ -27,7 +27,7 @@ class TestChannel:
 class TestMail:
     def test_subject_body(self):
         s, b = RM.subject_body("2026-09-04", "morning_yesterday")
-        assert s == "[ARGIA] Daily report 2026-09-04 — Morning report"
+        assert s == "[ARGIA] Daily report 2026-09-04 - Morning report"
         assert "yesterday's full day" in b
         s, _ = RM.subject_body("2026-09-04", "evening_today")
         assert s.endswith("Evening report")
@@ -64,7 +64,7 @@ class TestMail:
         assert "[DRY RUN] would mail" in caplog.text
 
     def test_no_pdf_mails_by_default(self, monkeypatch, tmp_path, caplog):
-        """v204: Tomasz — 'we are still getting the old Daily Report, stop
+        """v204: Tomasz - 'we are still getting the old Daily Report, stop
         sending it'. Both editions off unless ARGIA_REPORT_MAIL_KINDS says so."""
         monkeypatch.delenv(RM.KINDS_ENV, raising=False)
         assert RM.kinds_enabled({}) == frozenset()

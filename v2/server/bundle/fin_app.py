@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""/finance/ and /projects/ — the finance snapshot and the project
+"""/finance/ and /projects/ - the finance snapshot and the project
 portfolio (v244, Phase 1 first slice). nginx proxies both prefixes here
 behind the session login and forwards the account as X-Remote-User;
 the app then allow-lists WHO may see these pages (Tomasz only for now
-— "let's keep it a secret") and answers a plain 403 to everyone else,
+- "let's keep it a secret") and answers a plain 403 to everyone else,
 including the landing-page card that stays hidden unless /finance/me
 says allowed.
 
@@ -15,7 +15,7 @@ says allowed.
 
 Pages: /finance/ (Today), /finance/ar/, /finance/ap/, /finance/bank/,
 /finance/exceptions/, /finance/me; /projects/ (portfolio),
-/projects/<ARG-ID>/ (one project). Reads only — every write in this
+/projects/<ARG-ID>/ (one project). Reads only - every write in this
 module arrives in a later slice with CSRF + fin_event, like Maintenance.
 """
 from __future__ import annotations
@@ -62,7 +62,7 @@ def email_of(username):
         return ''
 
 
-# v256 — a grant can be scoped. One allow-list has always gated BOTH the
+# v256 - a grant can be scoped. One allow-list has always gated BOTH the
 # finance module and the projects module, so "give Eduardo the projects
 # module" used to mean handing over the P&L, the bank balances, the supplier
 # ledger and the salaries-and-fees drill-down as well. A line may now name
@@ -97,7 +97,7 @@ def allow_file_entries(path=None):
 
 
 def areas_of(username, email_lookup=None):
-    """Which areas this person may open — empty when they may open none."""
+    """Which areas this person may open - empty when they may open none."""
     email_lookup = email_lookup or email_of
     u = (username or '').strip().lower()
     if not u:
@@ -226,7 +226,7 @@ def money(v, ccy='MXN', dec=0) -> str:
     try:
         x = D(v)
     except (ValueError, TypeError):
-        return '—'
+        return ' - '
     return f'{x:,.{dec}f} <span class="unit">{html.escape(ccy)}</span>'
 
 
@@ -323,7 +323,7 @@ def _bucket_tiles(label_en, label_es, ag: Dict[str, Dict[str, Decimal]], tone_on
                     f"current {a['current']:,.0f} · 0-30 {a['0-30']:,.0f} · 31-60 {a['31-60']:,.0f} · 61-90 {a['61-90']:,.0f} · 90+ {a['90+']:,.0f}",
                     f"al día {a['current']:,.0f} · 0-30 {a['0-30']:,.0f} · 31-60 {a['31-60']:,.0f} · 61-90 {a['61-90']:,.0f} · 90+ {a['90+']:,.0f}",
                     tone=tone, why_en=why, why_es=why_es)
-    return out or tile(label_en, label_es, '—', 'nothing open', 'nada abierto')
+    return out or tile(label_en, label_es, ' - ', 'nothing open', 'nada abierto')
 
 
 def page_today() -> str:
@@ -335,8 +335,8 @@ def page_today() -> str:
     for a in acc:
         n = int(a.get('unreconciled') or 0)
         tone = 'warn' if n else ('good' if a.get('closing') else '')
-        cash_tiles += tile(f"{a['account_id']}", f"{a['account_id']}", money(a.get('closing'), a['currency']) if a.get('closing') else '—',
-                           f"statement to {a.get('as_of') or '—'} · {n} unreconciled line(s)", f"estado al {a.get('as_of') or '—'} · {n} línea(s) sin conciliar",
+        cash_tiles += tile(f"{a['account_id']}", f"{a['account_id']}", money(a.get('closing'), a['currency']) if a.get('closing') else ' - ',
+                           f"statement to {a.get('as_of') or ' - '} · {n} unreconciled line(s)", f"estado al {a.get('as_of') or ' - '} · {n} línea(s) sin conciliar",
                            tone=tone, why_en=(f"{n} bank line(s) not yet matched to an invoice or payment" if n else ''),
                            why_es=(f"{n} línea(s) bancarias sin conciliar" if n else ''))
     ar_t = _bucket_tiles('Receivables', 'Por cobrar', aging_by_ccy(ar))
@@ -348,8 +348,8 @@ def page_today() -> str:
     exc_t = tile('Exceptions', 'Excepciones', str(len(exc)), ' · '.join(f'{k} {v}' for k, v in sorted(kinds.items())) or 'queue empty',
                  ' · '.join(f'{k} {v}' for k, v in sorted(kinds.items())) or 'sin pendientes', tone=('bad' if len(exc) >= 5 else 'warn' if exc else 'good'),
                  why_en=('every item needs an owner and a resolution' if exc else ''), why_es=('cada punto necesita dueño y resolución' if exc else ''))
-    pend_t = tile('Supplier invoices awaiting approval', 'Facturas de proveedor por aprobar', money(pend), 'received or matched, not yet approved — not in payables yet',
-                  'recibidas o conciliadas, aún sin aprobar — todavía no son por pagar', tone=('warn' if pend > 0 else ''),
+    pend_t = tile('Supplier invoices awaiting approval', 'Facturas de proveedor por aprobar', money(pend), 'received or matched, not yet approved - not in payables yet',
+                  'recibidas o conciliadas, aún sin aprobar - todavía no son por pagar', tone=('warn' if pend > 0 else ''),
                   why_en=(f'{pend:,.0f} MXN of supplier invoices are waiting for a person' if pend > 0 else ''), why_es=(f'{pend:,.0f} MXN de facturas esperan a una persona' if pend > 0 else ''))
     rows_html = []
     for p in projects:
@@ -362,7 +362,7 @@ def page_today() -> str:
                          f'<td>{pill("ok" if p["status"] == "active" else "off", p["status"])}</td>'
                          f'<td class="r">{money(m.contract, p["contract_ccy"])}</td><td class="r">{money(c["budget"], p["contract_ccy"])}</td>'
                          f'<td class="r">{money(c["actual"], p["contract_ccy"])}</td><td class="r">{money(c["committed"], p["contract_ccy"])}</td>'
-                         f'<td class="r">{money(m.eac, p["contract_ccy"])}</td><td class="r"><b>{money(m.margin, p["contract_ccy"])}</b> <span class="muted">{m.margin_pct if m.margin_pct is not None else "—"}%</span></td>'
+                         f'<td class="r">{money(m.eac, p["contract_ccy"])}</td><td class="r"><b>{money(m.margin, p["contract_ccy"])}</b> <span class="muted">{m.margin_pct if m.margin_pct is not None else " - "}%</span></td>'
                          f'<td class="r">{money(m.erosion, p["contract_ccy"])}</td>'
                          f'<td><span class="pill {"ok" if h.band == "green" else "warn" if h.band == "amber" else "crit"}">{h.score}</span></td></tr>')
     body = f'''
@@ -371,7 +371,7 @@ def page_today() -> str:
 </div>
 <div class="tiles" style="margin-top:20px">{cash_tiles}{ar_t}{ap_t}{pend_t}{exc_t}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">
- <div class="chead"><h2 class="ct">{t("Projects — cost and margin", "Proyectos — costo y margen")}</h2><span class="muted" style="font-size:12.5px">{t("net of IVA · actual = approved supplier invoices − credit notes · committed = approved open POs − invoiced · EAC = actual + committed + estimate to complete", "sin IVA · real = facturas aprobadas − notas de crédito · comprometido = OC aprobadas abiertas − facturado · EAC = real + comprometido + estimado por completar")}</span></div>
+ <div class="chead"><h2 class="ct">{t("Projects - cost and margin", "Proyectos - costo y margen")}</h2><span class="muted" style="font-size:12.5px">{t("net of IVA · actual = approved supplier invoices − credit notes · committed = approved open POs − invoiced · EAC = actual + committed + estimate to complete", "sin IVA · real = facturas aprobadas − notas de crédito · comprometido = OC aprobadas abiertas − facturado · EAC = real + comprometido + estimado por completar")}</span></div>
  {_table([t("Project", "Proyecto"), "Status", t("Contract", "Contrato"), t("Budget", "Presupuesto"), t("Actual", "Real"), t("Committed", "Comprometido"), "EAC", t("Margin", "Margen"), t("Erosion", "Erosión"), t("Health", "Salud")], rows_html)}
 </div>
 <div class="card" style="margin-top:16px;padding:16px 20px">
@@ -391,10 +391,10 @@ def _ledger_page(kind: str) -> str:
         i = inv.get(r['ref'])
         left = LG.outstanding(i, al) if i else Decimal('0')
         days = LG.age_days(i, today()) if i else 0
-        b = LG.bucket_of(days) if i and left > 0 else '—'
+        b = LG.bucket_of(days) if i and left > 0 else ' - '
         who = html.escape(r.get('who') or '')
-        link = f'<a href="/projects/{html.escape(r["project_id"])}/">{html.escape(r["project_id"])}</a>' if r.get('project_id') else (html.escape(r.get('plant_key') or '') or '—')
-        extra = (f'<td>{html.escape(r.get("po_number") or "—")}</td><td>{html.escape(r.get("cost_code") or "—")}</td><td>{html.escape(r.get("tipo") or "")}</td>' if kind == 'ap' else '')
+        link = f'<a href="/projects/{html.escape(r["project_id"])}/">{html.escape(r["project_id"])}</a>' if r.get('project_id') else (html.escape(r.get('plant_key') or '') or ' - ')
+        extra = (f'<td>{html.escape(r.get("po_number") or " - ")}</td><td>{html.escape(r.get("cost_code") or " - ")}</td><td>{html.escape(r.get("tipo") or "")}</td>' if kind == 'ap' else '')
         st = r['status']
         cls = 'ok' if st in ('paid',) else 'warn' if st in ('partially_paid', 'matched', 'received') else 'crit' if st in ('exception', 'cancelled', 'rejected') else 'off'
         trs.append(f'<tr><td class="mono" style="font-size:12px">{html.escape(r["ref"][:18])}</td><td>{who}</td><td>{link}</td>{extra}'
@@ -410,8 +410,8 @@ def _ledger_page(kind: str) -> str:
     body = f'''<div class="kicker">{t("Finance", "Finanzas")} · {today().isoformat()} · <span class="mono">{html.escape(_ent())}</span></div><h1 class="pt">{t(*title)}</h1>
 <div class="tiles" style="margin-top:16px">{_bucket_tiles(title[0], title[1], ag)}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table(head, trs)}</div>
-<p class="note">{t("Source: Savio (customer invoices, CFDI UUID) — mirrored, never re-typed." if kind == "ar" else "Source: the supplier's CFDI XML (UUID once, totals re-checked). Received/matched rows await approval and are not payables yet; a credit note (E) reduces its original; a complemento (P) is the supplier's receipt of our payment.",
- "Fuente: Savio (facturas de cliente, UUID CFDI) — espejo, nunca recapturado." if kind == "ar" else "Fuente: el XML CFDI del proveedor (UUID una vez, totales verificados). Las filas recibidas/conciliadas esperan aprobación y aún no son por pagar; una nota de crédito (E) reduce su original; un complemento (P) es el recibo del proveedor de nuestro pago.")}</p>'''
+<p class="note">{t("Source: Savio (customer invoices, CFDI UUID) - mirrored, never re-typed." if kind == "ar" else "Source: the supplier's CFDI XML (UUID once, totals re-checked). Received/matched rows await approval and are not payables yet; a credit note (E) reduces its original; a complemento (P) is the supplier's receipt of our payment.",
+ "Fuente: Savio (facturas de cliente, UUID CFDI) - espejo, nunca recapturado." if kind == "ar" else "Fuente: el XML CFDI del proveedor (UUID una vez, totales verificados). Las filas recibidas/conciliadas esperan aprobación y aún no son por pagar; una nota de crédito (E) reduce su original; un complemento (P) es el recibo del proveedor de nuestro pago.")}</p>'''
     return PC.page(title[0], body, 'finance', kind, wide=True)
 
 
@@ -420,8 +420,8 @@ def page_bank() -> str:
     lines = rows('bank_lines', f"SELECT x.line_key, x.account_id, x.tx_date, x.amount, x.description, x.counterpart, x.own_transfer,"
                                f" coalesce((SELECT string_agg(m.target_kind || ':' || m.target_ref, ', ') FROM bank_match m WHERE m.line_key = x.line_key AND m.reversed_at IS NULL), '') AS matched"
                                f" FROM bank_transaction x JOIN bank_account a ON a.account_id = x.account_id WHERE a.entity_id = {_q(_ent())} ORDER BY x.account_id, x.tx_date DESC, x.line_key;")
-    tiles = ''.join(tile(a['account_id'], a['account_id'], money(a.get('closing'), a['currency']) if a.get('closing') else '—',
-                         f"{a['bank']} · {a.get('purpose') or ''} · to {a.get('as_of') or '—'}", f"{a['bank']} · {a.get('purpose') or ''} · al {a.get('as_of') or '—'}") for a in acc)
+    tiles = ''.join(tile(a['account_id'], a['account_id'], money(a.get('closing'), a['currency']) if a.get('closing') else ' - ',
+                         f"{a['bank']} · {a.get('purpose') or ''} · to {a.get('as_of') or ' - '}", f"{a['bank']} · {a.get('purpose') or ''} · al {a.get('as_of') or ' - '}") for a in acc)
     trs = []
     for l in lines:
         own = l.get('own_transfer') in ('t', 'true', True)
@@ -439,8 +439,8 @@ def page_bank() -> str:
 def page_exceptions() -> str:
     exc = q_exceptions()
     trs = [f'<tr><td>{pill("crit" if e["kind"] in ("CFDI_TOTALS", "FOREIGN_CFDI", "STATEMENT_REJECTED") else "warn", e["kind"])}</td>'
-           f'<td class="mono" style="font-size:12px">{html.escape(e["ref"][:40])}</td><td>{html.escape(e.get("project_id") or "—")}</td>'
-           f'<td>{html.escape(e.get("owner") or "—")}</td><td>{html.escape(str(e.get("opened") or ""))}</td><td>{html.escape(e.get("detail") or "")}</td></tr>' for e in exc]
+           f'<td class="mono" style="font-size:12px">{html.escape(e["ref"][:40])}</td><td>{html.escape(e.get("project_id") or " - ")}</td>'
+           f'<td>{html.escape(e.get("owner") or " - ")}</td><td>{html.escape(str(e.get("opened") or ""))}</td><td>{html.escape(e.get("detail") or "")}</td></tr>' for e in exc]
     body = f'''<div class="kicker">{t("Finance", "Finanzas")} · <span class="mono">{html.escape(_ent())}</span></div><h1 class="pt">{t("Exceptions", "Excepciones")} · {len(exc)}</h1>
 <div class="card" style="margin-top:16px;overflow:hidden">{_table([t("Kind", "Tipo"), "Ref", t("Project", "Proyecto"), t("Owner", "Dueño"), t("Opened", "Abierta"), t("Detail", "Detalle")], trs) if trs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("Nothing to decide.", "Nada que decidir.")}</p>'}</div>
 <p class="note">{t("Every exception has an owner, a status and a resolution history (AGS-904 R6). Resolution actions arrive in the next slice, with CSRF and an audit event.", "Cada excepción tiene dueño, estado e historial de resolución (AGS-904 R6). Las acciones de resolución llegan en el siguiente corte, con CSRF y evento de auditoría.")}</p>'''
@@ -469,8 +469,8 @@ def page_portfolio() -> str:
         cards += f'''
  <a href="/projects/{html.escape(p["project_id"])}/" class="card pcard" style="padding:18px 20px;display:flex;flex-direction:column;gap:8px;color:var(--ink)">
   <div style="display:flex;align-items:center;justify-content:space-between"><span class="mono muted">{p["project_id"]} · {html.escape(p["project_type"])}</span><span class="pill {band}" title="{html.escape("; ".join(h.reasons))}">{t("health", "salud")} {h.score}</span></div>
-  <div><b style="font-size:17px">{html.escape(p["name"])}</b><div class="muted" style="font-size:12.5px">{html.escape(p.get("customer") or "")} · {html.escape(p.get("site") or "")} · PM {html.escape(p.get("pm_user") or "—")}</div></div>
-  <div style="display:flex;gap:14px;font-size:12.5px;flex-wrap:wrap"><span>{pill("ok" if p["status"] == "active" else "off", p["status"])}</span><span><b>{t("contract", "contrato")}</b> {money(c["margin"].contract, p["contract_ccy"])}</span><span><b>{t("margin", "margen")}</b> {money(c["margin"].margin, p["contract_ccy"])} ({c["margin"].margin_pct if c["margin"].margin_pct is not None else "—"}%)</span></div>
+  <div><b style="font-size:17px">{html.escape(p["name"])}</b><div class="muted" style="font-size:12.5px">{html.escape(p.get("customer") or "")} · {html.escape(p.get("site") or "")} · PM {html.escape(p.get("pm_user") or " - ")}</div></div>
+  <div style="display:flex;gap:14px;font-size:12.5px;flex-wrap:wrap"><span>{pill("ok" if p["status"] == "active" else "off", p["status"])}</span><span><b>{t("contract", "contrato")}</b> {money(c["margin"].contract, p["contract_ccy"])}</span><span><b>{t("margin", "margen")}</b> {money(c["margin"].margin, p["contract_ccy"])} ({c["margin"].margin_pct if c["margin"].margin_pct is not None else " - "}%)</span></div>
   <div class="muted" style="font-size:12.5px">{t("next", "siguiente")}: {html.escape(nxt["name"]) + " · " + html.escape(str(nxt["planned_date"])) if nxt else t("no open milestone", "sin hitos abiertos")}{(" · <b style='color:#c2554e'>" + str(late[0][1]) + " d late</b>") if late else ""}</div>
  </a>'''
     body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
@@ -506,7 +506,7 @@ def page_project(pid: str) -> Optional[str]:
         slip = (planned - base).days if planned and base else 0
         st = 'done' if actual else ('late' if planned and planned < today() else 'open')
         ms_rows.append(f'<tr><td><b>{html.escape(x["name"])}</b> <span class="mono muted">{x["ref"]}</span></td><td>{x["kind"]}</td><td>{base or ""}</td><td>{planned or ""}{(" <span style=color:#c2554e>+" + str(slip) + "d</span>") if slip > 0 else ""}</td>'
-                       f'<td>{actual or "—"}</td><td class="r">{money(x.get("amount") or 0, ccy) if x["billable"] in ("t", "true", True) else "—"}</td>'
+                       f'<td>{actual or " - "}</td><td class="r">{money(x.get("amount") or 0, ccy) if x["billable"] in ("t", "true", True) else " - "}</td>'
                        f'<td>{html.escape(x.get("billed_invoice") or ("" if x["billable"] not in ("t", "true", True) else ("UNBILLED" if actual else "")))}</td>'
                        f'<td>{pill("ok" if st == "done" else "crit" if st == "late" else "off", st)}</td></tr>')
     active = COST.active_budget(list(c['versions'].values())) if c['versions'] else None
@@ -518,7 +518,7 @@ def page_project(pid: str) -> Optional[str]:
     po_rows = [f'<tr><td class="mono">{html.escape(x["po_number"])}</td><td>{html.escape(x["supplier"])}</td><td>{html.escape(x["cost_code"] or "")}</td><td class="r">{money(x["total"], x["currency"])}</td>'
                f'<td class="r">{money(x["received"], x["currency"])}</td><td class="r">{money(x["invoiced"], x["currency"])}</td><td>{pill("ok" if x["status"] in ("approved", "partially_received", "closed") else "warn" if x["status"] == "submitted" else "off", x["status"])}</td><td>{html.escape(str(x.get("expected_delivery") or ""))}</td></tr>'
                for x in pos if x.get('project_id') == pid]
-    inv_rows = [f'<tr><td class="mono" style="font-size:12px">{html.escape(r["ref"][:18])}</td><td>{html.escape(r["who"])}</td><td>{html.escape(r.get("po_number") or "—")}</td><td>{r["tipo"]}</td>'
+    inv_rows = [f'<tr><td class="mono" style="font-size:12px">{html.escape(r["ref"][:18])}</td><td>{html.escape(r["who"])}</td><td>{html.escape(r.get("po_number") or " - ")}</td><td>{r["tipo"]}</td>'
                 f'<td>{html.escape(str(r["issue_date"]))}</td><td class="r">{money(r["total"], r["currency"])}</td><td>{pill("ok" if r["status"] in ("paid",) else "warn" if r["status"] in ("received", "matched", "partially_paid") else "crit" if r["status"] == "exception" else "off", r["status"])}</td></tr>'
                 for r in ap if r.get('project_id') == pid]
     co_rows = [f'<tr><td class="mono">{html.escape(x["ref"])}</td><td>{pill("ok" if x["status"] == "approved" else "warn" if x["status"] == "pending" else "off", x["status"])}</td><td class="r">{money(x["revenue_impact"], ccy)}</td><td class="r">{money(x["cost_impact"], ccy)}</td></tr>'
@@ -527,7 +527,7 @@ def page_project(pid: str) -> Optional[str]:
     exc_rows = [f'<tr><td>{pill("warn", e["kind"])}</td><td class="mono" style="font-size:12px">{html.escape(e["ref"][:30])}</td><td>{html.escape(e.get("detail") or "")}</td></tr>' for e in exc]
     body = f'''
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
- <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker"><a href="/projects/">{t("Projects", "Proyectos")}</a> · <span class="mono">{pid}</span> · {html.escape(p["project_type"])} · PM {html.escape(p.get("pm_user") or "—")}</div>
+ <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker"><a href="/projects/">{t("Projects", "Proyectos")}</a> · <span class="mono">{pid}</span> · {html.escape(p["project_type"])} · PM {html.escape(p.get("pm_user") or " - ")}</div>
   <h1 class="pt">{html.escape(p["name"])}</h1><div class="muted">{html.escape(p.get("customer") or "")} · {html.escape(p.get("site") or "")}{(" · " + str(D(p["kwp_dc"])) + " kWp") if p.get("kwp_dc") and D(p["kwp_dc"]) > 0 else ""}</div></div>
  <div style="display:flex;gap:8px;align-items:center"><span class="pill {"ok" if p["status"] == "active" else "off"}">{p["status"]}</span><span class="pill {band}" title="{html.escape("; ".join(h.reasons))}">{t("health", "salud")} {h.score}</span></div>
 </div>
@@ -536,9 +536,9 @@ def page_project(pid: str) -> Optional[str]:
  {tile("Budget (active)", "Presupuesto (vigente)", money(c["budget"], ccy), f"baseline {m.baseline_budget:,.0f}", f"base {m.baseline_budget:,.0f}")}
  {tile("Actual + committed", "Real + comprometido", money(c["actual"] + c["committed"], ccy), f"actual {c['actual']:,.0f} · committed {c['committed']:,.0f} · awaiting approval {c['pending']:,.0f}", f"real {c['actual']:,.0f} · comprometido {c['committed']:,.0f} · por aprobar {c['pending']:,.0f}")}
  {tile("EAC", "EAC", money(m.eac, ccy), "actual + committed + estimate to complete", "real + comprometido + estimado por completar")}
- {tile("Forecast margin", "Margen previsto", money(m.margin, ccy), f"{m.margin_pct if m.margin_pct is not None else '—'}% · baseline {m.baseline_margin:,.0f} · erosion {m.erosion:,.0f}", f"{m.margin_pct if m.margin_pct is not None else '—'}% · base {m.baseline_margin:,.0f} · erosión {m.erosion:,.0f}", tone=("bad" if m.erosion > 0 and m.baseline_margin > 0 and m.erosion / m.baseline_margin > Decimal("0.2") else "warn" if m.erosion > 0 else "good"), why_en=(f"forecast margin is {m.erosion:,.0f} below the baseline margin" if m.erosion > 0 else ""), why_es=(f"el margen previsto está {m.erosion:,.0f} por debajo del margen base" if m.erosion > 0 else ""))}
+ {tile("Forecast margin", "Margen previsto", money(m.margin, ccy), f"{m.margin_pct if m.margin_pct is not None else ' - '}% · baseline {m.baseline_margin:,.0f} · erosion {m.erosion:,.0f}", f"{m.margin_pct if m.margin_pct is not None else ' - '}% · base {m.baseline_margin:,.0f} · erosión {m.erosion:,.0f}", tone=("bad" if m.erosion > 0 and m.baseline_margin > 0 and m.erosion / m.baseline_margin > Decimal("0.2") else "warn" if m.erosion > 0 else "good"), why_en=(f"forecast margin is {m.erosion:,.0f} below the baseline margin" if m.erosion > 0 else ""), why_es=(f"el margen previsto está {m.erosion:,.0f} por debajo del margen base" if m.erosion > 0 else ""))}
 </div>
-<div class="card" style="margin-top:16px;padding:12px 20px 4px"><b>{t("Health", "Salud")} {h.score} · {h.band}</b> — {html.escape("; ".join(h.reasons))} <span class="muted">(AGS-903 §4, {h.thresholds_version})</span>
+<div class="card" style="margin-top:16px;padding:12px 20px 4px"><b>{t("Health", "Salud")} {h.score} · {h.band}</b> - {html.escape("; ".join(h.reasons))} <span class="muted">(AGS-903 §4, {h.thresholds_version})</span>
  {(" · " + t("unapproved exposure", "exposición no aprobada") + f": {t('cost', 'costo')} {c['exposure']['cost']:,.0f} / {t('revenue', 'ingreso')} {c['exposure']['revenue']:,.0f} {ccy}") if c["exposure"]["cost"] or c["exposure"]["revenue"] else ""}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Milestones", "Hitos")}</h2><span class="muted" style="font-size:12.5px">{t("baseline never moves; slip = planned − baseline", "la base nunca se mueve; desfase = planeado − base")}</span></div>
  {_table([t("Milestone", "Hito"), t("Kind", "Tipo"), t("Baseline", "Base"), t("Planned", "Planeado"), t("Actual", "Real"), t("Billing", "Facturación"), t("Invoice", "Factura"), "State"], ms_rows)}</div>

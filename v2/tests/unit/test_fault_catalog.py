@@ -1,4 +1,4 @@
-"""Unit tests — argia.alerts.fault_catalog."""
+"""Unit tests - argia.alerts.fault_catalog."""
 
 from argia.alerts.fault_catalog import explain_fault, is_normal_state
 

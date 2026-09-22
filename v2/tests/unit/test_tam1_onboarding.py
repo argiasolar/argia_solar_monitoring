@@ -1,12 +1,12 @@
-"""TAM1 (Ryder Nuevo Laredo) onboarding — the 2026-09-01 additions.
+"""TAM1 (Ryder Nuevo Laredo) onboarding - the 2026-09-01 additions.
 
 A new plant touches four hardcoded surfaces; each one silently drops
 the plant if missed, so each is pinned here:
 
-  * report_gen.CAPEX        — CAPEX overview + per-plant page loops
-  * auth_core/setup_app     — per-plant access areas ('tam1')
-  * nginx session conf      — location /tam1/ (no location, no page)
-  * argia_client_logos      — RYDER logo for client-facing pages
+  * report_gen.CAPEX        - CAPEX overview + per-plant page loops
+  * auth_core/setup_app     - per-plant access areas ('tam1')
+  * nginx session conf      - location /tam1/ (no location, no page)
+  * argia_client_logos      - RYDER logo for client-facing pages
 
 Plant facts (Growatt plant 10902835, verified live 2026-09-01):
 364.65 kWp DC (510 x CS7N-715TB-AG), 4 x 75 kW Growatt MID,

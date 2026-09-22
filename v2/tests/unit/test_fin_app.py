@@ -1,4 +1,4 @@
-"""v244 — the /finance/ and /projects/ app against the demo world
+"""v244 - the /finance/ and /projects/ app against the demo world
 (fake row source keyed by query name; the SQL text is still built)."""
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def get(c, path, user="tomasz"):
 
 
 class TestSecret:
-    """Only Tomasz sees it — by username, by e-mail, never anyone else."""
+    """Only Tomasz sees it - by username, by e-mail, never anyone else."""
 
     @pytest.mark.parametrize("path", ["/finance/", "/finance/ar/", "/finance/ap/", "/finance/bank/", "/finance/exceptions/", "/projects/", "/projects/ARG9001/"])
     def test_other_users_get_403(self, client, path):
@@ -179,7 +179,7 @@ class TestToday:
         # ARG9001: contract 7,240,000 (+0 approved CO revenue), actual net = 100,000 + 480,000 − 10,000 = 570,000;
         # committed = PO-0009 600,000 − 480,000 invoiced = 120,000 (PO-0007 fully invoiced)
         assert "Hotel SLP 417 kWp + BESS" in h and "7,240,000" in h and "570,000" in h and "120,000" in h
-        assert "Projects — cost and margin" in h and "How the numbers are calculated" in h
+        assert "Projects - cost and margin" in h and "How the numbers are calculated" in h
         assert "DEMO-MX" in h and "demo data" in h
 
     def test_bilingual(self, client):
@@ -241,7 +241,7 @@ class TestProjects:
 
 
 class TestScopedGrants:
-    """v256 — one allow-list had always gated finance AND projects together, so
+    """v256 - one allow-list had always gated finance AND projects together, so
     granting someone "the projects module" also handed over the P&L, the bank
     balances, the supplier ledger and the salaries-and-fees drill-down. A line
     may now name the areas it grants; a bare line still grants everything."""

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — one-shot SolarEdge inverter discovery.
+"""Argia_Mont - one-shot SolarEdge inverter discovery.
 
 Calls ``/equipment/{siteId}/list`` for every active SolarEdge plant in the
 portfolio and prints the inverters (SN, name, manufacturer, model). Use the
@@ -119,7 +119,7 @@ def _print_inverters(
         name = inv.get("name", f"Inverter {i}")
         manufacturer = inv.get("manufacturer", "")
         model = inv.get("model", "")
-        # capacity_kwp_dc not exposed by /equipment/list — leave blank for human fill
+        # capacity_kwp_dc not exposed by /equipment/list - leave blank for human fill
         print(f"{plant.plant_key}\t{sn}\t{name}\t\tTRUE\t[{manufacturer} {model}]")
 
 

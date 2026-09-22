@@ -1,4 +1,4 @@
-"""portal.argia.com.mx — the shared chrome (v208).
+"""portal.argia.com.mx - the shared chrome (v208).
 
 Pure: no PostgreSQL, no files. portal_gen.py imports the data from
 report_gen / monitoring_gen and renders through the helpers here, so
@@ -6,13 +6,13 @@ the header rule, the naming rule and the design tokens live in ONE
 place and are unit-tested without a database.
 
 Rules (Tomasz, 2026-09-05):
-* every page has exactly three buttons on the right — Home, Ask ARGIA,
-  You — plus the section's sub-tabs; nothing else in the header;
+* every page has exactly three buttons on the right - Home, Ask ARGIA,
+  You - plus the section's sub-tabs; nothing else in the header;
 * customers are named by their name (Taigene); the plant code (GTO1)
   is an internal addon, small and grey, never leading;
 * nothing from the old site is dropped: bilingual text (data-en /
   data-es + localStorage.argia_lang), the ⓘ tooltips, the flip
-  tiles, logo grey→colour on hover, photos, print — all carried over.
+  tiles, logo grey→colour on hover, photos, print - all carried over.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ SECTIONS = {
         ('system', 'System', 'Sistema')]),
     'maintenance': ('Maintenance', 'Mantenimiento', [
         ('', 'Open', 'Abiertos'), ('new', 'New ticket', 'Nuevo ticket'), ('resolved', 'Resolved', 'Resueltos')]),
-    # v244: finance + projects (fin_app) — the landing cards stay hidden
+    # v244: finance + projects (fin_app) - the landing cards stay hidden
     # unless /finance/me says allowed (.finonly, like .askonly)
     'finance': ('Finance', 'Finanzas', [
         ('', 'Today', 'Hoy'), ('ar', 'Receivables', 'Cobrar'), ('ap', 'Payables', 'Pagar'), ('suppliers', 'Suppliers', 'Proveedores'),
@@ -70,7 +70,7 @@ SECTIONS = {
 
 # ----------------------------------------------------------------- names
 def display_name(customer):
-    """Human name, never the code — same rule as monitoring_gen.display_name
+    """Human name, never the code - same rule as monitoring_gen.display_name
     (v177.1). 'TAIGENE PPA roof (Leon, GTO)' -> 'Taigene'; short all-caps
     acronyms (SAG, SMS) survive."""
     s = str(customer or '').split('(')[0].split(',')[0]
@@ -194,8 +194,8 @@ h2.ct{font-size:15px;margin:0;font-weight:700}
 .grid{display:grid;gap:14px}.g5{grid-template-columns:repeat(5,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:1000px){.g5,.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.g5,.g4,.g3,.g2{grid-template-columns:1fr}.wrap{padding:18px 14px 32px}}
-/* header — the one pattern */
-/* v260 (Tomasz): no hairline under the header — the section title and its
+/* header - the one pattern */
+/* v260 (Tomasz): no hairline under the header - the section title and its
    tabs read as part of the page, not as a bar bolted above it. The active
    tab already carried the page colour, so only the rule beside it had to go. */
 header.ph{background:#fff;position:sticky;top:0;z-index:40}
@@ -227,7 +227,7 @@ header.ph{background:#fff;position:sticky;top:0;z-index:40}
 .tile{position:relative;padding:16px 18px;display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:12px}
 .tile.good{background:#e6f7f5;border-color:#b8e6e1}.tile.warn{background:#fff4e0;border-color:#f3dcae}.tile.bad{background:#fdeaea;border-color:#f3b9b9}
 .tlabel{font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center}
-.tval{font-size:clamp(15px,1.4vw,20px);line-height:1.15;font-weight:700;color:var(--ink);white-space:nowrap}.tval .unit{font-size:12px;font-weight:600;color:var(--muted);margin-left:4px}   /* v234: the Map tile look (Tomasz) — was 30px/800 */
+.tval{font-size:clamp(15px,1.4vw,20px);line-height:1.15;font-weight:700;color:var(--ink);white-space:nowrap}.tval .unit{font-size:12px;font-weight:600;color:var(--muted);margin-left:4px}   /* v234: the Map tile look (Tomasz) - was 30px/800 */
 .tsub{font-size:12.5px;color:var(--muted)}
 .ti{display:inline-flex;width:15px;height:15px;border-radius:50%;border:1.5px solid #b6bec8;color:var(--muted);font-weight:800;font-size:10px;align-items:center;justify-content:center;margin-left:6px;cursor:help}
 .tipbox{display:none;position:absolute;left:10px;right:10px;top:44px;z-index:30;background:#fffdf4;border:1px solid #e8dfa8;border-radius:8px;padding:10px 12px;font-size:12px;color:#3a4049;font-weight:400;line-height:1.5;text-align:left;text-transform:none;letter-spacing:0;white-space:normal;box-shadow:0 8px 24px rgba(26,29,35,.12)}
@@ -238,7 +238,7 @@ header.ph{background:#fff;position:sticky;top:0;z-index:40}
 .flipin{position:relative;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.4,.1,.2,1) .12s;min-height:100%}
 .tile.haswhy:hover .flipin,.tile.haswhy:focus-within .flipin{transform:rotateY(180deg)}
 .face{backface-visibility:hidden;padding:16px 18px;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;background:#fff;min-height:118px}
-/* v241: the back face is as tall as its TEXT (min the tile) — a long reason grows past the tile edge over
+/* v241: the back face is as tall as its TEXT (min the tile) - a long reason grows past the tile edge over
    whatever sits below instead of being cut (Tomasz: 'the tool tip for issue in plastic omnium has too big
    font or the tile is a bit too small'); inset:0 pinned it to the front's height */
 .face.back{position:absolute;left:0;right:0;top:0;min-height:100%;transform:rotateY(180deg);padding:14px 16px;gap:4px;justify-content:center}
@@ -248,7 +248,7 @@ header.ph{background:#fff;position:sticky;top:0;z-index:40}
 .clogo{height:22px;width:auto;max-width:110px;object-fit:contain;display:block;filter:grayscale(1);opacity:.75;transition:filter .25s,opacity .25s}
 .lcell{display:flex;align-items:center;gap:12px;color:var(--ink)}.lcell .lbox{width:84px;flex:0 0 84px;display:flex;align-items:center}.lcell .lbox .clogo{height:18px;max-width:80px}
 .pcard:hover .clogo,.clogo.color,tr:hover .clogo{filter:none;opacity:1}
-/* v241: the report header's logo card — wide marks (Hirschmann 4.7:1, Budenheim, SMS, Ryder) spilled out of a
+/* v241: the report header's logo card - wide marks (Hirschmann 4.7:1, Budenheim, SMS, Ryder) spilled out of a
    fixed 64px square; the card now grows with the mark and the image is fitted inside it */
 .logocard{min-width:64px;height:64px;padding:10px 14px;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
 .logocard .clogo{height:36px;max-height:100%;width:auto;max-width:150px;object-fit:contain;filter:none;opacity:1}
@@ -335,7 +335,7 @@ function setLang(l,save){
  if(save){fetch('/session/lang',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:l})}).catch(()=>{});}
 }
 function argiaChartHover(ev,svg){
- /* v234: one hover box for every chart — the wrapper carries data-chart JSON:
+ /* v234: one hover box for every chart - the wrapper carries data-chart JSON:
     {W, xs:[x per column in viewBox units], labels:[...], series:[{label,color,vals:[...],unit,dec,sn}]}.
     Series whose legend checkbox (input[data-sn]) is unticked are left out. */
  const box=svg.closest('[data-chart]');if(!box)return;
@@ -360,7 +360,7 @@ function argiaChartLeave(svg){const box=svg.closest('[data-chart]');if(!box)retu
 function argiaInvToggle(cb){const box=cb.closest('.invchart'),svg=box.querySelector('svg');
  svg.querySelectorAll('.ser').forEach(g=>{if(g.getAttribute('data-sn')===cb.getAttribute('data-sn'))g.style.display=cb.checked?'':'none';});}
 function argiaFit(){
- /* v224: a table wider than its card scrolls inside the card — the page never scrolls sideways.
+ /* v224: a table wider than its card scrolls inside the card - the page never scrolls sideways.
     v228: wrapped only while it overflows (a scroll box clips the tooltips inside it); re-checked on resize */
  document.querySelectorAll('.wrap table').forEach(t=>{
   if(t.parentElement.closest('table'))return;
@@ -370,7 +370,7 @@ function argiaFit(){
   else if(!over&&box){box.parentNode.insertBefore(t,box);box.remove();}});
 }
 
-/* v246: table tools — search, per-column filters (columns with few distinct values), sort, count.
+/* v246: table tools - search, per-column filters (columns with few distinct values), sort, count.
    Pure client side on the rows the server rendered; nothing is fetched. Tooltip text follows the language. */
 function argiaTables(){
  const L=localStorage.getItem('argia_lang')||'en';
@@ -470,7 +470,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 
 # ---------------------------------------------------------------- header
 def wordmark():
-    """The official ARGIA wordmark (v210) — on every page, linking home."""
+    """The official ARGIA wordmark (v210) - on every page, linking home."""
     if LOGO_URI:
         return f'<a class="wm" href="/" title="Home"><img class="wmlogo" src="{LOGO_URI}" alt="{LOGO_ALT}"></a>'
     return (f'<a class="wm" href="/" title="Home">'
@@ -520,20 +520,20 @@ def header(section=None, on='', tabs_override=None):
 
 
 def page(title, body, section=None, on='', refresh=0, extra_head='', tabs=None, wide=False):
-    """``wide`` (v246): the page uses the whole window — finance/projects
-    tables are read on screen, not printed to A4 — so no sideways
+    """``wide`` (v246): the page uses the whole window - finance/projects
+    tables are read on screen, not printed to A4 - so no sideways
     scrollbar under a 12-column table."""
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ''
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<meta name="robots" content="noindex,nofollow">{meta}'
-            f'<title>{html.escape(title)} — ARGIA</title><link rel="icon" href="/favicon.png">'
+            f'<title>{html.escape(title)} - ARGIA</title><link rel="icon" href="/favicon.png">'
             f'<style>{CSS}</style>{extra_head}</head><body' + (' class="wide"' if wide else '') + '>'
             f'{header(section, on, tabs)}<div class="wrap">{body}</div>{JS}</body></html>')
 
 
 def print_button(label_en='Print / PDF', label_es='Imprimir / PDF'):
-    """v246: the browser's own print dialog — 'Save as PDF' is there on
+    """v246: the browser's own print dialog - 'Save as PDF' is there on
     every OS, no server-side renderer to keep alive."""
     return ('<button type="button" class="printbtn noprint" onclick="window.print()" title="Print this page or save it as a PDF" '
             'data-title-es="Imprimir esta página o guardarla como PDF">'
@@ -543,11 +543,11 @@ def print_button(label_en='Print / PDF', label_es='Imprimir / PDF'):
 def data_table(head, body, cls='', columns=None, tools=True, sums=None):
     """v246: a table with search, per-column filters, sorting and column
     tooltips. ``head`` = labels (already through t()); ``columns`` =
-    optional list of (en, es) explanations, one per column — they become
+    optional list of (en, es) explanations, one per column - they become
     the ⓘ tooltip on the header and the 'Columns explained' block below.
     ``body`` = the <tr> strings. Wide content still scrolls inside the card.
     v248: ``sums`` = column indexes that get a summary row (per currency,
-    recomputed on every filter — the total of what is on screen)."""
+    recomputed on every filter - the total of what is on screen)."""
     ths = []
     for i, h in enumerate(head):
         tip = columns[i] if columns and i < len(columns) and columns[i] else None
@@ -569,7 +569,7 @@ def skin_reset(scope):
     """v212: the rules a skinned body (.monbody, .setupbody, .askbody)
     needs AFTER its scoped legacy CSS. The legacy `.card` has its own
     padding and `table{width:100%}`; the portal's `.card>table` adds
-    20px side margins on top — 40px of overflow and a pointless
+    20px side margins on top - 40px of overflow and a pointless
     scrollbar under every table (Tomasz 2026-09-05). Here the card
     keeps the legacy padding, loses the portal margins and the
     scrollbar; wide text cells wrap instead of pushing the width."""
@@ -637,8 +637,8 @@ def pill(cls, en, es=None):
 
 def redirect_page(to, en, es=None):
     """A sub-tab that still lives on the old site: send the browser
-    there, but say so (parity phase — nothing is dropped)."""
-    # v219: forward the fragment (#lang=es&slide=281 — Ask ARGIA citations)
+    there, but say so (parity phase - nothing is dropped)."""
+    # v219: forward the fragment (#lang=es&slide=281 - Ask ARGIA citations)
     # with a script; the meta refresh is the no-JS fallback and drops it.
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             f'<script>location.replace({to!r}+location.hash);</script>'

@@ -1,4 +1,4 @@
-# Stage 4 — Huawei telemetry + cross-vendor unified pipeline
+# Stage 4 - Huawei telemetry + cross-vendor unified pipeline
 
 What's new and how to deploy it safely.
 
@@ -47,9 +47,9 @@ v2/scripts/growatt_telemetry_5m.py
 v2/docs/stage3_telemetry_runbook.md  (superseded by this doc)
 ```
 
-## Migration — DO THIS IN ORDER
+## Migration - DO THIS IN ORDER
 
-### Step 1 — Wipe the old Telemetry_Argia tab
+### Step 1 - Wipe the old Telemetry_Argia tab
 
 The new `Telemetry_Argia` schema is incompatible with the Stage 3 wide version.
 
@@ -57,7 +57,7 @@ The new `Telemetry_Argia` schema is incompatible with the Stage 3 wide version.
 2. Right-click the `Telemetry_Argia` tab → **Delete**.
 3. Confirm.
 
-That's it for Sheets. The per-plant `Telemetry_<KEY>` tabs stay — same schema.
+That's it for Sheets. The per-plant `Telemetry_<KEY>` tabs stay - same schema.
 
 If you skip this step, the script will refuse to write to the tab and tell you why:
 
@@ -70,7 +70,7 @@ last='ambient_temp_c'); found 143 columns. To fix: delete the tab
 
 Loud and clear, no silent data corruption.
 
-### Step 2 — Apply the Stage 4 update
+### Step 2 - Apply the Stage 4 update
 
 ```bash
 cd ~/Documents/argia_solar_monitoring
@@ -84,7 +84,7 @@ git rm ../.github/workflows/v2-growatt-telemetry-5m.yml
 
 The unzip drops in the new files; the `git rm` lines remove the old ones that are being superseded.
 
-### Step 3 — Verify locally
+### Step 3 - Verify locally
 
 ```bash
 PYTHONPATH=. python -m pytest \
@@ -95,9 +95,9 @@ PYTHONPATH=. python -m pytest \
     -v
 ```
 
-Expect: all pass. If you see anything like "no module named 'google'", that's the same local-only google-auth gap from before — just push and let CI run.
+Expect: all pass. If you see anything like "no module named 'google'", that's the same local-only google-auth gap from before - just push and let CI run.
 
-### Step 4 — Commit and push
+### Step 4 - Commit and push
 
 ```bash
 git add argia/telemetry/ scripts/telemetry_5m.py \
@@ -113,7 +113,7 @@ Wait for CI to come back green. ~30 seconds.
 
 ## Verification path (after CI is green)
 
-### Step A — Dry-run, single Huawei plant
+### Step A - Dry-run, single Huawei plant
 
 GitHub → Actions → **v2 Telemetry 5m (all vendors)** → Run workflow:
 - dry_run: ✓
@@ -133,16 +133,16 @@ If any inverter is offline or didn't return data, you'll see:
 WARNING [MEX1/SOME_SN] Huawei API did not return data for this SN
 ```
 
-That's informational, not an error — same idea as Growatt's "no history rows for today" case.
+That's informational, not an error - same idea as Growatt's "no history rows for today" case.
 
-### Step B — Dry-run, all vendors
+### Step B - Dry-run, all vendors
 
 Same workflow, but leave `plant_key` empty. Expected log will show **both** Growatt and Huawei pipelines running. Confirm:
 - Growatt plants process as before (same SNs, same row counts)
 - Huawei plants get processed (1 row per inverter that the API returns)
 - The aggregated rows write to a fresh `Telemetry_Argia` tab
 
-### Step C — Live, all vendors
+### Step C - Live, all vendors
 
 Uncheck `dry_run`, leave `plant_key` empty. Run.
 
@@ -153,7 +153,7 @@ In the v2 sheet:
 
 For your portfolio (10 plants, 30 inverters: 6 Growatt + ~4 Huawei plants), expect roughly 15-20 rows per run.
 
-### Step D — Idempotency check
+### Step D - Idempotency check
 
 Run live again immediately. Argia tab row count must NOT grow. Per-inverter rows either stay (same timestamp) or update in place (new timestamp from same SN+plant).
 
@@ -168,7 +168,7 @@ those yet. Stage 4.x will extend.
 **SolarEdge and SMA plants are skipped.** The script logs them as "not yet
 built" and moves on. Stage 5 = SolarEdge, Stage 6 = SMA.
 
-**ambient_temp_c stays blank.** Same gap as Stage 3 — the env-station temp
+**ambient_temp_c stays blank.** Same gap as Stage 3 - the env-station temp
 reader isn't wired yet.
 
 **Huawei rate limits.** Per the Huawei docs, `getDevRealKpi` is capped at 5

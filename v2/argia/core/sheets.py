@@ -8,13 +8,13 @@ Design choices:
 - Service account auth via GOOGLE_CREDENTIALS env var (JSON as text).
 - ``USER_ENTERED`` is the default for appends so datetime strings get parsed
   by Sheets (this was inconsistent in v1).
-- Idempotent ``upsert_rows`` for daily aggregates — no more duplicate rows
+- Idempotent ``upsert_rows`` for daily aggregates - no more duplicate rows
   if a cron job re-runs.
 
 Stage 7.3b additions:
-- ``write_cell(tab, row, col, value)`` — single-cell update
-- ``write_row(tab, row, values)`` — overwrite a whole row starting at col A
-- ``delete_row(tab, row)`` — delete a row, shifting subsequent rows up
+- ``write_cell(tab, row, col, value)`` - single-cell update
+- ``write_row(tab, row, values)`` - overwrite a whole row starting at col A
+- ``delete_row(tab, row)`` - delete a row, shifting subsequent rows up
 """
 
 from __future__ import annotations
@@ -66,18 +66,18 @@ def _cells_equivalent(old, new) -> bool:
     empty), so raw string equality brands identical data as changed.
     Numbers compare as floats; everything else as stripped strings
     with blank == None. Without this, every overlap-window row
-    re-writes on every poll — forever (v81, live 429s 2026-07-10)."""
+    re-writes on every poll - forever (v81, live 429s 2026-07-10)."""
     so = "" if old is None else str(old).strip()
     sn = "" if new is None else str(new).strip()
     if so == sn:
         return True
     if sn == "" and so != "":
         # v89: a BLANK never overwrites data. Measurements in this
-        # system accrete — no writer intentionally clears a previously
+        # system accrete - no writer intentionally clears a previously
         # written cell via upsert. Without this rule, the SolarEdge
         # 60-min overlap window re-parsed the previous poll's rows
         # WITHOUT the weather snapshot (v81 attaches it only to the
-        # latest row) and each poll erased its predecessor's weather —
+        # latest row) and each poll erased its predecessor's weather -
         # live incident 2026-07-11: QRO1/GTO2 dashboard buckets
         # integrated ~zero irradiance, killing theoretical/cloud on
         # the client pages.
@@ -89,7 +89,7 @@ def _cells_equivalent(old, new) -> bool:
     except (TypeError, ValueError):
         pass
     # v90: timestamps round-trip FORMATTED ("2026-07-11T13:00:00+00:00"
-    # written, "7/11/2026 13:00:00" read back) — compare as instants.
+    # written, "7/11/2026 13:00:00" read back) - compare as instants.
     # Without this every overlap row "changed" on its ts column alone,
     # re-updating forever (live 2026-07-11, SolarEdge tabs).
     # coerce the ORIGINAL values: the serial arrives as a float and
@@ -117,7 +117,7 @@ class SheetsRequired(RuntimeError):
 class NullSheets:
     """v199: what a job gets instead of a SheetsClient once the workbook
     is retired (GOOGLE_SHEET_ID_V2 unset). Every reader and writer has a
-    PostgreSQL door, so nothing should ever call it — and if something
+    PostgreSQL door, so nothing should ever call it - and if something
     does, it fails LOUDLY with the tab and method, never silently with an
     empty grid (an empty Plants tab would look like a fleet of zero)."""
 
@@ -128,7 +128,7 @@ class NullSheets:
             tab = args[0] if args else kwargs.get("tab", "")
             raise SheetsRetired(
                 f"Google Sheets is retired (GOOGLE_SHEET_ID_V2 unset) but "
-                f"SheetsClient.{name}({tab!r}) was called — this code path "
+                f"SheetsClient.{name}({tab!r}) was called - this code path "
                 f"still depends on the workbook; route it through its "
                 f"PostgreSQL door")
         return _boom
@@ -148,7 +148,7 @@ _SHEET_SWITCHES = (
 
 def sheet_still_needed(env=None) -> List[str]:
     """Which switches (by name) still route to the workbook. Pure over
-    ``env``. v205: the code default of every switch is 'pg' — only a
+    ``env``. v205: the code default of every switch is 'pg' - only a
     switch explicitly set to something else is a reason."""
     env = os.environ if env is None else env
     reasons: List[str] = []
@@ -238,7 +238,7 @@ class SheetsClient:
     def read_range(self, tab: str, a1_range: str = "A1:Z") -> List[List[Any]]:
         """
         Read a rectangular range. Returns rows as nested lists.
-        Empty trailing cells in a row are NOT padded — caller must handle short rows.
+        Empty trailing cells in a row are NOT padded - caller must handle short rows.
         """
         resp = (
             self._values()
@@ -415,7 +415,7 @@ class SheetsClient:
         into a date). Pass ``value_input_option="USER_ENTERED"`` if you want
         the value parsed.
 
-        Stage 7.3b — added so infer_plant_specs.py and kpi_daily.py can do
+        Stage 7.3b - added so infer_plant_specs.py and kpi_daily.py can do
         surgical updates without rewriting whole rows.
         """
         if row < 1 or col < 1:
@@ -441,11 +441,11 @@ class SheetsClient:
         Example: ``write_row("KPI_Daily", 5, ["2026-05-14", "QRO1", ...])``
         writes the list across row 5 starting at A5.
 
-        Cells beyond ``len(values)`` are NOT cleared — this only writes the
+        Cells beyond ``len(values)`` are NOT cleared - this only writes the
         cells you provide. If you need to clear trailing cells, pass empty
         strings for them.
 
-        Stage 7.3b — added so kpi_daily.upsert_kpi_rows can update existing
+        Stage 7.3b - added so kpi_daily.upsert_kpi_rows can update existing
         rows in place.
         """
         if row < 1:
@@ -468,12 +468,12 @@ class SheetsClient:
         becomes row 5.
 
         Uses batchUpdate's ``deleteDimension``. Needs the numeric sheetId of
-        the tab, not the spreadsheetId — looked up via ``_tab_gid`` and cached.
+        the tab, not the spreadsheetId - looked up via ``_tab_gid`` and cached.
 
         WARNING: this is destructive. Callers should delete bottom-up when
         removing multiple rows to keep indices stable.
 
-        Stage 7.3b — added so kpi_daily.prune_old_rows can actually delete.
+        Stage 7.3b - added so kpi_daily.prune_old_rows can actually delete.
         """
         if row < 1:
             raise ValueError(f"row must be >= 1 (got {row})")
@@ -498,7 +498,7 @@ class SheetsClient:
         """
         Delete rows ``start_row..end_row`` INCLUSIVE (1-indexed) in one call.
 
-        The monthly archive prunes a whole month of telemetry — thousands of
+        The monthly archive prunes a whole month of telemetry - thousands of
         contiguous rows. Per-row deletion would be thousands of API calls;
         a single ``deleteDimension`` over the block is one.
 
@@ -527,7 +527,7 @@ class SheetsClient:
                                pattern: str = "yyyy-mm-dd hh:mm:ss") -> None:
         """Apply a date/datetime number format to one column (1-indexed),
         rows 2..end. A datetime cell read as UNFORMATTED_VALUE and written
-        back RAW is a bare serial number — this makes it display as a date
+        back RAW is a bare serial number - this makes it display as a date
         again."""
         gid = self._tab_gid(tab)
         self._svc.spreadsheets().batchUpdate(
@@ -584,7 +584,7 @@ class SheetsClient:
         return len(requests)
 
     def freeze_and_bold_header(self, tab: str) -> None:
-        """Freeze row 1 and make it bold — the standard tab header look."""
+        """Freeze row 1 and make it bold - the standard tab header look."""
         gid = self._tab_gid(tab)
         self._svc.spreadsheets().batchUpdate(
             spreadsheetId=self.sheet_id,
@@ -608,7 +608,7 @@ class SheetsClient:
         Refuses to delete the only remaining tab (API would reject it)."""
         try:
             gid = self._tab_gid(tab)
-        except Exception:  # noqa: BLE001 — tab absent
+        except Exception:  # noqa: BLE001 - tab absent
             return False
         meta = self._svc.spreadsheets().get(
             spreadsheetId=self.sheet_id, fields="sheets(properties(sheetId))"
@@ -630,7 +630,7 @@ class SheetsClient:
     ) -> Dict[str, int]:
         """
         Insert rows that have a new natural key, update rows whose key already
-        exists. Idempotent — running twice produces the same result.
+        exists. Idempotent - running twice produces the same result.
 
         natural_key_columns: 0-based column indices that together form the
         unique key for a row. E.g. for DailyProduction the key is (date,
@@ -639,7 +639,7 @@ class SheetsClient:
         Returns ``{"inserted": N, "updated": M, "unchanged": K}``.
 
         IMPORTANT: this issues one batch read + one batch write. It does NOT
-        provide transactional safety — if two crons race they can both insert
+        provide transactional safety - if two crons race they can both insert
         the same key. The Argia Pi runs a single cron so this is fine; if you
         ever parallelize, add a lock.
         """
@@ -690,7 +690,7 @@ class SheetsClient:
         # 60 writes/min/user (live 429s, 2026-07-10). N updates now
         # cost 1 request.
         if to_update:
-            # v90: updates MERGE — a blank incoming cell never
+            # v90: updates MERGE - a blank incoming cell never
             # overwrites stored data even when OTHER cells legitimately
             # changed (the v89 equivalence rule only prevented
             # detection; a real update still rewrote the whole row,

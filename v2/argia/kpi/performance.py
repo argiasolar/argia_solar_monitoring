@@ -1,12 +1,12 @@
-"""Performance KPIs — Stage 7.2.
+"""Performance KPIs - Stage 7.2.
 
 Pure math. Inputs are typed objects from energy.py / irradiance.py /
 reader.py + plant/inverter configs. No I/O.
 
 Three KPIs:
-1. Performance Ratio (PR) — the gold standard for plant performance
-2. Capacity factor — simpler, doesn't need irradiance
-3. Inverter peer ranking — within a plant, which inverter is underperforming
+1. Performance Ratio (PR) - the gold standard for plant performance
+2. Capacity factor - simpler, doesn't need irradiance
+3. Inverter peer ranking - within a plant, which inverter is underperforming
 
 PR formulas
 -----------
@@ -47,7 +47,7 @@ LOG = logging.getLogger("argia.kpi.performance")
 # Temperature coefficient of Pmax, per degC. Negative: power falls as the
 # module heats up. -0.0035/degC (-0.35%/degC) is a standard crystalline-
 # silicon default. It is a PLACEHOLDER until per-plant module-datasheet
-# coefficients are available (see PlantConfig — no gamma field yet).
+# coefficients are available (see PlantConfig - no gamma field yet).
 GAMMA_PMAX_DEFAULT = -0.0035
 
 # Standard Test Conditions reference (cell) temperature.
@@ -88,7 +88,7 @@ class PlantPerformanceDay:
     capacity_factor: Optional[float]
     """Daily capacity factor = E_actual / (kwp_ac × 24h), [0, 1]."""
 
-    # Confidence flag — tells alert engine / report whether to trust the PR
+    # Confidence flag - tells alert engine / report whether to trust the PR
     pr_confidence: Confidence
     capacity_factor_confidence: Confidence
 
@@ -144,7 +144,7 @@ def irradiance_weighted_module_temp(
 
     Each sample is ``(module_temp_c, irradiance_wm2)``. Samples missing the
     temperature are skipped. Weighting by irradiance lets midday (high-output)
-    temperatures dominate — matching where the energy is actually produced,
+    temperatures dominate - matching where the energy is actually produced,
     which is what the PR_STC correction should reflect.
 
     Falls back to a simple mean when no positive irradiance weights are
@@ -184,7 +184,7 @@ def temp_corrected_pr(
     measured back-of-module temperature is used as-is, the standard choice when
     a BOM sensor is present. To switch to the Sandia cell-temp variant later,
     pass a small offset (a few degC, optionally irradiance-scaled by the
-    caller) — no other code changes needed.
+    caller) - no other code changes needed.
 
     Since gamma is negative, a hot module (T > 25) yields PR_STC > PR: the
     correction reports what the plant *would* do at 25 degC, stripping the
@@ -217,8 +217,8 @@ def compute_plant_pr(
     Args:
         plant_key: identifier for logs and the returned object
         date_iso: 'YYYY-MM-DD' (local plant date)
-        kwp_dc: installed DC capacity, kWp — REQUIRED for PR
-        kwp_ac: installed AC capacity, kWp — REQUIRED for capacity factor
+        kwp_dc: installed DC capacity, kWp - REQUIRED for PR
+        kwp_ac: installed AC capacity, kWp - REQUIRED for capacity factor
         energy_per_inverter: output of energy.compute_plant_energy()
         irradiance: output of irradiance.daily_irradiance_for_plant()
         inverter_count_expected: from the Inverters tab. Used to gauge
@@ -327,7 +327,7 @@ class InverterPeerRank:
     energy_kwh: Optional[float]
     rated_kw: Optional[float]
     """The Inverters tab's rated_kw. Used to normalize when inverters differ
-    in size — a 100kW unit producing 600 kWh isn't comparable to a 50kW
+    in size - a 100kW unit producing 600 kWh isn't comparable to a 50kW
     unit producing 500 kWh; specific yield (kWh/kWp) is."""
 
     specific_yield_kwh_per_kwp: Optional[float]

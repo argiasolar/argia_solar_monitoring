@@ -1,6 +1,6 @@
 #!/bin/bash
 # ARGIA CFE daily job (Pi, cron 08:10 America/Mexico_City).
-# 1) probe: scrape GDMTH for the current month (17 divisions) — proves
+# 1) probe: scrape GDMTH for the current month (17 divisions) - proves
 #    the WAF path works end to end and samples real values
 # 2) monthly: between day 3 and 27, if this month's full CSV has not
 #    been pushed yet, scrape all 10 tariffs and push it
@@ -10,7 +10,7 @@ set -u
 CFE=~/cfe
 PY=$CFE/venv/bin/python
 # v240: the scraper runs FROM THE REPO CHECKOUT (deploy.sh keeps it
-# current — the v217.1 rule); ~/cfe keeps only venv, divmap, state,
+# current - the v217.1 rule); ~/cfe keeps only venv, divmap, state,
 # outbox, logs. The old copy is a fallback for a Pi without a checkout.
 SCRAPER=$HOME/argia_v2/v2/pi/cfe/cfe_scrape.py
 [ -f "$SCRAPER" ] || SCRAPER=$CFE/cfe_scrape.py
@@ -55,9 +55,9 @@ if [ "$PROBE_STATUS" = ok ] && [ ! -f "$MARK" ] \
         && [ "$DOM" -ge 3 ] && [ "$DOM" -le 27 ]; then
     if [ -s "$FULL" ]; then
         # Scraped on an earlier day but the push failed.  Re-send the
-        # file we already have — the scrape costs two hours, the push
+        # file we already have - the scrape costs two hours, the push
         # costs seconds, and the two fail for unrelated reasons.
-        echo "monthly CSV for $YM already scraped — retrying the push"
+        echo "monthly CSV for $YM already scraped - retrying the push"
         push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
     else
         echo "monthly fetch for $YM starting"

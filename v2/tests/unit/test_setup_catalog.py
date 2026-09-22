@@ -1,4 +1,4 @@
-"""v200 — the admin catalog: drawers, tabs, cards; every old route still
+"""v200 - the admin catalog: drawers, tabs, cards; every old route still
 answers; the Data sources card never leaks a secret."""
 import ast
 import pathlib

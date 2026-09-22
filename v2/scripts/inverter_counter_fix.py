@@ -2,11 +2,11 @@
 """Apply the inverter-counter rule (v206) to days already stored.
 
 Tomasz 2026-09-05: "make a rule that we always prefer the inverter
-counter — for now this is the only way we can prove it to the customer".
+counter - for now this is the only way we can prove it to the customer".
 From v206 on, recon_snapshot writes every new day that way. This one-off
 walks back over a window and raises ``daily_production.energy_kwh`` to
-the day's reference — Σ of the inverters' own eToday counters as we
-sampled them, the vendor plant daily only where it is higher — wherever
+the day's reference - Σ of the inverters' own eToday counters as we
+sampled them, the vendor plant daily only where it is higher - wherever
 the stored value is below it by more than 1 %. Then the two existing
 resyncs run (billable lifted to the corrected energy; PR re-derived).
 
@@ -75,7 +75,7 @@ def load_rows(days: int) -> List[Tuple]:
     closed = {(r[0], r[1][:7]) for r in psql_rows(
         "SELECT plant_key, ref_month::text FROM reconciliation_monthly"
         " WHERE closed_at IS NOT NULL;") if len(r) >= 2}
-    # today (MX) is still running — its counters are partial and its
+    # today (MX) is still running - its counters are partial and its
     # daily_production row does not exist yet; the nightly recon owns it
     from argia.core.time_utils import MX_TZ
     today_mx = dt.datetime.now(MX_TZ).date().isoformat()
@@ -97,7 +97,7 @@ def main(argv=None) -> int:
     for f in fixes:
         print(f"  {f['date']} {f['plant_key']:5s} stored={f['stored'] if f['stored'] is not None else '-':>9} "
               f"-> {f['reference']:9.1f} ({f['basis']}; inverters={f['inverter_kwh']} vendor={f['vendor_kwh']})"
-              + ("  CLOSED month — untouched" if f["closed"] else ""))
+              + ("  CLOSED month - untouched" if f["closed"] else ""))
     if not a.apply:
         print("(report only)")
         return 0

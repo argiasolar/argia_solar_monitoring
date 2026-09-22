@@ -1,4 +1,4 @@
-"""Render and publish financial_report.html — the online, interactive
+"""Render and publish financial_report.html - the online, interactive
 version of the finance report (calendar from–to picker).
 
 Mirrors dashboard_html_publish: renders one self-contained HTML file
@@ -9,7 +9,7 @@ audience than the ops dashboard.
 
 Window: the picker can select any range inside [--window-start,
 --window-end] (defaults: 2026-07-01, the v2 KPI epoch, through the end
-of the current MX month + 1 — enough for MTD, previous month and
+of the current MX month + 1 - enough for MTD, previous month and
 forward-looking expected).
 
 Dry-run by default: renders locally, uploads nothing.
@@ -104,10 +104,10 @@ def main(argv=None) -> int:
               or os.environ.get("GCS_DASHBOARD_BUCKET", "").strip())
     if not bucket:
         print("NOTICE: no GCS bucket configured (GCS_FINANCE_BUCKET / "
-              "GCS_DASHBOARD_BUCKET) — skipping upload.")
+              "GCS_DASHBOARD_BUCKET) - skipping upload.")
         return 0
     upload_to_gcs(bucket, OBJECT_NAME, html)
-    print("[apply] uploaded to gs://%s/%s — view at "
+    print("[apply] uploaded to gs://%s/%s - view at "
           "https://storage.cloud.google.com/%s/%s"
           % (bucket, OBJECT_NAME, bucket, OBJECT_NAME))
     return 0

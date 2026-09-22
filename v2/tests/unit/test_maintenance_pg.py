@@ -1,4 +1,4 @@
-"""Unit tests — maintenance events from the PostgreSQL /setup/ UI."""
+"""Unit tests - maintenance events from the PostgreSQL /setup/ UI."""
 
 import datetime as dt
 

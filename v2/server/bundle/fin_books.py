@@ -1,6 +1,6 @@
-"""v245 — the /finance/ and /projects/ pages on the REAL books (entity
+"""v245 - the /finance/ and /projects/ pages on the REAL books (entity
 ARGIA-MX): what ``scripts/fin_drive_ingest.py`` loaded from the Drive
-folders — the CONTPAQi prints, the accountants' workbook, the projects
+folders - the CONTPAQi prints, the accountants' workbook, the projects
 overview, the AR/AP tracker and the PMO project sheets.
 
 Bound by fin_app (``bind(rows, money, today, entity)``) so the same fake
@@ -26,7 +26,7 @@ _rows: Callable = None
 _money_raw: Callable = None
 _today: Callable = None
 ENTITY = 'ARGIA-MX'
-_pref = ''                     # v248: '' (as issued) | 'MXN' | 'USD' — the reader's display currency
+_pref = ''                     # v248: '' (as issued) | 'MXN' | 'USD' - the reader's display currency
 _rate: Optional[Decimal] = None   # USD → MXN used for the display conversion
 _rate_src = ()
 _cc_cache: Optional[Dict[int, dict]] = None
@@ -81,7 +81,7 @@ def _proj(code, name=None, link=True) -> str:
     """The one way a project / cost centre is written: code first, one case,
     linked to its page (project page or cost-centre page)."""
     if code in (None, ''):
-        return _nm(name) or '—'
+        return _nm(name) or ' - '
     c = cc_map().get(int(code))
     kind = c['kind'] if c else cc_kind(code)
     lbl = _e(CC.label(code, (c['name'] if c else name) or name, kind))
@@ -132,7 +132,7 @@ _SRC_JOIN = ("f.name AS src_name, f.kind AS src_kind, f.drive_id AS src_drive_id
 
 
 def src_link(row: dict, column: str = '', value: str = '', label: str = '') -> str:
-    """v250: the ⎘ that opens the file this row was read from — on the cell
+    """v250: the ⎘ that opens the file this row was read from - on the cell
     itself when the file is a Google Sheet, on the file otherwise, with the
     sheet and row in the tooltip (Tomasz 2026-09-10)."""
     p = SRC.pointer(row, column, value)
@@ -144,15 +144,16 @@ def src_link(row: dict, column: str = '', value: str = '', label: str = '') -> s
             f' aria-label="{_e(p["en"])}">{label or mark}</a>')
 
 
-_COL_SRC = ("Opens the file this row was read from — the exact cell when the file is a Google Sheet, otherwise the file, with the sheet and row in the tooltip. This is where the value is changed; the portal never writes to any source file.",
-            "Abre el archivo del que se leyó esta fila — la celda exacta si el archivo es una hoja de Google, si no el archivo, con la hoja y la fila en el tooltip. Ahí se cambia el valor; el portal nunca escribe en los archivos de origen.")
+_COL_SRC = ("Opens the file this row was read from - the exact cell when the file is a Google Sheet, otherwise the file, with the sheet and row in the tooltip. This is where the value is changed; the portal never writes to any source file.",
+            "Abre el archivo del que se leyó esta fila - la celda exacta si el archivo es una hoja de Google, si no el archivo, con la hoja y la fila en el tooltip. Ahí se cambia el valor; el portal nunca escribe en los archivos de origen.")
 
 
 def doc_link(it: dict) -> str:
-    """v248: a link to the document — the tracker has no URL column, so this
+    """v248: a link to the document - the tracker has no URL column, so this
     opens a Google Drive search for the folio fiscal (or the invoice number)."""
     key = (it.get('folio_fiscal') or '').strip() or (it.get('invoice') or '').strip()
-    if not key or key.lower() in ('d/a', 'n/a', '-', '—'):
+    # a person may type an em dash for 'nothing' in the tracker: accept it as INPUT.  em-dash-ok
+    if not key or key.lower() in ('d/a', 'n/a', '-', '—'):   # em-dash-ok
         return ''
     from urllib.parse import quote
     return f'<a class="doc" target="_blank" rel="noopener" href="https://drive.google.com/drive/search?q={quote(key)}" title="search this document in Google Drive / buscar este documento en Google Drive">Drive ↗</a>'
@@ -200,7 +201,7 @@ _COL = {
               "Valor del contrato en MXN del overview de proyectos (sin IVA). Los tratos en USD se muestran a la conversión propia del overview."),
     'planned_cost': ("Planned cost in MXN from the projects overview and, in brackets, the planned margin it implies ((value − cost) / value).",
                      "Costo planeado en MXN del overview de proyectos y, entre paréntesis, el margen planeado que implica ((valor − costo) / valor)."),
-    'rev_ytd': ("Revenue BOOKED in 2026 on this project: the sum of revenue-account lines (401-xx) carrying the project's segment, from the accountants' GM per project. Not invoicing — booking. Blank means nothing booked yet.",
+    'rev_ytd': ("Revenue BOOKED in 2026 on this project: the sum of revenue-account lines (401-xx) carrying the project's segment, from the accountants' GM per project. Not invoicing - booking. Blank means nothing booked yet.",
                 "Ingresos CONTABILIZADOS en 2026 en este proyecto: la suma de líneas de cuentas de ingreso (401-xx) con el segmento del proyecto, del GM por proyecto de contabilidad. No es facturación, es registro contable. Vacío = nada registrado aún."),
     'cos_ytd': ("Cost of sales BOOKED in 2026 on this project (501-xx lines with the segment), shown positive. A negative value is a cost reversal.",
                 "Costo de ventas CONTABILIZADO en 2026 en este proyecto (líneas 501-xx con el segmento), mostrado en positivo. Un valor negativo es una reversión de costo."),
@@ -208,7 +209,7 @@ _COL = {
                "Ingresos menos costo contabilizados en 2026, con la tasa de margen. Compárese con el margen planeado: una brecha grande significa costos registrados antes que ingresos (o al revés), no necesariamente un problema hasta que el proyecto cierre."),
     'invoiced': ("Amount invoiced to the customer (MXN) as kept in the projects overview; '/ paid' = collected so far.", "Monto facturado al cliente (MXN) según el overview de proyectos; '/ cobrado' = cobrado hasta hoy."),
     'progress': ("Installation progress: the higher of the PM's estimate in the overview and the PMO sheet's logged task progress.", "Avance de instalación: el mayor entre la estimación del PM en el overview y el avance de tareas registrado en la hoja PMO."),
-    'pmo': ("'sheet' = the project's ARGIA PROJECT workbook is found under PROJECT MANAGEMENT and read (tasks, milestones, costs); '—' = no sheet yet.", "'sheet' = la hoja ARGIA PROJECT del proyecto existe en PROJECT MANAGEMENT y se lee (tareas, hitos, costos); '—' = aún sin hoja."),
+    'pmo': ("'sheet' = the project's ARGIA PROJECT workbook is found under PROJECT MANAGEMENT and read (tasks, milestones, costs); ' - ' = no sheet yet.", "'sheet' = la hoja ARGIA PROJECT del proyecto existe en PROJECT MANAGEMENT y se lee (tareas, hitos, costos); ' - ' = aún sin hoja."),
     'src_kind': ("Which reader loaded the file: polizas / auxiliares (CONTPAQi prints), acctbook (the accountants' workbook), overview (projects overview), tracker (AR/AP open items), pmo_sheet (a project workbook).",
                  "Qué lector cargó el archivo: polizas / auxiliares (impresiones CONTPAQi), acctbook (libro de contabilidad), overview (overview de proyectos), tracker (partidas abiertas), pmo_sheet (hoja de proyecto)."),
     'src_file': ("File name exactly as it is in Google Drive.", "Nombre del archivo tal cual está en Google Drive."),
@@ -228,7 +229,7 @@ _COL = {
     'oi_total': ("Invoice total including IVA, in the invoice currency.", "Total de la factura con IVA, en la moneda de la factura."),
     'oi_net': ("Amount before IVA.", "Importe antes de IVA."),
     'oi_paid': ("Date the payment was confirmed in the tracker.", "Fecha en que se confirmó el pago en el seguimiento."),
-    'oi_folio': ("First 8 characters of the CFDI folio fiscal (UUID) — enough to find it in SAT / Savio.", "Primeros 8 caracteres del folio fiscal CFDI (UUID) — suficiente para ubicarla en SAT / Savio."),
+    'oi_folio': ("First 8 characters of the CFDI folio fiscal (UUID) - enough to find it in SAT / Savio.", "Primeros 8 caracteres del folio fiscal CFDI (UUID) - suficiente para ubicarla en SAT / Savio."),
     'oi_comment': ("The tracker's own comment (milestone, partial, dispute…).", "Comentario propio del seguimiento (hito, parcial, disputa…)."),
     'bk_account': ("CONTPAQi sub-account: 105-01-xxx one per customer, 201-01-xxx one per supplier.", "Subcuenta CONTPAQi: 105-01-xxx una por cliente, 201-01-xxx una por proveedor."),
     'bk_party': ("Counterparty name as the accountants keep it; 'USD' / 'Compl' pairs are one dollar counterparty (face value + peso complement).", "Nombre de la contraparte como lo lleva contabilidad; los pares 'USD' / 'Compl' son una contraparte en dólares (valor nominal + complemento en pesos)."),
@@ -474,7 +475,7 @@ def phase_pill(phase: str) -> str:
     n = (phase or '')[:1]
     cls = {'0': 'off', '1': 'off', '2': 'warn', '3': 'ok', '4': 'ok', '5': 'ok', '6': 'ok', '7': 'crit', '8': 'crit'}.get(n, 'off')
     label = re.sub(r'^\d_', '', phase or '').replace('_', ' ')
-    return pill(cls, label or '—')
+    return pill(cls, label or ' - ')
 
 
 # ------------------------------------------------------------------ pages
@@ -506,7 +507,7 @@ def page_today() -> str:
     for side, items, en, es in (('ar', ar_items, 'Receivables (tracker)', 'Por cobrar (seguimiento)'), ('ap', ap_items, 'Payables (tracker)', 'Por pagar (seguimiento)')):
         summ = open_summary(items, tod)
         if not summ:
-            tiles += tile(en, es, '—', 'no open items', 'sin partidas abiertas')
+            tiles += tile(en, es, ' - ', 'no open items', 'sin partidas abiertas')
         for ccy, s in sorted(summ.items()):
             tone = 'bad' if s['max_days'] > 60 else 'warn' if s['n_over'] else 'good'
             tiles += tile(f'{en} · {ccy}', f'{es} · {ccy}', _money(s['open'], ccy), f"{s['n']} open · {s['n_over']} overdue · {s['overdue']:,.0f} {ccy} past due",
@@ -543,11 +544,11 @@ def page_today() -> str:
         pmargin = (val - planned_m) / val * 100 if val and planned_m else None
         prog = max(_n(p.get('pmo_progress')), _n(p.get('progress')))   # the PM's estimate (overview) until the sheet logs progress
         rows_html.append(f'<tr><td style="min-width:240px"><a href="/projects/{_e(p["project_id"])}/"><b>{_e(CC.label(p["code"], p["name"]))}</b></a></td>'
-                         f'<td>{phase_pill(p["phase"])}</td><td>{_e(p.get("project_manager") or p.get("pmo_manager") or "—")}</td>'
+                         f'<td>{phase_pill(p["phase"])}</td><td>{_e(p.get("project_manager") or p.get("pmo_manager") or " - ")}</td>'
                          f'<td class="r">{_money(val)}</td><td class="r">{_money(planned_m)} <span class="muted">{f"{pmargin:.0f}%" if pmargin is not None else ""}</span></td>'
                          f'<td class="r">{_money(rev_y)}</td><td class="r">{_money(-cos_y)}</td><td class="r"><b>{_money(gm_y)}</b> <span class="muted">{f"{gm_y / rev_y * 100:.0f}%" if rev_y else ""}</span></td>'
-                         f'<td class="r">{_money(_n(p.get("invoiced_mxn")))}</td><td class="r">{f"{prog * 100:.0f}%" if prog else "—"}</td>'
-                         f'<td>{pill("ok", "sheet") if p.get("pmo_id") else pill("off", "—")}</td></tr>')
+                         f'<td class="r">{_money(_n(p.get("invoiced_mxn")))}</td><td class="r">{f"{prog * 100:.0f}%" if prog else " - "}</td>'
+                         f'<td>{pill("ok", "sheet") if p.get("pmo_id") else pill("off", " - ")}</td></tr>')
     src = q_sources()
     src_html = ''.join(f'<tr><td>{_e(s["kind"])}</td><td>{_e(s["name"])}</td><td>{_e(s.get("period") or "")}</td><td>{_e(s.get("modified") or "")}</td><td>{_e(s.get("imported") or "")}</td><td class="r">{_e(s.get("rows"))}</td></tr>' for s in src)
     body = f'''
@@ -557,11 +558,11 @@ def page_today() -> str:
 </div>
 <div class="tiles" style="margin-top:20px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden">
- <div class="chead"><h2 class="ct">{t("Active projects — planned vs booked", "Proyectos activos — plan vs libros")}</h2><span class="muted" style="font-size:12.5px">{t("value and planned cost from the projects overview · booked revenue / cost / margin YTD from the accountants' GM per project (CONTPAQi segments)", "valor y costo planeado del overview de proyectos · ingresos / costo / margen contabilizados YTD del GM por proyecto de contabilidad (segmentos CONTPAQi)")}</span></div>
+ <div class="chead"><h2 class="ct">{t("Active projects - planned vs booked", "Proyectos activos - plan vs libros")}</h2><span class="muted" style="font-size:12.5px">{t("value and planned cost from the projects overview · booked revenue / cost / margin YTD from the accountants' GM per project (CONTPAQi segments)", "valor y costo planeado del overview de proyectos · ingresos / costo / margen contabilizados YTD del GM por proyecto de contabilidad (segmentos CONTPAQi)")}</span></div>
  {_table([t("Project", "Proyecto"), t("Phase", "Fase"), "PM", t("Value", "Valor"), t("Planned cost", "Costo planeado"), t("Booked revenue YTD", "Ingresos YTD"), t("Booked cost YTD", "Costo YTD"), t("Booked margin YTD", "Margen YTD"), t("Invoiced", "Facturado"), t("Progress", "Avance"), "PMO"], rows_html, cols=COLS('project', 'phase', 'pm', 'value', 'planned_cost', 'rev_ytd', 'cos_ytd', 'gm_ytd', 'invoiced', 'progress', 'pmo'), sums=[3, 4, 5, 6, 7, 8])}
 </div>
 <div class="card" style="margin-top:16px;overflow:hidden">
- <div class="chead"><h2 class="ct">{t("Data sources", "Fuentes de datos")}</h2><span class="muted" style="font-size:12.5px">{t("read from Google Drive by content hash — an unchanged file is never re-imported", "leídas de Google Drive por hash de contenido — un archivo sin cambios nunca se reimporta")}</span></div>
+ <div class="chead"><h2 class="ct">{t("Data sources", "Fuentes de datos")}</h2><span class="muted" style="font-size:12.5px">{t("read from Google Drive by content hash - an unchanged file is never re-imported", "leídas de Google Drive por hash de contenido - un archivo sin cambios nunca se reimporta")}</span></div>
  {_table([t("Kind", "Tipo"), t("File", "Archivo"), t("Period", "Periodo"), t("Modified", "Modificado"), t("Imported", "Importado"), t("Rows", "Filas")], [src_html] if src_html else [], cols=COLS('src_kind', 'src_file', 'src_period', 'src_modified', 'src_imported', 'src_rows'))}
 </div>
 <div class="card" style="margin-top:16px;padding:16px 20px">
@@ -621,7 +622,7 @@ def page_ledger(side: str) -> str:
 def page_bank() -> str:
     period = q_period()
     cash = cash_view(q_cash(period)) if period else []
-    # the books stop at the period end — show the 45 days before it, not before today
+    # the books stop at the period end - show the 45 days before it, not before today
     if period:
         y, m = int(period[:4]), int(period[5:7])
         pend = (dt.date(y + (m == 12), (m % 12) + 1, 1) - dt.timedelta(days=1))
@@ -642,7 +643,7 @@ def page_bank() -> str:
             sections += f'''<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{_e(v["name"])} · <span class="mono">{_e(acct)}</span></h2><span class="muted" style="font-size:12.5px">{t("last 45 days of the books", "últimos 45 días de libros")} · {since.isoformat()} → {pend.isoformat()}</span></div>
 {_table([t("Date", "Fecha"), t("Póliza", "Póliza"), t("Concept", "Concepto"), t("Reference", "Referencia"), t("In", "Entrada"), t("Out", "Salida"), t("Project", "Proyecto")], trs, cols=COLS('bl_date', 'bl_poliza', 'bl_concept', 'bl_ref', 'bl_in', 'bl_out', 'bl_project'), sums=[4, 5])}</div>'''
     body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(period)}<h1 class="pt">{t("Bank", "Banco")}</h1></div>{_tools()}</div>
-<div class="tiles" style="margin-top:16px">{tiles or tile("Bank", "Banco", "—", "no books loaded", "sin libros")}</div>
+<div class="tiles" style="margin-top:16px">{tiles or tile("Bank", "Banco", " - ", "no books loaded", "sin libros")}</div>
 {sections}
 <p class="note">{t("These are the bank movements as booked by the accountants (CONTPAQi pólizas), not the bank's own statement. A statement-to-books reconciliation arrives when the bank exports are in the drop folder.", "Estos son los movimientos bancarios como los contabilizó contabilidad (pólizas CONTPAQi), no el estado de cuenta del banco. La conciliación estado de cuenta vs libros llega cuando los exports del banco estén en la carpeta.")}</p>'''
     return PC.page('Bank', body, 'finance', 'bank', wide=True)
@@ -743,11 +744,11 @@ def page_portfolio() -> str:
             except ValueError:
                 pass
             rows_html.append(f'<tr><td style="min-width:240px"><a href="/projects/{_e(p["project_id"])}/"><b>{_e(CC.label(p["code"], p["name"]))}</b></a> {late}</td>'
-                             f'<td>{pill("ok" if (p.get("status") or "") == "ok" else "warn" if p.get("status") == "warning" else "crit" if p.get("status") == "critical" else "off", p.get("status") or "—")}</td>'
-                             f'<td>{_e(p.get("project_manager") or p.get("pmo_manager") or "—")}</td><td>{_e(p.get("contract_start") or "")} → {_e(end)}</td>'
+                             f'<td>{pill("ok" if (p.get("status") or "") == "ok" else "warn" if p.get("status") == "warning" else "crit" if p.get("status") == "critical" else "off", p.get("status") or " - ")}</td>'
+                             f'<td>{_e(p.get("project_manager") or p.get("pmo_manager") or " - ")}</td><td>{_e(p.get("contract_start") or "")} → {_e(end)}</td>'
                              f'<td class="r">{_money(_n(p.get("value_mxn")))}</td><td class="r">{_money(_n(p.get("planned_cost_mxn")))}</td>'
                              f'<td class="r">{_money(rev_y)}</td><td class="r">{_money(-cos_y)}</td><td class="r">{_money(_n(p.get("invoiced_mxn")))} <span class="muted">/ {_money(_n(p.get("paid_mxn")))}</span></td>'
-                             f'<td class="r">{f"{prog * 100:.0f}%" if prog else "—"}</td><td>{pill("ok", "sheet") if p.get("pmo_id") else pill("off", "—")}</td></tr>')
+                             f'<td class="r">{f"{prog * 100:.0f}%" if prog else " - "}</td><td>{pill("ok", "sheet") if p.get("pmo_id") else pill("off", " - ")}</td></tr>')
         cards += f'''<div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{phase_pill(phase)} <span class="muted" style="font-weight:400;font-size:13px">{len(by_phase[phase])}</span></h2></div>
 {_table([t("Project", "Proyecto"), "Status", "PM", t("Contract", "Contrato"), t("Value", "Valor"), t("Planned cost", "Costo planeado"), t("Booked rev. YTD", "Ingresos YTD"), t("Booked cost YTD", "Costo YTD"), t("Invoiced / paid", "Facturado / cobrado"), t("Progress", "Avance"), "PMO"], rows_html, cols=COLS('project', 'status', 'pm', 'contract', 'value', 'planned_cost', 'rev_ytd', 'cos_ytd', 'invoiced', 'progress', 'pmo'), sums=[4, 5, 6, 7, 8])}</div>'''
     body = f'''<div class="kicker">{t("Projects", "Proyectos")} · {_today().isoformat()} · <span class="mono">{_e(ENTITY)}</span> · {t("overview + books through", "overview + libros al")} {period}</div><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{t("Portfolio", "Portafolio")}</h1><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">{ccy_switch()}{PC.print_button('Print / PDF for shareholders', 'Imprimir / PDF para accionistas')}</div></div>
@@ -765,13 +766,13 @@ def q_source(kind: str) -> Optional[dict]:
 
 
 def _tab_of(row: Optional[dict]) -> Optional[dict]:
-    """A row's pointer without its row number: the tab, not the cell — what
+    """A row's pointer without its row number: the tab, not the cell - what
     you want when the answer is "add a line here", not "look at this line"."""
     return dict(row, src_row=0) if row else None
 
 
 def where_box(entries: List[dict]) -> str:
-    """v250 — "where do I change this?": one row per file that feeds the page,
+    """v250 - "where do I change this?": one row per file that feeds the page,
     what it decides, who keeps it and a link straight to it. The books are
     listed too, marked read-only: a wrong booked figure is corrected in
     CONTPAQi by the accountants and arrives with the next close."""
@@ -788,7 +789,7 @@ def where_box(entries: List[dict]) -> str:
     if not trs:
         return ''
     cols = [("What this file decides on this page.", "Qué decide este archivo en esta página."),
-            ("The file itself — the link opens it (the exact cell when it is a Google Sheet).", "El archivo — el enlace lo abre (la celda exacta si es una hoja de Google)."),
+            ("The file itself - the link opens it (the exact cell when it is a Google Sheet).", "El archivo - el enlace lo abre (la celda exacta si es una hoja de Google)."),
             ("Sheet and row the portal read, so the value is easy to find inside the file.", "Hoja y fila que leyó el portal, para ubicar el valor dentro del archivo."),
             ("Who keeps that file.", "Quién lleva ese archivo."),
             ("Whether changing the file is the way to fix the number. The books are the accountants' output: a wrong figure there is corrected in CONTPAQi and arrives with the next monthly close.",
@@ -828,7 +829,7 @@ def page_project(pid: str) -> Optional[str]:
                     why_en=('booked cost exceeds booked revenue' if gm_t < 0 and rev_t > 0 else ''), why_es=('el costo contabilizado supera los ingresos' if gm_t < 0 and rev_t > 0 else ''))
              + tile('Invoiced / paid', 'Facturado / cobrado', _money(_n(p.get('invoiced_mxn'))), f"paid {_n(p.get('paid_mxn')):,.0f} · {(_n(p.get('invoiced_mxn')) / val * 100):.0f}% of value invoiced" if val else '',
                     f"cobrado {_n(p.get('paid_mxn')):,.0f} · {(_n(p.get('invoiced_mxn')) / val * 100):.0f}% del valor facturado" if val else '')
-             + tile('Progress', 'Avance', f"{prog * 100:.0f} <span class=\"unit\">%</span>" if prog else '—', f"{_e(p.get('contract_start') or '')} → {_e(p.get('contract_end') or '')}", f"{_e(p.get('contract_start') or '')} → {_e(p.get('contract_end') or '')}"))
+             + tile('Progress', 'Avance', f"{prog * 100:.0f} <span class=\"unit\">%</span>" if prog else ' - ', f"{_e(p.get('contract_start') or '')} → {_e(p.get('contract_end') or '')}", f"{_e(p.get('contract_start') or '')} → {_e(p.get('contract_end') or '')}"))
     # books detail by account
     grs = []
     for g in gl:
@@ -840,16 +841,16 @@ def page_project(pid: str) -> Optional[str]:
     pmo_html = ''
     if p.get('pmo_id'):
         ms = [x for x in tasks if x.get('is_milestone') in ('t', 'true', True)]
-        mrs = [f'<tr><td class="mono" style="font-size:12px">{_e(x["task_id"])}</td><td>{_e(x["name"])}</td>{_dt(x.get("end_date"))}<td>{pill("ok" if (x.get("status") or "").lower() == "completed" else "warn" if (x.get("status") or "").lower() == "in progress" else "off", x.get("status") or "—")}</td>'
+        mrs = [f'<tr><td class="mono" style="font-size:12px">{_e(x["task_id"])}</td><td>{_e(x["name"])}</td>{_dt(x.get("end_date"))}<td>{pill("ok" if (x.get("status") or "").lower() == "completed" else "warn" if (x.get("status") or "").lower() == "in progress" else "off", x.get("status") or " - ")}</td>'
                f'<td class="nw">{src_link(x, "Task_Status", x.get("status") or "")}</td></tr>' for x in ms]
         by_status: Dict[str, Decimal] = {}
         for c in costs:
-            by_status[c.get('cost_status') or '—'] = by_status.get(c.get('cost_status') or '—', D(0)) + _n(c['net'])
+            by_status[c.get('cost_status') or ' - '] = by_status.get(c.get('cost_status') or ' - ', D(0)) + _n(c['net'])
         crs = []
         for c in costs:
             crs.append(f'<tr><td class="mono" style="font-size:12px">{_e(c["cost_id"])}</td>{_dt(c.get("cost_date"))}<td>{_e(c["category"])}</td><td>{_nm(c["vendor"])}</td>'
                        f'<td>{_e(c["description"])}</td><td class="r">{_money(c["net"])}</td><td class="r">{_money(c["total"])}</td>'
-                       f'<td>{pill("ok" if (c.get("cost_status") or "") == "Paid" else "warn" if c.get("cost_status") in ("Committed", "Incurred") else "off", c.get("cost_status") or "—")}</td>'
+                       f'<td>{pill("ok" if (c.get("cost_status") or "") == "Paid" else "warn" if c.get("cost_status") in ("Committed", "Incurred") else "off", c.get("cost_status") or " - ")}</td>'
                        f'<td>{_e(c.get("approval") or "")} {_e(c.get("approved_by") or "")}</td>'
                        f'<td class="nw">{src_link(c, "Amount_Before_VAT", format(_n(c.get("net")), ",.2f"))}</td></tr>')
         phases = [x for x in tasks if x.get('is_phase') in ('t', 'true', True)]
@@ -866,11 +867,11 @@ def page_project(pid: str) -> Optional[str]:
 </div>'''
     body = f'''<div class="kicker"><a href="/projects/">{t("Projects", "Proyectos")}</a> · <span class="mono">{_e(pid)}</span> · {t("books through", "libros al")} {period}</div>
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{_e(CC.label(code, p["name"]))}</h1>{_tools()}</div>
-<div class="muted" style="font-size:14px">{phase_pill(p["phase"])} · {t("BM", "BM")} {_e(p.get("business_manager") or "—")} · PM {_e(p.get("project_manager") or p.get("pmo_manager") or "—")} · {_e(p.get("comment") or "")}</div>
+<div class="muted" style="font-size:14px">{phase_pill(p["phase"])} · {t("BM", "BM")} {_e(p.get("business_manager") or " - ")} · PM {_e(p.get("project_manager") or p.get("pmo_manager") or " - ")} · {_e(p.get("comment") or "")}</div>
 <div class="tiles" style="margin-top:16px">{tiles}</div>
 {pmo_html}
 {where_box([{"what": ("Value, planned cost, phase, dates, progress, invoiced and paid", "Valor, costo planeado, fase, fechas, avance, facturado y cobrado"), "pointer": SRC.pointer(p)},
-            {"what": ("Project costs — add or correct a cost line here", "Costos del proyecto — aquí se agrega o corrige una línea de costo"), "pointer": SRC.pointer(_tab_of(costs[0]) if costs else _tab_of(tasks[0]) if tasks else None)},
+            {"what": ("Project costs - add or correct a cost line here", "Costos del proyecto - aquí se agrega o corrige una línea de costo"), "pointer": SRC.pointer(_tab_of(costs[0]) if costs else _tab_of(tasks[0]) if tasks else None)},
             {"what": ("Milestones, phases and progress", "Hitos, fases y avance"), "pointer": SRC.pointer(_tab_of(tasks[0])) if tasks else None},
             {"what": ("Customer and supplier invoices, due dates, payment dates", "Facturas de cliente y proveedor, vencimientos, fechas de pago"), "pointer": SRC.pointer(_tab_of(items[0])) if items else SRC.pointer(q_source("tracker") or {})},
             {"what": ("Everything booked on this project (revenue, cost, margin)", "Todo lo contabilizado en este proyecto (ingresos, costo, margen)"), "pointer": SRC.pointer(q_source("polizas") or {})}])}
@@ -906,14 +907,14 @@ def page_savio() -> str:
     banner = ''
     if source == 'mock':
         banner = (f'<div class="card" style="margin-top:16px;padding:12px 18px;border-left:4px solid #e0b100;background:#fffbe8">'
-                  f'<b>{t("Mock data.", "Datos de prueba.")}</b> {t("Savio has not issued the API key yet; this page reconciles the demo invoices served by the loopback mock. The checks, the page and the schedule are final — only the input changes when the key lands in /root/.argia_savio.", "Savio aún no entrega la llave del API; esta página concilia las facturas demo del mock local. Las verificaciones, la página y la programación son definitivas — solo cambia la entrada cuando la llave llegue a /root/.argia_savio.")}</div>')
+                  f'<b>{t("Mock data.", "Datos de prueba.")}</b> {t("Savio has not issued the API key yet; this page reconciles the demo invoices served by the loopback mock. The checks, the page and the schedule are final - only the input changes when the key lands in /root/.argia_savio.", "Savio aún no entrega la llave del API; esta página concilia las facturas demo del mock local. Las verificaciones, la página y la programación son definitivas - solo cambia la entrada cuando la llave llegue a /root/.argia_savio.")}</div>')
     by_kind: Dict[str, int] = {}
     crit = warn = 0
     for f in findings:
         by_kind[f['kind']] = by_kind.get(f['kind'], 0) + 1
         crit += f['severity'] == 'crit'
         warn += f['severity'] == 'warn'
-    tiles = tile('Last check', 'Última verificación', (summary or {}).get('checked_at') or '—', (summary or {}).get('detail') or t('never run', 'nunca ejecutada'), (summary or {}).get('detail') or 'nunca ejecutada')
+    tiles = tile('Last check', 'Última verificación', (summary or {}).get('checked_at') or ' - ', (summary or {}).get('detail') or t('never run', 'nunca ejecutada'), (summary or {}).get('detail') or 'nunca ejecutada')
     tiles += tile('Findings', 'Hallazgos', str(len(findings)), f"{crit} critical · {warn} to review · {len(findings) - crit - warn} informational", f"{crit} críticos · {warn} por revisar · {len(findings) - crit - warn} informativos",
                   tone=('bad' if crit else 'warn' if warn else 'good' if summary else ''), why_en=('a critical finding is money or an invoice that does not match between Savio and the books' if crit else ''),
                   why_es=('un hallazgo crítico es dinero o una factura que no coincide entre Savio y los libros' if crit else ''))
@@ -927,11 +928,11 @@ def page_savio() -> str:
             ("What was compared and how it differs.", "Qué se comparó y en qué difiere."), ("Savio invoice or payment id.", "Id de factura o pago en Savio."),
             ("Our side: the tracker invoice number, or the bank account and date of the deposit.", "Nuestro lado: número de factura del seguimiento, o cuenta bancaria y fecha del depósito."),
             ("Amount involved (for AMOUNT: the difference Savio − tracker).", "Importe involucrado (en AMOUNT: la diferencia Savio − seguimiento)."), ("Plain-language explanation.", "Explicación en lenguaje llano.")]
-    body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(q_period(), f" · Savio {_e(source) or '—'}")}<h1 class="pt">{t("Savio check", "Verificación Savio")}</h1></div>{PC.print_button()}</div>
+    body = f'''<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><div>{_kicker(q_period(), f" · Savio {_e(source) or ' - '}")}<h1 class="pt">{t("Savio check", "Verificación Savio")}</h1></div>{PC.print_button()}</div>
 {banner}
 <div class="tiles" style="margin-top:16px">{tiles}</div>
 <div class="card" style="margin-top:16px;overflow:hidden"><div class="chead"><h2 class="ct">{t("Findings", "Hallazgos")}</h2><span class="muted" style="font-size:12.5px">{t("every Savio invoice against the AR tracker (by CFDI UUID, then folio + total); every Savio payment against the deposits in the books (same amount, ±3 days); every reported receiving account against the registered ones", "cada factura de Savio contra el seguimiento de cobrar (por UUID CFDI, luego folio + total); cada pago de Savio contra los depósitos en libros (mismo importe, ±3 días); cada cuenta receptora reportada contra las registradas")}</span></div>
-{_table(["Severity", t("Check", "Verificación"), "Savio", t("Ours", "Nuestro"), t("Amount", "Importe"), t("Detail", "Detalle")], trs, cols=cols) if trs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No findings — or the check has not run yet.", "Sin hallazgos — o la verificación aún no corre.")}</p>'}</div>
+{_table(["Severity", t("Check", "Verificación"), "Savio", t("Ours", "Nuestro"), t("Amount", "Importe"), t("Detail", "Detalle")], trs, cols=cols) if trs else f'<p class="muted" style="padding:16px 20px;margin:0">{t("No findings - or the check has not run yet.", "Sin hallazgos - o la verificación aún no corre.")}</p>'}</div>
 <div class="card" style="margin-top:16px;padding:16px 20px"><h2 class="ct">{t("How this check works", "Cómo funciona esta verificación")}</h2>
 <p class="note">{t("Savio is the invoicing and collections tool: it knows every customer invoice it stamped and every payment it applied. The books (CONTPAQi) and the AR tracker are kept by the accountants. The plugin reads Savio through its API (read-only) and asks three questions: is every stamped invoice being followed for collection, with the same amount and the same paid/open state; did every payment Savio applied really arrive as a deposit on one of ARGIA's bank accounts; and was the money received on an account ARGIA actually owns. Nothing is written back to Savio. It runs daily after the books ingest; the last result is what you see here.",
 "Savio es la herramienta de facturación y cobranza: conoce cada factura de cliente que timbró y cada pago que aplicó. Los libros (CONTPAQi) y el seguimiento de cobrar los lleva contabilidad. El plugin lee Savio por su API (solo lectura) y hace tres preguntas: ¿cada factura timbrada está en seguimiento de cobranza, con el mismo importe y el mismo estado pagada/abierta?; ¿cada pago que Savio aplicó llegó realmente como depósito a una cuenta bancaria de ARGIA?; ¿el dinero se recibió en una cuenta que ARGIA realmente posee? No se escribe nada de vuelta a Savio. Corre a diario después de la carga de libros; el último resultado es lo que se ve aquí.")}</p></div>'''
@@ -942,7 +943,7 @@ def page_savio() -> str:
 def books_rate(period: str):
     """USD→MXN for the display conversion: a real fx_rate row when one
     exists (never the demo rows), else the accountants' own month-end
-    valuation — the peso complement of the dollar accounts divided by
+    valuation - the peso complement of the dollar accounts divided by
     their USD face value."""
     r = _rows('fx', "SELECT rate, to_char(rate_date, 'YYYY-MM-DD') AS d FROM fx_rate WHERE pair = 'USD/MXN' AND source <> 'demo' ORDER BY rate_date DESC LIMIT 1;")
     if r and _n(r[0].get('rate')) > 0:
@@ -1075,9 +1076,9 @@ def page_costs() -> str:
         if by_kind[k]:
             tiles += tile(*CC.KIND_LABEL[k], _money(by_kind[k]), f"{by_kind[k] / total * 100:.0f}% of the booked cost" if total else '', f"{by_kind[k] / total * 100:.0f}% del costo contabilizado" if total else '',
                           tone=('warn' if k == CC.OVERHEAD else ''))
-    cols = [("The cost centre: a project (ARGnnnn, from the projects overview) or an internal code the accountants use as the póliza segment — offices, operation costs, the warehouse, warranties. Salaries and fees are one line whatever the person's code.",
-             "El centro de costo: un proyecto (ARGnnnn, del overview) o un código interno que contabilidad usa como segmento de póliza — oficinas, costos de operación, almacén, garantías. Sueldos y honorarios son una sola línea sin importar el código de la persona."),
-            ("Project, overhead, salaries & fees, warranties, other — set automatically from the accountants' project list; fin_cost_centers.py --set fixes a wrong one.", "Proyecto, gastos generales, sueldos y honorarios, garantías, otros — asignado automáticamente de la lista de proyectos de contabilidad; fin_cost_centers.py --set corrige uno equivocado."),
+    cols = [("The cost centre: a project (ARGnnnn, from the projects overview) or an internal code the accountants use as the póliza segment - offices, operation costs, the warehouse, warranties. Salaries and fees are one line whatever the person's code.",
+             "El centro de costo: un proyecto (ARGnnnn, del overview) o un código interno que contabilidad usa como segmento de póliza - oficinas, costos de operación, almacén, garantías. Sueldos y honorarios son una sola línea sin importar el código de la persona."),
+            ("Project, overhead, salaries & fees, warranties, other - set automatically from the accountants' project list; fin_cost_centers.py --set fixes a wrong one.", "Proyecto, gastos generales, sueldos y honorarios, garantías, otros - asignado automáticamente de la lista de proyectos de contabilidad; fin_cost_centers.py --set corrige uno equivocado."),
             ("Cost booked on P&L cost accounts (classes 5–7, debit − credit) carrying this segment, year to date.", "Costo contabilizado en cuentas de resultados (clases 5–7, cargo − abono) con este segmento, acumulado del año."),
             ("The same, for the last closed month only.", "Lo mismo, solo el último mes cerrado."),
             ("Share of the total booked cost.", "Participación en el costo total contabilizado."),
@@ -1144,7 +1145,7 @@ def page_cost_center(code_s: str) -> Optional[str]:
     body = f'''<div class="kicker"><a href="/finance/costs/">{t("Cost centres", "Centros de costo")}</a> · <span class="mono">{code}</span> · {t("books through", "libros al")} {period}</div>
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap"><h1 class="pt">{_e(CC.label(code, name, kind))}</h1>{_tools()}</div>
 <div class="muted" style="font-size:14px">{pill("warn" if kind == CC.OVERHEAD else "off", *CC.KIND_LABEL.get(kind, ("Other", "Otros")))}{" · " + t("kind set by hand", "tipo fijado a mano") if c and c.get("manual") in (True, "t", "true") else ""}</div>
-<div class="tiles" style="margin-top:16px">{tile("Cost YTD", "Costo YTD", _money(_n(seg.get("cost_ytd"))), f"{seg.get('n') or 0} journal lines", f"{seg.get('n') or 0} líneas de póliza")}{tile("This month", "Este mes", _money(_n(seg.get("cost_month"))), period, period)}{tile("Open AP", "Por pagar", _ap_cells(open_ap, code) or "—", "supplier invoices open in the tracker", "facturas de proveedor abiertas en el seguimiento")}</div>
+<div class="tiles" style="margin-top:16px">{tile("Cost YTD", "Costo YTD", _money(_n(seg.get("cost_ytd"))), f"{seg.get('n') or 0} journal lines", f"{seg.get('n') or 0} líneas de póliza")}{tile("This month", "Este mes", _money(_n(seg.get("cost_month"))), period, period)}{tile("Open AP", "Por pagar", _ap_cells(open_ap, code) or " - ", "supplier invoices open in the tracker", "facturas de proveedor abiertas en el seguimiento")}</div>
 {where_box([{"what": ("Supplier invoices on this code, due dates, payment dates", "Facturas de proveedor con este código, vencimientos, fechas de pago"), "pointer": SRC.pointer(_tab_of(items[0])) if items else SRC.pointer(q_source("tracker") or {})},
             {"what": ("Everything booked on this cost centre", "Todo lo contabilizado en este centro de costo"), "pointer": SRC.pointer(q_source("polizas") or {})},
             {"what": ("Which cost centre this code is, and its name", "Qué centro de costo es este código, y su nombre"), "pointer": SRC.pointer(q_source("acctbook") or {})}])}

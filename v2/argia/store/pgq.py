@@ -1,7 +1,7 @@
 """Thin PostgreSQL access for server-side jobs (pio06 only).
 
 Same execution model as pg_mirror: ``runuser -u postgres -- psql`` with
-peer auth — root-only, no password, no network listener. Import-safe
+peer auth - root-only, no password, no network listener. Import-safe
 everywhere; only ``psql_rows``/``psql_exec`` require the server.
 """
 

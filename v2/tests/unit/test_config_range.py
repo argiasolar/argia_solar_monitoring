@@ -3,7 +3,7 @@
 
 class TestPlantsReadRangeCoversPrBaseline:
     """Regression for 2026-07-03: pr_baseline lives at column AJ (36), but
-    load_portfolio read Plants only to AB (28) — the value silently loaded
+    load_portfolio read Plants only to AB (28) - the value silently loaded
     as None and soiling never computed. Dict-keyed mocks can't catch a
     range bug, so this pins the requested range itself."""
 
@@ -28,4 +28,4 @@ class TestPlantsReadRangeCoversPrBaseline:
                 n = n * 26 + (ord(ch) - 64)
             return n
         assert col_num(end) >= col_num("AJ"), (
-            f"Plants range {rng} stops before AJ — pr_baseline unreadable")
+            f"Plants range {rng} stops before AJ - pr_baseline unreadable")

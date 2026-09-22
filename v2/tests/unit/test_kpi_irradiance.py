@@ -49,7 +49,7 @@ class TestDedupe:
 
     def test_clamps_implausible_high(self):
         """Sensor spikes (e.g. 1420 W/m²) are CLAMPED to MAX_PLAUSIBLE_WM2,
-        not dropped — dropping would remove the time point and blow a hole
+        not dropped - dropping would remove the time point and blow a hole
         in the daily integral."""
         rows = [_row(10, MAX_PLAUSIBLE_WM2 + 220.0), _row(11, 500.0)]
         result = _dedupe_by_timestamp(rows)
@@ -111,7 +111,7 @@ class TestTrapezoidal:
         """Gap > max_gap_sec must NOT be interpolated through."""
         points = [
             (dt.datetime(2026, 5, 14, 10, 0, tzinfo=UTC), 500.0),
-            # 2-hour gap — exceeds explicit 30-min max
+            # 2-hour gap - exceeds explicit 30-min max
             (dt.datetime(2026, 5, 14, 12, 0, tzinfo=UTC), 500.0),
         ]
         result = _trapezoidal_integrate_wm2_to_kwh_m2(points, max_gap_sec=1800)
@@ -128,7 +128,7 @@ class TestTrapezoidal:
         assert _trapezoidal_integrate_wm2_to_kwh_m2(points) == pytest.approx(1.0)
 
     def test_gap_beyond_three_hours_skipped(self):
-        """A >3h gap is a real outage — not interpolated."""
+        """A >3h gap is a real outage - not interpolated."""
         points = [
             (dt.datetime(2026, 5, 14, 10, 0, tzinfo=UTC), 400.0),
             (dt.datetime(2026, 5, 14, 14, 0, tzinfo=UTC), 600.0),
@@ -173,7 +173,7 @@ class TestShineMasterPath:
         assert result.samples_used == 2
 
     def test_zero_integral_returns_none(self):
-        """Pathological case — all samples are 0. Don't report kwh_m2=0
+        """Pathological case - all samples are 0. Don't report kwh_m2=0
         because that would zero out PR. Treat as no data."""
         # Build N samples at 5-min spacing starting 10:00, all 0 W/m²
         rows = []
@@ -199,7 +199,7 @@ class TestShineMasterPath:
         return out
 
     def test_bursty_shinemaster_day_integrates_realistically(self):
-        """A sunny bursty day must land in the realistic 4-8 kWh/m² band —
+        """A sunny bursty day must land in the realistic 4-8 kWh/m² band -
         not collapse to ~0 the way the 1h gap cap did."""
         result = integrate_irradiance_kwh_m2(self._bursty_day_rows())
         assert result.source == IrradianceSource.SHINEMASTER
@@ -207,7 +207,7 @@ class TestShineMasterPath:
 
     def test_old_1h_cap_would_collapse_bursty_day(self):
         """Regression guard: the SAME bursty day under a 1h cap integrates to
-        near-zero (every ~2h interval skipped) — proving the widened bridge is
+        near-zero (every ~2h interval skipped) - proving the widened bridge is
         what fixes it."""
         points = _dedupe_by_timestamp(self._bursty_day_rows())
         collapsed = _trapezoidal_integrate_wm2_to_kwh_m2(points, max_gap_sec=3600)

@@ -1,4 +1,4 @@
-# Stage 7.3c — Sheet headers + physical-spec placeholders
+# Stage 7.3c - Sheet headers + physical-spec placeholders
 
 You asked: "where are we going to add number of panels, and details for
 each inverter we discussed before?" Fair question. Two things were missing:
@@ -11,11 +11,11 @@ each inverter we discussed before?" Fair question. Two things were missing:
 2. A way to **fill placeholder values** for the physical specs (panel count,
    MPPT count, tilt, azimuth, losses). Stage 7.3a inferred *electrical*
    specs (rated_kw etc.) from telemetry. Physical specs can't be inferred
-   from electrical data — they need assumptions.
+   from electrical data - they need assumptions.
 
 This stage adds both.
 
-## Step 1 — Add the column headers (one-time manual paste)
+## Step 1 - Add the column headers (one-time manual paste)
 
 Open your Plants tab. Find the `active` column (column R / 18 in v7.0,
 or column W if you also have other columns). After that, paste these
@@ -25,7 +25,7 @@ or column W if you also have other columns). After that, paste these
 module_count	module_wp	string_count	tilt_deg	azimuth_deg	system_losses_pct	commissioning_date	notes	pr_baseline	tariff_mxn_per_kwh
 ```
 
-(tabs between cells — paste as a single row from clipboard)
+(tabs between cells - paste as a single row from clipboard)
 
 For your Inverters tab, after the `active` column, paste these **3 cells**:
 
@@ -33,13 +33,13 @@ For your Inverters tab, after the `active` column, paste these **3 cells**:
 mppt_count	strings_per_mppt	rated_kw_dc
 ```
 
-Order matters — the headers above match what the loader expects.
+Order matters - the headers above match what the loader expects.
 
 If you've already added some of these manually with slightly different
 names ("Module Count" vs "module_count"), rename them to match exactly.
 The loader is case-sensitive.
 
-## Step 2 — Seed physical placeholders
+## Step 2 - Seed physical placeholders
 
 After step 1, run:
 
@@ -78,22 +78,22 @@ PYTHONPATH=. python scripts/seed_plant_physicals.py --apply
 
 | Field | Source of estimate | Confidence |
 |---|---|---|
-| `module_wp` | 540W if installed 2021+, else 330W | Medium — most Mexican commercial since 2021 uses 540W panels |
-| `module_count` | `round(kwp_dc × 1000 / module_wp)` | Derived — only as good as kwp_dc |
-| `tilt_deg` | 15° (Mexico latitude rule of thumb) | Low — varies by installer; some sites are 5°, some 30° |
-| `azimuth_deg` | 180° (south) | High — nearly universal in Mexico |
-| `system_losses_pct` | 14% (NREL PVWatts default) | Medium — industry standard for commercial PV |
-| `mppt_count` | Bucketed by rated_kw | Low — vendor variation is huge |
+| `module_wp` | 540W if installed 2021+, else 330W | Medium - most Mexican commercial since 2021 uses 540W panels |
+| `module_count` | `round(kwp_dc × 1000 / module_wp)` | Derived - only as good as kwp_dc |
+| `tilt_deg` | 15° (Mexico latitude rule of thumb) | Low - varies by installer; some sites are 5°, some 30° |
+| `azimuth_deg` | 180° (south) | High - nearly universal in Mexico |
+| `system_losses_pct` | 14% (NREL PVWatts default) | Medium - industry standard for commercial PV |
+| `mppt_count` | Bucketed by rated_kw | Low - vendor variation is huge |
 
 **NOT filled** (need real installer docs):
 - `string_count`, `strings_per_mppt`, `rated_kw_dc`, `commissioning_date`
 - `notes`, `pr_baseline`, `tariff_mxn_per_kwh`
 
-## The honest caveat — read this
+## The honest caveat - read this
 
 `module_count = kwp_dc / module_wp` means the **Stage 7.3 sanity warning
 "kwp_dc disagrees with module_count×module_wp"** will be silent after
-you run this script. By design — we made them agree by assumption.
+you run this script. By design - we made them agree by assumption.
 
 This warning only becomes useful again **after you replace these
 placeholders with real installer values**. Until then, the warning
@@ -128,7 +128,7 @@ After running seed_plant_physicals.py with --apply, your sheet finally
 has values in every column that Stage 7.x code reads from. The first
 real `kpi_eod.py` run should show meaningfully better data quality.
 
-## Reminder — the telemetry sparsity issue still blocks meaningful KPIs
+## Reminder - the telemetry sparsity issue still blocks meaningful KPIs
 
 This stage fills metadata. It does NOT fix the upstream problem we
 identified: only 95 telemetry rows in 7 days across 30 inverters. That's

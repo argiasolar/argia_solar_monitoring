@@ -6,7 +6,7 @@ Stage 4.1 introduced rich extraction from ``getDevRealKpi``'s ``dataItemMap``
 Stage 4.2 fixes two issues that surfaced in live daylight data:
 
 1. **Per-MPPT energy semantics.** Live data showed ``mppt_X_cap`` values were
-   identical across overnight runs — they don't reset at midnight. So
+   identical across overnight runs - they don't reset at midnight. So
    ``mppt_X_cap`` is **lifetime cumulative energy in Wh per MPPT**, not daily
    energy. The parser now converts Wh → kWh and routes the values to the
    ``epv{i}_total_kwh`` columns. The ``epv{i}_today_kwh`` columns stay blank
@@ -16,11 +16,11 @@ Stage 4.2 fixes two issues that surfaced in live daylight data:
    because we assumed Huawei only exposed line-to-line (ab/bc/ca). The DEBUG
    log showed it ALSO exposes line-to-neutral (a_u, b_u, c_u). Now populated.
 
-Unknown / missing fields still stay blank — every safe_float in the parser
+Unknown / missing fields still stay blank - every safe_float in the parser
 handles None gracefully. So an inverter model that doesn't expose
 ``mppt_5_cap`` just leaves that cell blank instead of crashing.
 
-Pure functions — no I/O.
+Pure functions - no I/O.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def _fault_code_from_telemetry(tel: HuaweiTelemetryRow) -> str:
 #     The wide schema accommodates both Y (phase-to-N) and Δ (line-to-line).
 #   - Huawei doesn't split active power by phase (no pacr/s/t equivalent).
 #   - The wide schema's iac_a is a single AC current; Huawei reports per-phase
-#     (a_i, b_i, c_i) — too lossy to pick one, so left blank.
+#     (a_i, b_i, c_i) - too lossy to pick one, so left blank.
 _TYPED_MAPPING = [
     ("status",                 lambda t: t.status),
     ("power_w",                lambda t: _power_w_int(t.power_w)),
@@ -164,32 +164,32 @@ def _per_mppt_string_rich_cells(tel: HuaweiTelemetryRow) -> List[Any]:
     """
     cells: List[Any] = []
 
-    # vpv1..vpv16 — Huawei's pv1_u, pv2_u, ...
+    # vpv1..vpv16 - Huawei's pv1_u, pv2_u, ...
     for i in range(MPPT_VOLTAGE_COUNT):
         cells.append(
             tel.pv_voltages_v[i] if i < len(tel.pv_voltages_v) else None
         )
 
-    # ppv1..ppv9 — Huawei doesn't expose per-MPPT power directly. Stays blank.
+    # ppv1..ppv9 - Huawei doesn't expose per-MPPT power directly. Stays blank.
     for _ in range(MPPT_POWER_COUNT):
         cells.append(None)
 
-    # vstring1..vstring32 — Huawei doesn't report per-string voltage. Blank.
+    # vstring1..vstring32 - Huawei doesn't report per-string voltage. Blank.
     for _ in range(STRING_VOLTAGE_COUNT):
         cells.append(None)
 
-    # istring20..istring29 — Huawei reports per-MPPT current as pv_i, not per
+    # istring20..istring29 - Huawei reports per-MPPT current as pv_i, not per
     # string. The wide schema's istring slot is for Growatt's per-string
     # measurement. Blank.
     for _ in range(STRING_CURRENT_HIGH - STRING_CURRENT_LOW + 1):
         cells.append(None)
 
-    # epv1_today..epv15_today — Huawei doesn't expose per-MPPT daily energy.
+    # epv1_today..epv15_today - Huawei doesn't expose per-MPPT daily energy.
     # BLANK in Stage 4.2 (was incorrectly filled with lifetime Wh in Stage 4.1).
     for _ in range(MPPT_EDAY_COUNT):
         cells.append(None)
 
-    # epv1_total..epv15_total — Huawei's mppt_X_cap (lifetime Wh → kWh by parser).
+    # epv1_total..epv15_total - Huawei's mppt_X_cap (lifetime Wh → kWh by parser).
     # NEWLY POPULATED in Stage 4.2.
     for i in range(MPPT_EDAY_COUNT):
         cells.append(

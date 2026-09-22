@@ -154,7 +154,7 @@ class TestNewTools:
     def test_search_standard_hits_with_citation(self):
         db = FakeDB(dict(BASE, knowledge_search=[["12", "String sizing", "Strings must stay within the MPPT window", "0.6"]]))
         out = T.run_tool(db, "search_standard", {"query": "MPPT window", "lang": "es", "limit": 3})
-        assert out["hits"][0]["ref"] == "AGS slide 12 — String sizing" and out["totals"] == {"hits": 1}
+        assert out["hits"][0]["ref"] == "AGS slide 12 - String sizing" and out["totals"] == {"hits": 1}
         assert "lang='es'" in db.sql[-1]
         assert T.run_tool(db, "search_standard", {"query": ""})["error"] == "query is required"
         empty = T.run_tool(FakeDB(dict(BASE, knowledge_search=[])), "search_standard", {"query": "zzz"})
@@ -269,7 +269,7 @@ class TestPromptRules:
 
     def test_standard_and_sql_rules(self):
         assert "call \\\nsearch_standard" in A.SYSTEM_TEMPLATE or "search_standard" in A.SYSTEM_TEMPLATE
-        assert "ARGIA Golden Standard, slide N — title" in A.SYSTEM_TEMPLATE
+        assert "ARGIA Golden Standard, slide N - title" in A.SYSTEM_TEMPLATE
         assert "describe_tables, then query_database" in A.SYSTEM_TEMPLATE
         assert "phase 0" not in A.SYSTEM_TEMPLATE
 

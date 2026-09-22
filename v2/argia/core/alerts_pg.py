@@ -3,8 +3,8 @@
 The ``Alerts`` tab is the alert engine's state store: alerts_snapshot
 (every 30 min) and alerts_daily read the WHOLE ledger, reconcile, and
 write the whole block back; report.daily reads it for the open-alerts
-section. Rows only ever update in place or append — history never
-shrinks — so the PostgreSQL twin is an upsert keyed by ``alert_id``.
+section. Rows only ever update in place or append - history never
+shrinks - so the PostgreSQL twin is an upsert keyed by ``alert_id``.
 
 Shape: the sheet's 15 columns, verbatim (``alerts_state.ALERTS_HEADER``),
 timestamps kept as the ISO-8601 text the engine writes and sorts on
@@ -14,7 +14,7 @@ parses both sources identically.
 
 Selection:  ARGIA_ALERTS_SOURCE = sheet | pg     (v194 default: sheet)
 Backfill:   scripts/alerts_backfill_pg.py --apply, then parity CLEAN,
-            then the switch — in one step, between two alerts_snapshot
+            then the switch - in one step, between two alerts_snapshot
             ticks, because the sheet keeps changing until the flip.
 """
 from __future__ import annotations

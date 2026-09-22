@@ -98,7 +98,7 @@ def parse(xml_text: str) -> Cfdi:
     a = root.attrib
     timbre = root.find(".//tfd:TimbreFiscalDigital", c)
     if timbre is None or not timbre.attrib.get("UUID"):
-        raise CfdiError("no TimbreFiscalDigital — unstamped document")
+        raise CfdiError("no TimbreFiscalDigital - unstamped document")
     uuid = timbre.attrib["UUID"].strip().upper()
     emisor = root.find("c:Emisor", c)
     receptor = root.find("c:Receptor", c)

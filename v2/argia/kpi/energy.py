@@ -1,4 +1,4 @@
-"""End-of-day energy KPI — Stage 7.2.
+"""End-of-day energy KPI - Stage 7.2.
 
 Pure math, no I/O. Operates on lists of ``InverterRow`` from the reader.
 
@@ -10,7 +10,7 @@ mostly is, but:
 
 1. **Inverter reboots reset it to 0.** A reboot at 14:00 gives a row
    sequence like ``[1.2, 3.8, 7.5, 0.0, 1.1, 2.3, ...]``. ``max()`` gives
-   you 7.5, ``last()`` gives you 2.3 — neither is the true daily total
+   you 7.5, ``last()`` gives you 2.3 - neither is the true daily total
    (which is closer to 7.5 + 2.3 = 9.8).
 
 2. **SolarEdge derives etoday via cumulative-energy diff.** Tiny rounding
@@ -21,22 +21,22 @@ mostly is, but:
 
 **Midnight carryover (case 3) is handled explicitly**: a leading FLAT
 etoday segment that then resets to a lower value is yesterday's counter,
-not production — those rows are stripped before any aggregation. The
+not production - those rows are stripped before any aggregation. The
 discriminator vs. a real reboot: carryover is flat-then-reset (no growth
 before the drop); a real reboot shows growth before the drop.
 
 We use the following heuristic, in order of robustness:
 
-- ``max(etoday_kwh)`` — robust to small noise, **wrong on reboot**.
-- ``last_at_or_before_sunset(etoday_kwh)`` — robust to nighttime resets,
+- ``max(etoday_kwh)`` - robust to small noise, **wrong on reboot**.
+- ``last_at_or_before_sunset(etoday_kwh)`` - robust to nighttime resets,
   **wrong on reboot AND** requires knowing sunset time.
-- ``sum of reboot-aware segments`` — correct on reboot, but more code.
+- ``sum of reboot-aware segments`` - correct on reboot, but more code.
 
 Stage 7.2 ships the first two. We compute BOTH and warn when they
 disagree by >10%. Stage 7.3 will switch the default to segmented if real
 data shows frequent reboots.
 
-We do NOT integrate ``power_w`` over time as a fallback — it requires
+We do NOT integrate ``power_w`` over time as a fallback - it requires
 trapezoidal integration over 5-minute samples which compounds drift; if
 ``etoday_kwh`` is missing for an inverter, we report None.
 """
@@ -93,7 +93,7 @@ REBOOT_THRESHOLD_KWH = 0.5
 DISCREPANCY_WARN_PCT = 10.0
 
 # A leading flat segment must be at least this large (kWh) to be treated as
-# midnight carryover — prevents stripping benign near-zero leading rows.
+# midnight carryover - prevents stripping benign near-zero leading rows.
 CARRYOVER_MIN_KWH = 1.0
 
 # Carryover can only exist BEFORE the inverter wakes; production before this
@@ -108,13 +108,13 @@ def find_carryover_cut(
 ) -> int:
     """Index of the first row AFTER a leading midnight-carryover segment.
 
-    Carryover signature — ALL must hold:
+    Carryover signature - ALL must hold:
       1. the series starts with one or more FLAT rows (within
          REBOOT_THRESHOLD_KWH of the first value, i.e. no growth), and
       2. it then DROPS by more than REBOOT_THRESHOLD_KWH (the counter
          resetting when the inverter wakes), and
       3. when ``local_hours`` is given, every stale row sits before
-         CARRYOVER_DAWN_LOCAL_HOUR — a stale counter cannot survive past
+         CARRYOVER_DAWN_LOCAL_HOUR - a stale counter cannot survive past
          wake, so a flat-then-reset later in the day is a real reboot
          under sparse polling and must NOT be stripped.
 
@@ -258,7 +258,7 @@ def compute_inverter_energy(rows: List[InverterRow]) -> EnergyDay:
         # Reboot path already explains the gap; warn only on unexplained gaps
         sample = rows[0]
         LOG.warning(
-            "[%s/%s] energy discrepancy %.1f%% (max=%.2f last=%.2f) — "
+            "[%s/%s] energy discrepancy %.1f%% (max=%.2f last=%.2f) - "
             "no reboot detected; check parser",
             sample.plant_key, sample.inverter_sn,
             discrepancy_pct, max_e, last_e,
@@ -282,7 +282,7 @@ def compute_plant_energy(
     """Compute end-of-day energy for every inverter in one plant.
 
     Returns dict: inverter_sn → EnergyDay. The plant total is NOT computed
-    here — caller sums it (or skips missing inverters). Keeping it as a
+    here - caller sums it (or skips missing inverters). Keeping it as a
     per-inverter map lets the caller decide policy for missing data.
     """
     by_sn: Dict[str, List[InverterRow]] = {}
@@ -295,7 +295,7 @@ def sum_inverter_energies(per_inverter: Dict[str, EnergyDay]) -> Optional[float]
     """Sum end-of-day kWh across all inverters in a plant.
 
     Returns None if NO inverter had a value (full-day blackout). Returns
-    a partial sum if SOME inverters had values — callers should look at
+    a partial sum if SOME inverters had values - callers should look at
     the dict directly to know which inverters contributed."""
     values = [e.energy_kwh for e in per_inverter.values() if e.energy_kwh is not None]
     if not values:

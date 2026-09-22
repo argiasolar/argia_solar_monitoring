@@ -1,16 +1,16 @@
-"""Investor / shareholder financial report — builder and renderer.
+"""Investor / shareholder financial report - builder and renderer.
 
 ``build_finance_report_data`` assembles one data object from the live
 tabs (Contract_Monthly, Loans, Loan_Schedule, KPI_Daily, Plants);
 ``render_html`` formats it. All numeric decisions live in
-argia.finance.income — this module only aggregates and presents.
+argia.finance.income - this module only aggregates and presents.
 
 Content contract (approved sample, 2026-07-09):
   * two statements side by side: Expected (contracted, for the period)
     and Actual (accrued, same period, debt & O&M prorated by days)
   * per-asset table with expected/actual DSCR, PPA vs LaaS tags
   * data-driven notes: FX position, below-1.0x watch list
-  * audit footer generated from the provenance registry — the same
+  * audit footer generated from the provenance registry - the same
     source texts the sheet's header notes carry
   * the Argia logotype (repo asset), embedded base64 so the HTML is
     self-contained for PDF printing and mail attachment
@@ -163,7 +163,7 @@ def build_finance_report_data(sheets: SheetsClient, portfolio: Portfolio,
         # the period. om_cost_monthly_mxn survives only as an OPTIONAL
         # additive baseline (a fixed retainer, if any plant ever has one);
         # it is blank on every plant today, so it prorates to 0. A plant
-        # with no events shows an honest 0 — not "missing".
+        # with no events shows an honest 0 - not "missing".
         om = (om_cost_from_events(events, pk, period)
               + om_cost_for_period(plant.om_cost_monthly_mxn, period))
         data.assets.append(AssetFinance(
@@ -202,7 +202,7 @@ def _logo_data_uri() -> str:
 
 
 def _m(x: Optional[float]) -> str:
-    return "{:,.0f}".format(x) if x is not None else "—"
+    return "{:,.0f}".format(x) if x is not None else " - "
 
 
 def _dscr_span(v: Optional[float]) -> str:
@@ -227,7 +227,7 @@ def _footer_sources() -> str:
          "the period's end month, from Loan_Schedule (completed loans "
          "drop out; several active loans show separately)."),
         ("DSCR", "Revenue ÷ debt service for the same period. Portfolio "
-         "DSCR is Σ revenue ÷ Σ debt service across assets — a "
+         "DSCR is Σ revenue ÷ Σ debt service across assets - a "
          "debt-weighted aggregate, NOT an average of per-asset ratios "
          "(an average would let a small loan's high ratio mask a large "
          "loan's shortfall). An asset with no debt has no DSCR."),
@@ -271,7 +271,7 @@ def render_html(data: FinanceReportData) -> str:
                 _m(a.expected_mxn), _m(a.actual_mxn),
                 _m(a.om_mxn if a.om_mxn else None),
                 _m(a.service_mxn),
-                html.escape(a.installments or "—"),
+                html.escape(a.installments or " - "),
                 _dscr_span(a.dscr_expected), _dscr_span(a.dscr_actual)))
 
     exp, act = data.expected_total, data.actual_total
@@ -282,26 +282,26 @@ def render_html(data: FinanceReportData) -> str:
     watch = ""
     for a in data.watch_list:
         watch += ('<div class="gap"><b>Watch: %s (%s) actual DSCR %.0f%%'
-                  '</b> — accrued income below debt service for the '
+                  '</b> - accrued income below debt service for the '
                   'period.</div>' % (html.escape(a.name), a.plant_key,
                                      (a.dscr_actual or 0) * 100))
     # v91: O&M is event-driven (Maintenance_Events). A period-wide 0 is
-    # honest — it means no approved maintenance cost occurred, not missing
+    # honest - it means no approved maintenance cost occurred, not missing
     # data. Say so once when the whole portfolio shows 0.
     om_note = ""
     if data.om_total <= 0:
-        om_note = ('<div class="gap"><b>O&amp;M 0 for the period</b> — '
+        om_note = ('<div class="gap"><b>O&amp;M 0 for the period</b> - '
                    'opex is the sum of approved Maintenance_Events costs; '
                    '0 means no maintenance events were recorded in this '
                    'period, not missing data.</div>')
 
     usd_share = data.usd_service_share
     logo = _logo_data_uri()
-    logo_html = ('<img src="%s" alt="ARGIA — Smart Energy Solutions" style="height:34px">'
+    logo_html = ('<img src="%s" alt="ARGIA - Smart Energy Solutions" style="height:34px">'
                  % logo) if logo else '<b>ARGIA</b>'
 
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<title>ARGIA — Portfolio Financial Report</title><style>
+<title>ARGIA - Portfolio Financial Report</title><style>
 :root{{--ink:#1b2a31;--muted:#6d7f88;--line:#e2e9ec;--brand:#0e7c66;--band:#f6f9f9;--good:#1f9d63;--warn:#c98a00;--bad:#c0392b;--laas:#5b57c9;--ppa:#0e7c66}}
 *{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);font-size:13px;line-height:1.45}}
 .page{{max-width:1060px;margin:0 auto;padding:26px 30px}}
@@ -340,7 +340,7 @@ footer{{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);font-s
 </header>
 
 <div class="two">
-<div class="stmt"><div class="hd">Expected — contracted, for the period</div>
+<div class="stmt"><div class="hd">Expected - contracted, for the period</div>
 <table>
 <tr><td>Revenue</td><td class="n">{_m(exp)}</td></tr>
 <tr><td>O&amp;M costs</td><td class="n">({_m(om)})</td></tr>
@@ -348,7 +348,7 @@ footer{{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);font-s
 <tr class="tot"><td>Net cash after debt service</td><td class="n {'good' if net_e>=0 else 'bad'}">{_m(net_e)}</td></tr>
 <tr class="tot"><td>Portfolio DSCR (expected)</td><td class="n">{_dscr_span(d_e)}</td></tr>
 </table></div>
-<div class="stmt"><div class="hd">Actual — accrued, same period</div>
+<div class="stmt"><div class="hd">Actual - accrued, same period</div>
 <table>
 <tr><td>Revenue</td><td class="n">{_m(act)}</td></tr>
 <tr><td>O&amp;M costs</td><td class="n">({_m(om)})</td></tr>
@@ -365,7 +365,7 @@ footer{{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);font-s
 <tfoot><tr><td class="l">PORTFOLIO</td><td></td><td class="n">{_m(exp)}</td><td class="n">{_m(act)}</td><td class="n">{_m(om)}</td><td class="n">{_m(svc)}</td><td></td><td class="n">{_dscr_span(d_e)}</td><td class="n">{_dscr_span(d_a)}</td></tr></tfoot>
 </table>
 
-<div class="note"><b>FX position.</b> {usd_share*100:.1f}% of the period's debt service is USD-denominated — matched by USD-indexed LaaS fees at the same rate, so LaaS coverage is FX-neutral and net portfolio FX exposure is ≈ zero.</div>
+<div class="note"><b>FX position.</b> {usd_share*100:.1f}% of the period's debt service is USD-denominated - matched by USD-indexed LaaS fees at the same rate, so LaaS coverage is FX-neutral and net portfolio FX exposure is ≈ zero.</div>
 {watch}{om_note}
 
 <footer>{_footer_sources()}</footer>

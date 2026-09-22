@@ -1,4 +1,4 @@
-"""v226 — maintenance tickets: the pure rules (lifecycle, priority/SLA,
+"""v226 - maintenance tickets: the pure rules (lifecycle, priority/SLA,
 numbering, recipients, the alert bridge, SQL builders) and the mail
 integration ("share the progress instead of repeating the warning")."""
 from __future__ import annotations
@@ -77,7 +77,7 @@ class TestPeopleAndAge:
 
     def test_progress_line(self):
         ev = TK.Event(1, 7, "", "juan", "comment", "Filters replaced, verifying tomorrow.\nPhotos attached.")
-        assert TK.progress_line(tk(), ev, NOW) == ("TK-NL1-0007 · In progress · juan · 1 d 22 h — last update: "
+        assert TK.progress_line(tk(), ev, NOW) == ("TK-NL1-0007 · In progress · juan · 1 d 22 h - last update: "
                                                    "Filters replaced, verifying tomorrow. Photos attached.")
         assert TK.progress_line(tk(assigned_to=""), None, NOW) == "TK-NL1-0007 · In progress · 1 d 22 h"
 
@@ -149,14 +149,14 @@ class TestMailIntegration:
         briefs = {"k1": TK.TicketBrief("TK-NL1-0007", "IN_PROGRESS", "P2", "juan", "2026-09-06 14:00:00+00", "Filters replaced", True)}
         new = [self._rec(1, "k1"), self._rec(2, "k2")]
         subj, text, html = LM.render_mail(new, n, still_open=new, when_mx="2026-09-08 06:30", now_utc=NOW, tickets=briefs)
-        assert subj == "[ARGIA] 8 Sep — 1 warning (Plastic Omnium)"                       # k1 is not counted as new
-        assert "In hand — open maintenance tickets\n  Plastic Omnium: TK-NL1-0007 · In progress · juan · 1 d 22 h — last update: Filters replaced (inverter running hot — Inverter 1 (JGMAE65009))" in text
+        assert subj == "[ARGIA] 8 Sep - 1 warning (Plastic Omnium)"                       # k1 is not counted as new
+        assert "In hand - open maintenance tickets\n  Plastic Omnium: TK-NL1-0007 · In progress · juan · 1 d 22 h - last update: Filters replaced (inverter running hot - Inverter 1 (JGMAE65009))" in text
         assert text.count("ALT-1") == 0 and "ALT-2" in text                                 # the handled alert is not listed as new
         assert "Still open" not in text                                                       # nor as still open
         assert 'href="https://portal.argia.com.mx/maintenance/t/TK-NL1-0007/"' in html
         # nothing new but a ticket in hand: the subject says so
         subj, text, _ = LM.render_mail([], n, still_open=[self._rec(1, "k1", sent="email")], when_mx="2026-09-08 06:30", now_utc=NOW, tickets=briefs)
-        assert subj == "[ARGIA] 8 Sep — nothing new — 1 ticket in hand"
+        assert subj == "[ARGIA] 8 Sep - nothing new - 1 ticket in hand"
 
     def test_closed_ticket_does_not_hide_an_alert(self):
         from argia.alerts import ledger_mail as LM
@@ -182,7 +182,7 @@ class TestMailIntegration:
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
         ad = importlib.import_module("alerts_daily")
         open_t = [tk(alert_keys=["k1"], inverter_sn="JGMAE65009")]
-        # by key (k1) and by asset (k2 is the same inverter) — both land on the ticket; k3 is another inverter
+        # by key (k1) and by asset (k2 is the same inverter) - both land on the ticket; k3 is another inverter
         assert ad._attach_to_tickets([self._rec(1, "k1"), self._rec(2, "k2"), self._rec(3, "k3", sn="OTHER")], open_t, dry_run=True) == 2
         assert ad._attach_to_tickets([self._rec(1, "k1")], [], dry_run=True) == 0
         # verification: dry run decides but changes nothing
@@ -203,7 +203,7 @@ class TestV227:
         assert N.address_of("tech@contractor.mx", lambda u: "") == "tech@contractor.mx"
         assert N.address_of("juan", lambda u: "juan@x") == "juan@x"
         subj, text, html = N.render(t, "Juan Perez", "Status: New → In progress", "", "Plastic Omnium", "Inverter 1", "Juan Perez")
-        assert subj == "[TK-NL1-0007] Plastic Omnium: Inverter 1 cooling — In progress"
+        assert subj == "[TK-NL1-0007] Plastic Omnium: Inverter 1 cooling - In progress"
         assert "Reply to this mail to add a comment" in text and "/maintenance/t/TK-NL1-0007/" in html
 
     def test_parse_ts_is_python310_safe(self):
@@ -214,7 +214,7 @@ class TestV227:
         assert TK.parse_ts("garbage") is None and TK.parse_ts("") is None
 
     def test_reply_parsing(self):
-        assert TK.reply_ticket_number("Re: [TK-NL1-0007] Plastic Omnium: cooling — In progress") == "TK-NL1-0007"
+        assert TK.reply_ticket_number("Re: [TK-NL1-0007] Plastic Omnium: cooling - In progress") == "TK-NL1-0007"
         assert TK.reply_ticket_number("hello") is None
         body = "Filters replaced today.\nPhotos attached.\n\nOn Mon, Sep 7, 2026 at 9:00 AM ARGIA Monitoring <service@argia.com.mx> wrote:\n> Status: New\n> …"
         assert TK.strip_reply(body) == "Filters replaced today.\nPhotos attached."
@@ -225,7 +225,7 @@ class TestV227:
         now = NOW
         seen_old = {"k1": now - dt.timedelta(days=3)}
         v = tk(status="VERIFICATION", alert_keys=["k1"])
-        assert TK.verify_decision(v, [], [], seen_old, now) == ("RESOLVED", "no linked alert open or seen for 2 days — resolved by the data")
+        assert TK.verify_decision(v, [], [], seen_old, now) == ("RESOLVED", "no linked alert open or seen for 2 days - resolved by the data")
         assert TK.verify_decision(v, [], ["k1"], seen_old, now)[0] == "IN_PROGRESS"           # recurred today
         assert TK.verify_decision(v, ["k1"], [], seen_old, now) == (None, "waiting: 1 linked alert(s) still open in the ledger")
         assert TK.verify_decision(v, [], [], {"k1": now - dt.timedelta(hours=20)}, now)[0] is None   # too recent

@@ -1,4 +1,4 @@
-"""Unit tests — argia.ask.agent with a scripted LLM and the fake DB.
+"""Unit tests - argia.ask.agent with a scripted LLM and the fake DB.
 
 Also the golden regression set (tests/fixtures/ask_golden.json): each
 question names the tools a correct answer needs and the figures it must
@@ -212,7 +212,7 @@ def test_golden_offline(case):
     it every figure the answer is required to quote."""
     db = _golden_db()
     plan = [tool_use(t["name"], t["input"], f"t{i}") for i, t in enumerate(case["plan"])]
-    # the fake's final answer is the tool results themselves — if a required
+    # the fake's final answer is the tool results themselves - if a required
     # figure is not in them, nothing honest could have quoted it
     llm = ScriptedLLM(plan + [final("(scripted)")])
     ans = A.ask(case["question"], db, llm)

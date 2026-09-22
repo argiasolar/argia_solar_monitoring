@@ -1,23 +1,23 @@
-# Stage 5 — SolarEdge telemetry pipeline
+# Stage 5 - SolarEdge telemetry pipeline
 
 Adds SolarEdge to the unified 5-min telemetry script alongside Growatt and Huawei.
 
 ## Three pieces ship in this stage
 
-1. **Inverter discovery** — `scripts/solaredge_discover_inverters.py`
+1. **Inverter discovery** - `scripts/solaredge_discover_inverters.py`
    - Calls `/equipment/{siteId}/list` for each SolarEdge plant
    - Prints inverter SNs ready for paste into the Inverters tab
-   - Burns 1 API call per site (~2 total) — well within quota
+   - Burns 1 API call per site (~2 total) - well within quota
 
-2. **Live capture** — `scripts/solaredge_capture.py`
+2. **Live capture** - `scripts/solaredge_capture.py`
    - Saves real production responses to `tests/fixtures/solaredge/live_*.json`
    - 2 calls per plant (site_list + equipment_data for first inverter)
    - These fixtures replace the synthetic ones we've been testing against
 
 3. **Telemetry integration**
-   - New `argia/vendors/solaredge_telemetry.py` — rich parser + fetch fn
-   - New `argia/telemetry/solaredge_row.py` — row builders for wide + narrow tabs
-   - Updated `scripts/telemetry_5m.py` — adds SolarEdge alongside Growatt + Huawei
+   - New `argia/vendors/solaredge_telemetry.py` - rich parser + fetch fn
+   - New `argia/telemetry/solaredge_row.py` - row builders for wide + narrow tabs
+   - Updated `scripts/telemetry_5m.py` - adds SolarEdge alongside Growatt + Huawei
    - 429 rate-limit handling: catches and skips remaining SE plants for that run
 
 ## ⚠️ Rate limit reality check
@@ -47,7 +47,7 @@ cadence (one workflow change).
 
 ## Migration steps
 
-### Step 1 — Discover inverter SNs
+### Step 1 - Discover inverter SNs
 
 ```bash
 cd ~/Documents/argia_solar_monitoring/v2
@@ -55,7 +55,7 @@ PYTHONPATH=. python scripts/solaredge_discover_inverters.py
 ```
 
 The script prints tab-separated rows ready to paste into the Inverters tab.
-**Add the rows manually** — the script doesn't write to the sheet itself.
+**Add the rows manually** - the script doesn't write to the sheet itself.
 
 Expected format:
 ```
@@ -67,7 +67,7 @@ QRO1       7E1A2B3C-FF   Inverter 1                       TRUE
 The `capacity_kwp_dc` column needs to be filled in manually (the SolarEdge
 equipment list endpoint doesn't expose it).
 
-### Step 2 — Capture live fixtures
+### Step 2 - Capture live fixtures
 
 ```bash
 PYTHONPATH=. python scripts/solaredge_capture.py
@@ -76,7 +76,7 @@ PYTHONPATH=. python scripts/solaredge_capture.py
 Writes `tests/fixtures/solaredge/live_site_list_QRO1.json` etc. Verify the
 files exist and look reasonable. Add them to git so we have a baseline.
 
-### Step 3 — Apply Stage 5
+### Step 3 - Apply Stage 5
 
 ```bash
 unzip -o ~/Downloads/argia_mont_v2_stage5.zip
@@ -107,7 +107,7 @@ git commit -m "Stage 5: SolarEdge telemetry pipeline + rich parser + rate-limit 
 git push
 ```
 
-### Step 4 — Verify live
+### Step 4 - Verify live
 
 GitHub → Actions → **v2 Telemetry 5m (all vendors)** → Run workflow:
 - dry_run: ✓ (start safe)
@@ -154,9 +154,9 @@ the inverter mode (e.g. `MODE=FAULT`, `MODE=SLEEPING`).
 
 3. **`vpv1_v` is the DC bus voltage, not MPPT 1.** SolarEdge inverters
    aggregate DC at the inverter level (per-panel optimization happens
-   upstream). Don't read vpv1 as Growatt's "MPPT 1 input voltage" — it's
+   upstream). Don't read vpv1 as Growatt's "MPPT 1 input voltage" - it's
    the combined DC bus.
 
-4. **`etoday_kwh` derived from totalEnergy diff** — slight inaccuracy at
+4. **`etoday_kwh` derived from totalEnergy diff** - slight inaccuracy at
    the very start of the day (before the first telemetry entry of the day).
    The existing SolarEdgeClient does the same; we're consistent.

@@ -165,11 +165,11 @@ def test_irr_compare_iterates_plant_objects_not_keys():
 class TestLiveRunRegressions20260706:
     """The first live irr-compare returned 0 samples for every plant.
     Two causes, both replayed here:
-    (a) v2's _post wraps responses in {_meta, response} — parsing the
+    (a) v2's _post wraps responses in {_meta, response} - parsing the
         ENVELOPE for `obj` silently yields nothing;
     (b) Growatt env endpoints need plant-context seeding, and the
         configured datalogger SN may not be the env device (v1's warning)
-        — getEnvList is the authoritative fallback."""
+        - getEnvList is the authoritative fallback."""
 
     def test_envelope_wrapped_page_parses(self):
         inner = {"obj": {"datas": [

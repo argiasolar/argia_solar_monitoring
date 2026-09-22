@@ -1,4 +1,4 @@
-"""Contract_Monthly — the commercial expectations table.
+"""Contract_Monthly - the commercial expectations table.
 
 One row per plant per month, covering the full contract horizon
 (2024..2043 in the migration seed):
@@ -18,7 +18,7 @@ Column semantics (settled 2026-07, after the GTO1 phase-2 analysis):
                        income. The two columns diverge exactly in the
                        window between an expansion's commissioning and
                        its contract amendment.
-* ``tariff_mxn``       the PPA tariff for THAT month — escalations are
+* ``tariff_mxn``       the PPA tariff for THAT month - escalations are
                        row edits, so issued months stay immutable.
 * ``fixed_income_ccy`` LaaS monthly fee in its native currency (both
                        current LaaS fees are USD-indexed); blank for
@@ -79,7 +79,7 @@ class ContractMonth:
         """Contracted income for the month.
 
         PPA: contract_kwh × tariff (no FX involved; ``xr`` ignored).
-        LaaS: fixed_income_ccy × xr — the caller supplies the rate,
+        LaaS: fixed_income_ccy × xr - the caller supplies the rate,
         normally the one the loan schedule uses for the same month so
         income and debt service always share an FX basis. Returns None
         when the row lacks the needed inputs (including a LaaS row
@@ -105,13 +105,13 @@ def load_contract_monthly(sheets) -> Dict[MonthKey, ContractMonth]:
     Missing tab → {} with a warning.
 
     v191: the grid comes through ``argia.finance.pg_source.contract_grid``
-    — the sheet tab or PostgreSQL ``contract_monthly``, whichever
+    - the sheet tab or PostgreSQL ``contract_monthly``, whichever
     ARGIA_FINANCE_SOURCE selects; the parsing below is identical."""
     from argia.finance.pg_source import contract_grid
     try:
         data = contract_grid(sheets)
     except Exception:  # noqa: BLE001
-        LOG.warning("%s tab not found — contract expectations, tariffs "
+        LOG.warning("%s tab not found - contract expectations, tariffs "
                     "and penalty bases will be unavailable", CONTRACT_TAB)
         return {}
     return parse_contract_grid(data)

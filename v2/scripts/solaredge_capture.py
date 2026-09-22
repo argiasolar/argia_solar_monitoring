@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — one-shot SolarEdge response capture.
+"""Argia_Mont - one-shot SolarEdge response capture.
 
 For each SolarEdge plant, calls the same endpoints the telemetry pipeline
 uses and saves the raw JSON responses to ``tests/fixtures/solaredge/``. These
@@ -97,7 +97,7 @@ def _capture_one(
         if isinstance(i, dict) and i.get("serialNumber")
     ]
     if not inverters:
-        log.warning("[%s] no inverters returned by /equipment/list — skipping data capture", plant.plant_key)
+        log.warning("[%s] no inverters returned by /equipment/list - skipping data capture", plant.plant_key)
         return True
 
     first_sn = inverters[0]

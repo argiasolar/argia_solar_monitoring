@@ -1,19 +1,19 @@
-"""Setup › CFE & tariffs — the tariff explorer (v212). Pure: rows in,
+"""Setup › CFE & tariffs - the tariff explorer (v212). Pure: rows in,
 HTML out. No database access here; ``setup_app.cfe_explorer_card``
-feeds it the ``cfe_tariff`` rows (read-only — the table belongs to the
+feeds it the ``cfe_tariff`` rows (read-only - the table belongs to the
 CFE pipeline) and ``cfe_page_gen`` stays the old site's renderer until
 that site is decommissioned.
 
 What the card shows (Tomasz 2026-09-05):
-  * an at-a-glance freshness pill — the SAME rule as the lightning on the
+  * an at-a-glance freshness pill - the SAME rule as the lightning on the
     report home (``report_gen``): verified through the latest month that
     has all scrapeable tariffs from source ``cfe_scrape``, "up to date"
     when that month is the current one;
   * tiles with the AVERAGE energy price across CFE regions for BASE,
-    INTERMEDIA and PUNTA of the selected scheme (GDMTH by default) —
+    INTERMEDIA and PUNTA of the selected scheme (GDMTH by default) -
     plus the min–max spread and the change vs the previous month;
   * every scheme at a glance (the same averages per tariff code);
-  * the explorer as before — tariff × region → charge × month table,
+  * the explorer as before - tariff × region → charge × month table,
     with a search box over regions (division name or the states hint),
     tariff codes and charge names.
 """
@@ -44,7 +44,7 @@ PERIODS = [('ENERGIA BASE', 'Base', 'Base'),
            ('ENERGIA INTERMEDIA', 'Intermedia', 'Intermedia'),
            ('ENERGIA PUNTA', 'Punta', 'Punta')]
 DEFAULT_TARIFF = 'GDMTH'
-EXCLUDED_TARIFFS = ('DB1', 'DB2')      # domestic — out of scope (2026-08-27)
+EXCLUDED_TARIFFS = ('DB1', 'DB2')      # domestic - out of scope (2026-08-27)
 VERIFIED_MIN_TARIFFS = 10             # a month counts only when all scrapeable tariffs are in
 MONTHS_SHOWN = 12            # verified months in the table (+ seeded ones after)
 
@@ -107,7 +107,7 @@ def scheme_averages(data: Dict, months: Sequence[str], upto: str = ''
                     ) -> Dict[str, Dict]:
     """{tariff: {'month': latest month with any period price,
     'prev': month before it or None, charge: {'avg','min','max','n',
-    'prev_avg'}}} — one entry per tariff, periods as in PERIODS. A
+    'prev_avg'}}} - one entry per tariff, periods as in PERIODS. A
     tariff without period prices (flat schemes) keeps the entry with no
     period keys so the table still lists it. ``upto`` (the CFE-verified
     month) keeps seeded future months out of the averages."""
@@ -140,7 +140,7 @@ def scheme_averages(data: Dict, months: Sequence[str], upto: str = ''
 def verified_through(rows: Iterable[Sequence], min_tariffs: int = VERIFIED_MIN_TARIFFS
                      ) -> str:
     """'YYYY-MM' of the latest month with >= min_tariffs distinct
-    tariff codes from the CFE scrape — rows = (month, source,
+    tariff codes from the CFE scrape - rows = (month, source,
     tariff_code). Same rule as the report home's lightning."""
     by_month: Dict[str, set] = {}
     for r in rows:
@@ -163,15 +163,15 @@ def freshness(through: str, today: dt.date, healthy: Optional[bool] = None
                 'Aún no hay tarifas verificadas por CFE')
     if through >= cur:
         if healthy is False:
-            return ('warn', f'Up to date — through {through}, but the pipeline needs a look',
-                    f'Al día — hasta {through}, pero el flujo necesita revisión')
-        return ('good', f'Up to date — CFE-verified through {through}',
-                f'Al día — verificado por CFE hasta {through}')
+            return ('warn', f'Up to date - through {through}, but the pipeline needs a look',
+                    f'Al día - hasta {through}, pero el flujo necesita revisión')
+        return ('good', f'Up to date - CFE-verified through {through}',
+                f'Al día - verificado por CFE hasta {through}')
     if through == prev:
-        return ('warn', f'{cur} not loaded yet — verified through {through}',
-                f'{cur} aún no cargado — verificado hasta {through}')
-    return ('bad', f'Out of date — verified through {through} only',
-            f'Desactualizado — verificado sólo hasta {through}')
+        return ('warn', f'{cur} not loaded yet - verified through {through}',
+                f'{cur} aún no cargado - verificado hasta {through}')
+    return ('bad', f'Out of date - verified through {through} only',
+            f'Desactualizado - verificado sólo hasta {through}')
 
 
 # ---------------------------------------------------------------- html
@@ -240,7 +240,7 @@ Average energy prices across CFE regions for the selected scheme (MXN/kWh, witho
  <button class="btn" type="button" onclick="window.print()" data-en="Download PDF" data-es="Descargar PDF">Download PDF</button>
 </div>
 <div class="tiles" id="cfe_tiles"></div>
-<h2 style="margin-top:14px" data-en="Every scheme at a glance — average of all regions, latest month" data-es="Todos los esquemas — promedio de todas las regiones, último mes">Every scheme at a glance — average of all regions, latest month</h2>
+<h2 style="margin-top:14px" data-en="Every scheme at a glance - average of all regions, latest month" data-es="Todos los esquemas - promedio de todas las regiones, último mes">Every scheme at a glance - average of all regions, latest month</h2>
 <div style="overflow:visible"><table class="schemes" id="cfe_schemes"><thead><tr><th data-en="Scheme" data-es="Esquema">Scheme</th><th data-en="Month" data-es="Mes">Month</th>{period_cols}<th data-en="Regions" data-es="Regiones">Regions</th></tr></thead><tbody></tbody></table></div>
 <h2 style="margin-top:14px" id="cfe_ttl"></h2>
 <div id="cfe_tbl"></div>
@@ -262,32 +262,32 @@ const THROUGH={json.dumps(through)};
 const $=id=>document.getElementById(id);
 const lang=()=>{{try{{return localStorage.getItem('argia_lang')||'en'}}catch(e){{return 'en'}}}};
 const L=(en,es)=>lang()==='es'?es:en;
-const fmt=(v,d)=>v==null?'—':v.toLocaleString('en-US',{{minimumFractionDigits:d,maximumFractionDigits:d}});
+const fmt=(v,d)=>v==null?' - ':v.toLocaleString('en-US',{{minimumFractionDigits:d,maximumFractionDigits:d}});
 function fill(sel,opts,cur,label){{sel.innerHTML=opts.map(o=>'<option value="'+o+'">'+(label?label(o):o)+'</option>').join('');if(opts.includes(cur))sel.value=cur;}}
 function tiles(){{
  const t=$('cfe_tar').value, a=AVG[t]||{{}};
  $('cfe_tiles').innerHTML=PERIODS.map(p=>{{const x=a[p[0]];
-  if(!x)return '<div class="tile"><div class="tlabel">'+L(p[1],p[2])+' · '+t+'</div><div class="tval">—</div><div class="tsub">'+L('not quoted for this scheme','no aplica a este esquema')+'</div></div>';
+  if(!x)return '<div class="tile"><div class="tlabel">'+L(p[1],p[2])+' · '+t+'</div><div class="tval"> - </div><div class="tsub">'+L('not quoted for this scheme','no aplica a este esquema')+'</div></div>';
   let d='';if(x.prev_avg!=null){{const pc=100*(x.avg-x.prev_avg)/x.prev_avg;d=' · <span class="'+(pc>0.05?'up':pc<-0.05?'down':'')+'">'+(pc>=0?'+':'')+pc.toFixed(1)+'% '+L('vs','vs')+' '+a.prev+'</span>';}}
   return '<div class="tile"><div class="tlabel">'+L(p[1],p[2])+' · '+t+' · '+a.month+'</div><div class="tval">'+fmt(x.avg,4)+'<span class="unit">MXN/kWh</span></div><div class="tsub">'+L('average of','promedio de')+' '+x.n+' '+L('regions','regiones')+' · '+fmt(x.min,4)+' – '+fmt(x.max,4)+d+'</div></div>';}}).join('');
 }}
 function schemes(){{
  const cur=$('cfe_tar').value;
  $('cfe_schemes').querySelector('tbody').innerHTML=TARIFFS.map(t=>{{const a=AVG[t]||{{}};let n=0;
-  const cells=PERIODS.map(p=>{{const x=a[p[0]];if(x)n=Math.max(n,x.n);return '<td>'+(x?fmt(x.avg,4):'—')+'</td>';}}).join('');
-  return '<tr data-t="'+t+'"'+(t===cur?' class="on"':'')+'><td><b>'+t+'</b></td><td>'+(a.month||'—')+'</td>'+cells+'<td>'+(n||'—')+'</td></tr>';}}).join('');
+  const cells=PERIODS.map(p=>{{const x=a[p[0]];if(x)n=Math.max(n,x.n);return '<td>'+(x?fmt(x.avg,4):' - ')+'</td>';}}).join('');
+  return '<tr data-t="'+t+'"'+(t===cur?' class="on"':'')+'><td><b>'+t+'</b></td><td>'+(a.month||' - ')+'</td>'+cells+'<td>'+(n||' - ')+'</td></tr>';}}).join('');
  $('cfe_schemes').querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>{{$('cfe_tar').value=tr.dataset.t;render();}});
 }}
 function table(q){{
  const t=$('cfe_tar').value, r=$('cfe_reg').value;
- $('cfe_ttl').textContent=t+' — '+r+(HINT[r]?' ('+HINT[r]+')':'');
+ $('cfe_ttl').textContent=t+' - '+r+(HINT[r]?' ('+HINT[r]+')':'');
  const d=(DATA[t]||{{}})[r]||{{}};
  let keys=ORDER.filter(k=>d[k]).concat(Object.keys(d).filter(k=>!ORDER.includes(k)).sort());
  if(q)keys=keys.filter(k=>k.toLowerCase().includes(q));
  let h='<table class="charge"><tr><th>'+L('Charge','Cargo')+'</th>';
- MONTHS.forEach(m=>h+=(THROUGH&&m>THROUGH)?'<th class="seed" title="'+L('not CFE-verified yet — Master DB seed','aún no verificado por CFE — semilla Master DB')+'">'+m+' *</th>':'<th>'+m+'</th>');h+='</tr>';
+ MONTHS.forEach(m=>h+=(THROUGH&&m>THROUGH)?'<th class="seed" title="'+L('not CFE-verified yet - Master DB seed','aún no verificado por CFE - semilla Master DB')+'">'+m+' *</th>':'<th>'+m+'</th>');h+='</tr>';
  keys.forEach(ch=>{{h+='<tr><td>'+ch+'<span class="unit">'+(UNITS[ch]||'')+'</span></td>';
-  MONTHS.forEach(m=>{{const v=d[ch]?d[ch][m]:null;h+='<td>'+(v==null?'—':v.toLocaleString('en-US',{{maximumFractionDigits:4}}))+'</td>';}});h+='</tr>';}});
+  MONTHS.forEach(m=>{{const v=d[ch]?d[ch][m]:null;h+='<td>'+(v==null?' - ':v.toLocaleString('en-US',{{maximumFractionDigits:4}}))+'</td>';}});h+='</tr>';}});
  if(!keys.length)h+='<tr><td colspan="'+(MONTHS.length+1)+'" class="note">'+L('no charge matches','ningún cargo coincide')+'</td></tr>';
  $('cfe_tbl').innerHTML=h+'</table>';
 }}
@@ -297,13 +297,13 @@ function render(){{
  const regHit=REGIONS.filter(r=>(r+' '+(HINT[r]||'')).toLowerCase().includes(q));
  const tarCur=$('cfe_tar').value, regCur=$('cfe_reg').value;
  fill($('cfe_tar'),(q&&tarHit.length&&tarHit.length<TARIFFS.length)?tarHit:TARIFFS,tarCur||DEFAULT);
- fill($('cfe_reg'),(q&&regHit.length&&regHit.length<REGIONS.length)?regHit:REGIONS,regCur,r=>r+(HINT[r]?' — '+HINT[r]:''));
+ fill($('cfe_reg'),(q&&regHit.length&&regHit.length<REGIONS.length)?regHit:REGIONS,regCur,r=>r+(HINT[r]?' - '+HINT[r]:''));
  const chargeQ=(q&&!tarHit.length&&!regHit.length)?q:(q&&tarHit.length===TARIFFS.length&&regHit.length===REGIONS.length?q:'');
  try{{localStorage.setItem('argia_cfe',$('cfe_tar').value+'|'+$('cfe_reg').value);}}catch(e){{}}
  tiles();schemes();table(chargeQ);
 }}
 function init(){{
- fill($('cfe_tar'),TARIFFS,DEFAULT);fill($('cfe_reg'),REGIONS,REGIONS[0],r=>r+(HINT[r]?' — '+HINT[r]:''));
+ fill($('cfe_tar'),TARIFFS,DEFAULT);fill($('cfe_reg'),REGIONS,REGIONS[0],r=>r+(HINT[r]?' - '+HINT[r]:''));
  let s='';try{{s=localStorage.getItem('argia_cfe')||'';}}catch(e){{}}
  if(s.includes('|')){{const p=s.split('|');if(DATA[p[0]])$('cfe_tar').value=p[0];if(REGIONS.includes(p[1]))$('cfe_reg').value=p[1];}}
  const ph=$('cfe_q');ph.placeholder=lang()==='es'?ph.dataset.phEs:ph.dataset.phEn;

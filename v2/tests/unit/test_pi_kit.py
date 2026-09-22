@@ -1,7 +1,7 @@
 """Tests: the Pi migration kit must match the code it invokes.
 
 The first draft passed --apply to scripts that don't have that flag and
-invented an env name — caught by verification, locked here. Templates
+invented an env name - caught by verification, locked here. Templates
 that drift from reality brick a cutover at 05:00."""
 
 import pathlib
@@ -22,7 +22,7 @@ class TestPiKit:
             subprocess.run(["bash", "-n", str(path)], check=True)
 
     def test_crontab_is_the_post_decommission_shape(self):
-        """v217.1: since 2026-08-26 the Pi runs no collection/report job —
+        """v217.1: since 2026-08-26 the Pi runs no collection/report job -
         pio06's systemd does. What remains must run from the repo checkout
         (deploy.sh keeps it current); no ~/report_watch copies."""
         cron = _read("pi/crontab.example")
@@ -71,7 +71,7 @@ class TestPhase1Discovery20260706:
     def test_deploy_refuses_dirty_tree(self):
         s = _read("pi/deploy.sh")
         # tracked-only (2026-07-07): reset --hard cannot destroy untracked
-        # files, so untracked build artifacts must not block deploys —
+        # files, so untracked build artifacts must not block deploys -
         # a dashboard.html in the tree stalled three pushes for hours
         assert "git status --porcelain --untracked-files=no" in s
         assert "deploy REFUSED" in s
@@ -88,7 +88,7 @@ def test_shell_scripts_are_executable_in_git():
     the execute bit, so cron got 'Permission denied' (exit 126) silently
     every 10 minutes. The bit must live IN GIT (update-index --chmod=+x)
     so every clone gets it. Trivially true on Windows (no x concept);
-    enforced on Linux CI and the Pi — where it matters."""
+    enforced on Linux CI and the Pi - where it matters."""
     import os
     for rel in ("pi/deploy.sh", "pi/run_job.sh"):
         assert os.access(V2 / rel, os.X_OK), f"{rel} not executable"
@@ -97,6 +97,6 @@ def test_shell_scripts_are_executable_in_git():
 def test_run_job_sets_pythonpath():
     """2026-07-06 smoke-test catch: the wrapper cd'd into v2/ but never
     set PYTHONPATH, so every job died with ModuleNotFoundError. The
-    scripts import argia exactly like the workflows do — with an
+    scripts import argia exactly like the workflows do - with an
     explicit PYTHONPATH."""
     assert "PYTHONPATH" in _read("pi/run_job.sh")

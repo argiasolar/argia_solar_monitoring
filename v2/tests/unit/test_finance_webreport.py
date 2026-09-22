@@ -1,7 +1,7 @@
 """Web financial report tests.
 
 The core guarantee: summing the embedded daily atoms over a range must
-reproduce the PDF report builder's totals for the same period — that is
+reproduce the PDF report builder's totals for the same period - that is
 the anti-divergence contract the whole page is built on. Fixtures are
 the same seed CSVs + synthetic KPI rows the report tests use.
 """
@@ -214,7 +214,7 @@ def test_kwp_and_loan_position_embedded_in_web():
 
 
 def test_download_pdf_button_and_print_support():
-    """User request 2026-07-10: a Download PDF button — window.print()
+    """User request 2026-07-10: a Download PDF button - window.print()
     with a print stylesheet, since only the browser knows the selected
     range. The saved PDF must hide controls, expand the audit block,
     and carry the period in title and filename."""

@@ -1,4 +1,4 @@
-# Stage 0 — Growatt Fixture Capture Runbook
+# Stage 0 - Growatt Fixture Capture Runbook
 
 Step-by-step. ~10 minutes.
 
@@ -78,12 +78,12 @@ ls -lh tests/fixtures/growatt_web/
 ```
 
 Expected files:
-- `listDevice.json` — all devices in your account
-- `GTO1_getDevicesByPlant.json` — the 4 TAIGENE inverters
-- `GTO1_getPlantData.json` — plant aggregate
-- `GTO1_alertPlantEvent.json` — **alert feed (NEW — exciting one)**
-- `GTO1_getWeatherByPlantId.json` — Growatt's weather
-- `GTO1_getInvHisData_<sn>_<date>.json` × 2 — the 155-column history files
+- `listDevice.json` - all devices in your account
+- `GTO1_getDevicesByPlant.json` - the 4 TAIGENE inverters
+- `GTO1_getPlantData.json` - plant aggregate
+- `GTO1_alertPlantEvent.json` - **alert feed (NEW - exciting one)**
+- `GTO1_getWeatherByPlantId.json` - Growatt's weather
+- `GTO1_getInvHisData_<sn>_<date>.json` × 2 - the 155-column history files
 
 Inspect one to confirm no credentials leaked:
 
@@ -119,7 +119,7 @@ NOT credentials. They're safe to commit to your private repo.
 - Paste the failed file contents to chat and I'll figure out the right URL.
 
 ### Empty `alertPlantEvent.json`
-- That's actually meaningful — means TAIGENE has no active alerts (good!).
+- That's actually meaningful - means TAIGENE has no active alerts (good!).
 - Try another plant if you want to see what an alert looks like:
   `python scripts/growatt_capture_fixtures.py --plant-id 9275498 --plant-key SLP1`
 

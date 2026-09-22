@@ -1,19 +1,19 @@
-"""Customer invoicing annex (v158) — per-plant, self-contained HTML.
+"""Customer invoicing annex (v158) - per-plant, self-contained HTML.
 
 v158 (2026-09-01, Tomasz's comparison against the old Looker factura):
-the layout mirrors the Looker "anexo de la factura" — landscape, the
+the layout mirrors the Looker "anexo de la factura" - landscape, the
 four stat cards, the daily generation chart with teórica/expectativa
 lines and cloud cover, the ANNUAL chart with the pay line, and the
 January–December table. The PR-diario chart is gone ("it is a noise").
 Monthly figures for invoiced months come from the ARGIA Solar
-workbook's Invoicing_Overview tab — the invoicing authority — so past
+workbook's Invoicing_Overview tab - the invoicing authority - so past
 facturas always match what was actually billed; atoms only fill months
 the workbook does not cover.
 
 Replaces the Looker "anexo de la factura" page with a self-contained
 HTML report in the ``webreport.py`` style: the whole selectable year is
 embedded as per-day atoms, and the in-browser month picker only SUMS
-atoms — no billing logic runs client-side (the anti-divergence rule).
+atoms - no billing logic runs client-side (the anti-divergence rule).
 
 Single source of truth for money and energy: the annex reads the
 ALREADY-STAMPED ``billable_kwh`` and ``energy_kwh`` from KPI_Daily.
@@ -24,7 +24,7 @@ ALREADY-STAMPED ``billable_kwh`` and ``energy_kwh`` from KPI_Daily.
     total a pagar (sin IVA)         = billable * tariff
 
 ``compensada`` therefore comes straight from the v91 deemed engine
-(kpi_eod stamped it, contract-anchored, from approved customer events) —
+(kpi_eod stamped it, contract-anchored, from approved customer events) -
 the annex never recomputes it, so the customer document and the finance
 report can never disagree. IVA is applied on the fiscal CFDI, not here.
 
@@ -98,7 +98,7 @@ def parse_invoicing_overview(grid, year):
 
 def load_invoicing_overview(year):
     """The invoicing authority: the ARGIA Solar workbook's
-    Invoicing_Overview tab. Best-effort — no sheet id or an API error
+    Invoicing_Overview tab. Best-effort - no sheet id or an API error
     returns {} and the annex falls back to atoms (logged)."""
     import os as _os
     from argia.finance import invoicing_pg
@@ -108,12 +108,12 @@ def load_invoicing_overview(year):
         try:
             return parse_invoicing_overview(invoicing_pg.read_grid(), year)
         except Exception as e:  # noqa: BLE001
-            LOG.error("invoicing register unreadable (%s) — falling back "
+            LOG.error("invoicing register unreadable (%s) - falling back "
                       "to KPI atoms", e)
             return {}
     sid = _os.environ.get("ARGIA_SOLAR_SHEET_ID", "").strip()
     if not sid:
-        LOG.warning("ARGIA_SOLAR_SHEET_ID not set — annex months fall "
+        LOG.warning("ARGIA_SOLAR_SHEET_ID not set - annex months fall "
                     "back to KPI atoms (invoiced history unavailable)")
         return {}
     try:
@@ -121,7 +121,7 @@ def load_invoicing_overview(year):
         grid = s.read_range("Invoicing_Overview", "A1:H2000")
         return parse_invoicing_overview(grid, year)
     except Exception as e:  # noqa: BLE001
-        LOG.error("Invoicing_Overview unreadable (%s) — falling back "
+        LOG.error("Invoicing_Overview unreadable (%s) - falling back "
                   "to KPI atoms", e)
         return {}
 
@@ -184,7 +184,7 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
             continue
         energy = safe_float(get(row, "energy_kwh"))
         billable = safe_float(get(row, "billable_kwh"))
-        # deemed straight from the stamped billable — never recomputed
+        # deemed straight from the stamped billable - never recomputed
         if billable is not None and energy is not None:
             deemed = max(0.0, billable - energy)
         else:
@@ -253,11 +253,11 @@ def _mean(vals: List[float]) -> Optional[float]:
 
 
 def rollup_month(payload: Dict, ym: str) -> Dict:
-    """Aggregate one month from the embedded data. PURE — the JS
+    """Aggregate one month from the embedded data. PURE - the JS
     ``rollupMonth`` mirrors this exactly.
 
     Authority order: an invoiced month in ``history`` (the ARGIA Solar
-    Invoicing_Overview slice) wins outright — produced, compensada and
+    Invoicing_Overview slice) wins outright - produced, compensada and
     the peso amount are what was actually billed. Atoms only fill
     months the workbook does not carry."""
     days = payload["days"]
@@ -309,9 +309,9 @@ def rollup_month(payload: Dict, ym: str) -> Dict:
 
 
 def annual_rollup(payload: Dict) -> List[Dict]:
-    """All twelve months of the window's year, in order — the old
+    """All twelve months of the window's year, in order - the old
     factura table shows January through December with zeros for months
-    not yet invoiced, so this does too. PURE — mirrors the JS."""
+    not yet invoiced, so this does too. PURE - mirrors the JS."""
     year = payload["days"][0][:4] if payload["days"] else "1970"
     return [rollup_month(payload, "%s-%02d" % (year, m))
             for m in range(1, 13)]
@@ -338,7 +338,7 @@ def render_annex_html(payload: Dict, generated_at: str,
     the daily generation chart (bars, teórica + expectativa lines,
     cloud cover on the right axis), the annual chart (generada +
     expectativa bars, pay line) and the January–December table.
-    Landscape print. Spanish only — the PDF is a customer document."""
+    Landscape print. Spanish only - the PDF is a customer document."""
     data_json = json.dumps(payload, separators=(",", ":"))
     client = _html.escape(payload["client"])
     logo = _logo_uri()
@@ -352,7 +352,7 @@ def render_annex_html(payload: Dict, generated_at: str,
     if not default_ym and payload["days"]:
         default_ym = payload["days"][-1][:7]
 
-    argia_img = (f'<img src="{logo}" alt="ARGIA — Smart Energy Solutions" style="height:34px">'
+    argia_img = (f'<img src="{logo}" alt="ARGIA - Smart Energy Solutions" style="height:34px">'
                  if logo else '<span style="font-weight:600;letter-spacing:'
                  '.2em">ARGIA</span>')
     client_img = (f'<img src="{clogo}" alt="{client}" style="max-height:44px;'
@@ -361,7 +361,7 @@ def render_annex_html(payload: Dict, generated_at: str,
 
     return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anexo de facturación — {client}</title>
+<title>Anexo de facturación - {client}</title>
 <style>
 :root{{--bg:#fafafa;--card:#fff;--ink:#1f1e1b;--muted:#6b6a64;
 --line:#e0e0da;--blue:#4C9BE8;--blued:#185FA5;--green:#0E8A6D;
@@ -429,13 +429,13 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
 <div class="row row1">
   <div class="cards">
     <div class="card pay"><div class="lab">Total a Pagar Este Mes
-      (sin IVA)</div><div class="val" id="c_pay">&mdash;</div></div>
+      (sin IVA)</div><div class="val" id="c_pay"> - </div></div>
     <div class="card"><div class="lab">Tarifa ARGIA</div>
-      <div class="val" id="c_tar">&mdash;</div></div>
+      <div class="val" id="c_tar"> - </div></div>
     <div class="card"><div class="lab">Energía Producida</div>
-      <div class="val" id="c_prod">&mdash;</div></div>
+      <div class="val" id="c_prod"> - </div></div>
     <div class="card co2"><div class="lab">CO₂ Emisiones
-      Evitadas</div><div class="val" id="c_co2">&mdash;</div>
+      Evitadas</div><div class="val" id="c_co2"> - </div>
       <div class="fnote" id="c_co2f"></div></div>
   </div>
   <div class="sec"><h2>Generación Fotovoltaica (kWh)</h2>
@@ -488,7 +488,7 @@ const kwh0 = x => x==null ? "0 kWh" :
   Math.round(x).toLocaleString("es-MX")+" kWh";
 const monthLabel = ym => {{const [y,m]=ym.split("-");return MNAME[+m]+" "+y;}};
 
-// PURE mirror of annex.rollup_month — invoiced history wins outright
+// PURE mirror of annex.rollup_month - invoiced history wins outright
 function rollupMonth(ym){{
   const t = D.tariff_by_month[ym];
   const h = (D.history||{{}})[ym];
@@ -584,7 +584,7 @@ function drawMonth(ym){{
   document.getElementById("period").textContent=monthLabel(ym);
   document.getElementById("c_pay").innerHTML=money(r.amount);
   document.getElementById("c_tar").innerHTML=r.tariff!=null?
-    "$"+r.tariff.toLocaleString("es-MX",{{maximumFractionDigits:4,minimumFractionDigits:2}}):"—";
+    "$"+r.tariff.toLocaleString("es-MX",{{maximumFractionDigits:4,minimumFractionDigits:2}}):" - ";
   document.getElementById("c_prod").innerHTML=kwh0(r.measured);
   document.getElementById("c_co2").innerHTML=
     Math.round(r.co2).toLocaleString("es-MX")+" kg";

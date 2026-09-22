@@ -1,10 +1,10 @@
 """Toolbar layout, portal feedback 2026-08-28 (items 2 and 3).
 
-  2. "the button reports should be last not first" — it leaves the
+  2. "the button reports should be last not first" - it leaves the
      monitoring portal, so it sits at the end of the row beside the
      user menu rather than ahead of the views the page is made of.
   3. "the buttons on each page are too busy ... full range is useless,
-     also last 30 days is useless so remove them" — nine loose controls
+     also last 30 days is useless so remove them" - nine loose controls
      became two tight groups (dates, then shortcuts as one segmented
      control) with live monitoring pushed to the far edge.
 
@@ -22,7 +22,7 @@ MON = (ROOT / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
 
 
 def code(src):
-    """Source with Python comment lines dropped — a comment naming a
+    """Source with Python comment lines dropped - a comment naming a
     removed button is documentation, not a button."""
     return "\n".join(ln for ln in src.splitlines()
                      if not ln.lstrip().startswith("#"))

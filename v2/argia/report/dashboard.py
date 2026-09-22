@@ -47,7 +47,7 @@ DAY_START_H = 6              # first bucket of the daylight window (local)
 DAY_END_H = 20               # exclusive
 DAYLIGHT_WM2 = 50.0          # avg irradiance above this => sun is up
 
-# Status classification is DELEGATED to the shared module — one state
+# Status classification is DELEGATED to the shared module - one state
 # machine for every consumer (see argia/analytics/status.py). Vocabulary
 # constants are re-exported here so existing imports keep working.
 from argia.analytics.vendor_flags import fault_tokens  # noqa: E402
@@ -281,7 +281,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
 
         # First telemetry sample of this plant-day. A late start (after a
         # collector outage) means early energy ROLLED INTO the first sampled
-        # bucket while irradiance for the gap hours is unmeasurable — the
+        # bucket while irradiance for the gap hours is unmeasurable - the
         # live production-vs-expected ratio is then overstated. The page
         # uses this stamp to warn instead of silently showing 269%
         # (incident 2026-07-06).
@@ -320,7 +320,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
             producing = [e for (e, rep, _) in energies.values() if rep and e > ZERO_KWH]
             peer_median = statistics.median(producing) if producing else None
 
-            # shared status classification — the ONLY status authority
+            # shared status classification - the ONLY status authority
             buckets_in = [
                 InverterBucket(
                     inverter_sn=sn,
@@ -346,7 +346,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
             # (a) fewer than half the inverters reported -> the silent ones
             #     are NO_DATA, not OFFLINE (=> no availability loss either);
             # (b) peer-relative UNDERPERFORMING is suppressed in the bucket
-            #     FOLLOWING a coverage-broken one — cross-window energy
+            #     FOLLOWING a coverage-broken one - cross-window energy
             #     comparisons there are meaningless.
             reported_now = sum(1 for sn in inv_sns if energies[sn][1])
             coverage_broken = 0 < reported_now < max(2, -(-len(inv_sns) // 2))
@@ -391,7 +391,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                 # Fault events: judged over ALL samples in the bucket,
                 # not the last one. A mid-bucket transient (JFM5D8900B
                 # FT=302 13:06-13:11, 2026-07-09) was erased because the
-                # bucket's LAST sample was healthy again — the status
+                # bucket's LAST sample was healthy again - the status
                 # machine stays last-sample-based (v55 family of rules),
                 # but the raw fact of the fault must survive to the UI.
                 f_hits = [s for s in by_inv.get((pk, sn), [])
@@ -407,7 +407,7 @@ def build(day: dt.date, plants: dict[str, Plant], samples: Iterable[Sample],
                         f_hits[0].ts.strftime("%H:%M"),
                         f_hits[-1].ts.strftime("%H:%M"))
                 # Estimated energy LOST to unavailability (FAULT/OFFLINE
-                # only — underperformance is a different number and is
+                # only - underperformance is a different number and is
                 # deliberately not mixed in). Basis: producing peers'
                 # per-kW median x this inverter's rated kW; raw peer
                 # median when ratings are unknown; 0 when the whole
@@ -505,14 +505,14 @@ def parse_plants(rows: list[dict]) -> dict[str, "Plant"]:
         if not pk:
             continue
         # Inactive plants produce nothing but NO_DATA padding (at one point
-        # ~80% of Dashboard_Inverter rows) — skip them at the source.
+        # ~80% of Dashboard_Inverter rows) - skip them at the source.
         # Missing/blank `active` counts as active (backward compatible).
         active = str(r.get("active", "")).strip().upper()
         if active in ("FALSE", "0", "NO"):
             continue
         # v84 consciously supersedes the v74 build-time skip: the
         # Dashboard tabs are the STORE of computed live metrics (incl.
-        # intraday theoretical) for ALL active plants — per-client
+        # intraday theoretical) for ALL active plants - per-client
         # pages need CAPEX rows too. show_dashboard now filters at
         # RENDER time in dashboard_html_publish (rows AND selector),
         # so the internal page stays pure-PPA while the data exists

@@ -1,6 +1,6 @@
 """Tests for argia.telemetry.sheets_writer.
 
-We mock SheetsClient entirely — its real methods have their own tests.
+We mock SheetsClient entirely - its real methods have their own tests.
 Here we verify the writer module's logic: width checks, dry-run, header
 sanity check, calling the right SheetsClient methods.
 """
@@ -35,7 +35,7 @@ def _mock_sheets_with_header(header: list) -> MagicMock:
 
 
 # ============================================================
-# ensure_telemetry_tab — happy path
+# ensure_telemetry_tab - happy path
 # ============================================================
 
 
@@ -72,7 +72,7 @@ class TestEnsureTelemetryTabMatching:
 
 
 # ============================================================
-# ensure_telemetry_tab — schema mismatch
+# ensure_telemetry_tab - schema mismatch
 # ============================================================
 
 
@@ -107,7 +107,7 @@ class TestEnsureTelemetryTabMismatch:
 
 
 # ============================================================
-# write_telemetry_rows — width validation
+# write_telemetry_rows - width validation
 # ============================================================
 
 
@@ -147,7 +147,7 @@ class TestWriteRowsValidation:
 
 
 # ============================================================
-# write_telemetry_rows — dry-run vs live
+# write_telemetry_rows - dry-run vs live
 # ============================================================
 
 

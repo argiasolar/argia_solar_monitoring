@@ -286,7 +286,7 @@ class TestBuildReconcile:
 
     def test_partial_v2_day_is_not_energy_mismatch(self):
         # v2 flagged the day incomplete: a big energy shortfall must NOT read as
-        # ENERGY-MISMATCH — it's the June-30 undercount case.
+        # ENERGY-MISMATCH - it's the June-30 undercount case.
         v1 = [self._v1("GTO1", "2026-06-30", 3295.9, 6.0, 605.9)]
         v2 = [self._v2("GTO1", "2026-06-30", 1953.6, 3.49, 0.685, data_class="partial")]
         r = build_reconcile(v1, v2, self.ACTIVE, tolerance_pct=2.0)[0]

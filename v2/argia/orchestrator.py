@@ -2,8 +2,8 @@
 Orchestrator: shared logic between argia_mont_daily.py and argia_mont_10min.py.
 
 The two entry-point scripts are intentionally thin. Anything they have in
-common — opening the sheet, loading the portfolio, iterating plants, error
-isolation — lives here so it's tested once and used twice.
+common - opening the sheet, loading the portfolio, iterating plants, error
+isolation - lives here so it's tested once and used twice.
 
 DESIGN PRINCIPLES
 -----------------
@@ -134,7 +134,7 @@ def run_daily(
 
     clients = client_factory(plants)
     if not clients:
-        LOG.warning("No active plants with valid credentials — nothing to do")
+        LOG.warning("No active plants with valid credentials - nothing to do")
         result.finalize()
         return result
 
@@ -161,7 +161,7 @@ def run_daily(
             if real_kwh is None:
                 raise RuntimeError(
                     f"vendor returned no kWh for {plant_key} on {date_iso} "
-                    f"(check logs above — likely rate limit, transient error, "
+                    f"(check logs above - likely rate limit, transient error, "
                     f"or plant offline)"
                 )
 
@@ -175,11 +175,11 @@ def run_daily(
                 except Exception as e:  # noqa: BLE001
                     LOG.warning("[%s] cloud cover fetch failed: %s", plant_key, e)
 
-            # Irradiance (Growatt ShineMaster — shared across vendors)
+            # Irradiance (Growatt ShineMaster - shared across vendors)
             irradiance_kwh_m2: Optional[float] = None
             if plant.weather_plant_id and plant.datalogger_sn:
                 if irradiance_client is None:
-                    # Lazy init — only need it if at least one plant has weather config
+                    # Lazy init - only need it if at least one plant has weather config
                     irradiance_client = _build_irradiance_client(clients)
                 if irradiance_client is not None:
                     try:
@@ -266,7 +266,7 @@ def run_snapshot10m(
     """
     10-min snapshot: one row per active inverter in InverterSnapshot10m.
 
-    Appends — never updates. The natural key would be (timestamp, sn) but
+    Appends - never updates. The natural key would be (timestamp, sn) but
     since we never re-run for the same exact timestamp, append is safe.
     """
     result = RunResult(
@@ -286,7 +286,7 @@ def run_snapshot10m(
 
     clients = client_factory(plants)
     if not clients:
-        LOG.warning("No active plants with valid credentials — nothing to do")
+        LOG.warning("No active plants with valid credentials - nothing to do")
         result.finalize()
         return result
 
@@ -307,12 +307,12 @@ def run_snapshot10m(
 
             inverters = portfolio.inverters_for(plant_key)
             if not inverters:
-                LOG.info("[%s] no active inverters configured — skipping", plant_key)
+                LOG.info("[%s] no active inverters configured - skipping", plant_key)
                 continue
 
             snapshots = client.fetch_inverter_snapshots(plant, inverters)
 
-            # Cloud cover (for the day — same value across the day's snapshots)
+            # Cloud cover (for the day - same value across the day's snapshots)
             cloud_frac: Optional[float] = None
             if plant.lat is not None and plant.lon is not None:
                 try:
@@ -424,7 +424,7 @@ def _build_irradiance_client(
         return GrowattIrradianceClient(session_creds=creds)
 
     LOG.info(
-        "No Growatt web credentials available — irradiance queries will be skipped. "
+        "No Growatt web credentials available - irradiance queries will be skipped. "
         "Set GROWATT_USERNAME + GROWATT_PASSWORD to enable."
     )
     return None

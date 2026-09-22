@@ -1,7 +1,7 @@
 [Unit]
 # v244: the finance snapshot + project portfolio (/finance/, /projects/).
 # nginx proxies both prefixes here behind the session login; the app
-# allow-lists WHO may see them (ARGIA_FIN_EMAILS / ARGIA_FIN_ALLOW —
+# allow-lists WHO may see them (ARGIA_FIN_EMAILS / ARGIA_FIN_ALLOW -
 # Tomasz only while the modules are being built) and answers 403 to
 # everyone else. Reads PostgreSQL only in this slice.
 Description=ARGIA finance + projects (/finance/, /projects/)
@@ -17,7 +17,7 @@ Environment=ARGIA_FIN_PORT=8515
 Environment=ARGIA_FIN_EMAILS=tomasz.zemelka@argia.com.mx
 # more people: one e-mail per line in this file, read live, no restart
 Environment=ARGIA_FIN_ALLOW=/opt/argia/auth/fin_allow.txt
-# v245: the real books (fin_drive_ingest) — the v244 demo world stays under /finance/demo/
+# v245: the real books (fin_drive_ingest) - the v244 demo world stays under /finance/demo/
 Environment=ARGIA_FIN_ENTITY=ARGIA-MX
 ExecStart=/usr/bin/python3 /opt/argia/bundle/fin_app.py
 Restart=always

@@ -115,7 +115,7 @@ def build_clients_for_active_plants(
 ) -> Dict[str, VendorClient]:
     """
     Build clients for every active plant. Plants whose credentials are missing
-    are logged as warnings and skipped — they won't be queried, but the rest
+    are logged as warnings and skipped - they won't be queried, but the rest
     of the run continues.
 
     Returns dict: plant_key → client.

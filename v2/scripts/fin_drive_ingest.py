@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v245 — read the books and the project files from Google Drive (or a
+"""v245 - read the books and the project files from Google Drive (or a
 local mirror) into PostgreSQL. Idempotent: every file is keyed by its
 content hash (fin_source_file); an unchanged file is skipped, a new
 monthly print replaces what the previous one said.
@@ -123,7 +123,7 @@ class LocalSource:
         return None
 
     def pmo_sheets(self) -> List[SourceFile]:
-        """A local mirror holds .gsheet stubs only — project workbooks can be
+        """A local mirror holds .gsheet stubs only - project workbooks can be
         supplied as JSON exports ({tab: rows}) named like the sheet."""
         out = []
         for p in self._walk():
@@ -237,7 +237,7 @@ def _xlsx_rows(data: bytes, sheet: Optional[str] = None, max_col: Optional[int] 
 def _print_rows(data: bytes) -> List[tuple]:
     """A CONTPAQi print: one sheet whose dimension record is broken (read-only
     mode sees 1x1 unless the dimensions are reset). v249: streamed read-only
-    with ``reset_dimensions()`` — same rows as a full load, a third of the
+    with ``reset_dimensions()`` - same rows as a full load, a third of the
     memory (the 2023 auxiliares print is 40 MB; the full load killed the
     ingest on the 4 GB server)."""
     import openpyxl
@@ -269,7 +269,7 @@ def _overview_codes() -> set:
     cost-centre catalogue whatever their name looks like; empty without a database."""
     try:
         return {int(r[0]) for r in _rows(f"SELECT DISTINCT code FROM portfolio_project WHERE entity_id = {_lit(ENTITY)};") if r and r[0]}
-    except Exception:                          # noqa: BLE001 — dry run on the laptop
+    except Exception:                          # noqa: BLE001 - dry run on the laptop
         return set()
 
 
@@ -280,7 +280,7 @@ class Run:
         if apply or not force:
             try:
                 self.known = {r[0] for r in _rows("SELECT sha256 FROM fin_source_file;")}
-            except Exception as e:            # noqa: BLE001 — no database (dry run on the laptop)
+            except Exception as e:            # noqa: BLE001 - no database (dry run on the laptop)
                 print(f"  (no database reachable: {str(e).strip()[:80]})")
         self.notes: List[str] = []
         self.pending: List[str] = []
@@ -289,7 +289,7 @@ class Run:
 
     def skip(self, sf: SourceFile) -> bool:
         if sf.sha in self.known and not self.force:
-            print(f"  {sf.kind}: {sf.name} — unchanged (sha {sf.sha[:12]}), skipped")
+            print(f"  {sf.kind}: {sf.name} - unchanged (sha {sf.sha[:12]}), skipped")
             if sf.drive_id or sf.mime:           # v250: the content is old news, the Drive pointer may be new
                 self.write(B.source_touch_sql(sf.sha, sf.drive_id, sf.mime, sf.modified), "source_touch")
                 self.commit()
@@ -312,7 +312,7 @@ class Run:
 
 def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile], book: Optional[SourceFile],
                  history: bool = False) -> Tuple[Optional[CP.PolizasPrint], Optional[CP.AuxiliaresPrint], Optional[AB.Workbook]]:
-    """v249: ``history`` = a past year's close — balances, journals, report
+    """v249: ``history`` = a past year's close - balances, journals, report
     lines and margins for that period; the account names, the project list
     and the cost-centre catalogue stay those of the current workbook."""
     P = A = W = None
@@ -329,7 +329,7 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
         rows = B.balance_rows(ENTITY, A, aux.sha, period)
         run.write(B.balance_sql(rows), "gl_balance")
         run.commit()
-        print(f"  auxiliares: {aux.name} — {len(A.accounts)} accounts, {sum(len(a.movements) for a in A.accounts.values())} movements, period {period}")
+        print(f"  auxiliares: {aux.name} - {len(A.accounts)} accounts, {sum(len(a.movements) for a in A.accounts.values())} movements, period {period}")
     if book:
         book.kind = 'acctbook'
     if book and not run.skip(book):
@@ -352,7 +352,7 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
             if diffs:
                 run.findings.append(f"balanza vs auxiliares: {len(diffs)} account(s) differ: {', '.join(diffs[:5])}")
         run.commit()
-        print(f"  workbook: {book.name} — period {period}, {len(W.mapping)} accounts mapped, {len(W.projects)} business cases, "
+        print(f"  workbook: {book.name} - period {period}, {len(W.mapping)} accounts mapped, {len(W.projects)} business cases, "
               f"PL {len(W.pl)} / BS {len(W.bs)} / budget {len(W.budget)} lines, {len(W.gm)} project margins")
     if pol:
         pol.kind = 'polizas'
@@ -368,7 +368,7 @@ def ingest_books(run: Run, pol: Optional[SourceFile], aux: Optional[SourceFile],
         run.write(B.journal_sql(ENTITY, jr, lr, P.period_from, P.period_to), "gl_journal+line")
         run.commit()
         unposted = sum(1 for r in jr if not r["posted"])
-        print(f"  pólizas: {pol.name} — {len(P.journals)} journals, {P.lines} lines, {P.period_from}..{P.period_to}"
+        print(f"  pólizas: {pol.name} - {len(P.journals)} journals, {P.lines} lines, {P.period_from}..{P.period_to}"
               + (f", {unposted} not in the auxiliares (unposted)" if unposted else ""))
     return P, A, W
 
@@ -382,7 +382,7 @@ def ingest_overview(run: Run, sf: Optional[SourceFile]):
     run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "overview", sf.name, sf.drive_id, sf.modified, "", len(rows), mime=sf.mime)), "source_file")
     run.write(B.portfolio_sql(ENTITY, B.portfolio_rows(ENTITY, rows, sf.sha)), "portfolio_project")
     run.commit()
-    print(f"  overview: {sf.name} — {len(rows)} projects, {sum(1 for r in rows if r.active)} active")
+    print(f"  overview: {sf.name} - {len(rows)} projects, {sum(1 for r in rows if r.active)} active")
     return rows
 
 
@@ -400,7 +400,7 @@ def ingest_tracker(run: Run, sf: Optional[SourceFile]):
     run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "tracker", sf.name, sf.drive_id, sf.modified, "", len(items), mime=sf.mime)), "source_file")
     run.write(B.open_item_sql(ENTITY, B.open_item_rows(ENTITY, items, sf.sha)), "open_item")
     run.commit()
-    print(f"  tracker: {sf.name} — {len(items)} items ({sum(1 for i in items if i.side == 'ar')} AR, {sum(1 for i in items if i.side == 'ap')} AP)")
+    print(f"  tracker: {sf.name} - {len(items)} items ({sum(1 for i in items if i.side == 'ar')} AR, {sum(1 for i in items if i.side == 'ap')} AP)")
     return items
 
 
@@ -411,14 +411,14 @@ def ingest_pmo(run: Run, sheets: Sequence[SourceFile]):
             continue
         p = PS.read_project(sf.tabs or {})
         if p is None:
-            run.findings.append(f"pmo: {sf.name} — no PROJECT SUMMARY block, skipped")
+            run.findings.append(f"pmo: {sf.name} - no PROJECT SUMMARY block, skipped")
             continue
         if p.code is not None and p.code < PMO_MIN_CODE:
             continue
         run.write(B.source_file_sql(B.source_file_row(sf.sha, ENTITY, "pmo_sheet", sf.name, sf.drive_id, sf.modified, "", len(p.tasks), mime=sf.mime)), "source_file")
         run.write(B.pmo_sql(*B.pmo_rows(ENTITY, p, sf.sha, sf.drive_id, sf.modified, sf.gids)), "pmo")
         run.commit()
-        print(f"  pmo: {p.project_id} {p.name[:40]} — {len(p.tasks)} tasks, {len(p.costs)} costs, {len(p.invoices)} invoices, phase '{p.phase}'")
+        print(f"  pmo: {p.project_id} {p.name[:40]} - {len(p.tasks)} tasks, {len(p.costs)} costs, {len(p.invoices)} invoices, phase '{p.phase}'")
         n += 1
     return n
 

@@ -1,7 +1,7 @@
 """v77 client channels.
 
 The isolation contract: a client's report view contains exactly that
-client's active plants — nothing internal, nothing from other clients —
+client's active plants - nothing internal, nothing from other clients -
 and the internal show_daily_report flag never hides a plant from its
 OWN client's report.
 """
@@ -75,7 +75,7 @@ class TestClientView:
 
     def test_alert_scope_follows_the_view(self):
         # build_report_data scopes alerts by daily_report_plants() of
-        # the portfolio it is GIVEN — for a client view that is exactly
+        # the portfolio it is GIVEN - for a client view that is exactly
         # the client's plants (v76 machinery reused, not duplicated)
         from argia.report.daily import scoped_alerts
         pf = _pf(_plant("MEX3", client_channel="acme",
@@ -88,7 +88,7 @@ class TestClientView:
 
 
 class TestClientPageNames:
-    """v79: the published object is <channel>.html — and the name must
+    """v79: the published object is <channel>.html - and the name must
     be a clean token because it becomes a URL path."""
 
     def test_expected_pages(self):

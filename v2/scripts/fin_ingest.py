@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bring the sources into the ledger — v244. Idempotent by natural keys:
+"""Bring the sources into the ledger - v244. Idempotent by natural keys:
 run it twice, the second run changes nothing.
 
     fin_ingest.py --savio                 # customer invoices + payments (ARGIA_SAVIO_BASE: fake | URL)
@@ -70,7 +70,7 @@ def ingest_savio(ctx: Ctx, client: SV.SavioClient, default_account: str):
     inv_rows = []
     for inv in client.invoices():
         row = I.customer_invoice_row(inv, ctx.entity, cus)
-        # a link Savio carries that we do not know stays out of the row and into the queue — never a broken reference
+        # a link Savio carries that we do not know stays out of the row and into the queue - never a broken reference
         for col, known, kind in (("plant_key", plants, "UNKNOWN_PLANT"), ("project_id", projects, "UNKNOWN_PROJECT")):
             if row.get(col) and row[col] not in known:
                 ctx.add(I.upsert("fin_exception", [I.exception_row(kind, row["savio_invoice_id"], f"Savio invoice {row['savio_invoice_id']} names {col} {row[col]!r}, unknown here", ctx.entity)],
@@ -149,7 +149,7 @@ def ingest_cfdi(ctx: Ctx, folder: Path):
                                    MT.Receipt(hint["po_number"], po["received"]) if po["received"] > 0 else None)
             row["status"] = "matched" if verdict.verdict == "matched" else "exception"
             for code in verdict.codes:
-                ctx.add(I.upsert("fin_exception", [I.exception_row(code, c.uuid, f"{f.name}: {c.emisor_nombre} {c.total} {c.moneda} vs {hint['po_number']} — {verdict.detail}", ctx.entity, po["project_id"])],
+                ctx.add(I.upsert("fin_exception", [I.exception_row(code, c.uuid, f"{f.name}: {c.emisor_nombre} {c.total} {c.moneda} vs {hint['po_number']} - {verdict.detail}", ctx.entity, po["project_id"])],
                                  ("kind", "ref"), update=()))
             if verdict.verdict == "matched":
                 po["invoiced"] = po["invoiced"] + c.total          # a second invoice on the same PO sees the first
@@ -157,7 +157,7 @@ def ingest_cfdi(ctx: Ctx, folder: Path):
         seen_now[c.uuid] = f.name
         n_new += 1
         if c.tipo == "I" and not po:
-            ctx.add(I.upsert("fin_exception", [I.exception_row("MISSING_PO", c.uuid, f"{f.name}: {c.emisor_nombre} {c.total} {c.moneda} — no purchase order", ctx.entity, h.get("project_id"))],
+            ctx.add(I.upsert("fin_exception", [I.exception_row("MISSING_PO", c.uuid, f"{f.name}: {c.emisor_nombre} {c.total} {c.moneda} - no purchase order", ctx.entity, h.get("project_id"))],
                              ("kind", "ref"), update=()))
     ctx.notes.append(f"cfdi: {n_new} new, {n_skip} duplicate(s) skipped, {n_rej} rejected -> exceptions")
 
@@ -177,7 +177,7 @@ def ingest_bank(ctx: Ctx, folder: Path):
     for acc_dir in sorted(p for p in folder.iterdir() if p.is_dir()):
         acc = acc_dir.name
         if acc not in accounts:
-            ctx.notes.append(f"bank: {acc} is not a configured account of {ctx.entity} — skipped")
+            ctx.notes.append(f"bank: {acc} is not a configured account of {ctx.entity} - skipped")
             continue
         for f in sorted(acc_dir.glob("*.csv")):
             text = f.read_text(encoding="utf-8")
@@ -237,7 +237,7 @@ def main(argv=None) -> int:
     if a.savio:
         acc = a.account or next((r[0] for r in _rows(f"SELECT account_id FROM bank_account WHERE entity_id = {_q(a.entity)} ORDER BY account_id;")), None)
         if not acc:
-            print(f"{a.entity}: no bank account configured — seed first")
+            print(f"{a.entity}: no bank account configured - seed first")
             return 2
         ingest_savio(ctx, SV.client_from_env(), acc)
     if a.cfdi:
@@ -248,7 +248,7 @@ def main(argv=None) -> int:
         print("  " + n)
     n = sum(s.count("INSERT INTO") for s in ctx.sql)
     if not a.apply:
-        print(f"dry run: {n} statement(s) — add --apply")
+        print(f"dry run: {n} statement(s) - add --apply")
         return 0
     if ctx.sql:
         _exec("\n".join(ctx.sql))

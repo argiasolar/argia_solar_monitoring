@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Ask ARGIA — the /ask/ page of portal.argia.com.mx (phase 1: all data, the Golden Standard, tables with totals).
+"""Ask ARGIA - the /ask/ page of portal.argia.com.mx (phase 1: all data, the Golden Standard, tables with totals).
 
 Runs on 127.0.0.1:8513; nginx proxies /ask/ to it behind the session
 login and passes the signed-in username in X-Remote-User. This app
-never authenticates anyone — nginx and auth_app do. It only decides
+never authenticates anyone - nginx and auth_app do. It only decides
 WHO may use the assistant, and that list is explicit:
 
   ARGIA_ASK_ALLOW   a file, one e-mail or username per line, '#'
                     comments (default /opt/argia/auth/ask_allow.txt).
                     Read on every request, so adding a colleague is
-                    one line on the server — no deploy, like the mail
+                    one line on the server - no deploy, like the mail
                     recipients.
   ARGIA_ASK_USERS   comma-separated usernames          (default: none)
   ARGIA_ASK_EMAILS  comma-separated e-mails, matched against the
                     account's e-mail in users.db
                     (default: tomasz.zemelka@argia.com.mx)
 
-Everyone else gets 403 — signed in, but not for this page — the same
+Everyone else gets 403 - signed in, but not for this page - the same
 answer the rest of the site gives. Every question and answer is logged
 to ask_log in PostgreSQL with the tools that produced it.
 
@@ -25,7 +25,7 @@ Routes:
   POST /ask/api    {"question": str, "lang": "en"|"es",
                     "history": [{"role","content"}]}
                    -> {"answer", "tool_calls", "model", ...}
-  GET  /ask/me     {"allowed": bool} for the signed-in user — the
+  GET  /ask/me     {"allowed": bool} for the signed-in user - the
                    landing page uses it to show the card only to
                    people who may use the assistant
   GET  /ask/healthz
@@ -107,7 +107,7 @@ def scope_of(username, row_lookup=None):
     auth_core.may: a granted area named like a plant key is that plant;
     'capex' grants every CAPEX plant. A disabled account gets nothing.
     No account row at all (a name from the unit's ARGIA_ASK_USERS in a
-    test or dev box — nobody reaches the app without a users.db row
+    test or dev box - nobody reaches the app without a users.db row
     behind the nginx login) counts as internal."""
     try:
         if row_lookup is None:
@@ -190,7 +190,7 @@ button:disabled{opacity:.5}
 <header>__LOGO__<span class="t">Ask ARGIA</span><span style="font-size:12px;color:#889;border:1px solid #c9ced4;border-radius:10px;padding:1px 7px">phase 1 · read-only</span>
 <span class="who">__USER__</span><span class="lang"><button type="button" data-l="en" onclick="setLang('en')">EN</button><button type="button" data-l="es" onclick="setLang('es')">ES</button></span><a href="/monitoring/" data-en="Monitoring" data-es="Monitoreo">Monitoring</a><a href="/" data-en="Reports" data-es="Reportes">Reports</a></header>
 <main id="log">
-<div class="a msg"><span data-en="Ask about the fleet — production, expected, PR, availability, inverters, alarms, lost energy. Every figure comes from the monitoring database; the tool results are shown under each answer so you can check them. Follow-ups (&quot;why?&quot;, &quot;and in July?&quot;) keep the context." data-es="Pregunta sobre la flota — producción, esperado, PR, disponibilidad, inversores, alarmas, energía perdida. Cada cifra viene de la base de datos de monitoreo; los resultados de las herramientas se muestran bajo cada respuesta para que puedas verificarlos. Las preguntas de seguimiento (&quot;¿por qué?&quot;, &quot;¿y en julio?&quot;) mantienen el contexto.">Ask about the fleet.</span>
+<div class="a msg"><span data-en="Ask about the fleet - production, expected, PR, availability, inverters, alarms, lost energy. Every figure comes from the monitoring database; the tool results are shown under each answer so you can check them. Follow-ups (&quot;why?&quot;, &quot;and in July?&quot;) keep the context." data-es="Pregunta sobre la flota - producción, esperado, PR, disponibilidad, inversores, alarmas, energía perdida. Cada cifra viene de la base de datos de monitoreo; los resultados de las herramientas se muestran bajo cada respuesta para que puedas verificarlos. Las preguntas de seguimiento (&quot;¿por qué?&quot;, &quot;¿y en julio?&quot;) mantienen el contexto.">Ask about the fleet.</span>
 <div class="chips" id="chips"></div></div>
 </main>
 <form id="f"><div class="row"><input id="q" autocomplete="off" placeholder="e.g. Why did Taigene produce less yesterday?" data-ph-en="e.g. Why did Taigene produce less yesterday?" data-ph-es="p. ej. ¿Por qué Taigene produjo menos ayer?" maxlength="__MAXQ__"><button id="b" data-en="Ask" data-es="Preguntar">Ask</button></div>
@@ -211,7 +211,7 @@ const log=document.getElementById('log'),f=document.getElementById('f'),q=docume
 let history=[];
 function el(cls,txt){const d=document.createElement('div');d.className='msg '+cls;d.textContent=txt;log.appendChild(d);window.scrollTo(0,document.body.scrollHeight);return d;}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-let ALANG='en';/* v219: language of the answer being rendered — citations link to that deck language */
+let ALANG='en';/* v219: language of the answer being rendered - citations link to that deck language */
 function slideLink(n){return '/ags/#lang='+ALANG+'&slide='+n;}
 function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\b(slide|diapositiva)\s+(\d{1,3})\b/gi,(m,w,n)=>'<a href="'+slideLink(n)+'" target="_blank" rel="noopener">'+w+' '+n+'</a>');}
 function md(text){/* markdown-lite: paragraphs, **bold**, `code`, pipe tables, - bullets; headings become plain lines */
@@ -228,11 +228,11 @@ function md(text){/* markdown-lite: paragraphs, **bold**, `code`, pipe tables, -
   const para=[];while(i<lines.length&&lines[i].trim()&&!/^\s*\|/.test(lines[i])&&!/^\s*[-*] /.test(lines[i])){para.push(lines[i].replace(/^#+\s*/,''));i++;}
   out.push('<p>'+para.map(inline).join('<br>')+'</p>');}
  return out.join('');}
-function fmt(v){if(v===null||v===undefined)return '—';if(typeof v==='number')return Number.isInteger(v)?v.toString():v.toFixed(Math.abs(v)<10?2:1);if(Array.isArray(v))return v.length?v.join(', '):'—';if(typeof v==='object')return JSON.stringify(v);return String(v);}
+function fmt(v){if(v===null||v===undefined)return ' - ';if(typeof v==='number')return Number.isInteger(v)?v.toString():v.toFixed(Math.abs(v)<10?2:1);if(Array.isArray(v))return v.length?v.join(', '):' - ';if(typeof v==='object')return JSON.stringify(v);return String(v);}
 function cell(c,v){const s=fmt(v).replace(/</g,'&lt;');return (c==='link'&&/^https:\/\/portal\.argia\.com\.mx\//.test(s))?'<a href="'+s+'" target="_blank" rel="noopener">open</a>':s;}
 function table(rows){if(!rows.length||typeof rows[0]!=='object')return null;const cols=Object.keys(rows[0]);const t=document.createElement('table');t.innerHTML='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+cell(c,r[c])+'</td>').join('')+'</tr>').join('');return t;}
 function render(call){const d=document.createElement('details');const args=Object.entries(call.input).map(([k,v])=>k+'='+v).join(', ');
- const s=document.createElement('summary');s.textContent=call.name+'('+args+')'+(call.result&&call.result.error?' — error':'');d.appendChild(s);
+ const s=document.createElement('summary');s.textContent=call.name+'('+args+')'+(call.result&&call.result.error?' - error':'');d.appendChild(s);
  const r=call.result||{};let shown=false;
  for(const k of ['plants','days','months','inverters','alarms','inverter_faults','worst_days','maintenance','open_maintenance','active_alarms','charges','hits','rows','tables']){if(Array.isArray(r[k])&&r[k].length){const h=document.createElement('div');h.textContent=k;h.style.cssText='font-weight:600;margin-top:6px';d.appendChild(h);const t=table(r[k]);if(t){d.appendChild(t);shown=true;}}}
  const rest={};for(const k in r)if(!Array.isArray(r[k])||!r[k].length||typeof r[k][0]!=='object')rest[k]=r[k];

@@ -4,7 +4,7 @@ Every reader of the ``KPI_Daily`` tab parses a grid (header + rows) or
 ``read_table`` dicts and normalises dates through ``date_key`` /
 ``coerce_date``, which accept both sheet serials and ISO text. This
 module produces that grid from ``daily_production`` with the SHEET's
-column names and order, ISO dates, numbers typed, blanks as '' — so
+column names and order, ISO dates, numbers typed, blanks as '' - so
 alerts_daily, finance.income, finance.annex, report.daily,
 dashboard_update and archive.load_kpi_daily run unchanged.
 

@@ -1,8 +1,8 @@
-"""v245 — from the parsed sources (contpaq / acctbook / portfolio /
+"""v245 - from the parsed sources (contpaq / acctbook / portfolio /
 pmo_sheet) to table rows and idempotent SQL. Pure: no I/O, no database;
 ``scripts/fin_drive_ingest.py`` fetches the files and runs the SQL.
 
-Every row carries ``source_sha`` — the content hash of the file it came
+Every row carries ``source_sha`` - the content hash of the file it came
 from (``fin_source_file``). Re-importing the same file is a no-op; a new
 monthly print replaces what the previous one said (same natural keys).
 """
@@ -38,7 +38,7 @@ def source_file_sql(row: Row) -> str:
 
 
 def source_touch_sql(sha: str, drive_id: str = "", mime: str = "", modified: Optional[dt.datetime] = None) -> str:
-    """v250: a file whose content is unchanged is skipped by hash — but its
+    """v250: a file whose content is unchanged is skipped by hash - but its
     Drive id may have only just become readable (the folders were shared).
     Refresh the pointer without re-importing anything."""
     sets = [f"drive_id = coalesce({_lit(drive_id or None)}, drive_id)", f"mime = CASE WHEN {_lit(mime)} <> '' THEN {_lit(mime)} ELSE mime END"]
@@ -59,7 +59,7 @@ def gl_account_rows(entity_id: str, mapping: Dict[str, AB.AccountMap], aux: Opti
         out.append({"entity_id": entity_id, "account": acct, "name": m.name, "name_en": m.name_en, "bs_pl": m.bs_pl,
                     "a_p": m.a_p, "report_code": m.report_code, "report_account": m.report_account,
                     "nature": natures.get(acct, "credit" if m.a_p in ("P", "R") else "debit")})
-    # accounts the print knows but the mapping does not (new this month) — keep them, unmapped
+    # accounts the print knows but the mapping does not (new this month) - keep them, unmapped
     for acct, l in sorted((aux.accounts.items() if aux else [])):
         if acct not in mapping and l.movements:
             out.append({"entity_id": entity_id, "account": acct, "name": l.name, "name_en": l.name, "bs_pl": "", "a_p": "",

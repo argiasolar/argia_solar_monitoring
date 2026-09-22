@@ -1,6 +1,6 @@
 """Per-channel mail subscriptions with per-plant scoping (v176).
 
-Tomasz, 2026-09-02: separate mailing lists for (1) maintenance —
+Tomasz, 2026-09-02: separate mailing lists for (1) maintenance -
 live metering / live issues, (2) financial reports, (3) daily
 performance; admin adds/removes people in /setup/; ONLY portal users
 can receive mail; a maintenance subscriber can be limited to specific
@@ -15,7 +15,7 @@ else has access to the tool that fixes them.
 
 Everything here except ``recipients_for``/``portal_emails`` is pure
 and unit-tested. The setup UI (server/bundle/setup_app.py) duplicates
-ENSURE_SQL inline because the bundle cannot import the argia package —
+ENSURE_SQL inline because the bundle cannot import the argia package -
 a source-level test keeps the two copies identical.
 """
 
@@ -54,7 +54,7 @@ LOG = logging.getLogger("argia.alerts.subscriptions")
 _PLANT_PREFIXES = ("plant-dark", "plant-stale", "inverter-silent",
                    "recon-fail", "satellite-drift",
                    # v203: engine (ledger) metrics rendered as issues in the
-                   # 19:00 mail — "<metric>:<plant>:<sn>"
+                   # 19:00 mail - "<metric>:<plant>:<sn>"
                    "inverter_temp_high", "inverter_fault", "inverter_relative",
                    "inverter_silent", "string_fault", "energy_daily_pct",
                    "plant_offline", "plant_twin_yield", "data_stale")
@@ -73,24 +73,24 @@ NEVER_MAILED_PORTFOLIOS: FrozenSet[str] = frozenset({"CAPEX"})
 projects"): CAPEX is never mailed, whatever the env says."""
 
 HOLD_ALL: FrozenSet[str] = frozenset({"*"})
-"""v217: the portfolio filter could not be loaded (PG timeout — that is
+"""v217: the portfolio filter could not be loaded (PG timeout - that is
 how two Budenheim alerts reached everyone on 2026-09-06 during a lock
 incident). Every PLANT alert is held this run; infrastructure alerts
 still pass. The ledger retries unmailed alerts next run and the mailer
-keeps its state, so nothing is lost — it is late, not silent."""
+keeps its state, so nothing is lost - it is late, not silent."""
 
 ADMIN_ENV = "ARGIA_MAIL_ADMIN"
 DEFAULT_ADMIN = "tomasz.zemelka@argia.com.mx"
 """v217: infrastructure and monitoring-internal alerts (failed jobs,
 disk, PostgreSQL, CFE pipeline, reconciliation FAIL, sensor drift) go
-ONLY to the administrator(s) — "only I have access to the tool and
+ONLY to the administrator(s) - "only I have access to the tool and
 settings". Comma list in the env; the admin is added to those mails
 even without a maintenance subscription."""
 
 INTERNAL_PREFIXES = ("recon-fail", "satellite-drift")
 """Plant-keyed alerts that are about the monitoring itself (our
 reconciliation vs the vendor counter, our irradiance sensor check),
-not about the plant's hardware — admin-only like infrastructure."""
+not about the plant's hardware - admin-only like infrastructure."""
 
 
 def mail_portfolios(env=None) -> FrozenSet[str]:
@@ -129,7 +129,7 @@ def is_mailable(plant_key: Optional[str], excluded: FrozenSet[str]) -> bool:
 
 def load_excluded_plants() -> FrozenSet[str]:
     """excluded_plants() over the live plant table; HOLD_ALL on any
-    error (fail CLOSED — v217: a PG hiccup must never page a CAPEX
+    error (fail CLOSED - v217: a PG hiccup must never page a CAPEX
     customer; the alerts wait one run)."""
     try:
         from argia.store.pgq import psql_rows
@@ -138,7 +138,7 @@ def load_excluded_plants() -> FrozenSet[str]:
             raise RuntimeError("plant table returned no rows")
         return excluded_plants({r[0]: r[1] for r in rows if len(r) >= 2})
     except Exception as e:  # noqa: BLE001
-        LOG.warning("portfolio filter unavailable (%s) — plant alerts held this run", e)
+        LOG.warning("portfolio filter unavailable (%s) - plant alerts held this run", e)
         return HOLD_ALL
 
 
@@ -151,7 +151,7 @@ def parse_plants(text: Optional[str]) -> Optional[FrozenSet[str]]:
 
 
 def plants_field(scope: Optional[Iterable[str]]) -> str:
-    """Inverse of parse_plants — canonical DB text for a scope."""
+    """Inverse of parse_plants - canonical DB text for a scope."""
     if not scope:
         return ""
     return ",".join(sorted({p.strip().upper() for p in scope if p.strip()}))
@@ -206,7 +206,7 @@ def filter_keys(keys: Sequence[str], scope: Optional[FrozenSet[str]],
 def with_admins(recipients: Sequence[Tuple[str, Optional[FrozenSet[str]]]],
                 admins: FrozenSet[str]
                 ) -> List[Tuple[str, Optional[FrozenSet[str]], bool]]:
-    """(email, scope, is_admin) — an administrator missing from the
+    """(email, scope, is_admin) - an administrator missing from the
     subscription list is appended with an empty plant scope, so the
     internal alerts always have a reader. Pure."""
     out = [(e, s, e.strip().lower() in admins) for e, s in recipients]
@@ -221,7 +221,7 @@ def group_recipients(alerts: Sequence, recovered: Sequence[str],
                      ) -> List[Tuple[List[str], list, List[str]]]:
     """Group (email, scope) pairs by the identical filtered view so each
     distinct mail is built and sent once: [(emails, alerts, recovered)].
-    Recipients whose view is empty are dropped — no content, no mail.
+    Recipients whose view is empty are dropped - no content, no mail.
     ``admins`` (default: ARGIA_MAIL_ADMIN) are the only readers of
     internal alerts and are added even when not subscribed."""
     admins = admin_emails() if admins is None else admins
@@ -257,7 +257,7 @@ def recipients_for(channel: str
 def portal_emails(db_path: str = "/opt/argia/auth/users.db"
                   ) -> Optional[FrozenSet[str]]:
     """Emails of enabled portal accounts (lowercased), or None when the
-    portal DB is not readable here (dev box, tests) — callers then skip
+    portal DB is not readable here (dev box, tests) - callers then skip
     the portal check rather than silencing everyone."""
     import logging
     import os

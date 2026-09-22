@@ -1,4 +1,4 @@
-# Stage 5.1 — SolarEdge per-phase + line-to-line + frequency extraction
+# Stage 5.1 - SolarEdge per-phase + line-to-line + frequency extraction
 
 A focused upgrade to Stage 5 based on live production capture analysis.
 
@@ -13,11 +13,11 @@ Top-level (Stage 5 already extracted):
   date, totalActivePower, dcVoltage, groundFaultResistance, powerLimit,
   totalEnergy, temperature, inverterMode, operationMode
 
-Line-to-line voltages (NEW — Stage 5.1 extracts):
+Line-to-line voltages (NEW - Stage 5.1 extracts):
   vL1To2, vL2To3, vL3To1
 
-Per-phase nested dicts (NEW — Stage 5.1 extracts):
-  L1Data, L2Data, L3Data — each with:
+Per-phase nested dicts (NEW - Stage 5.1 extracts):
+  L1Data, L2Data, L3Data - each with:
     acCurrent, acVoltage, acFrequency,
     activePower, apparentPower, reactivePower, cosPhi
 ```
@@ -36,7 +36,7 @@ populates ~22 cells (was ~7 in Stage 5).
 | `pf` | blank | **mean(L1.cosPhi, L2.cosPhi, L3.cosPhi)** ✓ |
 | `fac_hz` | blank | **mean(L1.acFrequency, L2.acFrequency, L3.acFrequency)** ✓ |
 
-Phase-mean derivations are honest — the three phases nearly always agree
+Phase-mean derivations are honest - the three phases nearly always agree
 within 0.1% (verified in the captured data). If they ever diverge significantly
 the per-phase active_power_w deltas will reveal the imbalance via dedicated
 columns.
@@ -105,21 +105,21 @@ That's a real operational picture, comparable in quality to Growatt and Huawei.
 ## What still stays blank
 
 By API design, not parser limitation:
-- **Per-MPPT data** (vpv2..16, ppv1..9, vstring*, istring*) — SolarEdge architecture
+- **Per-MPPT data** (vpv2..16, ppv1..9, vstring*, istring*) - SolarEdge architecture
   puts measurement at the per-panel optimizer, not aggregated to the inverter
-- **Per-MPPT daily/lifetime energy** (epv1..15_today/total) — same reason
-- **Growatt-style fault codes** (fault_code_1/2, warn_code) — SolarEdge uses
+- **Per-MPPT daily/lifetime energy** (epv1..15_today/total) - same reason
+- **Growatt-style fault codes** (fault_code_1/2, warn_code) - SolarEdge uses
   `inverterMode` string instead (captured in `raw_mode`; surfaces in the
   `fault_code` column of the narrow Argia tab when not MPPT)
 
 ## Honest gotchas
 
 1. **Phase-mean for iac_a is lossy.** If one phase fails completely, the mean
-   averages two phases instead of three — still useful but misleading. The
+   averages two phases instead of three - still useful but misleading. The
    per-phase active_power_w columns are the real signal for imbalance.
 
 2. **Reactive power discrepancy.** Production data showed `cosPhi = 1.0`
-   per phase but `reactivePower = -5775` VAR. Not a bug — the inverter
+   per phase but `reactivePower = -5775` VAR. Not a bug - the inverter
    is doing reactive compensation. The pf column will read 1.0; if you
    need actual power factor including reactive component, derive from
    active vs apparent power columns.

@@ -2,7 +2,7 @@
 
 ``data/inverter_registry.json`` pins, per plant, every inverter's serial
 number and the name the manufacturer portal gives it. The monitoring
-``inverter`` table must agree with it — otherwise "Inverter 1" in a
+``inverter`` table must agree with it - otherwise "Inverter 1" in a
 mail points a technician at the wrong machine (2026-09-07: Plastic
 Omnium's 1/3/4 and Taigene's 5/6 were swapped, Hirschmann's and Tetra
 Pak's 5th inverter were not in the table at all).
@@ -52,7 +52,7 @@ def is_active(entry: dict) -> bool:
 
 
 def validate(reg: dict) -> List[str]:
-    """The file's own rules — one line per violation, empty when sane."""
+    """The file's own rules - one line per violation, empty when sane."""
     out: List[str] = []
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(reg.get("verified", ""))):
         out.append("missing or malformed 'verified' date")
@@ -136,7 +136,7 @@ def apply_sql(reg: dict, rows: Iterable[TableRow]) -> List[str]:
 
 def vendor_diff(reg: dict, plant_key: str, vendor: Sequence[Tuple[str, str]]) -> List[str]:
     """A live vendor device list (serial, name) vs the registry: a
-    serial the vendor has that we do not (a replacement — Tetra Pak's
+    serial the vendor has that we do not (a replacement - Tetra Pak's
     Inverter 4 changed serial once), one we have that the vendor no
     longer lists, and a number that moved."""
     invs = plants(reg).get(plant_key) or {}

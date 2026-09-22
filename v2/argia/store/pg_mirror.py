@@ -1,14 +1,14 @@
 """Mirror the narrow cross-vendor telemetry rows into PostgreSQL (pio06).
 
 Phase A of the Pi -> server migration (2026-08-26): the collector keeps
-writing Google Sheets exactly as before, and — only where
-``ARGIA_PG_MIRROR=1`` (the server) — ALSO upserts the same rows into the
+writing Google Sheets exactly as before, and - only where
+``ARGIA_PG_MIRROR=1`` (the server) - ALSO upserts the same rows into the
 ``telemetry`` table of the ``argia_mont`` database. Failure here must
 never break the sheet path; callers wrap us in try/except and we raise
 nothing fatal ourselves.
 
 Execution model: ``runuser -u postgres -- psql`` (peer auth, root-only
-server context) — no new Python dependencies, same pattern as the other
+server context) - no new Python dependencies, same pattern as the other
 server-side loaders.
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ def build_upsert_sql(common_rows: Sequence[Sequence]) -> Optional[str]:
         tuples.append('(' + ','.join(vals) + ')')
     if not tuples:
         return None
-    # v189.1 — the sheet's v89 rule, "a BLANK never overwrites data":
+    # v189.1 - the sheet's v89 rule, "a BLANK never overwrites data":
     # SolarEdge re-sends the day's history each poll with the weather
     # snapshot attached only to the latest row (v81), so a plain
     # col=EXCLUDED.col erased GTO2's env fields on every refetch (found by

@@ -7,7 +7,7 @@
 
 The register is data/cfe_corrections.json; drift_check runs the check
 every morning and a difference reaches the administrator's digest.
-Consumers of cfe_tariff stay read-only — this is the one writer besides
+Consumers of cfe_tariff stay read-only - this is the one writer besides
 cfe_load, and it only ever moves a cell to the value the register names.
 """
 from __future__ import annotations

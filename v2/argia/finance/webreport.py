@@ -1,4 +1,4 @@
-"""Online financial report (financial_report.html) — data + renderer.
+"""Online financial report (financial_report.html) - data + renderer.
 
 Same numbers as the PDF report, as a static self-contained page with a
 from–to calendar picker. The anti-divergence rule that shapes it:
@@ -7,14 +7,14 @@ from–to calendar picker. The anti-divergence rule that shapes it:
   argia.finance.income layer the PDF uses. The page embeds per-plant
   PER-DAY "atoms" (revenue, expected, debt service/day, O&M/day) as
   JSON, and the in-browser picker only SUMS atoms over the selected
-  range. JavaScript performs arithmetic, never business logic — no
+  range. JavaScript performs arithmetic, never business logic - no
   tariffs, no FX, no proration rules exist client-side, so the web
   page and the PDF cannot drift apart.
 
 Daily atom definitions (per plant, per calendar day):
   rev  actual accrued income: PPA = KPI billable kWh × that month's
        tariff; LaaS = monthly fee×XR / days-in-month. null when no KPI
-       row exists yet (future/unstamped days) — the picker counts only
+       row exists yet (future/unstamped days) - the picker counts only
        non-null days into "Actual".
   exp  expected income: monthly contracted income / days-in-month.
   svc  debt service: monthly Σ installments / days-in-month.
@@ -156,7 +156,7 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
         cursor += timedelta(days=1)
 
     # loan position labels per plant-month ("22/84", "24/24 · 2/12",
-    # "paid off") — computed here so the browser only LOOKS THEM UP by
+    # "paid off") - computed here so the browser only LOOKS THEM UP by
     # the selected end month, same no-logic-client-side rule as atoms
     from argia.finance.loans import installment_label
     inst: Dict[str, Dict[str, str]] = {}
@@ -173,7 +173,7 @@ def build_daily_atoms(sheets: SheetsClient, portfolio: Portfolio,
 
 
 def _logo_uri() -> str:
-    """The dashboard's embedded logotype (851x96) — imported so the
+    """The dashboard's embedded logotype (851x96) - imported so the
     financial report and the performance dashboard carry the IDENTICAL
     image; the repo PNG asset is the fallback. The asset has a much
     squarer aspect ratio, so at the same 28px height it rendered
@@ -195,10 +195,10 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
     2026-07-09): same fonts/palette/cards/badges, FINANCIAL REPORT
     letterspaced top-left, logotype top-right, audit text collapsed into
     a <details> block. The date picker still only SUMS the embedded
-    daily atoms — no financial logic in the browser."""
+    daily atoms - no financial logic in the browser."""
     payload = json.dumps(data, separators=(",", ":"))
     logo = _logo_uri()
-    logo_html = ('<img src="%s" alt="ARGIA — Smart Energy Solutions" '
+    logo_html = ('<img src="%s" alt="ARGIA - Smart Energy Solutions" '
                  'style="height:28px; display:block;">' % logo
                  ) if logo else "<b>ARGIA</b>"
     footer = _footer_sources()
@@ -206,7 +206,7 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
     default_to = data["last_actual_day"] or data["days"][-1]
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Argia &mdash; Financial Report</title><style>
+<title>Argia - Financial Report</title><style>
   :root {{ font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }}
   body {{ margin: 0; background: #f4f3ef; color: #1a1a19; }}
   .wrap {{ max-width: 1080px; margin: 0 auto; padding: 20px 16px 40px; }}
@@ -252,13 +252,13 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
     .card, .panel {{ border: 1px solid #d5d4cc; break-inside: avoid; }}
     .badge, .card, .note {{ -webkit-print-color-adjust: exact;
                             print-color-adjust: exact; }}
-    /* v254 — the page must FIT the sheet on its own. The screen layout is
+    /* v254 - the page must FIT the sheet on its own. The screen layout is
        1080px wide; A4 with 12mm margins is ~700px. A person pressing Ctrl+P
        never saw the difference because Chrome's print dialog shrinks to fit,
        but the weekly mail is rendered by headless chromium --print-to-pdf,
        which has no such heuristic and simply CLIPS the overflow. Every
        emailed report was losing debt service, loan position and both DSCR
-       columns off the right edge — silently, including the amber covenant
+       columns off the right edge - silently, including the amber covenant
        warnings. Never rely on a print dialog to make the report fit. */
     @page {{ size: A4 portrait; margin: 10mm; }}
     .wrap {{ max-width: none; width: auto; padding: 0 2mm; }}
@@ -316,7 +316,7 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
 
   <div class="row">
     <div class="panel" style="margin-bottom:0;">
-      <h2>Expected &mdash; contracted</h2>
+      <h2>Expected - contracted</h2>
       <table class="stmt">
         <tr><td>Revenue</td><td id="e_rev"></td></tr>
         <tr><td>O&amp;M costs</td><td id="e_om"></td></tr>
@@ -326,7 +326,7 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
       </table>
     </div>
     <div class="panel" style="margin-bottom:0;">
-      <h2>Actual &mdash; accrued <span class="sub" id="acov"></span></h2>
+      <h2>Actual - accrued <span class="sub" id="acov"></span></h2>
       <table class="stmt">
         <tr><td>Revenue</td><td id="a_rev"></td></tr>
         <tr><td>O&amp;M costs</td><td id="a_om"></td></tr>
@@ -362,7 +362,7 @@ def render_financial_report_html(data: Dict, generated_at: str) -> str:
         "24/24 &middot; 2/12"). <b>Plant size:</b> kWp DC from the
         Plants tab (PPA assets).
         This page embeds per-day figures computed server-side by the same
-        engine as the PDF report; the date picker only sums them &mdash;
+        engine as the PDF report; the date picker only sums them -
         no financial logic runs in the browser.
       </div>
     </details>
@@ -429,13 +429,13 @@ function recompute() {{
       + '<td class="num">'+dscrBadge(actual, s.svc)+'</td></tr>';
     if (actual!=null && s.svc>0 && actual/s.svc < 1)
       notes += '<div class="note warn">Watch: '+p.name+' &middot; '+p.key
-        + ' &mdash; actual DSCR '+Math.round(actual/s.svc*100)
+        + ' - actual DSCR '+Math.round(actual/s.svc*100)
         + '%, accrued income below debt service for the selection.</div>';
   }}
   const missing = D.plants.filter(p=>p.om_missing).map(p=>p.key);
   if (missing.length)
     notes += '<div class="note">No O&amp;M recorded for '+missing.join(", ")
-      + ' &mdash; opex is the sum of approved Maintenance_Events costs; '
+      + ' - opex is the sum of approved Maintenance_Events costs; '
       + '0 means no maintenance events in the selection, not missing '
       + 'data.</div>';
   const usdSvc = D.plants.filter(p=>p.usd)
@@ -443,7 +443,7 @@ function recompute() {{
   document.getElementById("fxline").innerHTML = T.svc>0
     ? '<b>FX position:</b> ' + (usdSvc/T.svc*100).toFixed(1)
       + '% of the selected debt service is USD-denominated, matched by '
-      + 'USD-indexed LaaS fees at the same rate &mdash; net portfolio FX '
+      + 'USD-indexed LaaS fees at the same rate - net portfolio FX '
       + 'exposure &asymp; zero. ' : '';
   const set = (id,v)=>document.getElementById(id).textContent=v;
   const setH = (id,v)=>document.getElementById(id).innerHTML=v;

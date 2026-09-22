@@ -2,15 +2,15 @@
 
 Two builders:
 
-* ``build_plant_row`` — wide row for ``Telemetry_<KEY>`` (142 cols)
-* ``build_common_row`` — narrow cross-vendor row for ``Telemetry_Argia`` (15 cols)
+* ``build_plant_row`` - wide row for ``Telemetry_<KEY>`` (142 cols)
+* ``build_common_row`` - narrow cross-vendor row for ``Telemetry_Argia`` (15 cols)
 
 Both reach into ``row.raw`` for everything they need so the parser's typed
-dataclass shape is not a constraint on this module — the JSON field names
+dataclass shape is not a constraint on this module - the JSON field names
 from Growatt's API are the contract. The parser's column-family accessors
 are still used for the wide groups (per-MPPT, per-string).
 
-Pure functions — no I/O.
+Pure functions - no I/O.
 """
 
 from __future__ import annotations

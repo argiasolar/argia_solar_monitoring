@@ -4,7 +4,7 @@ Locked here: circle AREA tracks kWp (sqrt diameter scale, clamped),
 map status agrees with the alert thresholds, the page is gated as
 'financial' (it shows fleet-wide PPA revenue), CAPEX plants never get
 fabricated money, clicks land on the plant's performance report, and
-the pretty subdomain stays a redirect — one host, one login.
+the pretty subdomain stays a redirect - one host, one login.
 
 monitoring_gen.py queries PG at import, so the pure helpers are
 exec-extracted from source (the test_plant_page_tiles pattern).
@@ -95,7 +95,7 @@ class TestPageWiring:
         # one host = one login (2026-08-28); the pretty name 301s in
         assert "return 301 https://portal.argia.com.mx/map/;" in VHOST_SRC   # v214
         assert "auth_request" not in VHOST_SRC
-        # no root/try_files directive — this vhost must serve no files
+        # no root/try_files directive - this vhost must serve no files
         assert not re.search(r"^\s*root\s", VHOST_SRC, re.M)
         assert "try_files" not in VHOST_SRC
 
@@ -113,7 +113,7 @@ class TestPageWiring:
         assert "'px': circle_px(meta['kwp'])," in GEN_SRC
 
     def test_capex_never_gets_fabricated_money(self):
-        # tariff 0 plants: energy yes, MXN None — no invented savings
+        # tariff 0 plants: energy yes, MXN None - no invented savings
         assert "if is_ppa else None" in GEN_SRC
         assert "tariff = cur_tariff.get(pk, 0.0) if is_ppa else 0.0" \
             in GEN_SRC
@@ -164,7 +164,7 @@ class TestV177_1Feedback:
         """v253: osm.org blocked the portal by referer under their Tile Usage
         Policy and every visitor got 'Access blocked' squares instead of a
         map. Their servers are donated and their policy forbids this use, so
-        the portal must never point a tile layer at them again — including
+        the portal must never point a tile layer at them again - including
         the mirrors people reach for when the main host stops answering."""
         for host in ("tile.openstreetmap.org", "tile.osm.org",
                      "a.tile.openstreetmap", "b.tile.openstreetmap",
@@ -181,7 +181,7 @@ class TestV177_1Feedback:
 
     def test_every_tile_layer_credits_its_source(self):
         """A basemap without attribution is a licence breach waiting to
-        happen — which is how the OSM block started."""
+        happen - which is how the OSM block started."""
         import re
         layers = re.findall(r"L\.tileLayer\('([^']+)'", GEN_SRC)
         assert len(layers) == 3, layers
@@ -202,7 +202,7 @@ class TestV177_1Feedback:
     def test_no_plant_codes_in_map_ui(self):
         seg = GEN_SRC.split("def portfolio_page(")[1]
         assert "'<h3>'+p.name+'</h3>'" in seg           # tooltip title
-        assert "p.key+' — '" not in seg                 # code header gone
+        assert "p.key+' - '" not in seg                 # code header gone
         assert '"pwrap"' in seg and "'+p.label+'" in seg  # name label
         # the code survives ONLY inside the click URL
         assert "window.location=REPORT_BASE+p.key.toLowerCase()+'/';" in seg
@@ -238,7 +238,7 @@ class TestV213Selection:
 
 
 class TestReferenceSheets:
-    """v177.2 — NL1 and QRO1 have no page on argia.com.mx, so their
+    """v177.2 - NL1 and QRO1 have no page on argia.com.mx, so their
     reference buttons serve the official PDF sheets from the portal
     itself. Tomasz: correct spelling is Tetra PAK, and the NL1 photo
     must come from the Plastic Omnium sheet (the old one showed a
@@ -273,7 +273,7 @@ class TestReferenceSheets:
 
 
 class TestRyderReference:
-    """v177.3 — TAM1 (Ryder Nuevo Laredo) gets the same treatment as
+    """v177.3 - TAM1 (Ryder Nuevo Laredo) gets the same treatment as
     Tetra Pak: hosted PDF sheets (EN+ES) + site photos from the sheet
     (the solar carport). No plant is left without a reference now."""
 
@@ -289,7 +289,7 @@ class TestRyderReference:
 
     @staticmethod
     def _jpeg_size(data):
-        """(width, height) from JPEG SOF marker — stdlib only, the
+        """(width, height) from JPEG SOF marker - stdlib only, the
         laptop venv has no Pillow (v177.3 lesson)."""
         i = 2
         while i < len(data) - 9:
@@ -323,7 +323,7 @@ class TestRyderReference:
 
 
 class TestPvoutLayer:
-    """v182 — Solargis / Global Solar Atlas PVOUT (photovoltaic
+    """v182 - Solargis / Global Solar Atlas PVOUT (photovoltaic
     electricity potential) as an optional Leaflet overlay. Locked:
     the layer appears only when the colorized asset exists, carries
     the CC BY attribution, and the page renders fine without it."""
@@ -356,7 +356,7 @@ plant_city = _exec_def("plant_city")
 
 
 class TestPlantLegend:
-    """v183 — plant legend under the map (name, code, city, kWp, an
+    """v183 - plant legend under the map (name, code, city, kWp, an
     include/exclude checkbox per plant, PPA/CAPEX split, marker
     colors) + the Map link on the report home footer."""
 
@@ -404,7 +404,7 @@ class TestV186MapDefaults:
         assert "{{'Streets':streets,'Satellite':sat}}" in GEN_SRC
 
     def test_solar_potential_starts_unchecked(self):
-        # the overlay is still built and still offered in the control —
+        # the overlay is still built and still offered in the control -
         # it just must not add itself to the map on load
         assert "pv=L.imageOverlay(" in GEN_SRC
         assert "pv.addTo(map)" not in GEN_SRC
@@ -423,7 +423,7 @@ class TestV186OfficeMarker:
         lon = float(_re.search(r"'lon':\s*(-[0-9.]+)", blk).group(1))
         # the Google Maps place record for "ARGIA MÉXICO" (Tomasz,
         # 2026-09-04). v186 shipped a colonia-level guess ~5 km out, so
-        # this is pinned tight — a wrong office pin is published to
+        # this is pinned tight - a wrong office pin is published to
         # customers and nothing else would catch it.
         assert (lat, lon) == (21.1731665, -101.7041698)
 
@@ -449,7 +449,7 @@ class TestFStringBraceEscaping:
     """v186 regression: CSS pasted into an f-string template shipped with
     single braces, so `.owrap{text-align:center}` was read as a
     placeholder and the whole portfolio page died with
-    `NameError: name 'text' is not defined` — after the unit suite had
+    `NameError: name 'text' is not defined` - after the unit suite had
     gone green, because nothing here renders the template.
 
     Inside these f-string page templates every CSS brace must be

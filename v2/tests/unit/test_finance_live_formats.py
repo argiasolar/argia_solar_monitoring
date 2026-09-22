@@ -1,10 +1,10 @@
 """Regression guards for the v64 live-format incident.
 
 First real Pi run of report_finance showed service=0, actual=0 and
-LaaS expected missing: the Sheets API returned FORMATTED values —
+LaaS expected missing: the Sheets API returned FORMATTED values -
 US-style dates ("10/1/2024", because Sheets auto-parsed the migration's
 "2024-10" strings into date cells) and comma-grouped numbers
-("94,668.89") — which the finance loaders' plain float()/[:7] parsing
+("94,668.89") - which the finance loaders' plain float()/[:7] parsing
 silently rejected, emptying the whole schedule. These tests feed the
 loaders exactly what the live sheet serves; they must parse, not skip.
 """

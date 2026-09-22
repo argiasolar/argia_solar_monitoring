@@ -1,4 +1,4 @@
-# Sheet setup — Stage 7.1
+# Sheet setup - Stage 7.1
 
 Stage 7.1 introduces 8 new columns on Plants, 3 new columns on Inverters,
 and two new tabs: Thresholds + Alerts.
@@ -79,21 +79,21 @@ severity). Columns:
 | `condition` | `below`, `above`, `equals`, or `duration` |
 | `value` | Numeric threshold |
 | `duration_min` | Minutes the condition must persist (only used when `condition=duration`) |
-| `enabled` | `TRUE` / `FALSE` — disable a check without deleting the row |
+| `enabled` | `TRUE` / `FALSE` - disable a check without deleting the row |
 | `channels` | Comma-separated: `sheet`, `email`, `slack` |
 | `notes` | Free text |
 
 ### Known metrics (Stage 7.1)
 
-- `inverter_offline` — individual inverter dark
-- `inverter_relative` — inverter producing < X of peer mean (X is a ratio 0-1)
-- `inverter_temp_high` — inverter temperature above threshold
-- `plant_offline` — whole plant dark
-- `pr_daily` — end-of-day Performance Ratio
-- `energy_daily_pct` — end-of-day kWh vs expected, as ratio 0-1
-- `data_stale` — no telemetry rows in N minutes during daylight
+- `inverter_offline` - individual inverter dark
+- `inverter_relative` - inverter producing < X of peer mean (X is a ratio 0-1)
+- `inverter_temp_high` - inverter temperature above threshold
+- `plant_offline` - whole plant dark
+- `pr_daily` - end-of-day Performance Ratio
+- `energy_daily_pct` - end-of-day kWh vs expected, as ratio 0-1
+- `data_stale` - no telemetry rows in N minutes during daylight
 
-Adding a new metric is a code change — that's intentional. The alert
+Adding a new metric is a code change - that's intentional. The alert
 engine needs to know HOW to compute each metric; just dropping a name in
 the sheet wouldn't do anything.
 
@@ -101,7 +101,7 @@ the sheet wouldn't do anything.
 
 If a row has `plant_key=QRO1` for the same (metric, severity) as an
 `ALL` row, the QRO1 row wins for QRO1. Other plants still get the `ALL`
-row. Use this for plants with known quirks — e.g. an older plant where
+row. Use this for plants with known quirks - e.g. an older plant where
 0.75 PR is genuinely the expected ceiling.
 
 ## 4. New Alerts tab
@@ -162,11 +162,11 @@ print('Alerts:', create_alerts_tab_if_missing(sheets))
 
 This:
 - Creates the Thresholds tab if missing, populates the header + 9 default
-  rows (conservative — none fire without data flowing)
+  rows (conservative - none fire without data flowing)
 - Creates the Alerts tab if missing (header only, no rows)
 - Idempotent: re-running does nothing
 
-The **Plants and Inverters new columns must be added manually** — the
+The **Plants and Inverters new columns must be added manually** - the
 bootstrap script doesn't touch existing tabs to avoid clobbering. Add the
 columns, then re-run any pipeline; existing 18-column rows continue to
 work, the new columns just become None until you fill them.
@@ -210,7 +210,7 @@ Fill in as much as you have, ship as you go.
 
 | Stage | Adds |
 |---|---|
-| 7.2 | KPI computation — daily PR, expected vs actual energy, inverter ranking. Pure math against archived rows. |
+| 7.2 | KPI computation - daily PR, expected vs actual energy, inverter ranking. Pure math against archived rows. |
 | 7.3 | EOD archive + daily PDF (one ops, one customer) generated from a Jinja2 template. |
-| 7.4 | Alert engine — actually evaluates thresholds, manages the state machine, sends emails. |
+| 7.4 | Alert engine - actually evaluates thresholds, manages the state machine, sends emails. |
 | 7.5 | Static HTML dashboard regenerated daily. |

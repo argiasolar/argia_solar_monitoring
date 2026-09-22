@@ -1,4 +1,4 @@
-"""Unit tests — argia.recon.perf (PR_STC)."""
+"""Unit tests - argia.recon.perf (PR_STC)."""
 
 from argia.recon.perf import pr_stc
 

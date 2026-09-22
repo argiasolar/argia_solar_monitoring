@@ -28,7 +28,7 @@ def locations(conf):
 
 
 def directives(conf):
-    """The config without its comment lines — a comment explaining what
+    """The config without its comment lines - a comment explaining what
     was removed is not a directive that brings it back."""
     return "\n".join(ln for ln in conf.splitlines()
                      if not ln.lstrip().startswith("#"))
@@ -100,7 +100,7 @@ class TestTheWayIn:
             assert "auth_request off;" in NEW[i:i + 300], loc
 
     def test_the_login_page_cannot_become_a_redirect_loop(self):
-        """/login answers 401 — it IS the wall. If error_page 401 ever
+        """/login answers 401 - it IS the wall. If error_page 401 ever
         applied to that upstream status, /login would redirect to
         /login for ever and nobody could sign in. proxy_intercept_errors
         defaults to off, but a total lockout is too expensive to rest

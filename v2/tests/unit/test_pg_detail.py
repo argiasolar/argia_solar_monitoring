@@ -1,4 +1,4 @@
-"""v203 — telemetry_detail: the wide vendor row is kept in PostgreSQL.
+"""v203 - telemetry_detail: the wide vendor row is kept in PostgreSQL.
 
 Locks: column set derives from PLANT_SCHEMA (a schema change shows up
 here), literals are typed (ints for codes, arrays for channel families,

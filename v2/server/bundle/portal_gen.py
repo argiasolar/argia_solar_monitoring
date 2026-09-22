@@ -2,7 +2,7 @@
 """portal.argia.com.mx generator (v208, parity phase).
 
 Runs on pio06 beside the old site, never touching it: the data and the
-proven helpers come from report_gen / monitoring_gen (imported — both
+proven helpers come from report_gen / monitoring_gen (imported - both
 load PostgreSQL at import and only WRITE under __main__), the chrome
 comes from portal_chrome. Pages that are not rebuilt yet land on the
 old site through a redirect page, so the whole portal is navigable
@@ -56,7 +56,7 @@ def logo(k, cls='clogo'):
     return f'<img class="{cls}" src="{ent[1]}" alt="{html.escape(name(k))}">' if ent else ''
 
 
-def fmt(v, d=0, dash='—'):
+def fmt(v, d=0, dash=' - '):
     return dash if v is None else f'{v:,.{d}f}'
 
 
@@ -86,7 +86,7 @@ def open_alerts():
 
 # ------------------------------------------------------------------ landing
 def landing():
-    """The portal front door (v209): who you are, where to go — and NO
+    """The portal front door (v209): who you are, where to go - and NO
     fleet data. Designers, sales and office staff land here too."""
     now = MG.NOW_MX
     h = now.hour
@@ -127,7 +127,7 @@ def landing():
 <div class="grid g3" style="margin-top:28px;gap:16px">{cards}</div>
 <a class="askbar askonly" href="/ask/" style="margin-top:28px;color:#e6f7f5">
  <span style="width:36px;height:36px;border-radius:9px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex:0 0 36px">{ico("ask", 20, "#053b38", 2.2)}</span>
- <span style="flex:1;font-size:14px">{t("Ask ARGIA anything about the fleet", "Pregunta a ARGIA lo que quieras sobre la flota")} — <b style="color:#fff">"{t("Why did Taigene produce less yesterday?", "¿Por qué Taigene produjo menos ayer?")}"</b></span>
+ <span style="flex:1;font-size:14px">{t("Ask ARGIA anything about the fleet", "Pregunta a ARGIA lo que quieras sobre la flota")} - <b style="color:#fff">"{t("Why did Taigene produce less yesterday?", "¿Por qué Taigene produjo menos ayer?")}"</b></span>
  <span class="askin">{t("Ask a question…", "Haz una pregunta…")}<span style="flex:1"></span><span class="mono">Ctrl K</span></span>
 </a>
 <footer class="pf mono muted" style="padding:32px 0 0"><span>ARGIA · Zapopan, MX</span></footer>'''
@@ -159,12 +159,12 @@ def plant_table(keys, day):
         pf = RG.plants[k]['portfolio']
         trs += (f'<tr><td><a href="/report/{C.slug(k)}/" class="lcell"><span class="lbox">{logo(k)}</span>{pn(k, 13.5, True)}</a></td>'
                 f'<td><span class="pill {"ok" if pf == "PPA" else "off"}">{pf}</span></td><td class="muted">{html.escape(C.location_of(RG.plants[k]["customer"]))}</td>'
-                f'<td class="r">{fmt(e)}</td><td class="r muted">{fmt(x)}</td><td class="r">{fmt(pct) + "%" if pct is not None else "—"}</td>'
+                f'<td class="r">{fmt(e)}</td><td class="r muted">{fmt(x)}</td><td class="r">{fmt(pct) + "%" if pct is not None else " - "}</td>'
                 f'<td class="r">{fmt(pr, 2)}</td><td><span class="pill {"ok" if cls == "good" else "crit" if cls == "bad" else cls}">{t(en, es)}</span></td></tr>')
     tpct = (100 * te / tx) if tx else None
     trs += (f'<tr class="total"><td><b>{t("TOTAL", "TOTAL")}</b></td><td></td><td class="muted">{len(keys)} {t("plants", "plantas")}</td>'
-            f'<td class="r"><b>{fmt(te)}</b></td><td class="r muted">{fmt(tx)}</td><td class="r"><b>{fmt(tpct) + "%" if tpct is not None else "—"}</b></td>'
-            f'<td class="r"><b>{fmt(w_pr / kwp_pr, 2) if kwp_pr else "—"}</b></td><td class="muted" style="font-size:12px">{t("PR kWp-weighted", "PR ponderado por kWp")}</td></tr>')
+            f'<td class="r"><b>{fmt(te)}</b></td><td class="r muted">{fmt(tx)}</td><td class="r"><b>{fmt(tpct) + "%" if tpct is not None else " - "}</b></td>'
+            f'<td class="r"><b>{fmt(w_pr / kwp_pr, 2) if kwp_pr else " - "}</b></td><td class="muted" style="font-size:12px">{t("PR kWp-weighted", "PR ponderado por kWp")}</td></tr>')
     return f'''<div class="card" style="overflow:hidden">
  <div class="chead"><h2 class="ct">{t("Plant performance", "Desempeño por planta")} · {day}</h2><span class="muted" style="font-size:12.5px">{t("energy from inverter counters; vendor daily only where higher", "energía de contadores de inversor; diario del proveedor sólo si es mayor")}</span></div>
  <div style="overflow-x:auto"><table><thead><tr><th>{t("Plant", "Planta")}</th><th>{t("Portfolio", "Portafolio")}</th><th>{t("Location", "Ubicación")}</th><th class="r">kWh</th><th class="r">{t("Expected", "Esperado")}</th><th class="r">% plan</th><th class="r">PR 30 d</th><th>{t("Status", "Estado")}</th></tr></thead><tbody>{trs}</tbody></table></div>
@@ -177,7 +177,7 @@ def revenue_tile(on, rev, rev_ppa, rev_laas):
     tip = ("Energy × the plant tariff, plus LaaS fees, accrued by day. Overview = PPA + LaaS; the PPA page shows the PPA share alone; CAPEX plants are client-owned and earn ARGIA no revenue.",
            "Energía × tarifa de la planta, más cuotas LaaS, devengado por día. Resumen = PPA + LaaS; la página PPA muestra sólo la parte PPA; las plantas CAPEX son del cliente y no generan ingreso a ARGIA.")
     if on == 'capex':
-        return tile("Revenue generated", "Ingreso generado", "—",
+        return tile("Revenue generated", "Ingreso generado", " - ",
                     "CAPEX · client-owned, no ARGIA revenue", "CAPEX · del cliente, sin ingreso ARGIA", tip=tip)
     if on == '':
         sub = (f"PPA {rev_ppa / 1e6:,.1f} M + LaaS {rev_laas / 1e6:,.1f} M · accrued",
@@ -192,7 +192,7 @@ def report_overview(keys=None, on='', title_en='Fleet overview', title_es='Resum
     life = sum(v for (k2, m2), v in RG.monthly_kwh.items() if k2 in keys)
     co2 = sum(v / 1000.0 * RG.co2_factor(m2[:4], k2) for (k2, m2), v in RG.monthly_kwh.items() if k2 in keys)
     # v242 (Mirek's QA): the overview's revenue is PPA + LaaS while the PPA
-    # and CAPEX pages show their own share — say the split, so the three
+    # and CAPEX pages show their own share - say the split, so the three
     # pages add up in front of the reader; CAPEX has no ARGIA revenue at all
     rev_ppa = sum(a[2] for a in RG.atoms if a[1] in keys and a[1] in PPA)
     rev_laas = sum(a[2] for a in RG.atoms if a[1] in RG.LAAS) if on == '' else 0.0
@@ -237,14 +237,14 @@ def plant_cards():
  </a>'''
     body = f'''<div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{RG.asof} · {t("each card opens the plant report", "cada tarjeta abre el reporte de la planta")}</div><h1 class="pt">{t("Plant performance", "Desempeño por planta")}</h1></div>
 <div class="grid g3" style="margin-top:20px;gap:16px">{cards}</div>
-<div style="margin-top:16px" class="muted">{t("Plant pages are still served by the old site in this phase — the link opens them there.", "Las páginas por planta todavía las sirve el sitio anterior en esta fase — el enlace las abre ahí.")}</div>'''
+<div style="margin-top:16px" class="muted">{t("Plant pages are still served by the old site in this phase - the link opens them there.", "Las páginas por planta todavía las sirve el sitio anterior en esta fase - el enlace las abre ahí.")}</div>'''
     return C.page('Plant performance', body, 'report', 'plants')
 
 
 
 # ------------------------------------------------------------ plant report
 def plant_report(k):
-    """The plant page on the new chrome — same data, same tiles, same
+    """The plant page on the new chrome - same data, same tiles, same
     range engine as report_gen.plant_page (one implementation: plant_parts)."""
     p = RG.plants[k]
     parts = RG.plant_parts(k)
@@ -262,13 +262,13 @@ def plant_report(k):
 </div>'''
     # the range bar's own "Live monitoring" button would duplicate the header's
     controls = parts['controls'].replace(f'<a class="btn live" href="/monitoring/{k.lower()}/">', '<a class="btn live" style="display:none" href="#">')
-    # v241: the dark-plant warning goes ABOVE the tiles — it explains them
+    # v241: the dark-plant warning goes ABOVE the tiles - it explains them
     body = head + controls + parts['warn'] + parts['tiles'] + ''.join(parts['body']) + parts['footer']
     return C.page(name(k), body, 'report', 'plants')
 
 # ------------------------------------------------------------- financial
 def financial_report():
-    """report_gen.financial_body under the portal chrome — same tiles,
+    """report_gen.financial_body under the portal chrome - same tiles,
     tables, range engine and one-A4 print rule."""
     head = f'''
 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
@@ -321,7 +321,7 @@ def invoices_page():
 # ------------------------------------------------------------------- map
 def map_page():
     """monitoring_gen.portfolio_page(skin='portal'): tiles, Leaflet map,
-    PVOUT overlay, hover cards, per-plant checkboxes — under the portal
+    PVOUT overlay, hover cards, per-plant checkboxes - under the portal
     chrome at /map/. Assets (/portfolio/assets, /monitoring/assets) are
     symlinked into the portal root by the deploy step."""
     head = (f'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px"><div class="kicker">'
@@ -368,7 +368,7 @@ def mon_wrap(title_en, title_es, kicker_en, kicker_es, body, on, buttons=''):
 
 
 def monitoring_performance():
-    """/monitoring/performance/ — 30-day PR, PR_STC, availability,
+    """/monitoring/performance/ - 30-day PR, PR_STC, availability,
     production vs expected, fleet totals (v213: was only on the old site)."""
     return mon_wrap('Performance', 'Desempeño',
                     '30-day PR · availability · production vs expected',
@@ -377,7 +377,7 @@ def monitoring_performance():
 
 
 def monitoring_recon():
-    """/monitoring/recon/ — monthly close (the invoice gate) and the
+    """/monitoring/recon/ - monthly close (the invoice gate) and the
     daily reconciliation of every plant (v213: was only on the old site)."""
     return mon_wrap('Reconciliation', 'Conciliación',
                     'Four-check energy reconciliation · vendor counters are the billing control',
@@ -451,8 +451,8 @@ def kpi_row(keys, label_en, label_es):
  {tile("Power now", "Potencia ahora", f"{fmt(power)} <span class=unit>kW</span>", f"{online}/{len(keys)} {label_en} plants online", f"{online}/{len(keys)} plantas {label_es} en línea")}
  {tile("Energy today", "Energía hoy", f"{fmt(energy / 1000, 1)} <span class=unit>MWh</span>", "interval telemetry", "telemetría")}
  {tile("Performance · PR 30 d", "Desempeño · PR 30 d", fmt(pr, 3), "kWp-weighted · ≥0.75 green · ≥0.65 amber", "ponderado por kWp · ≥0.75 verde · ≥0.65 ámbar", tone=prt)}
- {tile("Availability · 30 d", "Disponibilidad · 30 d", (fmt(100 * av, 1) + "%") if av is not None else "—", "≥98% green · ≥95% amber (IEC 63019)", "≥98% verde · ≥95% ámbar (IEC 63019)", tone=avt)}
- {tile("Month to date", "Mes a la fecha", (fmt(pct) + "%") if pct is not None else "—", f"{fmt(mtd_p / 1000, 1)} of {fmt(mtd_e / 1000, 1)} MWh expected", f"{fmt(mtd_p / 1000, 1)} de {fmt(mtd_e / 1000, 1)} MWh esperados", tone=("" if pct is None else "good" if pct >= 90 else "warn" if pct >= 70 else "bad"))}
+ {tile("Availability · 30 d", "Disponibilidad · 30 d", (fmt(100 * av, 1) + "%") if av is not None else " - ", "≥98% green · ≥95% amber (IEC 63019)", "≥98% verde · ≥95% ámbar (IEC 63019)", tone=avt)}
+ {tile("Month to date", "Mes a la fecha", (fmt(pct) + "%") if pct is not None else " - ", f"{fmt(mtd_p / 1000, 1)} of {fmt(mtd_e / 1000, 1)} MWh expected", f"{fmt(mtd_p / 1000, 1)} de {fmt(mtd_e / 1000, 1)} MWh esperados", tone=("" if pct is None else "good" if pct >= 90 else "warn" if pct >= 70 else "bad"))}
 </div>'''
 
 
@@ -468,7 +468,7 @@ def monitoring_overview(which=''):
 </div>''' for g, ks in groups)
     body = f'''
 <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
- <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Live", "En vivo")} · {MG.NOW_MX.strftime("%H:%M")} MX · {t("refreshes every 5 min", "se actualiza cada 5 min")}</div><h1 class="pt">{t("Fleet now", "Flota ahora")} — {fmt(power)} kW</h1></div>
+ <div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("Live", "En vivo")} · {MG.NOW_MX.strftime("%H:%M")} MX · {t("refreshes every 5 min", "se actualiza cada 5 min")}</div><h1 class="pt">{t("Fleet now", "Flota ahora")} - {fmt(power)} kW</h1></div>
  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill crit">{ico("bell", 14, "currentColor", 2.2)} {crit} {t("critical", "críticas")}</span><span class="pill warn">{warn} {t("warnings", "avisos")}</span></div>
 </div>
 {secs}'''

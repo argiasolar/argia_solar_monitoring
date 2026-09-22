@@ -6,7 +6,7 @@ under v2/tests/fixtures/growatt_web/. Tests that exercise corner cases
 (error envelopes, missing keys, ``obj: false``) use small inline dicts.
 
 When the Stage 0 capture is re-run and the fixtures change, tests that
-hard-code field values may need updating — that's intentional. We're
+hard-code field values may need updating - that's intentional. We're
 guarding against accidental regressions in what Growatt returns.
 """
 
@@ -111,7 +111,7 @@ class TestEnvelopeUnwrap:
 
 
 # =====================================================================
-# 2. parse_max_history (the big one — full fixture)
+# 2. parse_max_history (the big one - full fixture)
 # =====================================================================
 
 class TestParseMaxHistory:
@@ -138,7 +138,7 @@ class TestParseMaxHistory:
         assert any(p is not None and p > 0 for p in pacs)
 
     def test_eac_today_monotone_non_decreasing(self):
-        """eacToday is a running total — successive samples shouldn't drop
+        """eacToday is a running total - successive samples shouldn't drop
         meaningfully. (Small jitter under 0.5 kWh is tolerated.)"""
         rows = parse_max_history(
             load_fixture("growatt_web", "GTO1_getMAXHistory_JFM7DXN00T_2026-05-11.json")
@@ -164,7 +164,7 @@ class TestParseMaxHistory:
         assert ts, "no row had a parseable calendar"
         for t in ts:
             assert t.tzinfo is not None
-            # All fixtures are from May 2026 — month is 5 (not 4!) after un-zero-indexing
+            # All fixtures are from May 2026 - month is 5 (not 4!) after un-zero-indexing
             assert t.year == 2026
             assert t.month == 5
 
@@ -195,7 +195,7 @@ class TestParseMaxHistory:
 
 
 # =====================================================================
-# 3. parse_max_history_row — individual row fields
+# 3. parse_max_history_row - individual row fields
 # =====================================================================
 
 class TestParseMaxHistoryRow:
@@ -244,7 +244,7 @@ class TestParseMaxHistoryRow:
         assert sample_row.n_bus_voltage is not None
 
     def test_missing_optional_fields_become_none(self):
-        # Bare minimum row — no AC, no DC, just time
+        # Bare minimum row - no AC, no DC, just time
         row = parse_max_history_row({"time": "2026-05-11 00:00:00"})
         assert row.pac_w is None
         assert row.vacr_v is None
@@ -270,7 +270,7 @@ class TestParseMaxHistoryRow:
         )
         fault_rows = [r for r in rows if (r.fault_code_1 or 0) > 0]
         # Fixture has exactly one fault row; real data may have zero
-        # (clean day) or many (bad day). Either is fine — just make sure
+        # (clean day) or many (bad day). Either is fine - just make sure
         # the field is parsed without error.
         for r in fault_rows:
             assert r.fault_code_1 is not None
@@ -329,7 +329,7 @@ class TestFieldFamilyAccessors:
 
 
 # =====================================================================
-# 5. History helpers — latest row, day total, snapshot
+# 5. History helpers - latest row, day total, snapshot
 # =====================================================================
 
 class TestHistoryHelpers:
@@ -417,7 +417,7 @@ class TestBuildInverterSnapshot:
             "pac": 85000.5,
         })
         snap = build_inverter_snapshot(row, "GTO1", "X")
-        # Web UI's pac is already in W — no kW conversion!
+        # Web UI's pac is already in W - no kW conversion!
         assert snap.power_w == 85000.5
 
     def test_etoday_kwh_from_eacToday(self):
@@ -449,9 +449,9 @@ class TestParseMaxDayChart:
         """A real solar day must have nonzero power around midday."""
         fixture = load_fixture("growatt_web", "GTO1_getMAXDayChart_JFM7DXN00T_2026-05-11.json")
         chart = parse_max_day_chart(fixture)
-        # Slots 100-200 cover ~08:20 to ~16:40 local — must include the peak
+        # Slots 100-200 cover ~08:20 to ~16:40 local - must include the peak
         midday = chart[100:200]
-        assert max(midday) > 50_000, "no midday peak — chart suspicious"
+        assert max(midday) > 50_000, "no midday peak - chart suspicious"
 
     def test_night_slots_are_zero(self):
         """Slot 0 = 00:00 local should be 0.0 (solar inverter at night)."""
@@ -586,7 +586,7 @@ class TestParseAlertPlantEvent:
         assert parse_alert_plant_event(fixture) == []
 
     def test_list_obj_parses_alerts(self):
-        # Synthetic — we don't have a populated real alert fixture yet.
+        # Synthetic - we don't have a populated real alert fixture yet.
         # When we capture one, replace this with the real shape.
         fake = {
             "result": 1,
@@ -622,7 +622,7 @@ class TestParseAlertPlantEvent:
 
 class TestParseWeather:
     def test_result_zero_returns_none(self):
-        """GTO1 fixture has result=0 — Growatt's weather often unavailable."""
+        """GTO1 fixture has result=0 - Growatt's weather often unavailable."""
         assert parse_weather(load_fixture("growatt_web", "GTO1_getWeatherByPlantId.json")) is None
 
     def test_populated_weather_returns_dict(self):

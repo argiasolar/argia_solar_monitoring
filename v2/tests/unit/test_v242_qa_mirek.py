@@ -1,4 +1,4 @@
-"""v242 — Mirek's portal QA (2026-09-08), the items we agreed with.
+"""v242 - Mirek's portal QA (2026-09-08), the items we agreed with.
 
 B  PR / availability on the monitoring performance page came from the
    days that had a value (Ryder: PR 0.996, PR_STC 1.084, 100% available
@@ -118,7 +118,7 @@ class TestPerfSummary:
 class TestReconPage:
     def test_open_rows_come_apart_from_the_archive(self):
         ns = _mon_ns()
-        m = [("GTO2", "2026-08", "53489.9", "vendor_monthly", "FAIL", "", "counter sources disagree beyond 1.5% — investigate before billing"),
+        m = [("GTO2", "2026-08", "53489.9", "vendor_monthly", "FAIL", "", "counter sources disagree beyond 1.5% - investigate before billing"),
              ("MEX1", "2026-08", "82195.5", "vendor_monthly", "PASS", "auto", "CHECK1 …"),
              ("MEX1", "2026-07", "81240.8", "historical_xlsx", "PASS", "historical", "pre-v2")]
         o, c = ns["recon_split"](m)

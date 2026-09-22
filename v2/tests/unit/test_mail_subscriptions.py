@@ -148,7 +148,7 @@ class TestPortalOnly:
 # --------------------------------------------------- wiring (source-level)
 class TestWiring:
     def test_setup_app_ddl_is_byte_identical_to_package(self):
-        # the bundle can't import argia — the DDL is duplicated and
+        # the bundle can't import argia - the DDL is duplicated and
         # this test is what keeps the copies from drifting
         assert subs.ENSURE_SQL in SETUP_SRC
         assert "CREATE TABLE IF NOT EXISTS mail_subscription" \
@@ -177,7 +177,7 @@ class TestWiring:
             "mail_recipients", "")  # legacy table fully gone
 
     def test_setup_add_offers_portal_users_only(self):
-        # /mail/add resolves the address from the users DB — a raw
+        # /mail/add resolves the address from the users DB - a raw
         # email field would reopen the free-for-all list
         assert "_mail_users()" in SETUP_SRC
         assert 'request.form.get(\'username\')' in SETUP_SRC
@@ -272,7 +272,7 @@ class TestDailySummary:
         d = _mkdata(mtd_map={})
         assert d["tot_vs_exp"] is None
         assert d["rows"][0]["vs_exp"] is None
-        assert "—" in dpm.render_text(d)
+        assert " - " in dpm.render_text(d)
 
     def test_describe_issue(self):
         assert dpm.describe_issue("plant-stale:GTO1") == \
@@ -304,11 +304,11 @@ class TestDailyTemplates:
         for tile in ("Today (live)", "Yesterday", "Month to date",
                      "MTD vs expected"):
             assert tile in h
-        # house rule: dark text on light ground, no dark-bg tooltips —
+        # house rule: dark text on light ground, no dark-bg tooltips -
         # body text color and page background stay light-theme
         assert "color:#243041" in h
         assert "background:#f2f5f8" in h
-        # email-safe: no external assets — the only image is the
+        # email-safe: no external assets - the only image is the
         # CID-embedded ARGIA SOLAR logo (v180); Gmail strips data: URIs
         assert 'src="cid:argialogo"' in h
         assert 'src="http' not in h and "<script" not in h \
@@ -328,7 +328,7 @@ class TestDailyTemplates:
 
 
 class TestPostRedirectGet:
-    """v176.1 — Tomasz's 404: relative form actions broke after the
+    """v176.1 - Tomasz's 404: relative form actions broke after the
     first POST parked the browser on /setup/mail/add. Locked here:
     absolute actions + redirect-back-home on every mail/maint POST."""
 
@@ -369,10 +369,10 @@ class TestV180Branding:
     """Tomasz, v180: every report mail carries the ARGIA SOLAR logo,
     leads with customer names (codes demoted to the description, which
     always includes the kWp size), and the plant table always ends in
-    a TOTAL summary row — even with the KPI tiles above."""
+    a TOTAL summary row - even with the KPI tiles above."""
 
     def test_display_name_matches_monitoring_gen_copy(self):
-        # two standalone copies (the bundle can't import argia) — this
+        # two standalone copies (the bundle can't import argia) - this
         # is what keeps them from drifting
         import re
 
@@ -442,7 +442,7 @@ class TestV180Branding:
 
 
 class TestIssueDetail:
-    """v185 — '[CRITICAL] server: unit-failed' told Tomasz nothing on
+    """v185 - '[CRITICAL] server: unit-failed' told Tomasz nothing on
     2026-09-03. An open issue must name the thing that broke, carry a
     troubleshooting handle, and say what it means."""
 
@@ -643,7 +643,7 @@ class TestLedgerIssuesInTheDailyMail:
 
     def test_a_ledger_critical_flags_the_plant_and_renders(self):
         msg = ("SLP2 JFM7DXN039: vendor fault FT=302 (x10) in 10/166 daylight samples "
-               "[CRITICAL] — Growatt error 302: no AC connection")
+               "[CRITICAL] - Growatt error 302: no AC connection")
         d = _mkdata(plants=[("SLP2", "Holiday Inn Express", 279.0)],
                     today_map={"SLP2": (1513.0, 5.0, 2)}, inv_counts={"SLP2": 2},
                     yday_map={"SLP2": 1400.0}, mtd_map={"SLP2": (5000.0, 5000.0, 4800.0)},

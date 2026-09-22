@@ -1,4 +1,4 @@
-"""v199 — the finish-line contract: a job bootstraps without
+"""v199 - the finish-line contract: a job bootstraps without
 GOOGLE_SHEET_ID_V2 once every switch is on PostgreSQL; a stray sheet
 call then fails loudly; a half-retired configuration fails at bootstrap."""
 import pathlib

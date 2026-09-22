@@ -1,4 +1,4 @@
-"""Reader — load one day's telemetry rows from ``Telemetry_Argia``.
+"""Reader - load one day's telemetry rows from ``Telemetry_Argia``.
 
 Why ``Telemetry_Argia`` and not ``Telemetry_<KEY>``:
 - Cross-vendor uniform shape (15 cols, known indices)
@@ -9,7 +9,7 @@ Stage 7.2 limitation: only reads the live tab. Stage 7.3 will add a daily
 archive (``Telemetry_Argia_Archive``) and update this reader to fall back
 to it for dates older than today.
 
-Returned structure: ``DayBundle`` — all rows for one date, partitioned by
+Returned structure: ``DayBundle`` - all rows for one date, partitioned by
 plant_key with helper lookups. Pure data, no methods that touch the sheet.
 """
 
@@ -29,7 +29,7 @@ LOG = logging.getLogger("argia.kpi.reader")
 
 # Column positions in Telemetry_Argia (ARGIA_COMMON_COLS).
 # Pinning these as constants means the reader doesn't need to depend on
-# the schema module — and if the schema ever shifts, this is the only
+# the schema module - and if the schema ever shifts, this is the only
 # place we have to update.
 COL_TIMESTAMP_UTC = 0
 COL_TIMESTAMP_MX = 1
@@ -70,7 +70,7 @@ class InverterRow:
     etoday_kwh: Optional[float]
     temperature_c: Optional[float]
     fault_code: str
-    irradiance_wm2: Optional[float]       # from ShineMaster — instantaneous
+    irradiance_wm2: Optional[float]       # from ShineMaster - instantaneous
     irradiance_kwh_m2_5m: Optional[float]  # pre-computed Δkwh over 5 min
     cloud_cover_pct: Optional[float]
     ambient_temp_c: Optional[float]
@@ -81,7 +81,7 @@ class InverterRow:
 class DayBundle:
     """All telemetry rows for one date, partitioned by plant.
 
-    Use the helper methods rather than accessing ``rows`` directly — they
+    Use the helper methods rather than accessing ``rows`` directly - they
     encode the "filter to this date in MX local time" logic and return
     consistent orderings.
     """
@@ -122,7 +122,7 @@ class DayBundle:
         """Unique inverter SNs that appeared in this plant's rows today.
 
         Note: returns SNs OBSERVED in telemetry, which can differ from
-        the Inverters tab's roster — a configured inverter with no rows
+        the Inverters tab's roster - a configured inverter with no rows
         will not appear here. That's the right behavior for KPI: we can
         only compute things from data we actually have."""
         seen = set()
@@ -166,7 +166,7 @@ def _parse_timestamp(cell) -> Optional[dt.datetime]:
 
 
 def _parse_status(cell) -> int:
-    """Parse status cell. Default to 1 (online) when unknown — KPI math
+    """Parse status cell. Default to 1 (online) when unknown - KPI math
     treats offline as 'no contribution'; an unknown status row is more
     likely a write quirk than a real offline state."""
     f = safe_float(cell)
@@ -182,7 +182,7 @@ def _row_from_cells(cells: List) -> Optional[InverterRow]:
     """Convert a raw sheet row (list of cells) into an InverterRow.
 
     Returns None if essential identity fields (timestamp, plant_key, sn)
-    are missing — those rows are unusable for KPI.
+    are missing - those rows are unusable for KPI.
     """
     # Pad short rows so indexing doesn't crash on tail-empty cells
     if len(cells) < 16:
@@ -218,7 +218,7 @@ def parse_rows(raw_rows: List[List]) -> List[InverterRow]:
 
     Skips the header row (detected as first row containing 'timestamp_utc'
     in cell 0) and any row that fails parsing. Returns rows in original
-    sheet order — callers should not rely on this; use DayBundle methods
+    sheet order - callers should not rely on this; use DayBundle methods
     which sort by timestamp."""
     if not raw_rows:
         return []
@@ -268,7 +268,7 @@ def filter_to_date(
 ) -> List[InverterRow]:
     """Return only the rows whose timestamp_utc falls in the local date.
 
-    Pure function — easy to test with synthetic rows."""
+    Pure function - easy to test with synthetic rows."""
     start_utc, end_utc = _date_window_utc(date_iso, site_tz)
     return [r for r in rows if start_utc <= r.timestamp_utc < end_utc]
 
@@ -300,7 +300,7 @@ def read_day_bundle(
         else:
             raw_rows = sheets.read_range(tab_name, "A1:P")
     except Exception as e:
-        LOG.warning("Could not read %s: %s — returning empty DayBundle", tab_name, e)
+        LOG.warning("Could not read %s: %s - returning empty DayBundle", tab_name, e)
         return DayBundle(date_iso=date_iso)
 
     all_rows = parse_rows(raw_rows)

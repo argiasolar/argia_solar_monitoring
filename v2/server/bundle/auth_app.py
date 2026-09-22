@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ARGIA session login — the service nginx asks on every request.
+"""ARGIA session login - the service nginx asks on every request.
 
 Replaces HTTP Basic auth.  Basic had no logout: the browser cached the
 password and re-sent it on the next click, so "Log out" could only ever
@@ -129,7 +129,7 @@ def whoami():
 
 @app.post('/session/lang')
 def set_lang():
-    """v209: the You menu's EN/ES choice is the account's language —
+    """v209: the You menu's EN/ES choice is the account's language -
     stored on the user, not only in one browser's localStorage."""
     username, u = current_user()
     if not u:
@@ -147,7 +147,7 @@ def set_lang():
 # ------------------------------------------------------------------ login
 
 def safe_next(raw):
-    """Only same-site absolute paths — never an attacker's host.
+    """Only same-site absolute paths - never an attacker's host.
 
     //evil.example and /\\evil.example are both browser-relative
     protocol shorthands, so a leading slash alone is not enough.
@@ -167,7 +167,7 @@ def login_page(nxt='/', error='', user=''):
                 if logo else '<div class="logo">ARGIA</div>')
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><title>Sign in — ARGIA</title>
+<meta name="robots" content="noindex,nofollow"><title>Sign in - ARGIA</title>
 <style>
 body{{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#f6f7f8;
  color:#202124;font-size:15px;display:flex;min-height:100vh;align-items:center;
@@ -199,7 +199,7 @@ button:hover{{background:#2b3a4a;}}
 <label for="p">Password / Contraseña</label>
 <input id="p" name="password" type="password" autocomplete="current-password" required>
 <button type="submit">Sign in / Entrar</button>
-<p class="sub">ARGIA — authorised users only.<br>
+<p class="sub">ARGIA - authorised users only.<br>
 Solo usuarios autorizados.</p>
 </form></body></html>'''
 
@@ -213,7 +213,7 @@ def login_form():
     r.headers['Cache-Control'] = 'no-store'
     # 401 keeps caches and crawlers away from a page that is a wall,
     # and lets the browser's back button behave.  No WWW-Authenticate
-    # header, so no native dialog — that is the whole point.
+    # header, so no native dialog - that is the whole point.
     r.status_code = 401
     return r
 

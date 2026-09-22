@@ -2,7 +2,7 @@
 
 The rule under test: when a plant is in a logged maintenance window, its
 plant-level "down / underproducing" candidates are dropped before
-reconcile, so no critical opens — while hardware faults on the SAME plant
+reconcile, so no critical opens - while hardware faults on the SAME plant
 and any alert on OTHER plants pass through untouched. The integration
 test proves a suppressed candidate never reaches the ledger and a
 non-suppressed one does.

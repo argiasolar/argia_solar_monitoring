@@ -1,26 +1,26 @@
-"""Daily performance indicators — plan #4.
+"""Daily performance indicators - plan #4.
 
 Three layered detectors, all pure (no I/O), each answering a different
 "is something underperforming?" question. Layer 1 reuses the existing
 inverter-relative detector; this module adds layers 2 and 3.
 
-Layer 1 — inverter vs same-plant peers
+Layer 1 - inverter vs same-plant peers
     :func:`argia.analytics.inverter_health.evaluate_inverter_relative`,
     fed DAILY ENERGY per inverter (kWh). Catches a lagging/dead unit that
     its siblings expose. Blind to whole-plant problems.
 
-Layer 2 — plant vs regional twin (this module)
+Layer 2 - plant vs regional twin (this module)
     SLP1<->SLP2 and MEX1<->MEX2 sit close enough to share weather, so their
     SPECIFIC YIELD (kWh/kWp) should track. A plant far below its twin is
     underperforming as a whole even if its inverters agree with each other
     (uniform soiling, grid curtailment, string outages spread evenly).
-    GTO1 and NL1 have no twin — layers 1 and 3 cover them.
+    GTO1 and NL1 have no twin - layers 1 and 3 cover them.
 
-Layer 3 — energy vs expected (this module)
+Layer 3 - energy vs expected (this module)
     energy_kwh / expected_kwh, where expected already folds in kwp,
     the day's irradiance, and expected_factor. The catch-all: it sees
     problems the peer comparisons can't, but inherits irradiance quality
-    (sparse ShineMaster days until Stage 4 — treat with data_class in mind).
+    (sparse ShineMaster days until Stage 4 - treat with data_class in mind).
 
 Severity uses the same two-level scheme as inverter_health: WARNING below
 ``warn_below``, CRITICAL below ``crit_below``.
@@ -37,7 +37,7 @@ from argia.analytics.inverter_health import Severity
 LOG = logging.getLogger("argia.analytics.perf_indicators")
 
 # Regional twin pairs: physically close plants that share weather, so their
-# specific yields should track. Order inside a pair doesn't matter — both
+# specific yields should track. Order inside a pair doesn't matter - both
 # directions are checked. GTO1/NL1 have no twin by geography.
 TWIN_PAIRS: List[Tuple[str, str]] = [
     ("SLP1", "SLP2"),
@@ -95,7 +95,7 @@ def evaluate_plant_twins(
     (None / missing plants are skipped). Both directions of each pair are
     checked; only the lagging side is flagged. If the reference twin itself
     produced under ``min_twin_yield``, the day carries no signal and the
-    pair is skipped — a ratio against near-zero flags nothing but noise.
+    pair is skipped - a ratio against near-zero flags nothing but noise.
     """
     pairs = TWIN_PAIRS if twin_pairs is None else twin_pairs
     breaches: List[TwinBreach] = []
@@ -122,7 +122,7 @@ def evaluate_plant_twins(
                 threshold=threshold,
                 message=(
                     f"[{lag}] specific yield {sy:.2f} kWh/kWp is "
-                    f"{ratio:.0%} of twin {ref} ({ref_sy:.2f}) — below "
+                    f"{ratio:.0%} of twin {ref} ({ref_sy:.2f}) - below "
                     f"{threshold:.0%}"
                 ),
             ))
@@ -139,7 +139,7 @@ def evaluate_energy_vs_expected(
 
     ``expected`` already folds in kwp, the day's irradiance, and
     expected_factor, so the ratio is weather-adjusted by construction.
-    Plants with missing/non-positive energy or expected are skipped —
+    Plants with missing/non-positive energy or expected are skipped -
     absence of data is data_class's problem, not a performance breach.
     """
     breaches: List[ExpectedBreach] = []
@@ -161,7 +161,7 @@ def evaluate_energy_vs_expected(
             threshold=threshold,
             message=(
                 f"[{pk}] produced {energy:.0f} kWh vs {expected:.0f} expected "
-                f"({ratio:.0%}) — below {threshold:.0%}"
+                f"({ratio:.0%}) - below {threshold:.0%}"
             ),
         ))
     return breaches

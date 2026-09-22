@@ -10,8 +10,8 @@ months from it (they win over KPI atoms) and invoice_publish records the
 
 The register already exists on pio06 (invoice_publish creates it) but
 stored only the SUM (billable_kwh = produced + penalty) and the amount.
-This module adds the split the annex needs — produced_kwh, penalty_kwh,
-expected_kwh — plus a ``source`` tag, and serves the register as the
+This module adds the split the annex needs - produced_kwh, penalty_kwh,
+expected_kwh - plus a ``source`` tag, and serves the register as the
 sheet's grid so ``annex.parse_invoicing_overview`` runs unchanged.
 
 Selection:  ARGIA_INVOICING_SOURCE = sheet | pg     (v192 default: sheet)
@@ -142,7 +142,7 @@ def build_backfill_sql(rows: List[Dict[str, Any]]) -> str:
     """One statement per row. A missing register row is inserted with
     check_status 'SHEET_IMPORT' (or 'EXPECTED_ONLY' when the month is
     not invoiced yet and only carries an expectation); an existing row
-    only gets its NULL columns filled (COALESCE(stored, sheet)) — a
+    only gets its NULL columns filled (COALESCE(stored, sheet)) - a
     stored value is never changed, never lowered. billable_kwh =
     produced + penalty. Pure."""
     stmts: List[str] = []

@@ -96,11 +96,11 @@ class TestWriteCell:
         assert call.kwargs["body"] == {"values": [[42]]}
 
     def test_value_can_be_none(self, client):
-        """Writing None should send empty string-ish — Sheets treats None
+        """Writing None should send empty string-ish - Sheets treats None
         as clearing the cell."""
         client.write_cell("X", 2, 1, None)
         call = self._capture_update(client).call_args
-        # Sheets API accepts None — we just pass it through
+        # Sheets API accepts None - we just pass it through
         assert call.kwargs["body"] == {"values": [[None]]}
 
     def test_high_column_uses_aa_notation(self, client):
@@ -143,7 +143,7 @@ class TestWriteRow:
         mock_update.assert_not_called()
 
     def test_default_user_entered(self, client):
-        """Unlike write_cell, write_row uses USER_ENTERED by default —
+        """Unlike write_cell, write_row uses USER_ENTERED by default -
         whole rows often include dates/numbers that should be parsed."""
         client.write_row("X", 5, ["v"])
         call = self._capture_update(client).call_args
@@ -222,7 +222,7 @@ class TestDeleteRow:
 
 
 # ============================================================
-# spec=SheetsClient — catches missing method bugs
+# spec=SheetsClient - catches missing method bugs
 # ============================================================
 
 

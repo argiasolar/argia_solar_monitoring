@@ -79,7 +79,7 @@ class TestFmtSheets:
         assert fmt_sheets_datetime(utc_dt) == "4/15/2026 12:30:05"
 
     def test_datetime_no_zero_padding_on_hour(self):
-        # Sheets accepts both "12:30" and "9:30" — we don't pad single-digit hours
+        # Sheets accepts both "12:30" and "9:30" - we don't pad single-digit hours
         utc_dt = dt.datetime(2026, 4, 15, 15, 5, 0, tzinfo=UTC)  # 9:05 MX
         assert fmt_sheets_datetime(utc_dt) == "4/15/2026 9:05:00"
 
@@ -160,7 +160,7 @@ class TestParseProviderDatetime:
 
 class TestParseGrowattCalendar:
     def test_normal_calendar(self):
-        # April 15, 2026 — note month is 3 (0-based) for April
+        # April 15, 2026 - note month is 3 (0-based) for April
         cal = {
             "year": 2026,
             "month": 3,

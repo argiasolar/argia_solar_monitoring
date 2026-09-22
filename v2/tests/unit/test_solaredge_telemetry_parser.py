@@ -359,7 +359,7 @@ class TestFetchRegression:
             )
 
     def test_empty_telemetry_returns_no_row(self):
-        """The GTO2 inverter 1 scenario — empty data is not an error."""
+        """The GTO2 inverter 1 scenario - empty data is not an error."""
         client = MagicMock()
         client._get_json.return_value = _equipment_response([])
         result = fetch_inverter_telemetry(
@@ -371,7 +371,7 @@ class TestFetchRegression:
 class TestMultiEntryParsing:
     """v80: every 5-minute entry becomes a row (previously only the
     latest survived), with eToday cumulative from the day's first
-    entry — the same semantics as every other vendor feed, so
+    entry - the same semantics as every other vendor feed, so
     KPI max(EToday) aggregation is unchanged."""
 
     def _entries(self):

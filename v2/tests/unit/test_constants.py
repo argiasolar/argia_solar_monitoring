@@ -1,14 +1,14 @@
-"""Guard the CO2 emission factor register — one table, every surface.
+"""Guard the CO2 emission factor register - one table, every surface.
 
 History of this file: the report once carried a private
 ``MX_GRID_KG_CO2_PER_KWH = 0.435``; it was lifted into
 ``argia.core.constants`` at 0.438 so report, annex and dashboard quoted
-one number. That guard covered the annex and report_gen — but NOT
+one number. That guard covered the annex and report_gen - but NOT
 ``server/monitoring_gen.py``, which quietly kept 0.435 until 2026-09-04.
 The portfolio map had been reporting a different CO2 total from the
 report site for weeks and no test noticed.
 
-2026-09-04 (Tomasz): the factor is a REGISTER, not one number —
+2026-09-04 (Tomasz): the factor is a REGISTER, not one number -
 SEMARNAT/CRE publish it per year (2024's 0.444 currently applies), and
 SAG contracted 0.202 for their whole history. These tests pin the table,
 the override, and every literal copy of it that lives outside the
@@ -121,7 +121,7 @@ class TestNoPrivateCopiesLeft:
 
     def test_no_surface_still_hardcodes_an_old_factor(self):
         """0.435 and 0.438 must not survive as bare CO2 literals in any
-        rendering surface outside the declared register tables — that is
+        rendering surface outside the declared register tables - that is
         exactly how the map drifted to 0.435 unnoticed."""
         tables = re.compile(r"_?CO2_BY_YEAR = \{[^}]*\}", re.S)
         for rel in ("server/monitoring_gen.py", "server/bundle/report_gen.py",

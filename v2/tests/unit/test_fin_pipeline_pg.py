@@ -1,4 +1,4 @@
-"""v244 — the whole finance pipeline against a real PostgreSQL:
+"""v244 - the whole finance pipeline against a real PostgreSQL:
 schema -> seed -> ingest (twice) -> decisions (twice) -> the app's own
 queries. Runs only where a throw-away database is reachable through
 the house psql wrapper (``ARGIA_FIN_TEST_DB`` names it); skipped on CI
@@ -124,7 +124,7 @@ class TestPipeline:
 
 class TestBooksPipeline:
     """v245: the Drive ingest on a local mirror built from the synthetic
-    books — twice; the second run must skip every file by hash."""
+    books - twice; the second run must skip every file by hash."""
 
     @pytest.fixture(scope="class")
     def books(self, pipeline, tmp_path_factory):
@@ -139,8 +139,8 @@ class TestBooksPipeline:
     def test_first_run_loads_and_second_run_skips_by_hash(self, books):
         first, second = books
         assert "auxiliares: 0226 Auxiliares Argia.xlsx" in first and "pólizas: 0226 Polizas Argia.xlsx" in first and "1 not in the auxiliares (unposted)" in first
-        assert "overview: Argia_Projects_Overview_MX.xlsx — 4 projects, 3 active" in first
-        assert "tracker: Argia Mexico Payables and receivables 2026_V2.xlsx — 7 items (3 AR, 4 AP)" in first
+        assert "overview: Argia_Projects_Overview_MX.xlsx - 4 projects, 3 active" in first
+        assert "tracker: Argia Mexico Payables and receivables 2026_V2.xlsx - 7 items (3 AR, 4 AP)" in first
         assert "pmo: ARG9001" in first
         assert "finding: pólizas vs auxiliares:" in first          # the unposted póliza, reported not fatal
         assert second.count("unchanged (sha") == 6 and "statements: entity=1" in second.splitlines()[-1] or "statements: entity=1" in second

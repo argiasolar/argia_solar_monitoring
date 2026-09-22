@@ -2,7 +2,7 @@
 
 Incident this locks down (2026-08-18 and again 2026-09-03): nine wide
 tabs x 143 columns x ~4.5k rows/day filled the workbook's 10,000,000-cell
-hard cap. Every append then failed — including ``Telemetry_Argia``, the
+hard cap. Every append then failed - including ``Telemetry_Argia``, the
 ONLY telemetry tab anything reads (kpi_eod via argia.kpi.reader,
 alerts_snapshot, watchdog, dashboard_update). The per-plant tabs were a
 write-only mirror of data Postgres already holds, so they are now off
@@ -109,7 +109,7 @@ class TestWiring:
         assert SRC.count('log.error("[%s] sheet write failed: %s"') == 1
 
     def test_the_argia_tab_is_never_gated_by_the_switch(self):
-        # Telemetry_Argia is what kpi_eod reads — it must always be written
+        # Telemetry_Argia is what kpi_eod reads - it must always be written
         head, _, tail = SRC.partition("def _mirror_plant_tab")
         body = tail.split("\ndef ", 1)[0]
         assert "ARGIA_TAB_NAME" not in body

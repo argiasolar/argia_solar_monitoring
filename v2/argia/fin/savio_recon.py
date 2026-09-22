@@ -1,4 +1,4 @@
-"""v247 — the Savio plugin: reconcile what Savio says (customer invoices,
+"""v247 - the Savio plugin: reconcile what Savio says (customer invoices,
 customer payments, the bank accounts they were paid to) with what ARGIA
 keeps (the AR tracker, the books' bank movements, the registered bank
 accounts). Pure: inputs are plain dicts, output is a Recon with findings;
@@ -6,17 +6,17 @@ accounts). Pure: inputs are plain dicts, output is a Recon with findings;
 
 Three checks, in the order an accountant would do them:
 
-1. INVOICES  — every Savio invoice should be one row of the AR tracker
+1. INVOICES  - every Savio invoice should be one row of the AR tracker
    (matched by CFDI UUID, else by folio + total); amount, currency and
    paid/open state must agree. Savio-only invoices are collections nobody
    is following; tracker-only rows are invoices issued outside Savio.
-2. PAYMENTS  — every Savio payment ('applied') should be a deposit in the
+2. PAYMENTS  - every Savio payment ('applied') should be a deposit in the
    books: a debit on a bank account, same amount, within ±3 days. A
    payment with no deposit is money Savio believes arrived and the books
    do not show (or a booking still pending); a deposit with no payment is
-   income Savio does not know about (rent, PPA billed elsewhere) — listed
+   income Savio does not know about (rent, PPA billed elsewhere) - listed
    for review, not an error.
-3. BANK ACCOUNTS — the account a payment landed in (when Savio carries
+3. BANK ACCOUNTS - the account a payment landed in (when Savio carries
    it: CLABE / last digits) must be one of ARGIA's registered accounts;
    an unknown account is the classic diverted-payment fraud signal.
 """
@@ -209,7 +209,7 @@ def check_accounts(payments: Sequence[dict], registered: Iterable[str], rec: Rec
         ok = any(r.endswith(digits) or digits.endswith(r) for r in reg if len(r) >= 4 and len(digits) >= 4)
         if not ok:
             rec.findings.append(Finding("UNKNOWN_ACCOUNT", p.get("payment_id", ""), acct, _n(p.get("amount")), (p.get("currency") or "MXN").upper(),
-                                        "payment reported on a bank account that is not registered for ARGIA — verify before trusting the receipt", "crit"))
+                                        "payment reported on a bank account that is not registered for ARGIA - verify before trusting the receipt", "crit"))
 
 
 def reconcile(savio_invoices: Sequence[dict], savio_payments: Sequence[dict], tracker: Sequence[dict], deposits: Sequence[dict],

@@ -1,11 +1,11 @@
-# Stage 7.3a — Inferring plant specs from telemetry
+# Stage 7.3a - Inferring plant specs from telemetry
 
 **Status**: ONBOARDING-ONLY. Replace inferred values with real installer
 data before this system is customer-facing.
 
 ## The problem this solves
 
-Stage 7.3 surfaced 32 warnings — mostly `rated_kw=0` on inverters and
+Stage 7.3 surfaced 32 warnings - mostly `rated_kw=0` on inverters and
 missing `kwp_ac`/`kwp_dc` on a few plants. Without these, peer ranking
 returns `--` and PR confidence stays LOW. Contacting installers takes
 days; this script gets you placeholder values in 5 minutes so the rest
@@ -43,7 +43,7 @@ of the pipeline can start producing meaningful output.
 ## How to run
 
 ```bash
-# Preview (dry-run) — recommended first
+# Preview (dry-run) - recommended first
 PYTHONPATH=. python scripts/infer_plant_specs.py
 
 # Limit to one plant for debugging
@@ -156,7 +156,7 @@ When you get real installer specs:
 
 1. Update the Inverters and Plants tabs by hand with the real values.
 2. Re-run `python scripts/infer_plant_specs.py` (dry-run). Confirm the
-   script reports "skip — not overwriting" for the rows you fixed.
+   script reports "skip - not overwriting" for the rows you fixed.
 3. The script will fill in only the still-missing rows.
 
 There's no need to clear out the placeholder values first. The script's
@@ -164,7 +164,7 @@ There's no need to clear out the placeholder values first. The script's
 
 ## Tests
 
-`tests/unit/test_infer_specs.py` — 23 tests covering:
+`tests/unit/test_infer_specs.py` - 23 tests covering:
 - Snap function across the full size range
 - Inference safety (single-day skip, low-peak skip, no-data skip)
 - Idempotency (existing values preserved)
@@ -175,9 +175,9 @@ Run:
 PYTHONPATH=. python -m pytest tests/unit/test_infer_specs.py -v
 ```
 
-## After running this — fix the upstream irradiance issue
+## After running this - fix the upstream irradiance issue
 
 Even with all `rated_kw` filled, the demo will still show LOW
 confidence PR for 7 plants because the upstream irradiance pipeline is
 only capturing 2-6 samples per plant per day. That's a Stage 3/4 issue
-to investigate separately — not blocked on this script.
+to investigate separately - not blocked on this script.

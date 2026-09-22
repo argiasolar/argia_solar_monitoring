@@ -1,5 +1,5 @@
 [Unit]
-# v226: maintenance tickets — the /maintenance/ pages. nginx proxies
+# v226: maintenance tickets - the /maintenance/ pages. nginx proxies
 # /maintenance/ here behind the session login; internal accounts only.
 # Attachments live in /opt/argia/tickets/<number>/ (root-only).
 Description=ARGIA maintenance tickets (/maintenance/)

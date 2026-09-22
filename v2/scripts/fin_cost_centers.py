@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v248 — the cost-centre catalogue: list it, or fix a kind by hand.
+"""v248 - the cost-centre catalogue: list it, or fix a kind by hand.
 
     fin_cost_centers.py                       # list: code, kind, group, manual flag, name
     fin_cost_centers.py --set 772=project     # a manual kind (kept by every future ingest)
@@ -50,7 +50,7 @@ def auto_sql(code: int, entity: str = ENTITY) -> str:
 
 def rebuild_sql(entity: str = ENTITY) -> str:
     """The catalogue from what the books ingest already stored (biz_case,
-    portfolio_project) — for a server whose workbook was imported before
+    portfolio_project) - for a server whose workbook was imported before
     v248 and is skipped by hash since."""
     from argia.fin import books as B
     from argia.fin.acctbook import ProjectCode

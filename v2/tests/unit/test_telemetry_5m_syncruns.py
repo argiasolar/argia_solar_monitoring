@@ -1,7 +1,7 @@
 """Unit tests for telemetry_5m.py's SyncRuns observability addition.
 
 Scope: the `_finalize_and_log_run` helper and the `SYNC_RUNS_HEADER`
-constant. These tests do NOT exercise the actual vendor pipelines —
+constant. These tests do NOT exercise the actual vendor pipelines -
 those have their own tests.
 
 The tests verify:
@@ -290,7 +290,7 @@ class TestErrorTolerance:
         )
         # Append must NOT be called if we couldn't ensure the tab
         assert sheets.append_calls == []
-        # Result is still finalized — caller's logic doesn't break
+        # Result is still finalized - caller's logic doesn't break
         assert fresh_result.status == "OK"
 
     def test_swallows_ensure_header_failure(

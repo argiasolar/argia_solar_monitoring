@@ -50,7 +50,7 @@ def live_findings(reg: dict, rows) -> List[str]:
     out: List[str] = []
     for pk, items, err in solaredge_lists(rows):
         if err:
-            out.append(f"{pk}: vendor list unavailable — {err}")
+            out.append(f"{pk}: vendor list unavailable - {err}")
         else:
             out += R.vendor_diff(reg, pk, items)
     return out

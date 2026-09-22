@@ -1,4 +1,4 @@
-"""v194 — Sheets retirement phase 3c: the Alerts ledger in PostgreSQL.
+"""v194 - Sheets retirement phase 3c: the Alerts ledger in PostgreSQL.
 
 Locks: the switch defaults to sheet; PG records parse to the same
 AlertRecord objects as the sheet; the upsert replaces every column

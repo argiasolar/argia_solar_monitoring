@@ -282,7 +282,7 @@ class TestStillBlankByDesign:
 
 
 # ============================================================
-# Narrow common row — unchanged in 5.1
+# Narrow common row - unchanged in 5.1
 # ============================================================
 
 

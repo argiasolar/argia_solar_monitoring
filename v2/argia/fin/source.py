@@ -1,4 +1,4 @@
-"""v250 — "where does this number come from, and where do I change it?"
+"""v250 - "where does this number come from, and where do I change it?"
 
 Every row the portal shows was read out of one file, one sheet, one row.
 The ingest stores those three things (``src_sheet``, ``src_row``,
@@ -13,7 +13,7 @@ How deep the link goes depends on the file:
   cell: ``/edit#gid=<tab>&range=A<row>``;
 * an **.xlsx in Drive** (the tracker, the projects overview, the
   accountants' prints) → the file opens, and the label says which sheet
-  and row to look at — Drive has no cell anchor for a binary file. The
+  and row to look at - Drive has no cell anchor for a binary file. The
   day one of those becomes a Google Sheet the ingest records its tab ids
   and the same link deepens on its own, no code change;
 * **no Drive id yet** (the file was read from a local mirror, or the
@@ -29,7 +29,7 @@ from urllib.parse import quote
 
 SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
-# who owns the file — whether editing it is a sensible answer at all
+# who owns the file - whether editing it is a sensible answer at all
 OWNER = {
     "tracker": ("the office manager", "la office manager"),
     "overview": ("the portfolio owner", "quien lleva el overview"),
@@ -65,8 +65,8 @@ def exact(mime: str = "", gid: str = "", row: int = 0) -> bool:
 
 
 def where(name: str, sheet: str = "", row: int = 0, column: str = "", value: str = "") -> Tuple[str, str]:
-    """The sentence under the link: file, sheet, row, and — when the caller
-    knows it — the column and value the portal read. (EN, ES)."""
+    """The sentence under the link: file, sheet, row, and - when the caller
+    knows it - the column and value the portal read. (EN, ES)."""
     en = [name or "the source file"]
     es = [name or "el archivo de origen"]
     if sheet:

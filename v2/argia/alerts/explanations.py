@@ -1,11 +1,11 @@
-"""Plain-language explanations for alerts — what it means, what to check.
+"""Plain-language explanations for alerts - what it means, what to check.
 
 The ``message`` column states the technical fact (numbers, thresholds);
 the ``explanation`` column says what that fact MEANS and what to do about
 it, for a reader who doesn't carry the detector design in their head.
 
 One entry per engine metric. Adding a metric without an entry fails a
-test on purpose — an alert nobody can interpret shouldn't ship.
+test on purpose - an alert nobody can interpret shouldn't ship.
 
 The same catalog will feed the daily e-mail report later, so wording is
 kept self-contained (no references to code or internal jargon).
@@ -20,7 +20,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
     "inverter_relative": {
         "meaning": (
             "This inverter produced much less energy than its sibling "
-            "inverters at the same site, under the same sun — so weather "
+            "inverters at the same site, under the same sun - so weather "
             "is ruled out; the problem is this unit."),
         "check": (
             "Check this inverter in the vendor portal for faults or "
@@ -30,7 +30,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
     },
     "inverter_fault": {
         "meaning": (
-            "The inverter ITSELF reported a fault code — this is the "
+            "The inverter ITSELF reported a fault code - this is the "
             "device's own diagnosis, not an inference from lost energy. "
             "It was likely offline or derated while the code was active."),
         "check": (
@@ -42,11 +42,11 @@ _CATALOG: Dict[str, Dict[str, str]] = {
         "meaning": (
             "The inverter's own string diagnostic (the Growatt string-break, "
             "mismatch and unbalance bit masks it sends with every sample) "
-            "raised a bit it had NEVER reported in the last 14 days — "
+            "raised a bit it had NEVER reported in the last 14 days - "
             "chronic, always-on bits are filtered out. Something changed on "
             "the DC side: a broken or disconnected string, a blown string "
             "fuse, or a new mismatch. It is a WARNING only when the day's "
-            "data shows a loss — a string far below its siblings (amp-hours) "
+            "data shows a loss - a string far below its siblings (amp-hours) "
             "or the inverter below its plant peers; the message says which. "
             "Without a measured loss it stays INFO and is not mailed."),
         "check": (
@@ -58,7 +58,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
     "inverter_silent": {
         "meaning": (
             "This inverter stopped sending data while the other inverters "
-            "at the site kept producing — so it is not the weather and not "
+            "at the site kept producing - so it is not the weather and not "
             "the site's internet. Either the inverter is off (breaker, AC "
             "loss, fault) or only its datalogger link died while it kept "
             "producing. When it reappears, its own energy counter settles "
@@ -78,7 +78,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
             "heat shortens its lifetime. WARNING from 65 degC; CRITICAL "
             "only when the unit is at least 70 degC, hotter than its "
             "plant peers AND measurably producing less than the cooler "
-            "ones — the alert states the measured shortfall — or when the "
+            "ones - the alert states the measured shortfall - or when the "
             "inverter itself reports a temperature derating mode (Growatt "
             "Tinv/Tboost), which the alert quotes. Heat with normal output "
             "is a warning, not an emergency."),
@@ -91,7 +91,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
     "plant_offline": {
         "meaning": (
             "EVERY reporting inverter at this plant was at 0 W in the "
-            "middle of daylight. That is practically never coincidence — "
+            "middle of daylight. That is practically never coincidence - "
             "it points at something shared: grid outage, main breaker or "
             "transformer, or a site-wide shutdown."),
         "check": (
@@ -103,7 +103,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
         "meaning": (
             "The plant produced meaningfully less than expected for the "
             "day, where 'expected' already accounts for plant size and "
-            "the day's measured sunlight — so ordinary clouds are NOT "
+            "the day's measured sunlight - so ordinary clouds are NOT "
             "the explanation. Note: on plants with a sparse irradiance "
             "feed this can also reflect measurement quality."),
         "check": (
@@ -117,7 +117,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
             "This plant's yield per installed kW fell well below its "
             "regional twin, which shares its weather. The whole plant is "
             "underperforming even if its inverters agree with each other "
-            "— typical of uniform soiling, curtailment, or a shared "
+            "- typical of uniform soiling, curtailment, or a shared "
             "electrical issue."),
         "check": (
             "Compare the two plants' daily curves; if this plant's shape "
@@ -127,7 +127,7 @@ _CATALOG: Dict[str, Dict[str, str]] = {
     "data_stale": {
         "meaning": (
             "Telemetry stopped arriving from this plant during daylight. "
-            "The plant may be producing fine — this is about the DATA "
+            "The plant may be producing fine - this is about the DATA "
             "pipeline (datalogger, internet at the site, vendor cloud, "
             "or our collector). Daily figures for the gap are not "
             "trustworthy."),
@@ -143,7 +143,7 @@ def explain(metric: str, severity: str = "",
             value: Optional[float] = None) -> str:
     """One self-contained paragraph for an alert: meaning + what to check.
 
-    Unknown metrics return "" rather than raising — an alert must never
+    Unknown metrics return "" rather than raising - an alert must never
     fail to write because its explanation is missing; the coverage test
     keeps the catalog complete at development time instead.
     """

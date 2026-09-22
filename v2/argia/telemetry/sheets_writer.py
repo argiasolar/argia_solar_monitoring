@@ -3,7 +3,7 @@
 Wraps ``SheetsClient`` to:
 1. Ensure the target tab exists (creates if not).
 2. Ensure the header matches the schema (writes if A1 is empty; **REFUSES**
-   if a non-empty header doesn't match the schema's column list — this
+   if a non-empty header doesn't match the schema's column list - this
    prevents column-misaligned writes after a schema change).
 3. Upsert rows on the schema's natural key.
 
@@ -13,7 +13,7 @@ Now that ``ARGIA_SCHEMA`` changed shape from wide to narrow, writing into an
 old-shape tab would scramble column alignment silently. Refusing loudly is
 much better than scrambling silently.
 
-Side effects are explicit — every public function writes to Sheets unless
+Side effects are explicit - every public function writes to Sheets unless
 ``dry_run=True``.
 """
 
@@ -87,7 +87,7 @@ def ensure_telemetry_tab(
             f"To fix: delete the tab '{tab_name}' in the Sheets UI, then re-run."
         )
 
-    # No header yet — write it
+    # No header yet - write it
     sheets.ensure_header(tab_name, schema.header)
 
 
@@ -104,7 +104,7 @@ def write_telemetry_rows(
     mode, returns zeros without touching Sheets.
 
     Pre-flight: every row must have ``schema.column_count`` cells. Anything else
-    is a programming error — fail loudly rather than write a misaligned row.
+    is a programming error - fail loudly rather than write a misaligned row.
     """
     if not rows:
         return {"inserted": 0, "updated": 0, "unchanged": 0}

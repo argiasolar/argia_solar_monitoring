@@ -3,7 +3,7 @@ Vendor base protocol.
 
 Every inverter vendor (Growatt, Huawei, SolarEdge, SMA) implements this
 contract. Keeping the surface small means the orchestrator doesn't care
-which vendor it's talking to — it just iterates ``portfolio.active_plants()``
+which vendor it's talking to - it just iterates ``portfolio.active_plants()``
 and dispatches to the right client.
 
 There are exactly two public methods every vendor must provide:
@@ -74,7 +74,7 @@ class VendorClient(Protocol):
         """
         Live snapshot for the given inverters. Order of returned list does
         not need to match input. Inverters not found by the API may be
-        omitted — the orchestrator handles missing rows.
+        omitted - the orchestrator handles missing rows.
         """
         ...
 

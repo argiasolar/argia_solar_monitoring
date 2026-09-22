@@ -1,7 +1,7 @@
 """Scenarios 2–5 (project lifecycle, milestones), 8/9 (budget versions),
 11–14 (PO approval, committed cost), 25/49 (milestone billing), 31–37
 (revenue, actual, EAC, margin, erosion, change orders), 51 (closure),
-59 (segregation of duties), 64 (period close), 72 (health score) —
+59 (segregation of duties), 64 (period close), 72 (health score) -
 plus the schema's natural keys."""
 from __future__ import annotations
 
@@ -231,4 +231,4 @@ class TestDocs:
         assert "PM ≤ 50 k, director ≤ 500 k" in a904
         assert "green ≥ 80, amber ≥ 60" in a903 and health.THRESHOLDS_VERSION in a903 or "version string" in a903
         for n in ("R1", "R10"):
-            assert f"**{n} —" in a903 and f"**{n} —" in a904
+            assert f"**{n} -" in a903 and f"**{n} -" in a904

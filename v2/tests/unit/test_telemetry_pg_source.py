@@ -1,4 +1,4 @@
-"""v189 — Phase 1 of the Sheets retirement: telemetry readers on PostgreSQL.
+"""v189 - Phase 1 of the Sheets retirement: telemetry readers on PostgreSQL.
 
 What is locked here:
 - the PG grid has the sheet's exact shape and cell typing, so kpi.reader,
@@ -153,7 +153,7 @@ class TestExportDates:
 
 
 class TestMirrorNeverOverwritesWithNull:
-    """v189.1 — found by the parity gate: the PG mirror lacked the sheet's
+    """v189.1 - found by the parity gate: the PG mirror lacked the sheet's
     v89 rule ('a BLANK never overwrites data'), so every SolarEdge refetch
     erased GTO2's env fields (647 of 651 rows NULL on 2026-09-03)."""
 

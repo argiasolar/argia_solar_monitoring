@@ -1,12 +1,12 @@
 /**
- * ARGIA notifier — dumb mail courier for the Argia_Mont_v2 sheet.
+ * ARGIA notifier - dumb mail courier for the Argia_Mont_v2 sheet.
  *
- * Runs on a TIME-DRIVEN trigger every 5 minutes (NOT onEdit/onChange —
+ * Runs on a TIME-DRIVEN trigger every 5 minutes (NOT onEdit/onChange -
  * those do not fire reliably for rows written by a service account via
  * the API). Three queues + an independent staleness nag.
  *
  * RECIPIENTS (2026-07-07): four audiences, driven by the `Recipients`
- * tab in the sheet — data, not code:
+ * tab in the sheet - data, not code:
  *
  *     channel      | emails                     | notes
  *     om           | om-team@argia.cz           | alerts, watchdog, digest
@@ -14,7 +14,7 @@
  *     shareholders | (fill when monthly built)  | monthly reports
  *     invoicing    | (fill when invoicing built)| invoice reports
  *
- * Routing philosophy — the failure modes are DELIBERATE:
+ * Routing philosophy - the failure modes are DELIBERATE:
  *   - safety mail (om: alerts, watchdog, nag) FAILS OPEN: channel
  *     missing/empty -> falls back to LEGACY_RECIPIENTS below. A config
  *     gap must never silence an alarm.
@@ -25,7 +25,7 @@
  *
  * Report_Outbox rows may carry a `channel` column; blank means
  * 'reporting' (today's daily reports). Future monthly/invoicing jobs
- * just append rows with their channel — zero changes needed here.
+ * just append rows with their channel - zero changes needed here.
  *
  * ALL decision logic lives in the tested Python pipeline. This script only
  * ships rows. Keep it dumb; if you feel like adding logic here, add it to
@@ -33,7 +33,7 @@
  *
  * Install: paste over the old script, Save. Then run testChannels() once
  * from the editor: every CONFIGURED channel receives a one-line test
- * mail — that is the routing verified end-to-end.
+ * mail - that is the routing verified end-to-end.
  */
 
 // ---- configuration ---------------------------------------------------------
@@ -61,7 +61,7 @@ function resolveRecipients_(map, channel, failOpenFallback) {
   if (v) return v;
   if (failOpenFallback) return failOpenFallback;   // safety mail: fail OPEN
   Logger.log('recipients: channel "' + channel +
-             '" not configured — row skipped (fail closed)');
+             '" not configured - row skipped (fail closed)');
   return '';                                       // business mail: fail CLOSED
 }
 
@@ -82,9 +82,9 @@ function testChannels() {
   var channels = ['om', 'reporting', 'shareholders', 'invoicing'];
   channels.forEach(function (ch) {
     var to = resolveRecipients_(rcpt, ch, ch === 'om' ? LEGACY_RECIPIENTS : '');
-    if (!to) { Logger.log('testChannels: "' + ch + '" unconfigured — skipped'); return; }
+    if (!to) { Logger.log('testChannels: "' + ch + '" unconfigured - skipped'); return; }
     MailApp.sendEmail(to,
-      SUBJECT_PREFIX + ' channel test — ' + ch,
+      SUBJECT_PREFIX + ' channel test - ' + ch,
       'If you received this, you are on the "' + ch + '" list of the ' +
       'ARGIA notifier. No action needed.');
     Logger.log('testChannels: "' + ch + '" -> ' + to);
@@ -105,7 +105,7 @@ function notifyWatchdog_(budget, rcpt) {
   for (var r = 1; r < data.length && sent < budget; r++) {
     if (String(data[r][col['notified_at']] || '') !== '') continue;
     MailApp.sendEmail(to,
-      SUBJECT_PREFIX + ' WATCHDOG ' + data[r][col['severity']] + ' — ' +
+      SUBJECT_PREFIX + ' WATCHDOG ' + data[r][col['severity']] + ' - ' +
         data[r][col['check']],
       'Detected (UTC): ' + data[r][col['detected_utc']] + '\n\n' +
       data[r][col['detail']] + '\n\n' +
@@ -150,11 +150,11 @@ function githubDownNag_(budget, rcpt) {
   var lastNag = props.getProperty('gh_nag_newest');
   if (lastNag === String(newest.getTime())) return 0;  // once per gap
   MailApp.sendEmail(to,
-    SUBJECT_PREFIX + ' WATCHDOG CRITICAL — telemetry silent',
+    SUBJECT_PREFIX + ' WATCHDOG CRITICAL - telemetry silent',
     'v2 telemetry has written nothing for ~' + Math.round(ageMin) +
     ' minutes (newest row ' + newest + ' MX).\n\n' +
     'This nag runs on Google infra, independent of GitHub AND of the ' +
-    'Pi — it may be the only alarm you get if the Pi dies.');
+    'Pi - it may be the only alarm you get if the Pi dies.');
   props.setProperty('gh_nag_newest', String(newest.getTime()));
   return 1;
 }
@@ -189,7 +189,7 @@ function notifyAlerts_(budget, rcpt) {
     if (!id || state !== 'OPEN' || known[id]) continue;
 
     var subject = SUBJECT_PREFIX + ' ' +
-      String(row[col['severity']] || 'ALERT') + ' — ' +
+      String(row[col['severity']] || 'ALERT') + ' - ' +
       String(row[col['plant_key']] || '') + ' ' +
       String(row[col['metric']] || '');
     var body =
@@ -253,10 +253,10 @@ function notifyReports_(budget, rcpt) {
     }
     MailApp.sendEmail({
       to: to,
-      subject: SUBJECT_PREFIX + ' ' + label + ' — ' + dateIso,
+      subject: SUBJECT_PREFIX + ' ' + label + ' - ' + dateIso,
       body: label + ' for ' + dateIso + ' attached.\n\n' +
             (attachments.length ? '' :
-             '(PDF attachment unavailable — see the Reports folder in the ' +
+             '(PDF attachment unavailable - see the Reports folder in the ' +
              'ARGIA archive Shared Drive.)'),
       attachments: attachments
     });

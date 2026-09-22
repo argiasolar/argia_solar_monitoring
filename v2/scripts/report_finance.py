@@ -97,7 +97,7 @@ def main(argv=None) -> int:
 
     data = build_finance_report_data(sheets, portfolio, period)
     if not data.assets:
-        log.warning("no assets resolved — is Contract_Monthly populated?")
+        log.warning("no assets resolved - is Contract_Monthly populated?")
         return 2
     log.info("Finance report %s..%s: %d assets, expected %.0f MXN, "
              "actual %.0f MXN, service %.0f MXN",

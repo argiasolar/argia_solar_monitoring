@@ -1,10 +1,10 @@
-"""v257 — Huawei FusionSolar device alarms (``/thirdData/getAlarmList``).
+"""v257 - Huawei FusionSolar device alarms (``/thirdData/getAlarmList``).
 
 Until now the Huawei client called only ``login``, ``getStationRealKpi``
 and ``getDevRealKpi``: the vendor's *alarm list* was never read, so
 FusionSolar could be showing three Major "Device Fault" alarms on SAG's
 inverters (2026-09-16 12:46:48) while ARGIA knew only that the power had
-gone to zero — the cause, the severity and Huawei's own repair
+gone to zero - the cause, the severity and Huawei's own repair
 instructions were all sitting one API call away, unread.
 
 The field list below is NOT guessed. It was captured from the live
@@ -18,7 +18,7 @@ which is that payload with the identifiers replaced):
 ``raiseTime`` is epoch milliseconds. ``status`` 1 = active. ``lev`` is
 the vendor's severity; the portal renders lev=2 as "Major" (confirmed
 against the FusionSolar UI for the SAG alarms), and 1/3/4 follow
-Huawei's documented order — critical, minor, warning.
+Huawei's documented order - critical, minor, warning.
 
 Pure: every function takes plain values and returns plain values, so the
 tests run on the captured payload and never on the live API.
@@ -31,7 +31,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 # lev -> (label, our severity). Only lev=2 is confirmed against the
 # portal; the rest follow Huawei's documented ordering. An unknown lev is
-# never silently downgraded — it is treated as CRITICAL and says so.
+# never silently downgraded - it is treated as CRITICAL and says so.
 LEVELS: Dict[int, tuple] = {
     1: ("Critical", "CRITICAL"),
     2: ("Major", "CRITICAL"),
@@ -142,11 +142,11 @@ def message(alarm: HuaweiAlarm, plant_key: str) -> str:
     scope = "DATALOGGER" if alarm.is_datalogger else dev
     tail = f" [{alarm.severity}]"
     return (f"{plant_key} {scope}: FusionSolar alarm {alarm.alarm_id} "
-            f"— {what} ({alarm.level_label}){since}{tail}")
+            f"- {what} ({alarm.level_label}){since}{tail}")
 
 
 def explanation(alarm: HuaweiAlarm) -> str:
-    """The vendor's own cause and repair text — no ARGIA interpretation.
+    """The vendor's own cause and repair text - no ARGIA interpretation.
 
     This is the point of reading the alarm list at all: Huawei already
     writes a cause and a repair suggestion for every alarm, so we never
@@ -158,6 +158,6 @@ def explanation(alarm: HuaweiAlarm) -> str:
         bits.append(f"Huawei's suggestion: {alarm.repair_suggestion}")
     if alarm.is_datalogger:
         bits.append("This alarm is on the datalogger, so the whole site is "
-                    "off the air — inverter readings stop even when the "
+                    "off the air - inverter readings stop even when the "
                     "inverters themselves are fine.")
     return "  ".join(bits)

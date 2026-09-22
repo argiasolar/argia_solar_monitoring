@@ -1,4 +1,4 @@
-"""Unit tests — argia.recon.backfill + historical series parsers."""
+"""Unit tests - argia.recon.backfill + historical series parsers."""
 
 from argia.recon.backfill import (
     CLASS_MISSING,

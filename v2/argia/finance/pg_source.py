@@ -17,8 +17,8 @@ on pio06 (the /setup/finance editor writes THERE since 2026-09-01):
 
 This module serves those tables as the GRID (header + rows) or the
 ``read_table`` dicts the sheet readers parse, with numbers typed and
-blanks as '' — exactly what ``SheetsClient.read_range(UNFORMATTED)``
-returned — so ``contract.load_contract_monthly``, ``design
+blanks as '' - exactly what ``SheetsClient.read_range(UNFORMATTED)``
+returned - so ``contract.load_contract_monthly``, ``design
 .load_design_monthly`` and ``loans.load_loans / load_loan_schedule``
 parse it unchanged.
 
@@ -158,7 +158,7 @@ def design_grid(sheets, candidates=("Contract_Monthly", "Design_Monthly",
     for tab in candidates:
         try:
             return sheets.read_range(tab, "A1:D"), tab
-        except Exception:  # noqa: BLE001 — try next name
+        except Exception:  # noqa: BLE001 - try next name
             continue
     return None, None
 

@@ -1,4 +1,4 @@
-"""v251 — the wordmark is ARGIA / Smart Energy Solutions, not ARGIA SOLAR
+"""v251 - the wordmark is ARGIA / Smart Energy Solutions, not ARGIA SOLAR
 (Tomasz 2026-09-10: "it looks that it is not about solar any more, it is
 now the portal for whole company").
 
@@ -43,7 +43,7 @@ class TestAsset:
     def test_the_full_lockup_is_a_real_transparent_png_of_the_right_shape(self):
         w, h = png_size(decode(L.LOGO_URI))
         assert (w, h) == (764, 120)
-        assert 6.2 < w / h < 6.5, "the lockup is ~6.36:1 — the old ARGIA SOLAR one was 8.8:1"
+        assert 6.2 < w / h < 6.5, "the lockup is ~6.36:1 - the old ARGIA SOLAR one was 8.8:1"
         assert len(L.LOGO_URI) < 40_000, "keep the data URI small; every page and every mail carries it"
 
     def test_the_compact_mark_is_the_wordmark_without_the_tagline(self):
@@ -58,7 +58,7 @@ class TestAsset:
             assert min(p[3] for p in im.getdata()) == 0, "the artwork must have a transparent ground"
 
     def test_the_alt_text_names_the_company_not_the_solar_business(self):
-        assert L.LOGO_ALT == "ARGIA — Smart Energy Solutions"
+        assert L.LOGO_ALT == "ARGIA - Smart Energy Solutions"
         assert L.LOGO_HEIGHT_PX == 34
 
 
@@ -73,8 +73,8 @@ class TestEverySurface:
         (BUNDLE / "auth_app.py", r"\.logo\{\{height:(\d+)px"),
         (V2 / "argia" / "report" / "daily.py", r"\.lockup img\{height:(\d+)px"),
         (V2 / "argia" / "report" / "dashboard_html.py", r'style="height:(\d+)px; display:block;"'),
-        (V2 / "argia" / "finance" / "annex.py", r'alt="ARGIA — Smart Energy Solutions" style="height:(\d+)px"'),
-        (V2 / "argia" / "finance" / "report.py", r'alt="ARGIA — Smart Energy Solutions" style="height:(\d+)px"'),
+        (V2 / "argia" / "finance" / "annex.py", r'alt="ARGIA - Smart Energy Solutions" style="height:(\d+)px"'),
+        (V2 / "argia" / "finance" / "report.py", r'alt="ARGIA - Smart Energy Solutions" style="height:(\d+)px"'),
     ]
 
     def test_no_surface_shows_the_lockup_too_small_to_read(self):
@@ -82,7 +82,7 @@ class TestEverySurface:
             src = path.read_text(encoding="utf-8")
             found = [int(x) for x in re.findall(rx, src)]
             assert found, f"{path.name}: no logo height matched {rx}"
-            assert min(found) >= L.LOGO_HEIGHT_PX, f"{path.name} shows the lockup at {min(found)}px — the tagline blurs"
+            assert min(found) >= L.LOGO_HEIGHT_PX, f"{path.name} shows the lockup at {min(found)}px - the tagline blurs"
 
     def test_the_daily_mail_takes_the_compact_mark_at_its_old_small_size(self):
         import daily_perf_mail as dpm
@@ -100,7 +100,7 @@ class TestNoSolarBrandingLeft:
             for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if re.search(r"ARGIA SOLAR|Argia Solar", line):
                     # the accountants' cost centre 842 and the invoicing workbook are real
-                    # names of real things — they are data, not our branding
+                    # names of real things - they are data, not our branding
                     if "workbook" in line or "Invoicing_Overview" in line or "costcenter" in path.name or "old ARGIA SOLAR wordmark" in line:
                         continue
                     offenders.append(f"{path.relative_to(V2)}:{n}: {line.strip()[:70]}")

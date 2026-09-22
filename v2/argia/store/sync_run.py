@@ -1,4 +1,4 @@
-"""Run log in PostgreSQL — the `sync_run` table (v188, 2026-09-04).
+"""Run log in PostgreSQL - the `sync_run` table (v188, 2026-09-04).
 
 Replaces the `SyncRuns` sheet tab as the record of what ran. That tab was
 write-only (nothing ever read it back) but it was the *only* audit trail
@@ -6,12 +6,12 @@ of job executions, so it gets a table rather than just dying.
 
 Same execution model as pg_mirror / pgq: ``runuser -u postgres -- psql``,
 peer auth, server-only. Import-safe everywhere; ``record()`` is a no-op
-off the server (``ARGIA_PG_MIRROR`` unset) and never raises — a logging
+off the server (``ARGIA_PG_MIRROR`` unset) and never raises - a logging
 failure must never turn a green run red.
 
 The row shape is the SyncRuns row exactly (8 columns, canonical order),
-so both writers — job_log's ``instrument`` and telemetry_5m's
-``_finalize_and_log_run`` — hand over what they already build.
+so both writers - job_log's ``instrument`` and telemetry_5m's
+``_finalize_and_log_run`` - hand over what they already build.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ LOG = logging.getLogger("argia.store.sync_run")
 TABLE = "sync_run"
 
 # (run_id, started_at_utc, finished_at_utc, script, status,
-#  plants_processed, rows_written, error)  — the SyncRuns row
+#  plants_processed, rows_written, error)  - the SyncRuns row
 COLS = ("run_id", "started_at", "finished_at", "script", "status",
         "processed", "rows_written", "error", "host")
 
@@ -103,7 +103,7 @@ def record(row: Sequence, log: Optional[logging.Logger] = None) -> bool:
         from argia.store.pgq import psql_exec
         psql_exec(ENSURE_SQL + "\n" + sql)
         return True
-    except Exception as e:  # noqa: BLE001 — best effort by contract
+    except Exception as e:  # noqa: BLE001 - best effort by contract
         lg.warning("sync_run: could not record run: %s", e)
         return False
 

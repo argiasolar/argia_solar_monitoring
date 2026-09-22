@@ -1,4 +1,4 @@
-# Go-live checklist — Argia_Mont v2 (status 2026-09-07, v218.1)
+# Go-live checklist - Argia_Mont v2 (status 2026-09-07, v218.1)
 
 Verified = checked on the running system today, with the command or test that proves it. Open = Tomasz's decision or action.
 
@@ -18,7 +18,7 @@ Verified = checked on the running system today, with the command or test that pr
 |---|---|---|---|
 | 8 | All 28 timers enabled and active, no failed units | **verified** | `systemctl list-timers 'argia-*'`, `systemctl --failed` empty |
 | 9 | Nightly backup + off-site copy | **verified** | dump 03:30 on pio06, pulled 22:00 MX to the Pi (log `pull OK` nightly); `portfolio_latest.json` now produced (v217.1) |
-| 10 | Restore procedure written | **written, not rehearsed** | `docs/OPERATIONS.md §5` — **open: one restore rehearsal into a scratch database** |
+| 10 | Restore procedure written | **written, not rehearsed** | `docs/OPERATIONS.md §5` - **open: one restore rehearsal into a scratch database** |
 | 11 | Reconciliation retries past days when counters return | **verified** | v212 `recon/retry.py`, 14-day window, tests |
 | 12 | Closed months frozen; `daily_production` never edited by hand | **verified** | `closed_plant_months()` in the recon path; rule in OPERATIONS.md |
 
@@ -42,19 +42,19 @@ Verified = checked on the running system today, with the command or test that pr
 | 23 | PostgreSQL bound to localhost only | **verified** | `listen_addresses = localhost` |
 | 24 | Unattended security upgrades, 0 pending | **verified** | `unattended-upgrades 2.12` |
 | 25 | Stray data files out of `/opt/argia/bundle` (migration CSVs, old bundles) | **fixed today** | moved to `/root/argia_attic/` (0700) |
-| 26 | GitHub repository is PUBLIC | **open — make it private** | Settings → Danger zone → Change visibility (code names hosts, customers, structure) |
-| 27 | GitHub Actions repository secrets from the Sheets era | **open — delete** | Settings → Secrets; the workflows no longer use them |
-| 28 | CFE Engine push secret that once transited chat | **open — rotate** | edit `/root/.argia_cfe_push` and the Engine side, file to file |
-| 29 | Seven ssh keys on root: 3 × vas-hosting staff, tomasz, `petrk`, two restricted service keys (cfe-pi rrsync, backup-pull sftp) | **open — confirm `petrk` and the hosting keys are wanted** | `/root/.ssh/authorized_keys` |
-| 30 | PostgreSQL: superuser login roles `root` and `admin`; `pg_hba` carries `hostssl all all 0.0.0.0/0` (inert while bound to localhost) | **open — confirm `admin` is yours; remove the hostssl line** | `SELECT rolname FROM pg_roles WHERE rolsuper` |
-| 31 | Hosting-managed services exposed on the same VPS: proftpd :21, rpcbind :111, munin :4949, apache :8080/:8443, radicale :5232, mail stack | **open — hosting decision** | iptables is panel-managed (vpsc chains); not touched |
-| 32 | `portfolio.argia.com.mx` has no DNS record; vhost + certificate exist | **open — drop the vhost or create the record** | `getent hosts` fails |
+| 26 | GitHub repository is PUBLIC | **open - make it private** | Settings → Danger zone → Change visibility (code names hosts, customers, structure) |
+| 27 | GitHub Actions repository secrets from the Sheets era | **open - delete** | Settings → Secrets; the workflows no longer use them |
+| 28 | CFE Engine push secret that once transited chat | **open - rotate** | edit `/root/.argia_cfe_push` and the Engine side, file to file |
+| 29 | Seven ssh keys on root: 3 × vas-hosting staff, tomasz, `petrk`, two restricted service keys (cfe-pi rrsync, backup-pull sftp) | **open - confirm `petrk` and the hosting keys are wanted** | `/root/.ssh/authorized_keys` |
+| 30 | PostgreSQL: superuser login roles `root` and `admin`; `pg_hba` carries `hostssl all all 0.0.0.0/0` (inert while bound to localhost) | **open - confirm `admin` is yours; remove the hostssl line** | `SELECT rolname FROM pg_roles WHERE rolsuper` |
+| 31 | Hosting-managed services exposed on the same VPS: proftpd :21, rpcbind :111, munin :4949, apache :8080/:8443, radicale :5232, mail stack | **open - hosting decision** | iptables is panel-managed (vpsc chains); not touched |
+| 32 | `portfolio.argia.com.mx` has no DNS record; vhost + certificate exist | **open - drop the vhost or create the record** | `getent hosts` fails |
 
 ## Standard
 | # | Item | Status | Proof |
 |---|---|---|---|
 | 33 | AGS-701 states the operating monitor (thresholds, cadence, reconciliation, gaps) | **rewritten (en/es/cz)**, loaded into Ask ARGIA | `docs/AGS_701_VS_MONITORING_2026-09.md`; `knowledge` rows 281–287 |
-| 34 | Corrected page published on sprinkler.agency | **open — upload `AGS_rev1_2026-09-07.html`** | until then the Sunday ingest reverts Ask ARGIA to Rev 0 |
+| 34 | Corrected page published on sprinkler.agency | **open - upload `AGS_rev1_2026-09-07.html`** | until then the Sunday ingest reverts Ask ARGIA to Rev 0 |
 
 ## Known tool gaps (not blocking)
 Per-plant module temperature coefficient; stored commissioning baseline; MTTR from maintenance events; degradation KPI (needs 2 years); annual availability roll-up; old web root deletion after a clean month; vendor-counter tile on the portal.

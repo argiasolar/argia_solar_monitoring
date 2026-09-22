@@ -1,4 +1,4 @@
-"""Maintenance-window helpers (v92) — the operational read of events.
+"""Maintenance-window helpers (v92) - the operational read of events.
 
 These drive alert suppression and the daily-report badge, so the tests
 pin: date coverage across a multi-day and ongoing window, that the read
@@ -82,7 +82,7 @@ class TestBadgeText:
         e = _event(category="argia", note="awaiting protection parts",
                    end=None)
         txt = maintenance_badge_text(e)
-        assert txt == "known maintenance \u2014 awaiting protection parts (ongoing)"
+        assert txt == "known maintenance - awaiting protection parts (ongoing)"
 
     def test_customer_label(self):
         e = _event(category="customer", note="roof works",

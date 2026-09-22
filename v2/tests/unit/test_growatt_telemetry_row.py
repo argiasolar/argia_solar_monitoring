@@ -60,7 +60,7 @@ def weather() -> WeatherSnapshot:
 
 
 # ============================================================
-# build_plant_row — wide vendor-shaped row
+# build_plant_row - wide vendor-shaped row
 # ============================================================
 
 
@@ -164,7 +164,7 @@ class TestBuildPlantRowWeather:
 
 
 # ============================================================
-# build_common_row — narrow cross-vendor row
+# build_common_row - narrow cross-vendor row
 # ============================================================
 
 

@@ -133,7 +133,7 @@ class TestFloorGating:
         assert evaluate_inverter_relative(readings, min_peer_floor=1000.0) == []
 
     def test_floor_zero_default_is_permissive(self):
-        # With the default floor 0.0, a near-zero peer mean is still judged —
+        # With the default floor 0.0, a near-zero peer mean is still judged -
         # this documents WHY the engine must pass a real floor.
         readings = [_r("P", "a", 5.0), _r("P", "b", 0.0), _r("P", "c", 8.0)]
         breaches = evaluate_inverter_relative(readings)  # floor defaults to 0.0

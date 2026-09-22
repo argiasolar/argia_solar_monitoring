@@ -8,15 +8,15 @@
 # server could alert nobody).
 #
 # Alert rules (state kept in ~/report_watch/state):
-#   * DOWN alert after 2 consecutive failures (>=10 min down) — one
+#   * DOWN alert after 2 consecutive failures (>=10 min down) - one
 #     flaky probe never pages anyone
 #   * while down, repeat the alert every 60 min, not every 5
 #   * one UP (recovery) alert on the first success after a DOWN
 #
 # Channels:
-#   * ntfy.sh push (topic below) — works with no local secrets;
+#   * ntfy.sh push (topic below) - works with no local secrets;
 #     subscribe to the topic in the ntfy app to receive alerts
-#   * email — automatically used IF ~/report_watch/send_mail_hook.sh
+#   * email - automatically used IF ~/report_watch/send_mail_hook.sh
 #     exists (wired to the ARGIA mailer credentials once copied from
 #     the server; absent = silently skipped)
 
@@ -33,7 +33,7 @@ stamp() { date '+%Y-%m-%d %H:%M:%S'; }
 
 # ---- probe ----
 # v217: the HTTP status travels with the alert ("portal.argia.com.mx is
-# DOWN — HTTP 502" tells a different story than "curl rc=28 timeout")
+# DOWN - HTTP 502" tells a different story than "curl rc=28 timeout")
 body=$(curl -sS -m 20 --retry 1 -w '\n__HTTP__%{http_code}' "$URL" 2>/tmp/report_watch_err)
 rc=$?
 http=$(printf '%s' "$body" | sed -n 's/^__HTTP__//p' | tail -1)
@@ -64,7 +64,7 @@ alert() {  # $1 = title, $2 = message
 if [ $ok -eq 1 ]; then
   if [ "$status" = DOWN ]; then
     alert "portal.argia.com.mx is BACK UP" \
-          "portal.argia.com.mx answers again (HTTP ${http:-?}) at $(stamp) — probe from the office Pi."
+          "portal.argia.com.mx answers again (HTTP ${http:-?}) at $(stamp) - probe from the office Pi."
   fi
   echo "$(stamp) OK (HTTP ${http:-?})"
   printf 'fails=0\nstatus=OK\nlast_alert=0\n' > "$STATE"
@@ -77,7 +77,7 @@ else
     new_status=DOWN
     if [ $((now - last_alert)) -ge $REALERT_SEC ]; then
       alert "portal.argia.com.mx is DOWN" \
-            "portal.argia.com.mx not loading since >= $((fails * 5)) min — HTTP ${http:-none}, curl rc=$rc $err (probe from the office Pi). Check the server / hosting."
+            "portal.argia.com.mx not loading since >= $((fails * 5)) min - HTTP ${http:-none}, curl rc=$rc $err (probe from the office Pi). Check the server / hosting."
       last_alert=$now
     fi
   fi

@@ -8,12 +8,12 @@ went down, or at least some data supporting this".
 
 So a hot inverter is CRITICAL only when its own output is measurably
 below its cooler peers (acute: kW per rated kW at the same minute; daily:
-the thermal_daily derating evidence) — or, since v222, when the inverter
+the thermal_daily derating evidence) - or, since v222, when the inverter
 ITSELF says so: Growatt's DeratingMode register in Tinv/Tboost is the
 vendor's confirmation that power is being limited for temperature, and
-it is quoted as evidence next to the measured shortfall — and a new
+it is quoted as evidence next to the measured shortfall - and a new
 string-diagnostic bit
-becomes a WARNING only when the day's data shows a loss — a string far
+becomes a WARNING only when the day's data shows a loss - a string far
 below its own usual current (its share of the MPPT pair over the previous
 days), or the inverter below the plant peers. Without evidence the flag is INFO: recorded in the ledger and on
 the portal, never mailed. Pure functions; the scripts feed them rows.
@@ -34,12 +34,12 @@ THERMAL_DAY_DERATING_MIN = 60
 
 STRING_WEAK_RATIO = 0.5
 """A string at or below this fraction of ITS OWN trailing share of the
-MPPT pair (median of the previous days) is a measurable string loss —
+MPPT pair (median of the previous days) is a measurable string loss -
 against its own history, not its siblings: half the string inputs of a
 MAX inverter can be legitimately empty (verified 2026-09-07: sibling
 comparison called every unused input "weak")."""
 STRING_BASE_MIN_SHARE = 0.10
-"""A string whose trailing share is below this never carried current —
+"""A string whose trailing share is below this never carried current -
 an unused input, not a string that broke."""
 STRING_BASE_MIN_DAYS = 3
 """Days of history a string needs before its drop counts as evidence."""
@@ -86,8 +86,8 @@ def thermal_severity(temp_c: float, warn_c: float, high_c: float, hotter_than_pe
     """(severity, why, evidence) for the acute rule.
 
     CRITICAL needs three things: >= high_c, hotter than the peers (or no
-    peer to compare — a lone unit is judged on itself) AND a measured
-    shortfall >= loss_crit_pct against the cooler peers — or (v222) the
+    peer to compare - a lone unit is judged on itself) AND a measured
+    shortfall >= loss_crit_pct against the cooler peers - or (v222) the
     inverter's own DeratingMode in a temperature mode (``vendor_mode``
     "Tinv"/"Tboost"): the device confirming it limits power for heat is
     abnormal production by definition, peers or not. Everything else hot
@@ -125,7 +125,7 @@ def thermal_day_severity(peak_c: float, crit_c: float, ev: Optional[ThermalDay],
                          loss_pct: float = THERMAL_DAY_LOSS_PCT,
                          derating_min: int = THERMAL_DAY_DERATING_MIN) -> Tuple[str, str]:
     """(severity, evidence) for the daily day-peak rule. CRITICAL only when
-    the nightly thermal evaluation measured a loss — or (v222) the
+    the nightly thermal evaluation measured a loss - or (v222) the
     inverter itself reported thermal derating for at least
     ``derating_min`` minutes; a hot day without either is WARNING."""
     if ev is None:
@@ -175,7 +175,7 @@ def weak_strings(today: Sequence[Tuple[str, Optional[float]]],
     shares on the previous days. Returns the strings whose share today is
     at or below ``weak_ratio`` of their own trailing median (only strings
     that used to carry current, with enough history), as (channel,
-    today/baseline) — and the number of strings judged (None = nothing
+    today/baseline) - and the number of strings judged (None = nothing
     to judge: no history, or no current at all today)."""
     judged = 0
     weak: List[Tuple[str, float]] = []
@@ -213,4 +213,4 @@ def string_severity(ratio: Optional[float], weak: Sequence[Tuple[str, float]], j
         parts.append("string currents not available")
     else:
         parts.append(f"all {int(judged)} strings within their usual current")
-    return "INFO", "no measurable loss — " + "; ".join(parts)
+    return "INFO", "no measurable loss - " + "; ".join(parts)

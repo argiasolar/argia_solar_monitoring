@@ -5,15 +5,15 @@ ONE state machine, consumed by every surface that labels an inverter
 after the 2026-07-03 carryover incident showed three consumers computing
 three different answers from the same telemetry.
 
-It deliberately owns NO detection logic of its own — it delegates to the
+It deliberately owns NO detection logic of its own - it delegates to the
 canonical detectors:
 
   * vendor faults  -> ``argia.analytics.vendor_flags.fault_tokens``
     (string fault summaries like "FT=302"; Huawei IS=/RS= STATE tokens are
-    already excluded there — the 2026-07-03 MEX false-positive lesson)
+    already excluded there - the 2026-07-03 MEX false-positive lesson)
   * peer comparison -> ``argia.analytics.inverter_health
     .evaluate_inverter_relative`` (leave-one-out, per-kW normalized so a
-    smaller inverter is not falsely flagged — real case: GTO1 MWKNE9500D is
+    smaller inverter is not falsely flagged - real case: GTO1 MWKNE9500D is
     60 kW among 124 kW peers; raw comparison reads a healthy unit at ~40%)
 
 Status vocabulary (stable strings, Looker-friendly), first match wins:
@@ -40,7 +40,7 @@ from argia.analytics.inverter_health import (
 )
 from argia.analytics.vendor_flags import fault_tokens
 
-# Status vocabulary — stable strings; Looker filters/colors key on these.
+# Status vocabulary - stable strings; Looker filters/colors key on these.
 ONLINE = "ONLINE"
 UNDERPERFORMING = "UNDERPERFORMING"
 FAULT = "FAULT"
@@ -63,7 +63,7 @@ def display_status(worst_status: str, latest_status: str) -> str:
     OFFLINE/FAULT this morning but is producing now as still OFFLINE all
     day (the 2026-07-13 SAG confusion). When the worst bucket was a
     hard-down state but the LATEST bucket is producing, report RECOVERED
-    instead — it stays an issue (its availability loss is real and kept),
+    instead - it stays an issue (its availability loss is real and kept),
     but it reads as "came back", not "currently down".
     """
     if worst_status in _RECOVERABLE_FROM and latest_status in _PRODUCING_STATES:
@@ -71,7 +71,7 @@ def display_status(worst_status: str, latest_status: str) -> str:
     return worst_status
 
 # Below this an inverter counts as "producing nothing" (kWh in the window
-# under judgement — a bucket or a day; same constant the dashboard used).
+# under judgement - a bucket or a day; same constant the dashboard used).
 ZERO_KWH = 0.05
 
 # Growatt status flag meaning fault/standby.
@@ -84,7 +84,7 @@ def is_vendor_fault(status_flag: Optional[float],
 
     ``fault_code`` is the normalized Telemetry_Argia string summary ("0",
     "FT=302", "IS=512,RS=1", ...). Token semantics live in
-    ``vendor_flags.fault_tokens`` — the single place that knows which
+    ``vendor_flags.fault_tokens`` - the single place that knows which
     prefixes are faults and which are benign state.
     """
     if status_flag is not None:

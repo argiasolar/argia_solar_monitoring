@@ -1,4 +1,4 @@
-"""v247 — the Savio plugin: invoices vs the AR tracker, payments vs the
+"""v247 - the Savio plugin: invoices vs the AR tracker, payments vs the
 booked deposits, receiving accounts vs the registered ones. Runs on the
 demo Savio fixtures with a tracker built to disagree in known ways."""
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""v220 — an alert's severity follows production evidence (Tomasz,
+"""v220 - an alert's severity follows production evidence (Tomasz,
 2026-09-07): hot inverters page only when they measurably lose output;
 string-diagnostic flags are WARNING only with a measured loss, else INFO
 and never mailed."""

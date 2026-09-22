@@ -1,4 +1,4 @@
-"""Unit tests — argia.recon.engine (pure reconciliation logic)."""
+"""Unit tests - argia.recon.engine (pure reconciliation logic)."""
 
 from argia.recon.engine import (
     BASIS_DAILY_SUM,
@@ -202,7 +202,7 @@ def test_daily_vendor_below_inverters_is_review_not_fail():
     r = daily_recon(1513.4, 1368.6, 1368.6, 100.0)
     assert r.status == STATUS_REVIEW and r.reference_kwh == 1513.4 and r.reference_basis == BASIS_INV
     assert "vendor upload gap; inverter counters kept" in r.note
-    assert "KPI row vs reference -9.57%" in r.note          # the stored row is short — the fix raises it
+    assert "KPI row vs reference -9.57%" in r.note          # the stored row is short - the fix raises it
     # the other direction (we lost data) still fails beyond 3 %
     r = daily_recon(900.0, 1000.0, None, 100.0)
     assert r.status == STATUS_FAIL and r.reference_kwh == 1000.0 and r.reference_basis == BASIS_VENDOR_DAILY

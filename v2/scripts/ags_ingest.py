@@ -35,7 +35,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not args.dry_run and not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     page = open(args.file, encoding="utf-8").read() if args.file else fetch(args.url)
     rows = K.parse_ags(page)
@@ -43,7 +43,7 @@ def main(argv=None) -> int:
     LOG.info("parsed %d slides: %s (%d chars of text)", len(rows), per_lang,
              sum(len(r["body"]) for r in rows))
     if len(rows) < 100:
-        LOG.error("too few slides parsed (%d) — page layout changed? nothing written", len(rows))
+        LOG.error("too few slides parsed (%d) - page layout changed? nothing written", len(rows))
         return 1
     if args.dry_run:
         for r in rows[:5]:

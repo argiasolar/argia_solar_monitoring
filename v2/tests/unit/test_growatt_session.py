@@ -132,7 +132,7 @@ class TestWebClientIntegration:
 
 class TestSessionAgeGate:
     """2026-07-08: cookies saved 12:30 were dead by 05:00 and v47 trusted
-    them forever — 14 errors/run, zero re-login attempts, all morning."""
+    them forever - 14 errors/run, zero re-login attempts, all morning."""
 
     def _save_with_age(self, age_s):
         import time as _t
@@ -186,7 +186,7 @@ class TestSessionValidator:
 
 class TestEnsureSession:
     """v50's /index probe validated zombies (Growatt serves a 200 SPA
-    shell to dead sessions — login redirect is client-side JS; observed
+    shell to dead sessions - login redirect is client-side JS; observed
     live 2026-07-08). Staleness detection now lives at the point of
     truth: _post/_get see HTML-instead-of-JSON and re-auth once."""
 

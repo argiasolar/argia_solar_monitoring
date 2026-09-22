@@ -1,6 +1,6 @@
 """Tests for argia.meteo.growatt_irradiance.
 
-The pure integration math is the most critical part — wrong arithmetic
+The pure integration math is the most critical part - wrong arithmetic
 here would mean wrong PR (Performance Ratio) numbers across the entire
 portfolio. Tests cover the math exhaustively before the HTTP layer.
 """
@@ -81,7 +81,7 @@ class TestTrapezoidalIntegration:
         assert result == 1.0  # not 5.5 (which would be 11h × 500 / 1000)
 
     def test_zero_or_negative_delta_skipped(self):
-        # Two readings at exact same time — should not contribute (Δt = 0)
+        # Two readings at exact same time - should not contribute (Δt = 0)
         points = [
             (self._ts(12), 1000.0),
             (self._ts(12), 500.0),

@@ -122,7 +122,7 @@ class TestParseRows:
         assert len(rows) == 0
 
     def test_handles_short_row(self):
-        """Trailing-empty cells often get dropped by sheets — must tolerate."""
+        """Trailing-empty cells often get dropped by sheets - must tolerate."""
         cells = _make_cells()
         short = cells[:11]  # cut off irradiance + cloud + ambient + module
         rows = parse_rows([short])
@@ -217,7 +217,7 @@ class TestFilterToDate:
         assert len(result) == 0
 
     def test_excludes_next_day(self):
-        # 06:00 UTC next day = 00:00 MX next day — NOT in 2026-05-14
+        # 06:00 UTC next day = 00:00 MX next day - NOT in 2026-05-14
         row = self._r(dt.datetime(2026, 5, 15, 6, 0, tzinfo=UTC))
         result = filter_to_date([row], "2026-05-14")
         assert len(result) == 0

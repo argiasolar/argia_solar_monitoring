@@ -38,7 +38,7 @@ class TestEvaluateAcute:
 
     # Consciously rewritten (fault look-back change): faults are now
     # judged over the last FAULT_LOOKBACK_MIN across ALL samples, with
-    # MIN_FAULT_SAMPLES as the evidence bar — a single-sample blip no
+    # MIN_FAULT_SAMPLES as the evidence bar - a single-sample blip no
     # longer fires, and a self-recovered transient (the JFM5D8900B
     # FT=302 case: two samples that cleared before the tick) now does.
     def test_two_fault_samples_in_lookback_fire(self):
@@ -57,7 +57,7 @@ class TestEvaluateAcute:
 
     def test_recovered_transient_fires_even_with_healthy_latest(self):
         # the exact 2026-07-09 shape: faults at T-24 and T-19 min,
-        # healthy samples since — latest-sample-only missed this.
+        # healthy samples since - latest-sample-only missed this.
         samples = [_s(24, "A", fault="FT=302"),
                    _s(19, "A", fault="FT=302"),
                    _s(14, "A"), _s(9, "A"), _s(4, "A")]

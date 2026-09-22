@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CFE tariff scraper — runs on the ARGIA Pi (Zapopan, Mexican IP).
+"""CFE tariff scraper - runs on the ARGIA Pi (Zapopan, Mexican IP).
 
 Scrapes the official integrated final tariffs ("tarifas finales del
 suministro basico") from app.cfe.mx for the 10 business/industrial
@@ -359,7 +359,7 @@ def _fatal(ex) -> bool:
 def scrape(pw, months, tariffs, divmap, writer, manifest, only=None):
     """Fresh chromium every few divisions: long ASPX sessions crash
     the page on the Pi, so recycling is cheaper than recovering.
-    ``only`` (v240): a set of 'CODE/DIVISION/YYYY-MM' keys — scrape
+    ``only`` (v240): a set of 'CODE/DIVISION/YYYY-MM' keys - scrape
     exactly those cells (the gap-fill), skipping every other
     tariff/division/month."""
     BATCH = 4
@@ -418,13 +418,13 @@ def scrape(pw, months, tariffs, divmap, writer, manifest, only=None):
 
 
 # ------------------------------------------------------------ gap-fill
-# v240 (Tomasz: "is the Pi scheduled to update the gap?" — it was not:
+# v240 (Tomasz: "is the Pi scheduled to update the gap?" - it was not:
 # each month was fetched once and a cell the portal failed to serve
 # that day stayed missing for good; PDBT/BAJA CALIFORNIA/2026-07 sat
 # on the seed value until the engine's shape guard noticed). The daily
 # job now re-reads the manifests in outbox/, collects the cells that
-# errored, and retries exactly those — up to MAX_ATTEMPTS per cell,
-# months no older than GAP_MONTHS — pushing a small gap-fill CSV the
+# errored, and retries exactly those - up to MAX_ATTEMPTS per cell,
+# months no older than GAP_MONTHS - pushing a small gap-fill CSV the
 # loader upserts like any other.
 GAP_MONTHS = 6
 MAX_ATTEMPTS = 5
@@ -533,11 +533,11 @@ def main():
         if not (args.months and args.out):
             ap.error("--months and --out required (or --discover)")
         if not os.path.exists(DIVMAP_PATH):
-            print("no divmap.json — running discovery first")
+            print("no divmap.json - running discovery first")
             discover_divmap(pw)
         divmap = json.load(open(DIVMAP_PATH))
         # discovery also finds composite-division municipalities
-        # ("VALLE DE MEXICO NORTE Y CENTRO") — scrape only the 17
+        # ("VALLE DE MEXICO NORTE Y CENTRO") - scrape only the 17
         # pure CFE divisions the tariff table is keyed by
         divmap = {k: v for k, v in divmap.items()
                   if k in KNOWN_REGIONS}

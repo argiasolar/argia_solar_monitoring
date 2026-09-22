@@ -1,4 +1,4 @@
-"""Reconciliation retries (v212) — pure selection and SQL builders.
+"""Reconciliation retries (v212) - pure selection and SQL builders.
 
 Tomasz 2026-09-05: "keep trying to reconcile whenever there is such
 possibility, once the inverter is online maybe there is a way to
@@ -7,24 +7,24 @@ the issue till end of month".
 
 The vendors keep per-day history (Growatt getMAXHistory, Huawei
 getKpiStationDay, SolarEdge /site/energy), so a day that reconciled
-badly because OUR side had a gap — the Pi down, a poll that failed, an
+badly because OUR side had a gap - the Pi down, a poll that failed, an
 inverter that reported nothing to us while the vendor still has its
-day — can be re-fetched later. The nightly recon run therefore goes
+day - can be re-fetched later. The nightly recon run therefore goes
 back over a window of open days (``RETRY_DAYS``), picks the plant-days
 that still need a retry, fetches the vendor's day for exactly those,
 and re-reconciles them. Rules that never bend:
 
-* never lower — a fetched vendor day only fills or raises the stored
+* never lower - a fetched vendor day only fills or raises the stored
   snapshot (``build_retry_snapshot_sql``), and ``daily_production`` is
   touched only through the reconciliation's own fill-or-raise;
-* a CLOSED plant-month is frozen — never selected, never healed;
-* a PASS day is done — no vendor calls for it;
+* a CLOSED plant-month is frozen - never selected, never healed;
+* a PASS day is done - no vendor calls for it;
 * a REVIEW day whose note says the VENDOR is the one missing uploads
-  (inverter counters above the vendor) is not our gap — no retry.
+  (inverter counters above the vendor) is not our gap - no retry.
 
 What a retry cannot do: recover energy a Growatt datalogger never
 uploaded (the inverter's own eTotal register would be needed for that;
-not captured today) — those days stay REVIEW with the note saying so.
+not captured today) - those days stay REVIEW with the note saying so.
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def needs_retry(status: Optional[str], note: Optional[str],
 
 def window_dates(today: dt.date, days: int = RETRY_DAYS) -> List[str]:
     """Yesterday back ``days`` days, oldest first. Today is never in the
-    window — its day is not over."""
+    window - its day is not over."""
     return [(today - dt.timedelta(days=b)).isoformat()
             for b in range(days, 0, -1)]
 
@@ -109,7 +109,7 @@ def _txt(s: str) -> str:
 
 def build_retry_snapshot_sql(rows: Iterable[Tuple[str, str, str, Optional[float]]]
                              ) -> Optional[str]:
-    """UPSERT the re-fetched vendor days into vendor_counter_snapshot —
+    """UPSERT the re-fetched vendor days into vendor_counter_snapshot -
     fill a missing daily_kwh or RAISE a lower one, never lower it, and
     never touch the nightly monthly/lifetime counters. rows =
     (plant_key, vendor, date_iso, daily_kwh); None values are skipped.
@@ -134,7 +134,7 @@ def build_retry_snapshot_sql(rows: Iterable[Tuple[str, str, str, Optional[float]
 
 
 def group_dates(pairs: Iterable[Tuple[str, str]]) -> Dict[str, List[str]]:
-    """{plant_key: [dates ascending]} — one vendor session per plant."""
+    """{plant_key: [dates ascending]} - one vendor session per plant."""
     out: Dict[str, List[str]] = {}
     for pk, d in pairs:
         out.setdefault(pk, []).append(d)

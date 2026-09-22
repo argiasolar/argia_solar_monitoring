@@ -59,7 +59,7 @@ class TestOutbox:
                          "reporting"]]
 
     def test_notified_at_starts_empty(self):
-        """The empty notified_at cell is the notifier's claim column — if
+        """The empty notified_at cell is the notifier's claim column - if
         it were pre-filled the Apps Script would never send the mail.
         (No longer the LAST column since channel was appended; the
         notifier finds it by header name, not position.)"""

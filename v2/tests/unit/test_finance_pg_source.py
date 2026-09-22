@@ -1,4 +1,4 @@
-"""v191 — Sheets retirement phase 3a: finance readers on PostgreSQL.
+"""v191 - Sheets retirement phase 3a: finance readers on PostgreSQL.
 
 Locks: the switch defaults to sheet; PG grids/records have the sheets'
 shape so the unchanged parsers produce identical typed objects; every

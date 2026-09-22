@@ -10,7 +10,7 @@ ways a correct-looking account still returns 401:
     password with trailing space   -> 401   (hashed with the space)
 
 setup_app.py imports flask, which the test venv does not carry, so the
-two helpers are lifted out with ast — the tests therefore exercise the
+two helpers are lifted out with ast - the tests therefore exercise the
 code that actually ships.
 """
 import ast
@@ -81,7 +81,7 @@ class TestCleanPassword:
         assert clean_password("Sol4r-2026\r\n") == "Sol4r-2026"
 
     def test_inner_spaces_preserved(self):
-        """Only the edges are trimmed — a passphrase stays intact."""
+        """Only the edges are trimmed - a passphrase stays intact."""
         assert clean_password(" correct horse battery ") == \
             "correct horse battery"
 

@@ -1,7 +1,7 @@
 """Write the portfolio (plant + inverter records) as JSON next to the
 nightly backups (v214). The Pi pulls it with the dumps, so its outage
 watch (pi/report_watch/ppa_watch.py) knows the PPA plants without a
-database or a sheet — the workbook is retired.
+database or a sheet - the workbook is retired.
 
     python3 scripts/portfolio_export.py --out /root/argia_backups/portfolio_latest.json
 """
@@ -31,7 +31,7 @@ def main(argv=None) -> int:
     sheets = open_sheets()
     doc = export(plants_records(sheets, "A1:AZ"), inverters_records(sheets, "A1:Z"))
     if not doc["plants"]:
-        print("portfolio_export: no plants — nothing written", file=sys.stderr)
+        print("portfolio_export: no plants - nothing written", file=sys.stderr)
         return 1
     tmp = args.out + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:

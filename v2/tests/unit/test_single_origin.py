@@ -2,13 +2,13 @@
 live monitoring under /monitoring/, monitoring.argia.com.mx 301s there.
 
 Browsers cache basic-auth credentials per hostname, so two hostnames
-could never share a session — that is why the portal moved rather than
+could never share a session - that is why the portal moved rather than
 the auth being "fixed". The rules that must survive the move:
 
   * every monitoring link carries the /monitoring prefix, or the page
     would land on the report tree (404) or, worse, a same-named report
     page (/capex/ and /gto1/ exist in BOTH trees);
-  * the CAPEX per-plant gating moves with it — a plant owner still
+  * the CAPEX per-plant gating moves with it - a plant owner still
     reaches only their own live page, PPA and the fleet view stay
     internal;
   * the old hostname keeps working for existing links.
@@ -37,9 +37,9 @@ class TestMonitoringLinksArePrefixed:
         monitoring tree: the logo, the "← Reports" button, /account/
         on the report host, the /invoices/ register (2026-09-01,
         the recon board's invoice-annexes button), and the /portfolio/
-        fleet map (v177 — it lives at the webroot under the financial
+        fleet map (v177 - it lives at the webroot under the financial
         gate, NOT inside /monitoring/), and the /maintenance/ tickets
-        (v226 — a live app on the portal host)."""
+        (v226 - a live app on the portal host)."""
         import re
         bad = [ln.strip() for ln in MONGEN.splitlines()
                if re.search(r'href="/(?!account/|invoices/|portfolio/|maintenance/'

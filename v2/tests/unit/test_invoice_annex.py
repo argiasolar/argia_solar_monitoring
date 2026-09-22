@@ -1,6 +1,6 @@
 """Invoice annex (v93) tests.
 
-The load-bearing property: energía compensada is NEVER recomputed here —
+The load-bearing property: energía compensada is NEVER recomputed here -
 it is ``billable_kwh - energy_kwh`` straight from KPI_Daily (the v91
 deemed engine), so the customer annex and the finance report cannot
 disagree. The pure ``rollup_month`` is the reference the embedded JS
@@ -52,7 +52,7 @@ class TestRollupMonth:
         assert r["expected_kwh"] == pytest.approx(1050.0)
 
     def test_history_wins_over_atoms_for_an_invoiced_month(self):
-        """v158: an invoiced month reads the ARGIA Solar workbook —
+        """v158: an invoiced month reads the ARGIA Solar workbook -
         the factura must equal what was billed, not a recomputation."""
         p = _payload()
         p["history"] = {"2026-07": {"kwh": 950.0, "penalty": 25.0,
@@ -65,7 +65,7 @@ class TestRollupMonth:
         assert r["expected_kwh"] == 1100.0
 
     def test_a_future_history_month_keeps_expected_only(self):
-        """Sep..Dec rows carry expected but no kwh — the annual chart
+        """Sep..Dec rows carry expected but no kwh - the annual chart
         shows the grey expectativa bar, the table shows zeros."""
         p = _payload()
         p["history"] = {"2026-07": {"kwh": None, "penalty": 0.0,
@@ -106,7 +106,7 @@ class TestCloudFraction:
 
 class TestAnnualRollup:
     def test_all_twelve_months_like_the_old_factura(self):
-        """January through December, zeros included — the customer
+        """January through December, zeros included - the customer
         table always shows the whole year."""
         rows = annual_rollup(_payload())
         assert [r["ym"] for r in rows] == [
@@ -143,7 +143,7 @@ def _sheets():
         # compensada day: billable 1400 > energy 200 → deemed 1200
         ["2026-07-02", "MEX2", "200", "1400", "1100", "1050",
          "0.10", "0.0", "0.02", "0.9"],
-        # other plant — must be ignored
+        # other plant - must be ignored
         ["2026-07-01", "SLP1", "500", "500", "600", "580",
          "0.83", "1.0", "0.01", "0.2"],
     ]
@@ -183,7 +183,7 @@ class TestBuildAnnexData:
 
     def test_other_plant_excluded(self):
         data = build_annex_data(_sheets(), _portfolio(), "MEX2", self.WIN)
-        # SLP1 row must not leak — MEX2 day-1 measured is 1000, not 500
+        # SLP1 row must not leak - MEX2 day-1 measured is 1000, not 500
         assert data["atoms"][0][0] == 1000.0
 
     def test_dense_day_axis_with_gaps(self):
@@ -251,7 +251,7 @@ class TestRenderAnnexHtml:
 
     def test_no_footer_text_single_page(self):
         """Tomasz 2026-09-01: "fit everything into single page (remove
-        the bottom explanation text)" — the methodology paragraph is
+        the bottom explanation text)" - the methodology paragraph is
         gone entirely."""
         h = self._html()
         assert "registro de facturaci" not in h
@@ -273,7 +273,7 @@ class TestRenderAnnexHtml:
 
 
 class TestCo2FactorOnTheAnnex:
-    """v186 — the annex carries a factor register, not one scalar, so a
+    """v186 - the annex carries a factor register, not one scalar, so a
     2023 month is billed at 2023's factor and SAG gets the 0.202 they
     contracted for their whole history."""
 

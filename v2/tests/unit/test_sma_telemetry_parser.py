@@ -209,7 +209,7 @@ class TestEdgeCases:
 
 
 # ============================================================
-# fetch_inverter_telemetry — integration with mocked client
+# fetch_inverter_telemetry - integration with mocked client
 # ============================================================
 
 

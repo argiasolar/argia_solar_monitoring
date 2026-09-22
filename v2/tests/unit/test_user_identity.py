@@ -2,7 +2,7 @@
 
 Why this exists (2026-08-28): while testing several accounts it was
 impossible to tell who was signed in, and it looked as if a non-admin
-had reached /setup/. The nginx log showed the opposite —
+had reached /setup/. The nginx log showed the opposite -
 
     arturo  /setup/  401      <- correctly refused
     tomasz  /setup/  200      <- the browser's cached admin credentials
@@ -57,7 +57,7 @@ class TestDisplayName:
         assert display_name(None, None, "arturo") == "arturo"
 
     def test_never_empty_when_username_known(self):
-        """The chip must always say something — a blank chip is worse
+        """The chip must always say something - a blank chip is worse
         than no chip."""
         assert display_name("  ", "  ", "vit") == "vit"
 
@@ -172,7 +172,7 @@ class TestChipOnEveryPortal:
 
     def test_chip_removed_when_unidentified(self):
         """No stale name may linger if whoami fails or returns
-        nothing — an empty chip would be misleading."""
+        nothing - an empty chip would be misleading."""
         for src in (self.MON, self.REP):
             assert src.count("el.remove()") >= 2
 

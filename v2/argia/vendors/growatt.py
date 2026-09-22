@@ -109,7 +109,7 @@ class GrowattClient:
 
     def login(self) -> None:
         """
-        Lazy login. Open API doesn't need a session login — just a header on
+        Lazy login. Open API doesn't need a session login - just a header on
         each call. Web UI does, but the web client handles its own login
         the first time it's used.
         """
@@ -121,7 +121,7 @@ class GrowattClient:
         Open API first, web UI fallback.
 
         Returns None on any failure (orchestrator treats None as
-        per-plant error and writes PARTIAL status — see test_orchestrator
+        per-plant error and writes PARTIAL status - see test_orchestrator
         regression for the MEX2/None contract).
         """
         if self._api_token:
@@ -130,7 +130,7 @@ class GrowattClient:
                 if value is not None:
                     return value
                 # Open API returned None (no data for that day). Don't fall
-                # back — the data just doesn't exist.
+                # back - the data just doesn't exist.
                 return None
             except GrowattAuthError:
                 LOG.warning(
@@ -200,7 +200,7 @@ class GrowattClient:
         )
         if resp.status_code in (401, 403):
             raise GrowattAuthError(
-                f"Open API {path} returned HTTP {resp.status_code} — token rejected"
+                f"Open API {path} returned HTTP {resp.status_code} - token rejected"
             )
         if resp.status_code != 200:
             raise GrowattAPIError(
@@ -293,7 +293,7 @@ class GrowattClient:
         detail_data: Dict[str, Any],
         plant_key: str,
     ) -> Optional[InverterSnapshot]:
-        """Pure function — fully testable from JSON fixtures."""
+        """Pure function - fully testable from JSON fixtures."""
         sn = normalize_sn(pick(list_item, ["sn", "device_sn", "deviceSn"]))
         if not sn:
             return None
@@ -353,18 +353,18 @@ class GrowattClient:
         single JSON call returning typed dataclass. The parser handles
         Growatt's quirk of returning string-coerced floats.
 
-        Note: getMAXTotalData has no date parameter — it's always "today" in
+        Note: getMAXTotalData has no date parameter - it's always "today" in
         plant local time. For non-today dates we return None, matching the
         Open API behavior. If you ever need historical days, the right
         endpoint is getMAXDayChart (returns 288 5-min slots that can be
-        summed) — wire that in then.
+        summed) - wire that in then.
         """
         # Compare against MX-local "today" (Growatt server is on plant TZ)
         today_local = dt.datetime.now(MX_TZ).strftime("%Y-%m-%d")
         if date_iso != today_local:
             LOG.debug(
                 "Growatt web path only returns today's energy; "
-                "asked for %s but local today is %s — skipping",
+                "asked for %s but local today is %s - skipping",
                 date_iso, today_local,
             )
             return None
@@ -425,7 +425,7 @@ class GrowattClient:
                     "Growatt web auth lost mid-loop for %s/%s: %s",
                     plant.plant_key, sn, e,
                 )
-                # If auth fails mid-loop, no point continuing — every call
+                # If auth fails mid-loop, no point continuing - every call
                 # after this would fail the same way.
                 return snapshots
             except WebAPIError as e:

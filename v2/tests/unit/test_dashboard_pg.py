@@ -1,4 +1,4 @@
-"""v195 — Sheets retirement phase 3d: Dashboard_Plant / Dashboard_Inverter
+"""v195 - Sheets retirement phase 3d: Dashboard_Plant / Dashboard_Inverter
 in PostgreSQL.
 
 Locks: the switch defaults to sheet; the tables carry the tabs' exact

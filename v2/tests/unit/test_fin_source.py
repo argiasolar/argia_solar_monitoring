@@ -1,4 +1,4 @@
-"""v250 — source pointers: every row says which file, sheet and row it came
+"""v250 - source pointers: every row says which file, sheet and row it came
 from, and the link goes as deep as the file allows (Tomasz 2026-09-10: click
 a 741-day-overdue invoice and land on the document that says so)."""
 from __future__ import annotations
@@ -80,7 +80,7 @@ class TestReadersCarryCoordinates:
         assert (tasks[0]["src_sheet"], tasks[0]["src_gid"]) == ("Tasks", "11")
         assert (costs[0]["src_sheet"], costs[0]["src_row"], costs[0]["src_gid"]) == ("Costs", 3, "22")
         assert invs[0]["src_gid"] == "33"
-        assert B.pmo_rows("X", p, "sha")[2][0]["src_gid"] == ""               # no tab ids known (a local mirror) — still fine
+        assert B.pmo_rows("X", p, "sha")[2][0]["src_gid"] == ""               # no tab ids known (a local mirror) - still fine
 
 
 class TestSchemaMigration:

@@ -6,7 +6,7 @@ SMA's data richness depends on the plant type:
 
 The wide plant row populates whatever SMA returned, leaves the rest blank.
 The narrow common row uses the same 15-column contract as Growatt, Huawei,
-SolarEdge — vendor='SMA', plus status/power/eToday/temperature/fault_code.
+SolarEdge - vendor='SMA', plus status/power/eToday/temperature/fault_code.
 
 Compared to other vendors:
   Growatt   ~150 fields → ~120 cols populated
@@ -95,7 +95,7 @@ _TYPED_MAPPING = [
     ("pac_w",                  lambda t: t.power_w),
     ("iac_a",                  lambda t: t.iac_a),
     ("pf",                     lambda t: t.power_factor),
-    # SMA doesn't (typically) break per-phase voltages — leave vacr/s/t blank,
+    # SMA doesn't (typically) break per-phase voltages - leave vacr/s/t blank,
     # vac (average phase voltage) goes to vac_rs as a single representative
     # value. We'll re-evaluate after seeing real captures.
     ("vac_rs_v",               lambda t: t.vac_v),

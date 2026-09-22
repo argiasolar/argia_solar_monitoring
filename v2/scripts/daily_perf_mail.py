@@ -1,4 +1,4 @@
-"""Daily PPA performance email — 19:00 Mexico City (pio06 only).
+"""Daily PPA performance email - 19:00 Mexico City (pio06 only).
 
 Tomasz, 2026-09-02: "create email with PPA daily performance where we
 summarize the day, we show performance, issues, etc use some modern
@@ -6,14 +6,14 @@ template, send it around 7pm so we can still act if something is not
 ok even though the data are not yet finalized."
 
 So: this mail is an EARLY heads-up, not the book of record. At 19:00
-the nightly close (kpi_eod) has not run — today's figures come straight
+the nightly close (kpi_eod) has not run - today's figures come straight
 from live telemetry (per-inverter max etoday counters) and today's
 weather-expected does not exist yet. The mail says so plainly and
 leans on what IS solid: yesterday's closed numbers and the
 month-to-date vs weather expectation from daily_production.
 
 Recipients: the 'daily' channel of mail_subscription (managed in
-/setup/, portal users only). No plant scoping on this channel — it is
+/setup/, portal users only). No plant scoping on this channel - it is
 one fleet-wide PPA summary by design.
 
 Fires from argia-dailyperf.timer (19:00 America/Mexico_City,
@@ -44,11 +44,11 @@ STALE_MIN = 45          # same threshold the alert mailer uses
 
 
 def display_name(customer):
-    """Human name for the mail — never the plant code (Tomasz, v180:
+    """Human name for the mail - never the plant code (Tomasz, v180:
     'use names in first place and the code like GTO1 as additional').
     'TAIGENE PPA roof (Leon, GTO)' -> 'Taigene'; short all-caps
     acronyms (SAG, SMS) survive. Kept byte-identical to the copy in
-    server/monitoring_gen.py — a unit test compares the two. Pure."""
+    server/monitoring_gen.py - a unit test compares the two. Pure."""
     s = str(customer or '').split('(')[0].split(',')[0]
     for cut in (' PPA', ' CAPEX', ' roof', ' land'):
         i = s.find(cut)
@@ -66,7 +66,7 @@ def logo_png():
     asset (server/bundle/argia_logo.py) so mail and portal can never
     diverge; a missing file degrades to text. v251: the mail header keeps
     the logo deliberately smaller than its title, and the full lockup's
-    three-line tagline is a smudge at that size — so mail takes MARK_URI,
+    three-line tagline is a smudge at that size - so mail takes MARK_URI,
     'ARGIA' on its own, and falls back to the full lockup."""
     import base64
     import re
@@ -95,7 +95,7 @@ def gather_plants():
 def gather_today():
     """{plant: (kwh_today, minutes_since_last_sample, inverters_seen)}
     from live telemetry, MX 'today'. Energy = sum of per-inverter max
-    etoday counters — same basis the plant pages use intraday."""
+    etoday counters - same basis the plant pages use intraday."""
     from argia.store.pgq import psql_rows
     mx_day = ("(ts_utc AT TIME ZONE 'America/Mexico_City')::date"
               " = (now() AT TIME ZONE 'America/Mexico_City')::date")
@@ -139,7 +139,7 @@ def gather_yesterday(today: dt.date):
 
 
 def gather_yesterday_cost(today: dt.date):
-    """v257 — what yesterday's shortfall COST, per plant and in total.
+    """v257 - what yesterday's shortfall COST, per plant and in total.
 
     Tomasz, 2026-09-16: "show how much money this issue costs us". No
     model is needed once the day is closed: ``expected_kwh`` is already
@@ -158,7 +158,7 @@ def gather_yesterday_cost(today: dt.date):
             "   FROM daily_production dp JOIN plant p ON p.plant_key = dp.plant_key"
             f"  WHERE dp.prod_date = '{d}' AND p.active;")
     except Exception as e:                       # noqa: BLE001
-        LOG.warning("cost of yesterday unavailable (%s) — report goes out without it", e)
+        LOG.warning("cost of yesterday unavailable (%s) - report goes out without it", e)
         return {}, 0.0, None
     per, pairs = {}, []
     for r in rows:
@@ -207,7 +207,7 @@ def job_name_from_execstart(value: str) -> str:
     """The run_job.sh job name out of a systemd ExecStart value. Pure.
 
     ``systemctl show -p ExecStart --value`` does NOT print a plain
-    command line — it prints the structured form
+    command line - it prints the structured form
     ``{ path=/.../run_job.sh ; argv[]=/.../run_job.sh telemetry x.py ... }``
     so a naive '\\S+' after run_job.sh captures the ';' of the path=
     field. Only a real job-name token counts, which skips it.
@@ -263,9 +263,9 @@ def inverter_labels():
 
 
 def gather_issues():
-    """Active alerts from alert_state (what the alert mailer tracks) —
+    """Active alerts from alert_state (what the alert mailer tracks) -
     key, severity, since when, and whatever detail makes each one
-    actionable — plus plants under a logged maintenance window."""
+    actionable - plus plants under a logged maintenance window."""
     from argia.store.pgq import psql_rows
     labels = inverter_labels()
     alerts = []
@@ -314,18 +314,18 @@ def ticket_briefs():
 
 
 def ticket_line(b) -> str:
-    """'In hand: TK-NL1-0001 · In progress · tomasz — last update: …' Pure."""
+    """'In hand: TK-NL1-0001 · In progress · tomasz - last update: …' Pure."""
     from argia.maintenance import tickets as TK
     parts = [b.number, TK.STATUS_LABEL.get(b.status, b.status)] + ([b.assigned_to] if b.assigned_to else [])
     s = "In hand: " + " · ".join(parts)
     if b.last_update:
         u = b.last_update.strip().replace("\n", " ")
-        s += f" — last update: {u[:160]}{'…' if len(u) > 160 else ''}"
+        s += f" - last update: {u[:160]}{'…' if len(u) > 160 else ''}"
     return s
 
 
 def ledger_issues(labels=None):
-    """v203: the engine's OPEN alerts (alert_ledger — temperature, vendor
+    """v203: the engine's OPEN alerts (alert_ledger - temperature, vendor
     faults, peer lag, silent inverter, string flags, plant offline) as
     issues, next to the mailer's infrastructure/freshness ones. Until now
     this mail only knew alert_state, so SLP2 read "OK" on 2026-09-04 with a
@@ -367,7 +367,7 @@ _ISSUE_PHRASE = dict(naming.METRIC_PHRASE)
 """v217: one phrase table for every mail (argia.alerts.naming)."""
 
 # What the alert MEANS and what to do about it. "[CRITICAL] server:
-# unit-failed" told Tomasz nothing on 2026-09-03 (v185) — an alert has
+# unit-failed" told Tomasz nothing on 2026-09-03 (v185) - an alert has
 # to name the thing that broke and say what it implies.
 _ISSUE_WHY = {
     "inverter_temp_high": "Internal temperature above 65 degC. CRITICAL only "
@@ -375,7 +375,7 @@ _ISSUE_WHY = {
                           "its cooler peers (the alert states the loss); heat "
                           "without a measured loss stays a WARNING. Check fans, "
                           "filters, heatsink, shade on the enclosure.",
-    "inverter_fault": "The inverter's own fault code — its diagnosis, not "
+    "inverter_fault": "The inverter's own fault code - its diagnosis, not "
                       "an inference. Grid-side codes (Growatt 300-304) mean "
                       "the utility or a breaker, not the PV array.",
     "inverter_relative": "Much less energy per kW than its siblings under the "
@@ -386,7 +386,7 @@ _ISSUE_WHY = {
                        "lost) from a unit that was off.",
     "string_fault": "The inverter's own string diagnostic (Growatt string-break / "
                     "mismatch / unbalance bits) raised a bit it never showed in the "
-                    "last 14 days, and the day's data shows a loss — the alert names "
+                    "last 14 days, and the day's data shows a loss - the alert names "
                     "the weak string and the inverter's share of its peers.",
     "energy_daily_pct": "The plant produced far less than the weather "
                         "allowed: outage, curtailment or a wrong expected.",
@@ -395,14 +395,14 @@ _ISSUE_WHY = {
     "plant_twin_yield": "Its twin site under the same sky did much better.",
     "data_stale": "The engine saw a long gap in this plant's telemetry.",
     "plant-dark": "Nothing has arrived from this plant since midnight. "
-                  "The inverters may still be producing — it is the data "
+                  "The inverters may still be producing - it is the data "
                   "path (datalogger, site internet, vendor portal) that "
                   "is down. Today's kWh for this plant cannot be trusted.",
-    "daily_digest": "The engine's fleet digest row — a mail vehicle, not "
+    "daily_digest": "The engine's fleet digest row - a mail vehicle, not "
                     "an issue.",
     "disk-full": "The server disk is nearly full: collection and backups "
                  "stop when it fills.",
-    "postgres-down": "PostgreSQL is unreachable — collection, reconciliation "
+    "postgres-down": "PostgreSQL is unreachable - collection, reconciliation "
                      "and the portal are degraded.",
     "cfe-heartbeat": "The CFE fetcher Pi has not reported: tariffs stop "
                      "updating.",
@@ -413,13 +413,13 @@ _ISSUE_WHY = {
                    "it as a dark plant." % STALE_MIN,
     "inverter-silent": "The plant is reporting but this inverter is not. "
                        "A single dead inverter is invisible in the plant "
-                       "total — check the unit and its comms on site.",
+                       "total - check the unit and its comms on site.",
     "recon-fail": "Metered energy and vendor energy disagree beyond "
                   "tolerance for that day. Settle the meter reading "
                   "before this day is invoiced.",
     "satellite-drift": "The on-site irradiance sensor and the satellite "
                        "estimate have disagreed for several days. Clean "
-                       "or recalibrate the pyranometer — performance "
+                       "or recalibrate the pyranometer - performance "
                        "ratios are computed from it.",
     "unit-failed": "A scheduled server job exited with an error. Whatever "
                    "that job produces is missing or stale until it runs "
@@ -458,7 +458,7 @@ _UNIT_ROLE = {
 def friendly_unit(unit: str) -> str:
     """'argia-telemetry-se.service' -> 'Telemetry collector (SolarEdge)'.
 
-    Pure. Unknown units keep their own name rather than vanishing —
+    Pure. Unknown units keep their own name rather than vanishing -
     a name we do not recognise is still more use than 'server'.
     """
     base = (unit or "").strip()
@@ -523,7 +523,7 @@ def issue_detail(key: str, extra=None) -> str:
     bits = []
     if (extra or {}).get("message"):
         # ledger issue: the engine's own sentence (value, threshold, what
-        # the counter said) is the detail — without its "NL2 SN:" prefix
+        # the counter said) is the detail - without its "NL2 SN:" prefix
         # (v217: the row already names the plant and the unit)
         sn = rest.split(":", 1)[1] if ":" in rest else ""
         lab = (extra or {}).get("label")
@@ -628,7 +628,7 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
               and not subscriptions.is_internal(a[0])]
     # v217: infrastructure and monitoring-internal issues (failed jobs,
     # reconciliation, sensor drift) are the administrator's, not the
-    # daily readers' — they go out through the alert mailer, admin-only
+    # daily readers' - they go out through the alert mailer, admin-only
     tot_kwp = sum(r["kwp"] for r in rows)
     inv_seen = sum(today_map.get(r["key"], (0, None, 0))[2] for r in rows)
     inv_all = sum(inv_counts.get(r["key"], 0) for r in rows)
@@ -650,48 +650,48 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
 
 def mail_subject(data: dict) -> str:
     n = data["n_bad"] + data["n_warn"]
-    flag = f" — {n} plant(s) need attention" if n else " — all OK"
+    flag = f" - {n} plant(s) need attention" if n else " - all OK"
     return ("[ARGIA] Daily PPA performance %s: %s kWh%s"
             % (data["date"], f"{data['tot_today']:,.0f}", flag))
 
 
 def _pct(v) -> str:
-    return f"{v:,.1f}%" if v is not None else "—"
+    return f"{v:,.1f}%" if v is not None else " - "
 
 
 def _num(v, dec=0) -> str:
-    return f"{v:,.{dec}f}" if v is not None else "—"
+    return f"{v:,.{dec}f}" if v is not None else " - "
 
 
 def _money(v) -> str:
-    """v257 — pesos, whole. '—' when the sites involved carry no tariff."""
+    """v257 - pesos, whole. ' - ' when the sites involved carry no tariff."""
     from argia.analytics import money as M
     return M.fmt_mxn(v)
 
 
 def _lost_caption(data: dict) -> str:
     """The small line under the Yesterday tile: what the day's shortfall
-    cost. Silent on a day that met expectation — no bad news is news."""
+    cost. Silent on a day that met expectation - no bad news is news."""
     lost = data.get("lost_kwh") or 0
     if lost <= 0:
         return "closed"
     mxn = data.get("lost_mxn")
     if mxn is None:
-        return f"closed \u2014 {_num(lost)} kWh below expectation"
-    return f"closed \u2014 {_num(lost)} kWh lost = {_money(mxn)}"
+        return f"closed - {_num(lost)} kWh below expectation"
+    return f"closed - {_num(lost)} kWh lost = {_money(mxn)}"
 
 
 def render_text(data: dict) -> str:
-    """Plain-text alternative — grep-able archive copy. Pure."""
-    L = [f"ARGIA — Daily PPA performance, {data['date']} "
+    """Plain-text alternative - grep-able archive copy. Pure."""
+    L = [f"ARGIA - Daily PPA performance, {data['date']} "
          f"(as of {data['time']} MX)", "",
          f"Fleet today:   {_num(data['tot_today'])} kWh (live, preliminary)",
          f"Yesterday:     {_num(data['tot_yday'])} kWh (closed)"
-         + (f"  \u2014 lost {_num(data.get('lost_kwh'))} kWh"
+         + (f"  - lost {_num(data.get('lost_kwh'))} kWh"
             + (f" = {_money(data.get('lost_mxn'))}" if data.get("lost_mxn") is not None else "")
             if data.get("lost_kwh") else ""),
          f"Month to date: {_num(data['tot_mtd'])} kWh"
-         f" — {_pct(data['tot_vs_exp'])} of weather expectation", ""]
+         f" - {_pct(data['tot_vs_exp'])} of weather expectation", ""]
     for r in data["rows"]:
         L.append("  %-20s %8s kWh  %5.2f kWh/kWp  inv %s  [%s]"
                  % (r["label"][:20], _num(r["kwh_today"]),
@@ -708,7 +708,7 @@ def render_text(data: dict) -> str:
         L.append("Open issues:")
         for i in data["issues"]:
             age = f" · open {i['since']}" if i["since"] else ""
-            L.append(f"  • [{i['sev']}] {i['who']} — {i['what']}{age}")
+            L.append(f"  • [{i['sev']}] {i['who']} - {i['what']}{age}")
             if i["detail"]:
                 L.append(f"      {i['detail']}")
             if i["why"]:
@@ -716,7 +716,7 @@ def render_text(data: dict) -> str:
     else:
         L.append("Open issues: none")
     L += ["",
-          "Today's figures are live telemetry, not yet reconciled — the"
+          "Today's figures are live telemetry, not yet reconciled - the"
           " nightly close finalizes them. Weather-expected for today"
           " lands with the close as well.",
           "", "Portal: https://portal.argia.com.mx/monitoring/",
@@ -779,7 +779,7 @@ def render_html(data: dict) -> str:
             f'text-align:right">{e(_num(r["mtd_kwh"]))}</td>'
             f'<td style="padding:7px 10px;border-bottom:1px solid #eef1f4;'
             f'text-align:right">{e(_pct(r["vs_exp"]))}</td></tr>')
-    # summary line at the table bottom — always, even with the tiles
+    # summary line at the table bottom - always, even with the tiles
     # above (Tomasz, v180)
     tb = 'padding:8px 10px;border-top:2px solid #16324f;font-weight:700'
     trs.append(
@@ -818,7 +818,7 @@ def render_html(data: dict) -> str:
                 '<div style="font-size:13px;color:#243041">%s'
                 '<b style="color:%s;font-size:11px;letter-spacing:.04em">'
                 '%s</b> &nbsp;<b style="color:#16324f">%s</b>'
-                ' &mdash; %s</div>%s%s</div>'
+                ' - %s</div>%s%s</div>'
                 % (bg, col, age, col, e(i["sev"]), e(i["who"]),
                    e(i["what"]), detail, why))
         issues_html = "".join(blocks)
@@ -876,7 +876,7 @@ text-transform:uppercase;color:#5f6b7a">Open issues</h3>
 <p style="margin:18px 0 0;padding:10px 12px;background:#fffdf4;
 border:1px solid #e7dfc2;border-radius:8px;font-size:12px;
 color:#6b5d2a">Today's figures are <b>live telemetry, not yet
-reconciled</b> — the nightly close finalizes them and adds today's
+reconciled</b> - the nightly close finalizes them and adds today's
 weather expectation. This mail goes out at 19:00 so there is still
 time to act on anything red.</p>
 <p style="margin:14px 0 0;font-size:12px;color:#8a94a1">
@@ -903,7 +903,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     from argia.store.pgq import psql_exec
     psql_exec(subscriptions.ENSURE_SQL)
@@ -917,7 +917,7 @@ def main(argv=None) -> int:
                      now_mx.strftime("%H:%M"),
                      cost=gather_yesterday_cost(today))
     if not data["rows"]:
-        LOG.error("no active PPA plants found — nothing to report")
+        LOG.error("no active PPA plants found - nothing to report")
         return 1
     text = render_text(data)
     LOG.info("summary: today=%.0f kWh, %d plant(s), %d issue(s)",
@@ -928,16 +928,16 @@ def main(argv=None) -> int:
         out = "/tmp/argia_daily_perf_preview.html"
         with open(out, "w", encoding="utf-8") as fh:
             fh.write(render_html(data))
-        LOG.info("dry-run: HTML preview at %s — nothing sent", out)
+        LOG.info("dry-run: HTML preview at %s - nothing sent", out)
         return 0
 
     rcpt = recipients()
     if not rcpt:
-        LOG.warning("no enabled 'daily' subscribers — nothing sent")
+        LOG.warning("no enabled 'daily' subscribers - nothing sent")
         return 0
     cfg = emailer.load_smtp()
     if not cfg:
-        LOG.error("no SMTP config (/root/.argia_mail) — not sending")
+        LOG.error("no SMTP config (/root/.argia_mail) - not sending")
         return 1
     logo = logo_png()
     msg = emailer.build_html_email(

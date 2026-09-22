@@ -1,4 +1,4 @@
-"""Status-quo harness (v218): is what RUNS on pio06 what is IN GIT — and
+"""Status-quo harness (v218): is what RUNS on pio06 what is IN GIT - and
 does the live system still answer the way the go-live checklist says?
 
     drift_check.py                 # write /root/argia_logs/drift_latest.json, print a summary
@@ -8,22 +8,22 @@ does the live system still answer the way the go-live checklist says?
 Three sections, all pure functions over injected readers (unit-tested
 without a server):
 
-* **files** — every deployed copy (``/opt/argia/bundle``, the systemd
+* **files** - every deployed copy (``/opt/argia/bundle``, the systemd
   units, the nginx vhosts and the auth snippet) byte-compared with its
   source in the repo checkout; deployed files with no source ("extras")
   are listed too, because that is how forgotten CSVs and old bundles
   accumulate;
-* **git** — the server checkout must be at ``origin/main`` and clean
+* **git** - the server checkout must be at ``origin/main`` and clean
   (a hand edit on the server is exactly the failure mode the bundle
   directory was created to end);
-* **smoke** — the public answers the portal must give (401 on /login,
+* **smoke** - the public answers the portal must give (401 on /login,
   302 on /, 301 from the retired domains, 200 for the favicon), the
   age of the last backup and of the portfolio snapshot, every argia
   timer active;
-* **registry** (v229) — the ``inverter`` table vs ``data/inverter_registry.json``
+* **registry** (v229) - the ``inverter`` table vs ``data/inverter_registry.json``
   (which serial is "Inverter N", as the manufacturer names it) and, for
   the SolarEdge plants, the vendor's live equipment list vs the
-  registry (one API call per site) — a renamed or replaced inverter
+  registry (one API call per site) - a renamed or replaced inverter
   shows up here the next morning.
 
 The nightly unit never fails on a finding: it writes the JSON and the
@@ -74,7 +74,7 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("portal-maintenance-wall", "https://portal.argia.com.mx/maintenance/", (302,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),
     ("old-monitoring", "https://monitoring.argia.com.mx/", (301,)),
-    # portfolio.argia.com.mx has no DNS record (checked 2026-09-06) — its
+    # portfolio.argia.com.mx has no DNS record (checked 2026-09-06) - its
     # vhost stays as a 301 map but cannot be probed by name
 ]
 BACKUP_MAX_H = 26.0
@@ -101,7 +101,7 @@ def pairs(repo: str, bundle_files: Sequence[str]) -> List[Tuple[str, str]]:
 
 def unmapped(bundle_files: Sequence[str]) -> List[str]:
     """Bundle files that are neither deployed by a rule nor declared
-    NOT_DEPLOYED — a new file type someone forgot to wire."""
+    NOT_DEPLOYED - a new file type someone forgot to wire."""
     mapped = {os.path.basename(s) for s, _ in pairs("", bundle_files)} | NOT_DEPLOYED | {"__pycache__"}
     return sorted(n for n in bundle_files if n not in mapped)
 
@@ -109,7 +109,7 @@ def unmapped(bundle_files: Sequence[str]) -> List[str]:
 def compare(pairs_: Sequence[Tuple[str, str]],
             read: Callable[[str], Optional[bytes]]) -> List[Dict[str, str]]:
     """[{src, dst, status}] with status same | diff | missing (deployed
-    copy absent) | no-source (repo file absent — a deploy would delete)."""
+    copy absent) | no-source (repo file absent - a deploy would delete)."""
     out = []
     for src, dst in pairs_:
         a, b = read(src), read(dst)
@@ -142,7 +142,7 @@ def judge_age(name: str, age_h: Optional[float], max_h: float = BACKUP_MAX_H) ->
 
 
 def findings(report: dict) -> List[str]:
-    """One line per problem — what the alert mailer shows. Pure."""
+    """One line per problem - what the alert mailer shows. Pure."""
     out: List[str] = []
     g = report.get("git") or {}
     if g.get("head") and g.get("origin") and g["head"] != g["origin"]:
@@ -219,7 +219,7 @@ def timers_inactive() -> List[str]:
 
 def registry_findings(repo: str) -> List[str]:
     """Table vs registry file, plus the SolarEdge live lists. A database
-    or API problem is itself a finding — never an exception."""
+    or API problem is itself a finding - never an exception."""
     try:
         sys.path.insert(0, os.path.join(repo, "v2", "scripts"))
         from argia.core import inverter_registry as R

@@ -260,7 +260,7 @@ class TestLoadPortfolioNewFields:
         assert portfolio.plants["QRO1"].module_count == 1110
 
     def test_negative_values_load_as_given(self):
-        """The loader doesn't validate ranges — that's Stage 7.2's job.
+        """The loader doesn't validate ranges - that's Stage 7.2's job.
         Negative tilt is meaningless physically but loads fine."""
         row = _old_plant_row()
         row["tilt_deg"] = "-15"

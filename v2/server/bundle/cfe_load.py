@@ -4,7 +4,7 @@
 Usage:  python3 cfe_load.py <csv> <source-tag>
         source-tag: master_db_10 (seed) | cfe_scrape (official monthly fetch)
 
-Upsert rule: a cfe_scrape row is authoritative — a seed load never overwrites
+Upsert rule: a cfe_scrape row is authoritative - a seed load never overwrites
 it; a scrape load overwrites anything. PK (tariff_code, region, month, charge_type).
 """
 import csv

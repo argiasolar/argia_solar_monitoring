@@ -1,4 +1,4 @@
-"""Unit tests — argia.alerts.emailer + argia.alerts.monitor (pure parts)."""
+"""Unit tests - argia.alerts.emailer + argia.alerts.monitor (pure parts)."""
 
 import datetime as dt
 

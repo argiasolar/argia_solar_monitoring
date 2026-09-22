@@ -1,10 +1,10 @@
-"""Ticket notifications (v227) — one place for the app, the daily job
+"""Ticket notifications (v227) - one place for the app, the daily job
 and the mail-in job to tell the participants what changed.
 
 Participants are portal usernames or bare e-mail addresses (external
 technicians, customer contacts). The subject starts with ``[TK-NL1-0007]``
 so a reply threads and ``scripts/ticket_mail_in.py`` can file it as a
-comment on the ticket. Never raises — a mail problem must not break the
+comment on the ticket. Never raises - a mail problem must not break the
 ticket action.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ USERS_DB = "/opt/argia/auth/users.db"
 
 def account_lookups(db_path: str = USERS_DB):
     """(email_of, name_of) reading the portal's users.db directly (no
-    Flask) — for the jobs. Unknown usernames and bare e-mails resolve to
+    Flask) - for the jobs. Unknown usernames and bare e-mails resolve to
     themselves."""
     import sqlite3
     rows = {}
@@ -57,12 +57,12 @@ def address_of(identity: str, email_lookup: Callable[[str], str]) -> str:
 def render(t: TK.Ticket, who_name: str, what: str, detail: str, plant: str, inverter: str,
            assignee_name: str, reply_hint: bool = True):
     """(subject, text, html) for one change. Pure."""
-    subject = f"[{t.number}] {plant}: {t.title} — {TK.STATUS_LABEL.get(t.status, t.status)}"
+    subject = f"[{t.number}] {plant}: {t.title} - {TK.STATUS_LABEL.get(t.status, t.status)}"
     url = f"{PORTAL}/maintenance/t/{t.number}/"
     hint = "Reply to this mail to add a comment to the ticket." if reply_hint else ""
     text = (f"{what}\n{detail}\n\n{t.number} · {plant}" + (f" · {inverter}" if inverter else "")
             + f"\n{t.title}\nStatus: {TK.STATUS_LABEL.get(t.status, t.status)} · Priority: {t.priority}"
-            f" · Assigned: {assignee_name or '—'}\nBy: {who_name}\n\n{url}\n" + (f"\n{hint}\n" if hint else ""))
+            f" · Assigned: {assignee_name or ' - '}\nBy: {who_name}\n\n{url}\n" + (f"\n{hint}\n" if hint else ""))
     e = html.escape
     htm = (f'<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a19;max-width:640px">'
            f'<div style="font-size:12px;color:#5f6368">{e(t.number)} · {e(plant)}' + (f' · {e(inverter)}' if inverter else '')
@@ -71,7 +71,7 @@ def render(t: TK.Ticket, who_name: str, what: str, detail: str, plant: str, inve
            + (f'<div style="margin-top:4px;white-space:pre-wrap">{e(detail)}</div>' if detail else '')
            + f'<div style="margin-top:6px;color:#5f6368;font-size:12px">by {e(who_name)}</div></div>'
            f'<div style="font-size:13px;color:#41474f">Status <b>{e(TK.STATUS_LABEL.get(t.status, t.status))}</b> · '
-           f'Priority <b>{e(t.priority)}</b> · Assigned <b>{e(assignee_name or "—")}</b></div>'
+           f'Priority <b>{e(t.priority)}</b> · Assigned <b>{e(assignee_name or " - ")}</b></div>'
            f'<p><a href="{url}">{url}</a></p>'
            + (f'<p style="font-size:12px;color:#9aa0a6">{e(hint)}</p>' if hint else '') + '</div>')
     return subject, text, htm

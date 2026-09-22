@@ -1,4 +1,4 @@
-# Stage 2 Runbook — Wire Growatt web client into the facade
+# Stage 2 Runbook - Wire Growatt web client into the facade
 
 Status: complete. 140 unit tests passing (was 106 in Stage 1; +34 facade tests).
 
@@ -31,7 +31,7 @@ v2/docs/stage2_runbook.md                  # this file
 ```
 
 If you applied Stage 1 already, the three Stage 1 files just overwrite with
-identical content — `git diff` will show no changes for them. Apply atomically
+identical content - `git diff` will show no changes for them. Apply atomically
 in one shot is fine.
 
 ## Apply the patch
@@ -67,7 +67,7 @@ PYTHONPATH=. pytest -v
 
 Expected: at least 140 tests collected for the Growatt-related files;
 **all green**. Your full v2 suite (including Huawei, SolarEdge, orchestrator,
-factory, etc.) should still pass — Stage 2 did not touch any of those.
+factory, etc.) should still pass - Stage 2 did not touch any of those.
 
 If your repo's total was around 317 tests after the earlier patch, expect
 roughly 351 now (+34 from the new facade tests, +106 from Stage 1, minus the
@@ -97,7 +97,7 @@ This triggers `v2-tests` automatically. Expected: green check.
 ### Why per-inverter `getMAXHistory` instead of one device-list call
 
 The old code tried `/device/getMAXList` (and 3 other variants). For the
-TAIGENE plant we know Growatt's `getDevicesByPlant` is buggy — it returns
+TAIGENE plant we know Growatt's `getDevicesByPlant` is buggy - it returns
 only one of the four inverters per call. Even when those endpoints worked,
 they were returning sparse data.
 
@@ -107,19 +107,19 @@ delay between (`PER_INVERTER_DELAY_SEC`). Total wall time ≈ 1.2 seconds.
 Acceptable for a 10-minute snapshot cron and far more reliable.
 
 If perf becomes an issue later, the optimisation is to pass `start=N` (a high
-sample index) to skip ahead — `getMAXHistory` paginates from the start of
+sample index) to skip ahead - `getMAXHistory` paginates from the start of
 day. Not worth doing yet; simplicity wins.
 
 ### Why the web path now refuses non-today dates
 
-`getMAXTotalData` has no date parameter — Growatt always returns plant
+`getMAXTotalData` has no date parameter - Growatt always returns plant
 eToday in plant local time. The old HTML scraper had the same limitation
 (it scraped today's value off the dashboard) but didn't say so out loud.
 Stage 2 makes the contract explicit: ask for today, get today; ask for
 yesterday, get `None`.
 
 If you ever need historical day totals from the web path, the right
-endpoint is `getMAXDayChart` — 288 five-minute slots that can be summed.
+endpoint is `getMAXDayChart` - 288 five-minute slots that can be summed.
 The parser already returns this as `List[float]`. Wire it in then.
 
 ### Why the Open API path was not touched
@@ -130,12 +130,12 @@ Stage 2 is only about the fallback. Open API tests are identical to before.
 
 ### Errors: two namespaces, one orchestrator contract
 
-`growatt_web.py` has its own `GrowattAuthError` and `GrowattAPIError` — they
+`growatt_web.py` has its own `GrowattAuthError` and `GrowattAPIError` - they
 fire when the web client fails. The facade catches them and either falls
 back (during Open API → web transition) or returns `None` / `[]`.
 
 The facade ALSO has `GrowattAuthError` and `GrowattAPIError` of the same
-name — they fire from the Open API path. They are different classes (same
+name - they fire from the Open API path. They are different classes (same
 name, different module). The orchestrator-facing contract is unchanged:
 `fetch_day_kwh` never raises, returns `Optional[float]`. The exception
 plumbing is internal.
@@ -148,15 +148,15 @@ correctness issue.
 
 `GrowattWebClient` is built lazily on first web call. Pure Open API
 accounts never instantiate it. Web-only accounts build it once and reuse
-across plants. The `login()` method inside the web client is idempotent —
-a no-op after the first success — so the facade can call it on every fetch
+across plants. The `login()` method inside the web client is idempotent -
+a no-op after the first success - so the facade can call it on every fetch
 without thinking about whether we're already logged in.
 
 Test `test_web_client_cached_across_calls` pins this behaviour: two
 sequential `fetch_day_kwh` calls produce exactly one `GrowattWebClient`
 instantiation.
 
-## Honest non-goals — what Stage 2 deliberately does NOT do
+## Honest non-goals - what Stage 2 deliberately does NOT do
 
 - **Live integration test in CI.** Still no real Growatt creds in CI. The
   140 unit tests are the contract; if Growatt changes their wire format,
@@ -176,10 +176,10 @@ instantiation.
 
 If Growatt changes wire format, the failure order is approximately:
 
-1. **Stage 1 envelope/parser tests** trip first — `TestEnvelopeUnwrap`,
+1. **Stage 1 envelope/parser tests** trip first - `TestEnvelopeUnwrap`,
    `TestParseMaxHistory::test_raw_dict_preserves_all_fields`. Failure here
    means "Growatt changed the envelope or stripped fields".
-2. **Stage 2 web-fallback tests** trip next — `TestWebDayKwh::test_returns_etoday_from_fixture`
+2. **Stage 2 web-fallback tests** trip next - `TestWebDayKwh::test_returns_etoday_from_fixture`
    uses a real fixture, so if `parse_max_total_data` starts returning `None`,
    the facade test fails before the orchestrator ever runs.
 3. **Stage 2 lazy-init test** trips if `GrowattWebClient.__init__` signature
@@ -193,7 +193,7 @@ If a Growatt API change requires re-capturing fixtures: re-run
 
 Suggested order, smallest-risk first:
 
-1. Wire `parse_alert_plant_event` into a new orchestrator pre-flight check —
+1. Wire `parse_alert_plant_event` into a new orchestrator pre-flight check -
    surfaces active Growatt alerts in HealthLog before they cascade into
    missing data.
 2. Wire `parse_max_day_chart` for historical day totals on the web path

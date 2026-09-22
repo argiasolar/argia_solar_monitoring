@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — daily alert evaluation (plan #5).
+"""Argia_Mont - daily alert evaluation (plan #5).
 
 Runs AFTER kpi_eod (which stamps energy / specific_yield / expected_kwh /
 data_class). Evaluates yesterday's full-day aggregates through the three
@@ -7,13 +7,13 @@ performance detectors, reconciles against the Alerts ledger, and persists
 open/touch/resolve transitions as rows in the Alerts tab.
 
 Layers evaluated:
-  1. inverter_relative  — inverter daily energy vs plant-peer MEDIAN
-  2. plant_twin_yield   — specific yield vs regional twin (SLP pair, MEX pair)
-  3. energy_daily_pct   — plant energy vs expected_kwh
+  1. inverter_relative  - inverter daily energy vs plant-peer MEDIAN
+  2. plant_twin_yield   - specific yield vs regional twin (SLP pair, MEX pair)
+  3. energy_daily_pct   - plant energy vs expected_kwh
 
 Data-quality gate: layers 2 and 3 only run for plants whose KPI_Daily
 data_class is "full". An undercounted partial day must not fire plant
-alerts. Layer 1 runs regardless — peers share the same window.
+alerts. Layer 1 runs regardless - peers share the same window.
 
 USAGE
     PYTHONPATH=. python scripts/alerts_daily.py                # yesterday
@@ -141,7 +141,7 @@ def split_string_samples(rows, date_iso: str, base_start: str, active_keys):
 
 def _read_string_samples(portfolio, date_iso: str):
     """Read str_break/str_unmatch/str_unblance from ``telemetry_detail``
-    (v207 — the per-plant sheet tabs are gone) for the day and its
+    (v207 - the per-plant sheet tabs are gone) for the day and its
     trailing baseline. A PG read failure degrades to no string samples,
     but LOUDLY (WARNING): silence here is exactly what v199–v206 got
     wrong."""
@@ -153,7 +153,7 @@ def _read_string_samples(portfolio, date_iso: str):
     try:
         rows = pg_detail.read_string_flags(base_start, date_iso)
     except Exception as e:  # noqa: BLE001
-        log.warning("string flags: telemetry_detail unreadable (%s) — "
+        log.warning("string flags: telemetry_detail unreadable (%s) - "
                     "string rule skipped for %s", e, date_iso)
         return [], []
     active = {p.plant_key for p in portfolio.active_plants()}
@@ -214,13 +214,13 @@ TEMP_CLEAR_C = 60.0
 """v202 hysteresis: an OPEN temperature alert stays open (WARNING) while
 the day-peak is still above this, and resolves only after a full day
 below it. MEX1 (peaks 57-71 degC) used to open, resolve two days later
-and re-open — one mail per cycle — for what is one condition."""
+and re-open - one mail per cycle - for what is one condition."""
 
 
 def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay]:
     """thermal_daily rows of the day (argia-thermal ran at 01:10 MX):
     the measured derating evidence behind a day-peak temperature. Empty
-    on any failure — the rule then stays at WARNING (v220)."""
+    on any failure - the rule then stays at WARNING (v220)."""
     from argia.store.pgq import psql_rows
     out: Dict[Tuple[str, str], EV.ThermalDay] = {}
     try:
@@ -228,7 +228,7 @@ def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay
                          " energy_kwh, coalesce(vendor_derating_minutes,0)"
                          f" FROM thermal_daily WHERE prod_date = DATE '{date_iso}';")
     except Exception as e:  # noqa: BLE001
-        log.warning("thermal evidence unreadable (%s) — temperature alerts stay WARNING", e)
+        log.warning("thermal evidence unreadable (%s) - temperature alerts stay WARNING", e)
         return out
     for r in rows:
         if len(r) >= 5 and r[0] and r[1]:
@@ -244,7 +244,7 @@ def _read_thermal_evidence(date_iso: str) -> Dict[Tuple[str, str], EV.ThermalDay
 def _read_string_evidence(date_iso: str) -> Dict[Tuple[str, str], dict]:
     """string_daily (kind='string') for the day and its trailing baseline:
     per inverter {"today": [(channel, share)], "base": {channel: [share…]}}
-    — each string against its own history (v220)."""
+    - each string against its own history (v220)."""
     from argia.store.pgq import psql_rows
     out: Dict[Tuple[str, str], dict] = {}
     try:
@@ -252,7 +252,7 @@ def _read_string_evidence(date_iso: str) -> Dict[Tuple[str, str], dict]:
                          f" WHERE prod_date BETWEEN DATE '{date_iso}' - {STRING_BASELINE_DAYS}"
                          f" AND DATE '{date_iso}' AND kind = 'string';")
     except Exception as e:  # noqa: BLE001
-        log.warning("string evidence unreadable (%s) — string flags without current data", e)
+        log.warning("string evidence unreadable (%s) - string flags without current data", e)
         return out
     for r in rows:
         if len(r) >= 5 and r[0] and r[1]:
@@ -271,14 +271,14 @@ def _read_string_evidence(date_iso: str) -> Dict[Tuple[str, str], dict]:
 def string_candidate_with_evidence(b, readings, string_rows) -> Candidate:
     """v220: a new string-diagnostic bit is a WARNING only when the day's
     data shows a loss (a string far below its siblings, or the inverter
-    below its plant peers); otherwise INFO — kept in the ledger and on
+    below its plant peers); otherwise INFO - kept in the ledger and on
     the portal, never mailed. The message carries the numbers."""
     ratio = EV.peer_ratio(readings, b.plant_key, b.inverter_sn)
     ent = string_rows.get((b.plant_key, b.inverter_sn)) or {"today": [], "base": {}}
     weak, judged = EV.weak_strings(ent["today"], ent["base"])
     sev, evidence = EV.string_severity(ratio, weak, judged)
     c = candidate_from_string_breach(b)
-    msg = c.message.rsplit(" [", 1)[0] + f" — {evidence} [{sev}]"
+    msg = c.message.rsplit(" [", 1)[0] + f" - {evidence} [{sev}]"
     return Candidate(alert_key=c.alert_key, plant_key=c.plant_key, inverter_sn=c.inverter_sn,
                      metric=c.metric, severity=sev, value=None if ratio is None else round(ratio, 3),
                      threshold=None, message=msg)
@@ -288,7 +288,7 @@ def daily_temp_candidates(bundle, portfolio,
                           open_keys=frozenset(), evidence=None) -> List[Candidate]:
     """Daily owner of inverter_temp_high: fires on the day's MAX temperature,
     so an acute-opened alert resolves once a full day stays below the
-    CLEAR level (60 degC) — below WARN alone is not enough for a key in
+    CLEAR level (60 degC) - below WARN alone is not enough for a key in
     ``open_keys`` (the ledger's OPEN temperature alerts)."""
     from argia.core.alerts_state import make_inverter_alert_key
     out: List[Candidate] = []
@@ -309,7 +309,7 @@ def daily_temp_candidates(bundle, portfolio,
                         severity="WARNING", value=round(t, 1),
                         threshold=TEMP_WARN_C,
                         message=(f"{plant.plant_key} {sn}: day-peak temperature "
-                                 f"{t:.1f} degC — still above the clear level "
+                                 f"{t:.1f} degC - still above the clear level "
                                  f"{TEMP_CLEAR_C:.0f} [WARNING]"),
                     ))
                 continue
@@ -323,7 +323,7 @@ def daily_temp_candidates(bundle, portfolio,
                 severity=sev,
                 value=round(t, 1), threshold=TEMP_HIGH_C if crit else TEMP_WARN_C,
                 message=(f"{plant.plant_key} {sn}: day-peak temperature "
-                         f"{t:.1f} degC — {ev_txt} [{sev}]"),
+                         f"{t:.1f} degC - {ev_txt} [{sev}]"),
             ))
     return out
 
@@ -331,7 +331,7 @@ def daily_temp_candidates(bundle, portfolio,
 def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]:
     """Daily owner of inverter_silent (v203): every daylight gap of one
     inverter while its siblings produced, classified through the vendor
-    counter — comms-only (WARNING) or the unit was OFF (CRITICAL). v223:
+    counter - comms-only (WARNING) or the unit was OFF (CRITICAL). v223:
     fleet-wide blanks (the collector) are excluded first."""
     from argia.analytics.silent import collector_windows, evaluate_silent_gaps
     from argia.core.alerts_state import make_inverter_alert_key
@@ -341,7 +341,7 @@ def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]
     windows = collector_windows({p.plant_key: [r.timestamp_utc for r in bundle.rows_for_plant(p.plant_key)]
                                  for p in portfolio.active_plants()})
     for a, b in windows:
-        log.info("collector blank %s-%s MX (fleet-wide) — inverter gaps inside it are not alerts",
+        log.info("collector blank %s-%s MX (fleet-wide) - inverter gaps inside it are not alerts",
                  a.astimezone(MX_TZ).strftime("%H:%M"), b.astimezone(MX_TZ).strftime("%H:%M"))
     out: List[Candidate] = []
     for plant in portfolio.active_plants():
@@ -422,12 +422,12 @@ def _ticket_notify(t, what, detail=""):
 
 def _attach_to_tickets(records, open_tickets, dry_run: bool = False) -> int:
     """v226/v227: an alert opened or touched today that belongs to an open
-    ticket — by alert_key, or by the ASSET (same plant + inverter, or the
-    plant itself for a plant-level alert) — is an occurrence on that
+    ticket - by alert_key, or by the ASSET (same plant + inverter, or the
+    plant itself for a plant-level alert) - is an occurrence on that
     ticket: counted in ticket_alert (which links it from now on) and
     written to the timeline as an 'alert' event (actor 'monitoring'). So
     once a ticket exists for an inverter, its warnings are never repeated
-    in the mail — the ticket's progress is."""
+    in the mail - the ticket's progress is."""
     if not open_tickets:
         return 0
     from argia.maintenance import tickets as TK
@@ -523,12 +523,12 @@ def main(argv=None) -> int:
         n_rows += len(rows)
         # compute_plant_energy returns sn -> EnergyDay (an object); the
         # detector wants the day's kWh as a plain float. energy_kwh is
-        # None when the day had too little data for that inverter — skip
+        # None when the day had too little data for that inverter - skip
         # those rather than feeding the detector a fake 0 (an inverter
         # with NO data is a data-quality problem, not "producing zero").
         for sn, eday in compute_plant_energy(rows).items():
             if eday.energy_kwh is None:
-                log.info("[%s] %s: no computable energy for %s — skipped",
+                log.info("[%s] %s: no computable energy for %s - skipped",
                          plant.plant_key, sn, date_iso)
                 continue
             readings.append(InverterReading(
@@ -536,7 +536,7 @@ def main(argv=None) -> int:
                 value=eday.energy_kwh, rated_kw=rated.get(sn),
             ))
     if not readings:
-        log.warning("no telemetry for %s — nothing evaluated", date_iso)
+        log.warning("no telemetry for %s - nothing evaluated", date_iso)
         return 2
 
     # --- vendor fault codes: same bundle rows, zero extra reads ---
@@ -583,7 +583,7 @@ def main(argv=None) -> int:
         log.info("no breaches today")
 
     # v92: suppress plant-level "down / underproducing" candidates for
-    # plants in a logged maintenance window — the plant does not open (or
+    # plants in a logged maintenance window - the plant does not open (or
     # re-open) a critical; the daily report shows a maintenance badge
     # instead. Approval-independent: a logged window (draft or approved)
     # means the operator already knows.
@@ -618,7 +618,7 @@ def main(argv=None) -> int:
     for line in digest.log_lines():
         log.info("%s", line)
 
-    # v196/v223: the ONE morning mail — new WARNING/CRITICAL alerts grouped
+    # v196/v223: the ONE morning mail - new WARNING/CRITICAL alerts grouped
     # plant -> issue -> inverters, the still-open reminder, explanations
     # once per issue type. Mailed records come back with 'email' in
     # channels_sent.
@@ -644,7 +644,7 @@ def main(argv=None) -> int:
         n = write_ledger(sheets, records)
         log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:
-        log.info("ledger unchanged — nothing written")
+        log.info("ledger unchanged - nothing written")
     return 0
 
 

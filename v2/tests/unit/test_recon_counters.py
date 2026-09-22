@@ -1,4 +1,4 @@
-"""Unit tests — argia.recon.counters (parsers + snapshot SQL)."""
+"""Unit tests - argia.recon.counters (parsers + snapshot SQL)."""
 
 from argia.recon.counters import (
     CounterSnapshot,

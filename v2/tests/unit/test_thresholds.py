@@ -57,7 +57,7 @@ class TestConstants:
 
 
 # ============================================================
-# load_thresholds — basic parsing
+# load_thresholds - basic parsing
 # ============================================================
 
 
@@ -142,7 +142,7 @@ class TestLoadValidation:
         assert len(ts.all_thresholds) == 0
 
     def test_duration_with_zero_duration_min_skipped(self):
-        """A duration condition with duration_min=0 would never fire —
+        """A duration condition with duration_min=0 would never fire -
         must be filtered as malformed."""
         sheets = _mock_sheets([_row(
             metric="inverter_offline", condition="duration",

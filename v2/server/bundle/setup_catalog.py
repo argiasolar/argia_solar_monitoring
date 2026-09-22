@@ -1,14 +1,14 @@
-"""The admin catalog — pure helpers (v200, phase 4).
+"""The admin catalog - pure helpers (v200, phase 4).
 
 The /setup/ panel is a card file: one colour-coded DRAWER per domain,
-TABS inside a drawer, and on a tab index CARDS — each card the edit
+TABS inside a drawer, and on a tab index CARDS - each card the edit
 form (or the read-only view) of exactly one thing. This module holds
 the model and every pure piece of it (no Flask, no psql, no I/O) so the
 unit tests can exercise what ships; ``setup_app.py`` assembles the
 drawers from it.
 
 URLs: nginx proxies ``/setup/`` to the app root, so a drawer lives at
-``/setup/<drawer>/`` and its tabs are anchors on that page —
+``/setup/<drawer>/`` and its tabs are anchors on that page -
 ``/setup/finance/#loans``. Nothing about deployment changes.
 """
 from __future__ import annotations
@@ -27,8 +27,8 @@ DRAWERS: List[Dict] = [
               ("mail", "Email subscriptions", "Suscripciones de correo"),
               ("ask", "Ask ARGIA", "Ask ARGIA")]},
     {"key": "plants", "en": "Plants", "es": "Plantas", "color": "#1e8e3e",
-     "sub_en": "The fleet as the system knows it — plants, inverters, expectations, maintenance.",
-     "sub_es": "La flota como la conoce el sistema — plantas, inversores, expectativas, mantenimiento.",
+     "sub_en": "The fleet as the system knows it - plants, inverters, expectations, maintenance.",
+     "sub_es": "La flota como la conoce el sistema - plantas, inversores, expectativas, mantenimiento.",
      "tabs": [("plants", "Plants", "Plantas"),
               ("inverters", "Inverters", "Inversores"),
               ("settings", "Expected production & tariff", "Producción esperada y tarifa"),
@@ -50,8 +50,8 @@ DRAWERS: List[Dict] = [
               ("status", "Tariff status", "Estado de tarifas"),
               ("push", "Engine push", "Envío al Engine")]},
     {"key": "system", "en": "System", "es": "Sistema", "color": "#5f6368",
-     "sub_en": "Jobs, backups, exports, usage — and where every dataset comes from.",
-     "sub_es": "Tareas, respaldos, exportaciones, uso — y de dónde viene cada dato.",
+     "sub_en": "Jobs, backups, exports, usage - and where every dataset comes from.",
+     "sub_es": "Tareas, respaldos, exportaciones, uso - y de dónde viene cada dato.",
      "tabs": [("jobs", "Jobs & timers", "Tareas y temporizadores"),
               ("runs", "Last runs", "Últimas ejecuciones"),
               ("backups", "Backups", "Respaldos"),
@@ -232,7 +232,7 @@ ID_KEYS = ("GOOGLE_SHEET_ID_V2", "ARGIA_SOLAR_SHEET_ID")
 
 def parse_env_switches(text: str) -> Dict[str, str]:
     """Only the ARGIA_* data-source switches and whether the two sheet
-    ids are SET — never a value of anything else (the env file also holds
+    ids are SET - never a value of anything else (the env file also holds
     secrets). Pure."""
     out: Dict[str, str] = {}
     keys = {k for k, _, _ in SWITCH_META}
@@ -280,7 +280,7 @@ def sheet_still_needed(sw: Dict[str, str]) -> List[str]:
 
 
 def sources_card_html(sw: Dict[str, str]) -> str:
-    """The 'Data sources' card — the Sheets cut, visible. Pure."""
+    """The 'Data sources' card - the Sheets cut, visible. Pure."""
     rows = "".join(
         f'<tr><td><code>{_e(n)}</code></td><td><b class="{"ok" if ok else "warn"}">{_e(v)}</b></td>'
         f'<td>{_e(what)}</td></tr>'

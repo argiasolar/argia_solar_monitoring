@@ -1,4 +1,4 @@
-"""Alert engine — plan #5 (the missing middle of Stage 7.4).
+"""Alert engine - plan #5 (the missing middle of Stage 7.4).
 
 Turns detector breaches into Alerts-tab rows via the existing state store.
 
@@ -15,7 +15,7 @@ so the transient single-sample zeros that plagued snapshot power cannot
 fire anything. A breach means the condition held at day granularity.
 
 Data-quality gate: plant-level candidates are only built from days whose
-``data_class`` is "full" — an undercounted partial day (June-30 case:
+``data_class`` is "full" - an undercounted partial day (June-30 case:
 whole fleet at -35%) must not fire energy alerts. Inverter-relative is
 exempt: peers share the same partial window, so the comparison stays fair.
 """
@@ -42,7 +42,7 @@ from argia.core.alerts_state import (
 LOG = logging.getLogger("argia.alerts.engine")
 
 # Metrics this engine owns. Only alerts with these metrics are auto-resolved
-# when absent from today's candidates — anything else in the ledger (manual
+# when absent from today's candidates - anything else in the ledger (manual
 # rows, future engines) is left strictly alone.
 ENGINE_METRICS = frozenset({
     "data_stale",
@@ -56,13 +56,13 @@ ENGINE_METRICS = frozenset({
     "inverter_silent",
 })
 
-# v92 — metrics a maintenance window EXPLAINS. When a plant is in a logged
+# v92 - metrics a maintenance window EXPLAINS. When a plant is in a logged
 # maintenance window, these plant-level "it's down / underproducing"
 # conditions are expected, so their candidates are dropped before
 # reconcile: the plant does not open (or re-open) a critical, and the
 # daily report shows a maintenance badge instead. Hardware-specific faults
 # (inverter_fault / inverter_temp_high / string_fault / inverter_relative)
-# are intentionally NOT here — a genuine fault during maintenance is still
+# are intentionally NOT here - a genuine fault during maintenance is still
 # worth surfacing.
 MAINTENANCE_SUPPRESSED_METRICS = frozenset({
     "energy_daily_pct",
@@ -84,7 +84,7 @@ def apply_maintenance_suppression(
 
     Dropping a suppressed candidate means: no new alert opens for it, and
     on the DAILY tier (resolve_missing=True) any existing open alert for
-    that key resolves — correct, the condition is acknowledged as
+    that key resolves - correct, the condition is acknowledged as
     maintenance, and the event tab is the record of why.
     """
     kept, suppressed = [], []
@@ -131,7 +131,7 @@ def _catalog_suffix(codes: str) -> str:
         return ""
     from argia.alerts.fault_catalog import explain_fault
     text = explain_fault("GROWATT", codes) or ""
-    return f" — {text}" if text.startswith("Growatt error") else ""
+    return f" - {text}" if text.startswith("Growatt error") else ""
 
 
 def candidate_from_fault_breach(b) -> Candidate:
@@ -253,12 +253,12 @@ def reconcile_alerts(
       candidates -> RESOLVE it, but ONLY when ``resolve_missing`` is True.
       The ACUTE (per-snapshot) tier runs with ``resolve_missing=False``: a
       fault seen at 10:00 must not flap to RESOLVED at 10:05 because one
-      snapshot lacked the token — the DAILY run is the single owner of
+      snapshot lacked the token - the DAILY run is the single owner of
       resolution, arbitrating on full-day aggregates.
     - records with other metrics, or already RESOLVED -> untouched
     - duplicate candidates for one key: keep the worst (CRITICAL > WARNING)
 
-    Ledger order is preserved; new rows append at the end — the sheet is an
+    Ledger order is preserved; new rows append at the end - the sheet is an
     append-plus-in-place-update history, rows never move or vanish.
     """
     # Worst-severity dedupe of candidates by key.
@@ -284,7 +284,7 @@ def reconcile_alerts(
                     < _RANK.get(rec.severity, 0)):
                 # v202: the ACUTE tier never de-escalates. One cooler
                 # sample after a CRITICAL one is the afternoon, not a
-                # recovery — NL1 (81 degC at noon) sat at WARNING for ten
+                # recovery - NL1 (81 degC at noon) sat at WARNING for ten
                 # days because every evening snapshot rewrote it. The
                 # DAILY run, judging the whole day, is the only tier that
                 # may lower a severity (or resolve). Keep value/message
@@ -316,7 +316,7 @@ def reconcile_alerts(
             new = resolve_alert(rec, now_utc)
             records[i] = new
             resolved.append(new)
-        # else: not ours — leave strictly alone
+        # else: not ours - leave strictly alone
 
     # Brand-new conditions.
     seq = len(records) + 1

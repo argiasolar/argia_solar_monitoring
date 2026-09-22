@@ -1,21 +1,21 @@
-"""Acute (per-snapshot) detectors — conditions trustworthy from ONE sample.
+"""Acute (per-snapshot) detectors - conditions trustworthy from ONE sample.
 
 These run every telemetry collection during daylight, so a plant that dies
 at 09:00 raises a hand within the next cycle instead of tomorrow 06:30.
-Selection rule: only conditions where a SINGLE snapshot is evidence —
+Selection rule: only conditions where a SINGLE snapshot is evidence -
 
 - inverter_fault      device self-diagnosed fault token in its latest sample
 - inverter_temp_high  thermal mass makes one high reading real, not noise
 - plant_offline       the WHOLE plant at 0 W mid-daylight; all inverters
                       simultaneously is never a transient. (A single
-                      inverter at 0 IS transient — proven repeatedly — so
+                      inverter at 0 IS transient - proven repeatedly - so
                       per-inverter zero stays daily-only via the relative
                       detector.)
 - data_stale (acute)  the plant's newest sample is older than N minutes of
                       daylight; stateless, tolerant of one flaky poll.
 
 The acute tier only OPENS/TOUCHES alerts (engine ``resolve_missing=False``).
-The DAILY run owns resolution, arbitrating on full-day aggregates — this
+The DAILY run owns resolution, arbitrating on full-day aggregates - this
 one-way design makes flapping structurally impossible.
 """
 
@@ -39,7 +39,7 @@ FRESH_WINDOW_MIN = 45
 
 # Vendor-fault look-back: faults are judged over ALL samples in this
 # window, not just the latest one. A self-recovering trip (JFM5D8900B
-# FT=302, 2026-07-09, 13:06-13:11 MX — two samples, cleared before the
+# FT=302, 2026-07-09, 13:06-13:11 MX - two samples, cleared before the
 # 13:30 tick) was structurally invisible to latest-sample-only
 # evaluation. 35 min covers the 30-min tick cadence plus jitter; the
 # evidence bar is MIN_FAULT_SAMPLES faulted samples in the window,
@@ -61,24 +61,24 @@ TEMP_PEER_DT_C = 5.0
 >= 65 WARNING; CRITICAL only when the unit is >= 70, hotter than its
 plant peers by TEMP_PEER_DT_C (or alone) AND measurably producing at
 least evidence.THERMAL_LOSS_CRIT_PCT less per rated kW than its cooler
-peers — Tomasz 2026-09-07: "if the production stays the same as an
+peers - Tomasz 2026-09-07: "if the production stays the same as an
 inverter that is not so hot, keep it a warning". Plant-wide heat and a
 hot unit without a measured loss stay WARNING whatever the temperature
 (TEMP_CRIT_C is now only the top band label). The message always states
 the evidence: the peer deviation and the measured shortfall, or that no
 cooler peer exists to measure it. v222: when the inverter's own
 DeratingMode (Growatt, telemetry_detail) is Tinv/Tboost in its newest
-fresh sample, that is quoted first and makes a >= 70 unit CRITICAL —
+fresh sample, that is quoted first and makes a >= 70 unit CRITICAL -
 the device confirming the loss beats any peer comparison."""
 
 ACUTE_STALE_MIN = 120
 """No sample for a plant in this many daylight minutes -> acute data gap.
 Generous vs GitHub's jittery cadence (verified 1-2 h gaps are normal)."""
 
-# v203 — one inverter silent while its siblings produce (SLP2 2026-09-04:
+# v203 - one inverter silent while its siblings produce (SLP2 2026-09-04:
 # Inverter 1 sent nothing 14:20-19:59 MX while Inverter 2 reported
 # 105 kW; the portal said "stale", nobody was told). Per-inverter ZERO
-# stays daily-only (transient) — per-inverter SILENCE next to a
+# stays daily-only (transient) - per-inverter SILENCE next to a
 # producing sibling is not transient at 45 min.
 SILENT_WARN_MIN = 45
 SILENT_CRIT_MIN = 180
@@ -92,7 +92,7 @@ DAYLIGHT_END_HOUR = 20
 def vendor_thermal_state(rows, interval_min: int = INTERVAL_MIN) -> Dict[Tuple[str, str], Tuple[dt.datetime, str, int]]:
     """Reduce (ts_utc, plant_key, inverter_sn, derating_mode) rows of the
     telemetry_detail tail to {(plant, sn): (newest ts, mode label, minutes
-    in a thermal mode over the tail)} — only for units whose NEWEST
+    in a thermal mode over the tail)} - only for units whose NEWEST
     sample is in a thermal mode (Tinv/Tboost); a unit that has already
     left the mode is not derating now. Pure."""
     newest: Dict[Tuple[str, str], Tuple[dt.datetime, Optional[str]]] = {}
@@ -152,16 +152,16 @@ def evaluate_acute(
     """Evaluate the acute conditions against the newest samples.
 
     ``configured_inverters`` ({plant: [sn]} of ACTIVE, in-service units)
-    enables the per-inverter silence check — an inverter absent from the
+    enables the per-inverter silence check - an inverter absent from the
     tail is only reportable when the caller says how long the tail is
     (``absent_gap_hours``).
 
     ``samples`` is [(timestamp_utc, plant_key, inverter_sn, power_w,
-    temperature_c, status, fault_code), ...] — the recent tail of telemetry.
+    temperature_c, status, fault_code), ...] - the recent tail of telemetry.
     ``vendor_thermal`` ({(plant, sn): (ts, "Tinv"|"Tboost", minutes)},
     from ``vendor_thermal_state``) is the inverter's own derating word;
     it is used only when its sample is inside the freshness window.
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     now_mx = utc_to_mx(now_utc)
     if not (DAYLIGHT_START_HOUR <= now_mx.hour < DAYLIGHT_END_HOUR):
@@ -181,7 +181,7 @@ def evaluate_acute(
             fresh_by_plant.setdefault(plant, []).append(s)
 
     # --- per-inverter: vendor faults (look-back window, not just the
-    # latest sample — see FAULT_LOOKBACK_MIN) ---
+    # latest sample - see FAULT_LOOKBACK_MIN) ---
     fault_cut = now_utc - dt.timedelta(minutes=FAULT_LOOKBACK_MIN)
     fault_hits: Dict[Tuple[str, str], List[Tuple[dt.datetime, str]]] = {}
     for ts, plant, sn, _pw, _temp, _st, fault in samples:
@@ -225,7 +225,7 @@ def evaluate_acute(
             dt_peer = (float(temp) - peer_med) if peer_med is not None else None
             hotter = None if dt_peer is None else dt_peer >= TEMP_PEER_DT_C
             # v220: the measured shortfall against cooler peers (kW per rated
-            # kW) decides CRITICAL — heat alone is a WARNING (Tomasz)
+            # kW) decides CRITICAL - heat alone is a WARNING (Tomasz)
             rk = rated.get((plant, sn)) or rated.get(sn)
             cooler = [v[3] / (rated.get((plant, o)) or rated.get(o) or 0)
                       for o, v in newest.items()
@@ -249,13 +249,13 @@ def evaluate_acute(
     # --- plant-level: dark plant (only mid-daylight, only on fresh data) ---
     if DARK_CHECK_START_HOUR <= now_mx.hour < DARK_CHECK_END_HOUR:
         for plant, rows in sorted(fresh_by_plant.items()):
-            # v205: an empty vendor reply (power None — MEX1 2026-09-05,
+            # v205: an empty vendor reply (power None - MEX1 2026-09-05,
             # FusionSolar returned no values for hours) is a data gap, not
             # 0 W; only measured zeros make a dark plant
             powers = [r[3] for r in rows if r[3] is not None]
             if powers and all(p <= 0 for p in powers):
                 # v257 (Tomasz): a dark plant is money leaving the
-                # building — say how much, when we can price it.
+                # building - say how much, when we can price it.
                 cost = (loss_note or {}).get(plant, "")
                 breaches.append(AcuteBreach(
                     metric="plant_offline", plant_key=plant, inverter_sn="",
@@ -263,7 +263,7 @@ def evaluate_acute(
                     message=(f"{plant}: ALL {len(powers)} reporting "
                              f"inverter(s) at 0 W at "
                              f"{now_mx:%H:%M} MX"
-                             + (f" \u2014 {cost}" if cost else "")
+                             + (f" - {cost}" if cost else "")
                              + " [CRITICAL]"),
                 ))
 
@@ -298,7 +298,7 @@ def evaluate_acute(
                     value=round(age_min / 60.0, 1),
                     message=(f"{plant} {sn}: no data for {age_min:.0f} min "
                              f"({since}) while {len(producing)} sibling(s) "
-                             f"report up to {max_kw:.0f} kW — inverter off or "
+                             f"report up to {max_kw:.0f} kW - inverter off or "
                              f"datalogger link; the vendor counter decides "
                              f"when it reappears "
                              f"[{'CRITICAL' if crit else 'WARNING'}]"),

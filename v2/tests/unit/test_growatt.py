@@ -3,7 +3,7 @@
 Stage 2 change (2026-05-13): the web UI tests have been rewritten. The
 old HTML-scraping and multi-endpoint device-list code is gone, replaced
 by integration with argia.vendors.growatt_web. The Open API tests are
-unchanged — that path was not touched in Stage 2.
+unchanged - that path was not touched in Stage 2.
 
 Test layout:
   TestConstructor                    -- ctor validation, brand label
@@ -251,7 +251,7 @@ class TestOpenApiInverters:
 
 
 class TestOpenApiInverterParsing:
-    """Pure parser tests — independent of network."""
+    """Pure parser tests - independent of network."""
 
     def test_offline_status_from_list(self):
         list_item = {"sn": "ABC123", "status": 3}
@@ -330,7 +330,7 @@ class TestWebDayKwh:
 
             result = web_only_client.fetch_day_kwh(taigene_plant, _today_mx_iso())
 
-        # The real fixture has eToday="786.8" — string in JSON, coerced to float
+        # The real fixture has eToday="786.8" - string in JSON, coerced to float
         assert result == 786.8
         mock_web.get_max_total_data.assert_called_once_with("9309575")
 
@@ -456,7 +456,7 @@ class TestWebInverterSnapshots:
     def test_api_error_on_one_sn_continues_with_others(
         self, web_only_client, taigene_plant, taigene_inverters
     ):
-        """One failed SN should not stop the loop — collect what we can."""
+        """One failed SN should not stop the loop - collect what we can."""
         history_fixture = load_fixture(
             "growatt_web", "GTO1_getMAXHistory_JFM7DXN00T_2026-05-11.json"
         )
@@ -484,7 +484,7 @@ class TestWebInverterSnapshots:
     def test_auth_loss_mid_loop_aborts_remaining(
         self, web_only_client, taigene_plant, taigene_inverters
     ):
-        """Auth loss is terminal — no point hammering further."""
+        """Auth loss is terminal - no point hammering further."""
         history_fixture = load_fixture(
             "growatt_web", "GTO1_getMAXHistory_JFM7DXN00T_2026-05-11.json"
         )

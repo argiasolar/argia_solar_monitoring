@@ -1,4 +1,4 @@
-"""Telemetry retention planning (v95) — pure, no I/O.
+"""Telemetry retention planning (v95) - pure, no I/O.
 
 Raw per-inverter 5-minute telemetry is the bulk of the workbook and the
 only thing that grows without bound. It is transient: once ``kpi_eod``
@@ -14,7 +14,7 @@ Two invariants live here:
 * **Stamp interlock.** A day's raw telemetry is never pruned until
   KPI_Daily has a full stamp for that plant+day (``stamped_dates``).
   Walking oldest→newest, we STOP at the first day that is old-enough but
-  not yet aggregated — that day and everything after it stays. This is
+  not yet aggregated - that day and everything after it stays. This is
   what guarantees the financial report for any past month is always
   reproducible: the aggregate exists before the raw is removed.
 
@@ -54,8 +54,8 @@ def plan_prune(dated_rows: List[Tuple[dt.date, list]],
                stamped_dates: Optional[Set[str]]) -> PrunePlan:
     """Decide the contiguous top block to archive+delete.
 
-    ``dated_rows`` — ``(mx_date, row_values)`` in sheet order (oldest
-    first). ``stamped_dates`` — iso date strings KPI_Daily has fully
+    ``dated_rows`` - ``(mx_date, row_values)`` in sheet order (oldest
+    first). ``stamped_dates`` - iso date strings KPI_Daily has fully
     stamped for this plant, or ``None`` to skip the interlock.
     """
     by_day: Dict[str, List[list]] = {}
@@ -107,7 +107,7 @@ def mx_date_of(ts) -> Optional[dt.date]:
 def stamped_dates_from_kpi(kpi_rows: List[list]) -> Dict[str, Set[str]]:
     """{plant_key: {iso dates KPI_Daily has FULLY stamped}} from a raw
     KPI_Daily read (header + rows). Only ``data_class == 'full'`` days
-    count — a partial day is not a safe basis to drop raw telemetry."""
+    count - a partial day is not a safe basis to drop raw telemetry."""
     if not kpi_rows:
         return {}
     header = [str(h).strip() for h in kpi_rows[0]]

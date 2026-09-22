@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ARGIA reporting site generator — reads PostgreSQL argia_mont, writes static pages.
+"""ARGIA reporting site generator - reads PostgreSQL argia_mont, writes static pages.
 
 Pages (served on portal.argia.com.mx since v214; report_gen is a library there):
   /index.html            landing: fleet + sustainability overview, links (EN/ES, print-PDF)
@@ -111,11 +111,11 @@ for r in q("SELECT plant_key, prod_date, availability FROM daily_production "
 
 # Weather-expected energy, self-calibrated (management + solar-director
 # round, 2026-09-02). The stored expected_kwh uses each plant's config
-# factor, which live data shows understates good plants by 9-14% — so
+# factor, which live data shows understates good plants by 9-14% - so
 # the page derives its own factor: kwp x irradiance x max(config factor,
 # trailing-90d median PR on full-coverage days). The max() matters: a
 # sick plant (e.g. GTO2 at ~46% PR) must NOT have its expectation
-# dragged down to its illness — config stays the floor.
+# dragged down to its illness - config stays the floor.
 irr_d = {}     # (key, 'YYYY-MM-DD') -> irradiance kWh/m2
 for r in q("SELECT plant_key, prod_date, irradiance_kwh_m2"
            " FROM daily_production WHERE irradiance_kwh_m2 IS NOT NULL"
@@ -128,14 +128,14 @@ _cfgf = {r[0]: f(r[1]) for r in q(
     " expected_kwh / nullif(irradiance_kwh_m2,0)) FROM daily_production"
     " WHERE expected_kwh > 0 AND irradiance_kwh_m2 > 0"
     " GROUP BY plant_key;")}          # config factor x kwp, per plant
-# v241: the median needs a SAMPLE — Ryder had exactly one full day, a
+# v241: the median needs a SAMPLE - Ryder had exactly one full day, a
 # snapshot-undercounted sun gave it PR 0.996, and one day is not a
 # calibration (the expected line would have run 33% high). Under
 # MIN_CAL_DAYS the config factor stands alone.
 MIN_CAL_DAYS = 10
 MIN_PR_DAYS = 7      # a 30-day PR tile from fewer days than this is not a 30-day PR
 PR_MAX = 1.05        # v242: above this a day's PR is an input error (sun undercounted), never averaged
-V2_START = '2026-07-01'   # first v2 billing month — the financial report's default window opens here
+V2_START = '2026-07-01'   # first v2 billing month - the financial report's default window opens here
 _medpr_raw = {r[0]: (f(r[1]), int(f(r[2]))) for r in q(
     f"SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY pr), count(*)"
     f" FROM daily_production WHERE pr IS NOT NULL AND data_class = 'full'"
@@ -199,7 +199,7 @@ _inv_rows = q(
 def _inverter_30d(rows):
     """{plant: {sn: {kwh, on, slots}}} plus per-plant-day slot maxima.
     An inverter that vanished for a day is judged against the busiest
-    peer that day — silence counts against availability, exactly as in
+    peer that day - silence counts against availability, exactly as in
     the plant-level metric. Pure aggregation, testable."""
     per = {}
     day_slots = {}
@@ -229,7 +229,7 @@ def _inverter_30d(rows):
 inv30 = _inverter_30d(_inv_rows)
 
 # v216: thermal health, rolling 30 days (thermal_daily, the nightly
-# scripts/thermal_daily.py) — hours hot, events, peer deviation,
+# scripts/thermal_daily.py) - hours hot, events, peer deviation,
 # suspected derating and its lost kWh per inverter; empty before the
 # first run (the table may not exist yet).
 thermal30 = {}   # key -> {sn: dict}
@@ -249,7 +249,7 @@ except RuntimeError:
 
 def thermal_card(k):
     """Rolling-30d thermal health per inverter, valued at the plant's
-    tariff (PPA) — the O&M case for cooling, in kWh and MXN."""
+    tariff (PPA) - the O&M case for cooling, in kWh and MXN."""
     stats = thermal30.get(k) or {}
     if not stats:
         return ''
@@ -268,19 +268,19 @@ def thermal_card(k):
                     f'<td class="num">{a["peak"]:,.1f}</td>'
                     f'<td class="num">{a["min65"] / 60:,.1f}</td>'
                     f'<td class="num">{a["events"]}</td>'
-                    f'<td class="num">{"—" if a["dt_peer"] is None else "%+.1f" % a["dt_peer"]}</td>'
+                    f'<td class="num">{" - " if a["dt_peer"] is None else "%+.1f" % a["dt_peer"]}</td>'
                     f'<td class="num">{a["derating_min"] / 60:,.1f}</td>'
                     f'<td class="num">{a["lost"]:,.1f}</td>'
                     f'<td class="num">{(a["lost"] * tariff):,.0f}</td>'
-                    f'<td class="num">{("%.1f" % (vendor_min / 60)) if vendor_min else "—"}</td>'
+                    f'<td class="num">{("%.1f" % (vendor_min / 60)) if vendor_min else " - "}</td>'
                     f'<td class="num">{pill}</td></tr>')
     rows.append(f'<tr class="total"><td><b>TOTAL</b></td><td class="num"></td><td class="num"><b>{t_min65 / 60:,.1f}</b></td>'
                 f'<td class="num"></td><td class="num"></td><td class="num"><b>{t_der / 60:,.1f}</b></td>'
                 f'<td class="num"><b>{t_lost:,.1f}</b></td><td class="num"><b>{(t_lost * tariff):,.0f}</b></td>'
-                f'<td class="num"><b>{("%.1f" % (t_vendor / 60)) if t_vendor else "—"}</b></td><td></td></tr>')
-    tip = ti("Rolling 30 days from the nightly thermal evaluation of the 5-minute telemetry. Peak = highest internal inverter temperature in the window. h ≥65 °C = hours at or above the ARGIA 'high' band. Events = separate hot episodes. ΔT peers = the unit's worst deviation from the median of the plant's other inverters — the strongest sign of a cooling problem (dirty heat sink, fan, clearance). Derating h = hours ≥65 °C in which the unit, ≥5 °C hotter than its cooler peers, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed (corrected for each unit's usual standing, so a smaller DC field is not counted as loss); MXN = lost kWh × the month's PPA tariff (0 for CAPEX). Vendor h = hours the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) — the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Bands are ARGIA operational thresholds, not manufacturer warranty limits: manuals require ventilation and derate on heat but do not quantify it — this table does, from ARGIA's own data.",
-             "30 días móviles de la evaluación térmica nocturna de la telemetría de 5 minutos. Pico = temperatura interna máxima en la ventana. h ≥65 °C = horas en o sobre la banda 'alta' de ARGIA. Eventos = episodios calientes separados. ΔT pares = la peor desviación de la unidad respecto a la mediana de los demás inversores — la señal más fuerte de un problema de enfriamiento. Derrateo h = horas ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal; kWh perdidos = esa diferencia sumada (corregida por la posición habitual de cada unidad); MXN = kWh perdidos × tarifa PPA del mes (0 en CAPEX). Fabricante h = horas en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) — la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Las bandas son umbrales operativos de ARGIA, no límites de garantía.")
-    return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Thermal health — last 30 days","Salud térmica — últimos 30 días")}{tip}</h2>'
+                f'<td class="num"><b>{("%.1f" % (t_vendor / 60)) if t_vendor else " - "}</b></td><td></td></tr>')
+    tip = ti("Rolling 30 days from the nightly thermal evaluation of the 5-minute telemetry. Peak = highest internal inverter temperature in the window. h ≥65 °C = hours at or above the ARGIA 'high' band. Events = separate hot episodes. ΔT peers = the unit's worst deviation from the median of the plant's other inverters - the strongest sign of a cooling problem (dirty heat sink, fan, clearance). Derating h = hours ≥65 °C in which the unit, ≥5 °C hotter than its cooler peers, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed (corrected for each unit's usual standing, so a smaller DC field is not counted as loss); MXN = lost kWh × the month's PPA tariff (0 for CAPEX). Vendor h = hours the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) - the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Bands are ARGIA operational thresholds, not manufacturer warranty limits: manuals require ventilation and derate on heat but do not quantify it - this table does, from ARGIA's own data.",
+             "30 días móviles de la evaluación térmica nocturna de la telemetría de 5 minutos. Pico = temperatura interna máxima en la ventana. h ≥65 °C = horas en o sobre la banda 'alta' de ARGIA. Eventos = episodios calientes separados. ΔT pares = la peor desviación de la unidad respecto a la mediana de los demás inversores - la señal más fuerte de un problema de enfriamiento. Derrateo h = horas ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal; kWh perdidos = esa diferencia sumada (corregida por la posición habitual de cada unidad); MXN = kWh perdidos × tarifa PPA del mes (0 en CAPEX). Fabricante h = horas en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) - la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Las bandas son umbrales operativos de ARGIA, no límites de garantía.")
+    return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Thermal health - last 30 days","Salud térmica - últimos 30 días")}{tip}</h2>'
             f'<table><tr><th>{t("Inverter","Inversor")}</th><th class="num">{t("Peak °C","Pico °C")}</th>'
             f'<th class="num">h ≥65 °C</th><th class="num">{t("Events","Eventos")}</th>'
             f'<th class="num">ΔT {t("peers","pares")}</th><th class="num">{t("Derating h","Derrateo h")}</th>'
@@ -292,7 +292,7 @@ def thermal_card(k):
 def expected_month_kwh(k, ym):
     """Expected production for a month without (complete) actuals.
     PPA: contracted kWh for that month; else same month last year's actual;
-    else the average of this year's actual months. Estimate — rendered grey."""
+    else the average of this year's actual months. Estimate - rendered grey."""
     c = contract.get((k, ym))
     if c and c.get('kwh'):
         return c['kwh']
@@ -306,7 +306,7 @@ def expected_month_kwh(k, ym):
 def year_months_with_flags(keys):
     """12 columns for the current year: actuals through the asof month
     (blue), expected for the remaining months (grey). The CURRENT month
-    gets flag 2 — actual so far, drawn over its full-month expectation
+    gets flag 2 - actual so far, drawn over its full-month expectation
     (Tomasz 2026-09-02: 'show blue over grey so we can see how the
     actual production fulfills the expectation'). Returns
     (pairs, flags, cur_expected_kwh)."""
@@ -379,7 +379,7 @@ for k in PPA + LAAS:
             if pick is None or l['first'] > pick['first']:
                 pick = l
     if pick:
-        # position = the bank's installment number, not a row count —
+        # position = the bank's installment number, not a row count -
         # a loan a plant takes over mid-life (SLP1/Oliva, 2026-09) only
         # stores the rows the plant carries, but the bank numbering on
         # those rows is the true position (16/84, not 3/84).
@@ -388,12 +388,12 @@ for k in PPA + LAAS:
         paid = int(f(_r[0][0]) or 0) if _r and _r[0] else 0
         loanpos[k] = f"{paid}/{pick['total']}"
     else:
-        loanpos[k] = '—'
+        loanpos[k] = ' - '
 
 assets_meta = {k: {'name': asset_name(k),
                    'type': 'PPA' if k in PPA else 'LaaS',
                    'kwp': plants[k]['kwp'] if k in plants else None,
-                   'loanpos': loanpos.get(k, '—')}
+                   'loanpos': loanpos.get(k, ' - ')}
                for k in PPA + LAAS}
 
 # ================= shared page chrome (matches the ARGIA financial_report style) =================
@@ -533,7 +533,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 details{font-size:13px;color:var(--ink2);}
 details summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--ink);}
 details[open] summary{margin-bottom:6px;}
-/* revealed by the whoami fetch only for admins — see I18N_JS */
+/* revealed by the whoami fetch only for admins - see I18N_JS */
 .adminonly{display:none;}
 /* revealed by /ask/me only for accounts the ask service allow-lists */
 .askonly{display:none;}
@@ -677,7 +677,7 @@ function colsvg(labs,vals,revs,unit,runit,cl,wx){
  for(let i=0;i<n;i+=ev){s+='<text x="'+(pl+i*slot+slot/2).toFixed(1)+'" y="'+(H-8)+
    '" class="tick" text-anchor="middle">'+labs[i]+'</text>';}
  s+='<line x1="'+pl+'" y1="'+(pt+ph)+'" x2="'+(W-pr)+'" y2="'+(pt+ph)+'" class="axis"/></svg>';
- /* v234: the day box — every series of the day in one hover (portal_chrome.argiaChartHover) */
+ /* v234: the day box - every series of the day in one hover (portal_chrome.argiaChartHover) */
  const xs=[];for(let i=0;i<n;i++)xs.push(+(pl+i*slot+slot/2).toFixed(1));
  const ser=[{label:CH_L.actual,color:'#05b1a9',vals:vals,unit:unit,dec:unit==='MWh'?2:0}];
  if(cl&&cl.some(v=>v>0))ser.push({label:CH_L.contract,color:'#eb6834',vals:cl,unit:unit,dec:unit==='MWh'?2:0});
@@ -685,7 +685,7 @@ function colsvg(labs,vals,revs,unit,runit,cl,wx){
  if(revs&&revs.some(v=>v>0))ser.push({label:CH_L.money,color:'#1e8e3e',vals:revs,unit:runit,dec:0});
  const data=JSON.stringify({W:W,xs:xs,labels:labs,series:ser}).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  return '<div class="hchart" data-chart="'+data+'">'+s+'</div>';}
-/* v241: the range engine's own bilingual span — the tile texts it writes
+/* v241: the range engine's own bilingual span - the tile texts it writes
    are swapped by setLang like everything else on the page */
 const LANG=()=>{try{return localStorage.getItem('argia_lang')||'en';}catch(e){return 'en';}};
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -696,11 +696,11 @@ function compute(){
  let idx=[];for(let i=0;i<D.length;i++)if(D[i]>=d0&&D[i]<=d1)idx.push(i);
  /* v241 (Tomasz: 'in Tetra Pak we do not have data, everything should be
     in red with errors'): the calendar days the plant OWES us in this
-    range — from its first row to the fleet's data edge — and, among
+    range - from its first row to the fleet's data edge - and, among
     them, the DARK days: no row at all, or a row with no telemetry and
     no energy. Dark days count as unavailable and as zero coverage; a
     day with vendor energy but no telemetry (a backfilled month) stays
-    out of availability — the plant did produce, we just were not
+    out of availability - the plant did produce, we just were not
     watching. An empty range is NO DATA: red, said in words. */
  const LAST=D.length?D[D.length-1]:ASOF;
  const dEnd=d1<ASOF?d1:ASOF, dStart=(D.length&&d0<D[0])?D[0]:d0;
@@ -717,27 +717,27 @@ function compute(){
   if(X&&X[i]!=null){xsum+=X[i];exsum+=E[i];}
   const dq=DQ[D[i]];if(dq!=null){dqf+=dq;}});
  const dqn=span;
- $('r_prod').textContent=nodata?'—':nf(prod/1000,2);
- if($('r_rev')){if(nodata){$('r_rev').textContent='—';$('r_rev_u').textContent='MXN';}
+ $('r_prod').textContent=nodata?' - ':nf(prod/1000,2);
+ if($('r_rev')){if(nodata){$('r_rev').textContent=' - ';$('r_rev_u').textContent='MXN';}
   else if(rev>=1e6){$('r_rev').textContent=nf(rev/1e6,2);$('r_rev_u').textContent='M MXN';}
   else{$('r_rev').textContent=nf(rev);$('r_rev_u').textContent='MXN';}}
  const avN=avs.length+darkN;
  const av=avN?avs.reduce((x,y)=>x+y,0)/avN:null;
- $('r_avail').textContent=av!=null?(100*av).toFixed(1)+'%':'—';
+ $('r_avail').textContent=av!=null?(100*av).toFixed(1)+'%':' - ';
  const rr=$('r_range');rr.textContent=d0+' – '+d1;
  document.querySelectorAll('.rdays').forEach(e=>e.textContent=days+' d');
  const semTile=(id,cls)=>{const e=$(id);if(!e)return;
   e.classList.remove('good','warn','bad');if(cls)e.classList.add(cls);};
- $('r_co2').textContent=nodata?'—':co2.toFixed(1);
- // diagnostic "why" for colored tiles (numbers+dates) — the text lives
+ $('r_co2').textContent=nodata?' - ':co2.toFixed(1);
+ // diagnostic "why" for colored tiles (numbers+dates) - the text lives
  // on the tile's BACK face; .haswhy arms the hover flip
  const why=(id,html)=>{const e=$(id);if(!e)return;
   e.innerHTML=html?'⚠ '+html:'';
   const tl=e.closest('.tile');if(tl)tl.classList.toggle('haswhy',!!html);};
- const darkTxt=darkN?T(darkN+' day(s) with no telemetry and no energy — the plant went dark; data ends '+LAST,
-                      darkN+' día(s) sin telemetría ni energía — la planta quedó a oscuras; datos hasta '+LAST):'';
- const noneTxt=span>0?T('nothing arrived for the '+span+' selected day(s) — the last data is from '+LAST,
-                        'no llegó nada en los '+span+' día(s) elegidos — el último dato es del '+LAST)
+ const darkTxt=darkN?T(darkN+' day(s) with no telemetry and no energy - the plant went dark; data ends '+LAST,
+                      darkN+' día(s) sin telemetría ni energía - la planta quedó a oscuras; datos hasta '+LAST):'';
+ const noneTxt=span>0?T('nothing arrived for the '+span+' selected day(s) - the last data is from '+LAST,
+                        'no llegó nada en los '+span+' día(s) elegidos - el último dato es del '+LAST)
                      :T('no data in the selected range','sin datos en el rango elegido');
  const wxPct=xsum>0?100*exsum/xsum:null;
  if(nodata){$('r_vsctr').textContent='';semTile('t_prod','bad');why('r_prodwhy',noneTxt);}
@@ -746,15 +746,15 @@ function compute(){
   semTile('t_prod',pct>=0.95?'good':pct>=0.8?'warn':'bad');
   let w='';
   if(pct<0.95&&wxPct!=null&&wxPct>=97)
-   w=T('resource, not performance: output matched the weather expectation ('+wxPct.toFixed(0)+'%) — the sun fell short of the contract assumption',
-       'recurso, no desempeño: la producción igualó la expectativa por clima ('+wxPct.toFixed(0)+'%) — el sol quedó por debajo del supuesto contractual');
+   w=T('resource, not performance: output matched the weather expectation ('+wxPct.toFixed(0)+'%) - the sun fell short of the contract assumption',
+       'recurso, no desempeño: la producción igualó la expectativa por clima ('+wxPct.toFixed(0)+'%) - el sol quedó por debajo del supuesto contractual');
   else if(pct<0.95&&wxPct!=null)
-   w=T('below contract AND weather expectation ('+wxPct.toFixed(0)+'% of weather) — see the inverter table',
-       'por debajo del contrato Y de la expectativa por clima ('+wxPct.toFixed(0)+'% del clima) — vea la tabla de inversores');
+   w=T('below contract AND weather expectation ('+wxPct.toFixed(0)+'% of weather) - see the inverter table',
+       'por debajo del contrato Y de la expectativa por clima ('+wxPct.toFixed(0)+'% del clima) - vea la tabla de inversores');
   if(darkN)w=(w?w+' · ':'')+darkTxt;
   why('r_prodwhy',w);
  }else{$('r_vsctr').textContent='';semTile('t_prod',darkN?'bad':'');why('r_prodwhy',darkN?darkTxt:'');}
- if(nodata){$('r_avail').textContent='—';$('r_sla').innerHTML=T('NO DATA','SIN DATOS');semTile('t_avail','bad');why('r_avwhy',noneTxt);}
+ if(nodata){$('r_avail').textContent=' - ';$('r_sla').innerHTML=T('NO DATA','SIN DATOS');semTile('t_avail','bad');why('r_avwhy',noneTxt);}
  else if(av!=null){
   // below-target availability with energy that still met the weather
   // expectation = telemetry gap, not proven downtime -> REVIEW. A dark
@@ -763,22 +763,22 @@ function compute(){
   const worst=idx.filter(i=>AV[D[i]]!=null&&AV[D[i]]<0.95).map(i=>[D[i],AV[D[i]]])
    .concat(dark.map(d=>[d,0])).sort((a,b)=>a[1]-b[1]).slice(0,2)
    .map(w=>w[0].slice(5)+': '+(100*w[1]).toFixed(0)+'%').join(', ');
-  const worstTxt=T('Worst days: ','Peores días: ')+(worst||'—');
+  const worstTxt=T('Worst days: ','Peores días: ')+(worst||' - ');
   if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail','good');why('r_avwhy','');}
   else if(ranFine){$('r_sla').textContent='REVIEW';semTile('t_avail','warn');
-   why('r_avwhy',T('produced through the gap (energy at '+(wxPct||0).toFixed(0)+'% of weather expectation) — telemetry loss, not proven downtime. ',
-                   'produjo durante el hueco (energía al '+(wxPct||0).toFixed(0)+'% de la expectativa por clima) — pérdida de telemetría, no una parada comprobada. ')+worstTxt);}
+   why('r_avwhy',T('produced through the gap (energy at '+(wxPct||0).toFixed(0)+'% of weather expectation) - telemetry loss, not proven downtime. ',
+                   'produjo durante el hueco (energía al '+(wxPct||0).toFixed(0)+'% de la expectativa por clima) - pérdida de telemetría, no una parada comprobada. ')+worstTxt);}
   else{$('r_sla').textContent='BREACH';
    semTile('t_avail',av>=SLA-0.03?'warn':'bad');
-   why('r_avwhy',(darkN?darkTxt+' · ':'')+T('low-availability days with energy missing too — check grid/site events. ',
-                   'días de baja disponibilidad con energía faltante — revise eventos de red/sitio. ')+worstTxt);}
- }else{$('r_sla').textContent='—';semTile('t_avail','');why('r_avwhy','');}
+   why('r_avwhy',(darkN?darkTxt+' · ':'')+T('low-availability days with energy missing too - check grid/site events. ',
+                   'días de baja disponibilidad con energía faltante - revise eventos de red/sitio. ')+worstTxt);}
+ }else{$('r_sla').textContent=' - ';semTile('t_avail','');why('r_avwhy','');}
  const ls=$('r_loss');
  if(ls){const lsub=$('r_loss_sub');semTile('t_loss','');
-  if(nodata){ls.textContent='—';semTile('t_loss','bad');
-   if(lsub)lsub.innerHTML=T('unknown — nothing was measured','desconocida — no se midió nada');}
+  if(nodata){ls.textContent=' - ';semTile('t_loss','bad');
+   if(lsub)lsub.innerHTML=T('unknown - nothing was measured','desconocida - no se midió nada');}
   else if(avloss>=1){const kwh=avloss>=2000?nf(avloss/1000,1)+' MWh':nf(avloss,0)+' kWh';
-   const ub=T('upper bound — comms gaps count as loss','cota superior — los huecos de comunicación cuentan como pérdida');
+   const ub=T('upper bound - comms gaps count as loss','cota superior - los huecos de comunicación cuentan como pérdida');
    if(TARIFF>0){ls.textContent='≤ ~$'+nf(avloss*TARIFF)+' MXN';
     if(lsub)lsub.innerHTML=kwh+' · '+ub;}
    else{ls.textContent='≤ '+kwh;
@@ -786,7 +786,7 @@ function compute(){
   }else{ls.textContent='≈ 0';
    if(lsub)lsub.innerHTML=T('no measurable exposure in range','sin exposición medible en el rango');}}
  if(dqn){const q2=dqf/dqn;$('r_dq').textContent=(100*q2).toFixed(0)+'%';}
- else{$('r_dq').textContent='—';}
+ else{$('r_dq').textContent=' - ';}
  semTile('t_dq',nodata?'bad':'');
  let labs,vals,revs=null,cexp=null,wexp=null,unit,runit;
  if(days>92){const g={},gr={},gc={},gx={};
@@ -831,7 +831,7 @@ def ti(en, es):
     """Info icon + hover/focus tooltip, bilingual. Lives inside a
     .tlabel; the box positions against the .tile. Management ask
     (2026-09-02): every KPI tile must explain its definition, formula
-    and color logic — no more mystery red."""
+    and color logic - no more mystery red."""
     return ('<span class="ti" tabindex="0" role="note" aria-label="definition">i</span>'
             f'<span class="tipbox">{t(en, es)}</span>')
 
@@ -913,12 +913,12 @@ MONTH_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct'
 def columns_svg(pairs, unit, scale=1.0, width=980, height=240, lab_fmt=None,
                 show_values=False, month_names=False, flags=None,
                 cur_expected=None):
-    """flags: optional list parallel to pairs — True renders the column
+    """flags: optional list parallel to pairs - True renders the column
     grey ('expected' month) instead of brand blue; 2 marks the
     in-progress month, drawn blue OVER its full expectation (grey)
     when ``cur_expected`` (same unit as pairs, pre-scale) is given."""
     if not pairs:
-        return '<p class="note">—</p>'
+        return '<p class="note"> - </p>'
     vals = [f(v) / scale for _, v in pairs]
     cur_exp = (cur_expected or 0.0) / scale
     vmax = max(vals + [cur_exp]) or 1
@@ -1057,7 +1057,7 @@ def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
         out.append(f'<path class="line rev" d="{d}"><title>Revenue (k MXN)</title></path>')
     out.append(f'<line x1="{pad_l}" y1="{pad_t+ph}" x2="{W-pad_r}" y2="{pad_t+ph}" class="axis"/>')
     out.append('</svg>')
-    # v234: the month box — actual / expected / contract / money in one hover (portal_chrome.argiaChartHover)
+    # v234: the month box - actual / expected / contract / money in one hover (portal_chrome.argiaChartHover)
     labels = [f'{MONTH_EN[int(m[5:7]) - 1]} {m[:4]}' for m, _ in pairs]
     xs = [round(pad_l + i * slot + slot / 2, 1) for i in range(n)]
     series = [{'label': 'actual', 'color': '#05b1a9', 'unit': 'MWh', 'dec': 1,
@@ -1074,7 +1074,7 @@ def monthly_svg(pairs, flags, contract_mwh=None, revenue_kmxn=None,
 
 def lines2_svg(mlist, s1v, s2v, n1, n2, unit, scale=1.0, width=980, height=240):
     if not mlist:
-        return '<p class="note">—</p>'
+        return '<p class="note"> - </p>'
     v1 = [f(s1v.get(m, 0)) / scale for m in mlist]
     v2 = [f(s2v.get(m, 0)) / scale for m in mlist]
     vmax = max(v1 + v2) or 1
@@ -1121,7 +1121,7 @@ def _median(vals):
 
 INV_COLORS = ('#1a73e8', '#d93025', '#188038', '#f9ab00', '#9334e6', '#12b5cb', '#e8710a', '#5f6368')
 
-# v232: the open maintenance ticket on an inverter — {(plant, sn): (number, status, priority)};
+# v232: the open maintenance ticket on an inverter - {(plant, sn): (number, status, priority)};
 # empty before the ticket tables exist
 TICKET_BY_INVERTER = {}
 try:
@@ -1147,7 +1147,7 @@ def ticket_pill(tk):
 
 
 def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
-    """v231 (Tomasz: 'a graph like the Growatt server shows — inverter
+    """v231 (Tomasz: 'a graph like the Growatt server shows - inverter
     production over time'): one line per inverter, daily kWh from its
     own counter over the rolling 30 days. ``stats`` = inv30[plant]
     ({sn: {..., 'daily': {date: kwh}}}), ``meta`` = {sn: (label,
@@ -1215,11 +1215,11 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
 def inverter_card(k):
     """Per-inverter rolling-30d table: energy, specific yield, index vs
     plant median, availability. The solar director's inverter view,
-    computed from the telemetry we already store — red/amber use his
+    computed from the telemetry we already store - red/amber use his
     thresholds (index < 0.90 review, 0.90–0.96 monitor)."""
     stats = inv30.get(k) or {}
     if not stats:
-        return (f'<div class="card"><h2>{t("Inverters — last 30 days","Inversores — últimos 30 días")}</h2>'
+        return (f'<div class="card"><h2>{t("Inverters - last 30 days","Inversores - últimos 30 días")}</h2>'
                 f'<p class="note">{t("No inverter telemetry in the window.","Sin telemetría de inversores en la ventana.")}</p></div>')
     yields = {}
     for sn, a in stats.items():
@@ -1235,28 +1235,28 @@ def inverter_card(k):
         idx = sy / med if (sy is not None and med) else None
         av = a['on'] / a['plant_slots'] if a['plant_slots'] else None
         if idx is None:
-            pill = '—'
+            pill = ' - '
         else:
             cls = ('' if idx >= 0.96 else 'warn' if idx >= 0.90 else 'bad')
             pill = (f'<span class="pill {cls}">{idx*100:,.1f}%</span>' if cls
                     else f'<span class="pill">{idx*100:,.1f}%</span>')
         name = html.escape(label or sn)
         sub = html.escape(sn) + (f' · {rated:,.0f} kW' if rated else '')
-        sy_txt = f'{sy:,.1f}' if sy is not None else '—'
-        av_txt = f'{av*100:,.1f}%' if av is not None else '—'
+        sy_txt = f'{sy:,.1f}' if sy is not None else ' - '
+        av_txt = f'{av*100:,.1f}%' if av is not None else ' - '
         tkp = ticket_pill(tickets.get(sn))
         rows.append(f'<tr><td>{name}<br><span class="sub">{sub}</span>' + (f'<br>{tkp}' if tkp else '') + '</td>'
                     f'<td class="num">{a["kwh"]:,.0f}</td>'
                     f'<td class="num">{sy_txt}</td>'
                     f'<td class="num">{pill}</td>'
                     f'<td class="num">{av_txt}</td></tr>')
-    tip = ti("Rolling 30 days ending at the data edge (fixed window — the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) — same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher — judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
-             "Ventana móvil de 30 días hasta el borde de datos (fija — el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) — los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba — júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
+    tip = ti("Rolling 30 days ending at the data edge (fixed window - the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) - same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher - judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
+             "Ventana móvil de 30 días hasta el borde de datos (fija - el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) - los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba - júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
     chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})
     if chart:
-        chart = (f'<p class="note" style="margin:0 20px 4px">{t("Daily kWh per inverter, each from its own counter — hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador — pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
+        chart = (f'<p class="note" style="margin:0 20px 4px">{t("Daily kWh per inverter, each from its own counter - hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador - pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
                  + chart)
-    return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Inverters — last 30 days","Inversores — últimos 30 días")}{tip}</h2>'
+    return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Inverters - last 30 days","Inversores - últimos 30 días")}{tip}</h2>'
             + chart +
             f'<table><tr><th>{t("Inverter","Inversor")}</th>'
             f'<th class="num">kWh</th>'
@@ -1270,7 +1270,7 @@ def inverter_card(k):
 def plant_parts(k):
     """Everything on a plant page, as parts (v209): the old page and the
     portal assemble them with their own chrome. Data and wording are
-    identical on both — one implementation, two skins."""
+    identical on both - one implementation, two skins."""
     p = plants[k]
     is_ppa = p['portfolio'] == 'PPA'
     plant_sla = p.get('sla') or SLA_TARGET
@@ -1308,7 +1308,7 @@ def plant_parts(k):
              f'<div class="tlabel">{t("Production, selected range","Producción, rango elegido")}'
              + ti("Metered generation summed over the selected days. '% vs contract' compares it to the contracted monthly volume prorated per day. Green ≥ 95% of contract, amber ≥ 80%, red below. A colored tile flips on hover to explain itself.",
                   "Generación medida sumada en el rango elegido. '% vs contrato' la compara con el volumen mensual contratado prorrateado por día. Verde ≥ 95% del contrato, ámbar ≥ 80%, rojo debajo. Un mosaico en color gira al pasar el cursor y se explica.")
-             + f'</div><div class="tval"><span id="r_prod">—</span> <span class="unit">MWh</span></div>'
+             + f'</div><div class="tval"><span id="r_prod"> - </span> <span class="unit">MWh</span></div>'
              f'<div class="tsub"><span id="r_range"></span> · <span class="rdays"></span>'
              f'<span id="r_vsctr"></span></div></div>'
              f'<div class="face back"><div class="bwhy">{t("why this color","por qué este color")}</div>'
@@ -1318,20 +1318,20 @@ def plant_parts(k):
                      else t("Est. savings, selected range", "Ahorro est., rango elegido"))
         money_sub = (f'{p["tariff"]:.3f} MXN/kWh' if is_ppa
                      else t("production × your grid tariff", "producción × su tarifa de red"))
-        money_tip = (ti("Production × the PPA tariff in force each month — an accrual estimate before invoicing, sin IVA. Issued monthly invoices are reconciled against vendor lifetime counters at the month close, so billed figures are exact even when telemetry had gaps.",
-                        "Producción × la tarifa PPA vigente cada mes — estimación devengada antes de facturar, sin IVA. Las facturas emitidas se concilian con los contadores de vida del fabricante al cierre del mes, así que lo facturado es exacto aunque la telemetría tuviera huecos.")
+        money_tip = (ti("Production × the PPA tariff in force each month - an accrual estimate before invoicing, sin IVA. Issued monthly invoices are reconciled against vendor lifetime counters at the month close, so billed figures are exact even when telemetry had gaps.",
+                        "Producción × la tarifa PPA vigente cada mes - estimación devengada antes de facturar, sin IVA. Las facturas emitidas se concilian con los contadores de vida del fabricante al cierre del mes, así que lo facturado es exacto aunque la telemetría tuviera huecos.")
                      if is_ppa else
                      ti("Production × your grid tariff: what this energy would have cost from CFE. An estimate for context, not an invoice.",
                         "Producción × su tarifa de red: lo que esta energía habría costado de CFE. Estimación de contexto, no una factura."))
         tiles.append(f'<div class="tile"><div class="tlabel">{money_lab}{money_tip}</div>'
-                     f'<div class="tval"><span id="r_rev">—</span> <span class="unit" id="r_rev_u">MXN</span></div>'
+                     f'<div class="tval"><span id="r_rev"> - </span> <span class="unit" id="r_rev_u">MXN</span></div>'
                      f'<div class="tsub">{money_sub}</div></div>')
     _cf = co2_factor(None, k)
     _csub = (f'{_cf} tCO2/MWh ' + t("contracted", "contratado")
              if k.upper() in CO2_PLANT_OVERRIDE
              else f'{_cf} tCO2/MWh ' + t("current", "actual"))
     tiles.append(f'<div class="tile"><div class="tlabel">{t("CO2 avoided, selected range","CO2 evitado, rango elegido")}</div>'
-                 f'<div class="tval"><span id="r_co2">—</span> <span class="unit">t</span></div>'
+                 f'<div class="tval"><span id="r_co2"> - </span> <span class="unit">t</span></div>'
                  f'<div class="tsub">{_csub}</div></div>')
     if not is_ppa and p['inv'] > 0 and rlist:
         life_sav = sum(rlist)
@@ -1349,10 +1349,10 @@ def plant_parts(k):
                      f'<div class="tsub">{life_sav/1e6:,.2f} / {p["inv"]/1e6:,.2f} M MXN{eta}</div></div>')
     tiles.append(f'<div class="tile flip" id="t_avail"><div class="flipin"><div class="face front">'
                  f'<div class="tlabel">{t("Availability, selected range","Disponibilidad, rango elegido")}'
-                 + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor — a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. When availability misses the target but metered energy still met the weather expectation for the same days, the verdict shows REVIEW instead of BREACH: the plant produced through the gap, so it was almost certainly telemetry, not downtime. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
-                      "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador — un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. Si la disponibilidad no llega al objetivo pero la energía medida cumplió la expectativa por clima de esos mismos días, el veredicto muestra REVIEW en vez de BREACH: la planta produjo durante el hueco, así que casi seguro fue telemetría, no una parada. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
-                 + f'</div><div class="tval" id="r_avail">—</div>'
-                 f'<div class="tsub">SLA {plant_sla*100:.0f}%: <b id="r_sla">—</b> · '
+                 + ti("Share of daylight polling slots (06:00–20:00) in which each configured inverter reported online, averaged over inverters and days. Communication dropouts count as unavailable, so this is a conservative floor - a comms gap looks identical to real downtime until checked. 'Energy at risk' = weather-expected kWh × unavailable share: an upper bound on what those slots could have cost. When availability misses the target but metered energy still met the weather expectation for the same days, the verdict shows REVIEW instead of BREACH: the plant produced through the gap, so it was almost certainly telemetry, not downtime. SLA 98% is an assumed target until per-contract SLAs are loaded. Green ≥ 98%, amber ≥ 95%, red below.",
+                      "Fracción de intervalos diurnos (06:00–20:00) en que cada inversor configurado reportó en línea, promediada por inversores y días. Los cortes de comunicación cuentan como no disponible: es un piso conservador - un hueco de comunicación se ve igual que una parada real hasta verificarlo. 'Energía en riesgo' = kWh esperados por clima × fracción no disponible: cota superior de lo que esos intervalos pudieron costar. Si la disponibilidad no llega al objetivo pero la energía medida cumplió la expectativa por clima de esos mismos días, el veredicto muestra REVIEW en vez de BREACH: la planta produjo durante el hueco, así que casi seguro fue telemetría, no una parada. El SLA 98% es un objetivo supuesto hasta cargar los SLA por contrato. Verde ≥ 98%, ámbar ≥ 95%, rojo debajo.")
+                 + f'</div><div class="tval" id="r_avail"> - </div>'
+                 f'<div class="tsub">SLA {plant_sla*100:.0f}%: <b id="r_sla"> - </b> · '
                  + (t("configured", "configurado") if p.get('sla')
                     else t("assumed target", "objetivo supuesto"))
                  + '</div></div>'
@@ -1361,20 +1361,20 @@ def plant_parts(k):
     # dedicated loss tile (Tomasz round 3: "maybe it should be a new
     # tile like it used to be in reports before")
     tiles.append(f'<div class="tile" id="t_loss"><div class="tlabel">'
-                 f'{t("Est. loss — unavailability","Pérdida est. — indisponibilidad")}'
-                 + ti("Upper bound on what the unavailable slots could have cost over the selected range: weather-expected kWh × the unavailable share, day by day, priced at the PPA tariff. Communication gaps count as unavailable, so when the availability verdict says REVIEW the energy actually arrived and the real loss is near zero — this figure is the ceiling, not the bill.",
-                      "Cota superior de lo que los intervalos no disponibles pudieron costar en el rango: kWh esperados por clima × la fracción no disponible, día por día, valuada a la tarifa PPA. Los huecos de comunicación cuentan como no disponible, así que cuando el veredicto dice REVIEW la energía sí llegó y la pérdida real es casi cero — esta cifra es el techo, no la factura.")
-                 + f'</div><div class="tval" id="r_loss">—</div>'
+                 f'{t("Est. loss - unavailability","Pérdida est. - indisponibilidad")}'
+                 + ti("Upper bound on what the unavailable slots could have cost over the selected range: weather-expected kWh × the unavailable share, day by day, priced at the PPA tariff. Communication gaps count as unavailable, so when the availability verdict says REVIEW the energy actually arrived and the real loss is near zero - this figure is the ceiling, not the bill.",
+                      "Cota superior de lo que los intervalos no disponibles pudieron costar en el rango: kWh esperados por clima × la fracción no disponible, día por día, valuada a la tarifa PPA. Los huecos de comunicación cuentan como no disponible, así que cuando el veredicto dice REVIEW la energía sí llegó y la pérdida real es casi cero - esta cifra es el techo, no la factura.")
+                 + f'</div><div class="tval" id="r_loss"> - </div>'
                  f'<div class="tsub" id="r_loss_sub">{t("upper bound","cota superior")}</div></div>')
     tiles.append(f'<div class="tile" id="t_dq"><div class="tlabel">{t("Telemetry coverage, selected range","Cobertura de telemetría, rango elegido")}'
-                 + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps — NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Days with no telemetry at all count as zero. Informational — red only when the range holds no data at all.",
-                      "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo — NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Los días sin telemetría cuentan como cero. Informativo — en rojo solo cuando el rango no tiene ningún dato.")
-                 + f'</div><div class="tval" id="r_dq">—</div>'
+                 + ti("Share of selected days with complete inverter telemetry (every inverter reported the full day). A lower value means monitoring gaps - NOT lost revenue: monthly billing is reconciled to vendor lifetime counters at the close and is exact. Coverage tells you how much confidence to put in PR and availability on partial days. Days with no telemetry at all count as zero. Informational - red only when the range holds no data at all.",
+                      "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo - NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Los días sin telemetría cuentan como cero. Informativo - en rojo solo cuando el rango no tiene ningún dato.")
+                 + f'</div><div class="tval" id="r_dq"> - </div>'
                  f'<div class="tsub">{t("full-coverage days","días con cobertura completa")}</div></div>')
     if pr:
         base = p.get('prb') or 0
         prstc = prstc30.get(k)
-        # color on the temperature-normalized PR when we have it — a hot
+        # color on the temperature-normalized PR when we have it - a hot
         # month must not paint a healthy plant red (solar director's
         # NL1 July->August case: the whole PR drop was cell temperature)
         pr_for_color = prstc if prstc else pr
@@ -1401,39 +1401,39 @@ def plant_parts(k):
                      if kk == k and d2 > cut30]
             av30 = sum(avs30) / len(avs30) if avs30 else None
             if av30 is not None and av30 < 0.97:
-                why = t(f"includes low-availability days (30d avg {av30*100:.0f}%) — outage/comms time depresses PR; see the availability tile",
-                        f"incluye días de baja disponibilidad (prom. 30d {av30*100:.0f}%) — el tiempo de paro/comunicación deprime el PR; vea la disponibilidad")
+                why = t(f"includes low-availability days (30d avg {av30*100:.0f}%) - outage/comms time depresses PR; see the availability tile",
+                        f"incluye días de baja disponibilidad (prom. 30d {av30*100:.0f}%) - el tiempo de paro/comunicación deprime el PR; vea la disponibilidad")
             elif not prstc:
-                why = t("no module-temperature data to normalize — hot months read low on the raw figure",
-                        "sin datos de temperatura de módulo para normalizar — los meses calurosos leen bajo en la cifra cruda")
+                why = t("no module-temperature data to normalize - hot months read low on the raw figure",
+                        "sin datos de temperatura de módulo para normalizar - los meses calurosos leen bajo en la cifra cruda")
             else:
-                why = t("sustained deficit vs clean baseline even after temperature — points to soiling or string-level losses; see the inverter table",
-                        "déficit sostenido vs línea base limpia aun tras temperatura — apunta a suciedad o pérdidas por string; vea la tabla de inversores")
+                why = t("sustained deficit vs clean baseline even after temperature - points to soiling or string-level losses; see the inverter table",
+                        "déficit sostenido vs línea base limpia aun tras temperatura - apunta a suciedad o pérdidas por string; vea la tabla de inversores")
             pr_why = (f'<div class="face back"><div class="bwhy">'
                       f'{t("why this color","por qué este color")}</div>'
                       f'<div class="twhy">⚠ {why}</div></div>')
         tiles.append(f'<div class="tile flip {prc}{" haswhy" if pr_why else ""}" id="t_pr">'
                      f'<div class="flipin"><div class="face front">'
                      f'<div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
-                     + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Hot cells depress PR (about −0.7 pts per °C), so the temp-normalized figure (PR at 25 °C cell) is also shown, and the color and drift are judged on it — a hot month is not a fault. Baseline is this plant's clean-state PR from the Plant configuration (editable by admins in Setup → Finance); the gap to it approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
-                          "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. Las celdas calientes deprimen el PR (≈ −0.7 pts por °C), así que también se muestra la cifra normalizada por temperatura (PR a celda de 25 °C), y el color y la deriva se juzgan con ella — un mes caluroso no es una falla. La línea base es el PR en estado limpio de la configuración de planta (editable por administradores en Setup → Finanzas); la brecha contra ella aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
+                     + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Hot cells depress PR (about −0.7 pts per °C), so the temp-normalized figure (PR at 25 °C cell) is also shown, and the color and drift are judged on it - a hot month is not a fault. Baseline is this plant's clean-state PR from the Plant configuration (editable by admins in Setup → Finance); the gap to it approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
+                          "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. Las celdas calientes deprimen el PR (≈ −0.7 pts por °C), así que también se muestra la cifra normalizada por temperatura (PR a celda de 25 °C), y el color y la deriva se juzgan con ella - un mes caluroso no es una falla. La línea base es el PR en estado limpio de la configuración de planta (editable por administradores en Setup → Finanzas); la brecha contra ella aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
                      + f'</div><div class="tval">{pr*100:,.1f}%</div>'
                      f'<div class="tsub">{pr_sub}</div></div>{pr_why}</div></div>')
     tiles.append('</div>')
 
     warn = ''
     if stale:
-        # v241: a dark plant is an ERROR state, not a footnote — red card,
+        # v241: a dark plant is an ERROR state, not a footnote - red card,
         # the number of silent days in words (Tetra Pak sat on a neutral
         # page for six weeks)
         silent = (dt.date.fromisoformat(asof) - dt.date.fromisoformat(last_seen.get(k, asof))).days
         warn = (f'<div class="card bad" style="padding:14px 20px;border-color:#f3b9b9;background:#fdeaea;color:#c2554e"><b>'
-                f'{t("No data since " + last_seen.get(k, "?") + " — " + str(silent) + " day(s) without any telemetry or energy. Collection for this plant is interrupted — check the site and the vendor portal.", "Sin datos desde " + last_seen.get(k, "?") + " — " + str(silent) + " día(s) sin telemetría ni energía. La captura de datos de esta planta está interrumpida — revise el sitio y el portal del fabricante.")}'
+                f'{t("No data since " + last_seen.get(k, "?") + " - " + str(silent) + " day(s) without any telemetry or energy. Collection for this plant is interrupted - check the site and the vendor portal.", "Sin datos desde " + last_seen.get(k, "?") + " - " + str(silent) + " día(s) sin telemetría ni energía. La captura de datos de esta planta está interrumpida - revise el sitio y el portal del fabricante.")}'
                 '</b></div>')
 
     # Three groups instead of nine loose buttons: the dates you type,
-    # the shortcuts that fill them (one segmented control), and — pushed
-    # to the far right because it leaves the page — live monitoring.
+    # the shortcuts that fill them (one segmented control), and - pushed
+    # to the far right because it leaves the page - live monitoring.
     # "Last 30 days" and "Full range" are gone: 30 days is what the page
     # already opens on, and the full range is what From/To empty means.
     controls = f'''<div class="controls rangebar noprint">
@@ -1466,7 +1466,7 @@ def plant_parts(k):
         money_word = (t("revenue (right axis)", "ingreso (eje derecho)") if is_ppa
                       else t("savings (right axis)", "ahorro (eje derecho)"))
         rev_leg += f' · <span class="key" style="background:#1e8e3e"></span>{money_word}'
-    parts['daily'] = (f'<div class="card"><h2>{t("Daily production — selected range","Producción diaria — rango elegido")}</h2>'
+    parts['daily'] = (f'<div class="card"><h2>{t("Daily production - selected range","Producción diaria - rango elegido")}</h2>'
                       f'<p class="note"><span id="d_unit">kWh</span>{rev_leg}</p>'
                       '<div id="dchart"></div></div>')
     body.append(parts['daily'])
@@ -1520,7 +1520,7 @@ def plant_parts(k):
     parts['months'] = ''
     if is_ppa or clist or rlist:
         # (the 13-month "Actual vs. contracted" line chart that used to
-        # sit here was removed 2026-09-02 — it duplicated the monthly
+        # sit here was removed 2026-09-02 - it duplicated the monthly
         # production card directly above and confused readers, and the
         # in-progress month's tiny actual made the actual line nosedive)
         ms = [m for m, _ in mrows][-13:]
@@ -1537,13 +1537,13 @@ def plant_parts(k):
             mav = sum(avs) / len(avs) if avs else None
             if mav is not None:
                 av_ms.append(mav)
-            av_cell = f'{mav*100:,.1f}%' if mav is not None else '—'
+            av_cell = f'{mav*100:,.1f}%' if mav is not None else ' - '
             ta += a; tc += cc; trv += a * tr
             rows.append(f'<tr><td>{m}</td><td class="num">{a:,.0f}</td><td class="num">{cc:,.0f}</td>'
                         f'<td class="num">{pct:,.0f}%</td><td class="num">{av_cell}</td>'
                         f'<td class="num">{a*tr:,.0f}</td></tr>')
-        tav = (f'{sum(av_ms)/len(av_ms)*100:,.1f}%' if av_ms else '—')
-        tpct = f'{ta/tc*100:,.0f}%' if tc else '—'
+        tav = (f'{sum(av_ms)/len(av_ms)*100:,.1f}%' if av_ms else ' - ')
+        tpct = f'{ta/tc*100:,.0f}%' if tc else ' - '
         rows.append(f'<tr><td><b>TOTAL</b></td><td class="num"><b>{ta:,.0f}</b></td>'
                     f'<td class="num"><b>{tc:,.0f}</b></td><td class="num"><b>{tpct}</b></td>'
                     f'<td class="num"><b>{tav}</b></td><td class="num"><b>{trv:,.0f}</b></td></tr>')
@@ -1563,7 +1563,7 @@ def plant_parts(k):
 
 
 def plant_page(k):
-    """The old site's plant page — unchanged output, built from plant_parts."""
+    """The old site's plant page - unchanged output, built from plant_parts."""
     p = plants[k]
     parts = plant_parts(k)
     body = [chrome_top(p['customer'], p['customer'],
@@ -1572,7 +1572,7 @@ def plant_page(k):
     body += parts['body']
     body.append(pdf_bottom())
     body.append(parts['footer'])
-    return page(''.join(body), f'{k} — ARGIA')
+    return page(''.join(body), f'{k} - ARGIA')
 
 
 # ================= page: financial (PPA + LaaS, interactive) =================
@@ -1584,7 +1584,7 @@ def financial_page():
                                  f'{t("actuals through","reales hasta")} {asof} · '
                                  f'{t("all amounts MXN, sin IVA","todos los montos en MXN, sin IVA")}'),
             financial_body()]
-    return page(''.join(body), 'Financial Report — ARGIA')
+    return page(''.join(body), 'Financial Report - ARGIA')
 
 
 def financial_body():
@@ -1609,7 +1609,7 @@ def financial_body():
  <a class="btn live" href="/invoices/">{t("Invoice annexes","Anexos de facturación")}</a>
 </div>
 <style>
-/* v204: the mailed PDF is this page printed — one A4 page, no exceptions.
+/* v204: the mailed PDF is this page printed - one A4 page, no exceptions.
    v255: that page is now LANDSCAPE. The per-asset table has nine columns
    (asset, type, expected, actual, O&M, debt service, loan position and both
    DSCRs) and never fitted the 194mm of A4 portrait at 8mm margins. Nobody
@@ -1618,7 +1618,7 @@ def financial_body():
    shrinks to fit, while scripts/financial_mail.py renders with
    `chromium --print-to-pdf`, which has NO shrink-to-fit and simply clips.
    So every weekly mail lost debt service, loan position and both DSCR
-   columns off the right edge — silently, including the amber covenant
+   columns off the right edge - silently, including the amber covenant
    warnings, which are the whole point of the report. Landscape gives 281mm
    and the table fits at its normal size; the page has always had vertical
    room to spare. Never let this table depend on a print dialog again. */
@@ -1626,7 +1626,7 @@ td.asset{{white-space:nowrap;}}
 @media print{{
  @page{{size:A4 landscape;margin:8mm;}}
  /* safety valve: if a tenth column ever arrives, the asset name wraps and
-    the report gets taller — it does not silently lose a column. */
+    the report gets taller - it does not silently lose a column. */
  td.asset{{white-space:normal;}}
  #tbl_assets{{width:100%;max-width:100%;}}
  body{{font-size:11px;}}
@@ -1640,28 +1640,28 @@ td.asset{{white-space:nowrap;}}
 }}
 </style>
 <div class="tiles oneline">
- <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero"><span id="k_exp">—</span> <span class="unit">MXN</span></div></div>
- <div class="tile"><div class="tlabel">{t("Actual revenue","Ingreso real")}</div><div class="thero"><span id="k_act">—</span> <span class="unit">MXN</span></div></div>
- <div class="tile"><div class="tlabel">{t("Net cash (actual)","Flujo neto (real)")}</div><div class="thero"><span id="k_net">—</span> <span class="unit">MXN</span></div></div>
- <div class="tile"><div class="tlabel">{t("DSCR expected","DSCR esperado")}</div><div class="thero" id="k_de">—</div></div>
- <div class="tile"><div class="tlabel">{t("DSCR actual","DSCR real")}</div><div class="thero" id="k_da">—</div></div>
+ <div class="tile"><div class="tlabel">{t("Expected revenue","Ingreso esperado")}</div><div class="thero"><span id="k_exp"> - </span> <span class="unit">MXN</span></div></div>
+ <div class="tile"><div class="tlabel">{t("Actual revenue","Ingreso real")}</div><div class="thero"><span id="k_act"> - </span> <span class="unit">MXN</span></div></div>
+ <div class="tile"><div class="tlabel">{t("Net cash (actual)","Flujo neto (real)")}</div><div class="thero"><span id="k_net"> - </span> <span class="unit">MXN</span></div></div>
+ <div class="tile"><div class="tlabel">{t("DSCR expected","DSCR esperado")}</div><div class="thero" id="k_de"> - </div></div>
+ <div class="tile"><div class="tlabel">{t("DSCR actual","DSCR real")}</div><div class="thero" id="k_da"> - </div></div>
 </div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;">
- <div class="card"><h2>{t("Expected — contracted","Esperado — contratado")}</h2><table id="tbl_exp"></table></div>
- <div class="card"><h2>{t("Actual — accrued","Real — devengado")}</h2><table id="tbl_act"></table></div>
+ <div class="card"><h2>{t("Expected - contracted","Esperado - contratado")}</h2><table id="tbl_exp"></table></div>
+ <div class="card"><h2>{t("Actual - accrued","Real - devengado")}</h2><table id="tbl_act"></table></div>
 </div>
 <div class="card"><h2>{t("Per-asset detail","Detalle por activo")}</h2>
  <table id="tbl_assets"></table></div>
 <div class="card audit"><details><summary>{t("How these numbers are calculated","Cómo se calculan estos números")}</summary>
 <p><b>{t("Revenue (PPA):","Ingreso (PPA):")}</b> {t("measured daily energy × the contract tariff in force THAT month, from the migrated contract table (v1 ContractData). Revenue accrues daily by nature; it is an accrual estimate, never invoiced amounts. No IVA in any figure.","energía diaria medida × la tarifa contractual vigente ESE mes, de la tabla de contratos migrada (v1 ContractData). El ingreso se devenga por día; es un estimado devengado, nunca montos facturados. Ninguna cifra incluye IVA.")}</p>
-<p><b>{t("Expected revenue:","Ingreso esperado:")}</b> {t("contracted monthly kWh prorated per day × the same tariff — partial periods prorate by elapsed days.","kWh mensuales contratados prorrateados por día × la misma tarifa — periodos parciales se prorratean por días transcurridos.")}</p>
-<p><b>{t("LaaS fees:","Cuotas LaaS:")}</b> {t("monthly fee in native currency from the service contract (LOAX1 26,750 USD / LGTO1 15,233 USD); MXN value = fee × the loan-schedule FX of that month. Future months use the v1 projection (last known rate 17.98) — a projection, not a commitment.","cuota mensual en moneda nativa del contrato de servicio (LOAX1 26,750 USD / LGTO1 15,233 USD); valor MXN = cuota × tipo de cambio del mes según la tabla del crédito. Meses futuros usan la proyección v1 (última tasa conocida 17.98) — proyección, no compromiso.")}</p>
-<p><b>{t("Debt service:","Servicio de deuda:")}</b> {t("DERIVED as the sum of loan_schedule installments for the period — never a stored per-plant figure. Monthly installment in MXN from the bank amortization tables (v1 LoanPayments); USD loans: payment_ccy × FX, verified row-by-row at migration. Partial periods prorate by elapsed days. Principal+interest combined — v1 never stored the rate, so an interest/principal split is not derivable from this data.","DERIVADO como la suma de las cuotas de loan_schedule del periodo — nunca una cifra almacenada por planta. Cuota mensual en MXN de las tablas de amortización bancarias (v1 LoanPayments); créditos USD: payment_ccy × tipo de cambio, verificado fila por fila en la migración. Periodos parciales se prorratean por días. Capital+interés combinados — v1 nunca guardó la tasa, así que la división interés/capital no es derivable de estos datos.")}</p>
+<p><b>{t("Expected revenue:","Ingreso esperado:")}</b> {t("contracted monthly kWh prorated per day × the same tariff - partial periods prorate by elapsed days.","kWh mensuales contratados prorrateados por día × la misma tarifa - periodos parciales se prorratean por días transcurridos.")}</p>
+<p><b>{t("LaaS fees:","Cuotas LaaS:")}</b> {t("monthly fee in native currency from the service contract (LOAX1 26,750 USD / LGTO1 15,233 USD); MXN value = fee × the loan-schedule FX of that month. Future months use the v1 projection (last known rate 17.98) - a projection, not a commitment.","cuota mensual en moneda nativa del contrato de servicio (LOAX1 26,750 USD / LGTO1 15,233 USD); valor MXN = cuota × tipo de cambio del mes según la tabla del crédito. Meses futuros usan la proyección v1 (última tasa conocida 17.98) - proyección, no compromiso.")}</p>
+<p><b>{t("Debt service:","Servicio de deuda:")}</b> {t("DERIVED as the sum of loan_schedule installments for the period - never a stored per-plant figure. Monthly installment in MXN from the bank amortization tables (v1 LoanPayments); USD loans: payment_ccy × FX, verified row-by-row at migration. Partial periods prorate by elapsed days. Principal+interest combined - v1 never stored the rate, so an interest/principal split is not derivable from this data.","DERIVADO como la suma de las cuotas de loan_schedule del periodo - nunca una cifra almacenada por planta. Cuota mensual en MXN de las tablas de amortización bancarias (v1 LoanPayments); créditos USD: payment_ccy × tipo de cambio, verificado fila por fila en la migración. Periodos parciales se prorratean por días. Capital+interés combinados - v1 nunca guardó la tasa, así que la división interés/capital no es derivable de estos datos.")}</p>
 <p><b>{t("Loan position:","Posición del crédito:")}</b> {t("installments paid / total per ACTIVE loan at the period's end month, from loan_schedule (completed loans drop out; several active loans would show separately).","cuotas pagadas / total por crédito ACTIVO al mes final del periodo, según loan_schedule (créditos concluidos salen; varios créditos activos se muestran por separado).")}</p>
-<p><b>DSCR:</b> {t("Σ revenue ÷ Σ debt service for the same period — a debt-weighted aggregate, NOT an average of per-asset ratios (an average would let a small loan's high ratio mask a large loan's shortfall). An asset with no debt has no DSCR.","Σ ingreso ÷ Σ servicio de deuda del mismo periodo — agregado ponderado por deuda, NO un promedio de razones por activo (un promedio dejaría que la razón alta de un crédito pequeño oculte el déficit de uno grande). Un activo sin deuda no tiene DSCR.")}</p>
-<p><b>{t("FX position:","Posición cambiaria:")}</b> {usd_share:,.1f}% {t("of portfolio debt service is USD-denominated, matched by USD-indexed LaaS fees at the same rate — net portfolio FX exposure ≈ zero.","del servicio de deuda del portafolio está denominado en USD, cubierto por cuotas LaaS indexadas a USD a la misma tasa — exposición cambiaria neta ≈ cero.")}</p>
+<p><b>DSCR:</b> {t("Σ revenue ÷ Σ debt service for the same period - a debt-weighted aggregate, NOT an average of per-asset ratios (an average would let a small loan's high ratio mask a large loan's shortfall). An asset with no debt has no DSCR.","Σ ingreso ÷ Σ servicio de deuda del mismo periodo - agregado ponderado por deuda, NO un promedio de razones por activo (un promedio dejaría que la razón alta de un crédito pequeño oculte el déficit de uno grande). Un activo sin deuda no tiene DSCR.")}</p>
+<p><b>{t("FX position:","Posición cambiaria:")}</b> {usd_share:,.1f}% {t("of portfolio debt service is USD-denominated, matched by USD-indexed LaaS fees at the same rate - net portfolio FX exposure ≈ zero.","del servicio de deuda del portafolio está denominado en USD, cubierto por cuotas LaaS indexadas a USD a la misma tasa - exposición cambiaria neta ≈ cero.")}</p>
 <p><b>O&M:</b> {t("flat 3,000 MXN per PPA plant per month (plant config), prorated by elapsed days; no O&M cost is booked against LaaS fees.","3,000 MXN fijos por planta PPA al mes (configuración), prorrateado por días; no se registra costo O&M contra cuotas LaaS.")}</p>
-<p><b>{t("Pipeline:","Origen de datos:")}</b> {t("PostgreSQL argia_mont on pio06 (v1 history + v2 KPI, migrated 2026-08-25, totals verified against the v1/v2 reconciliation). This page embeds per-day figures computed server-side by the generator; the date picker only sums them — no financial logic runs in the browser.","PostgreSQL argia_mont en pio06 (historia v1 + KPI v2, migrado 2026-08-25, totales verificados contra la conciliación v1/v2). Esta página incluye cifras por día calculadas en el servidor; el selector de fechas solo las suma — ninguna lógica financiera corre en el navegador.")}</p>
+<p><b>{t("Pipeline:","Origen de datos:")}</b> {t("PostgreSQL argia_mont on pio06 (v1 history + v2 KPI, migrated 2026-08-25, totals verified against the v1/v2 reconciliation). This page embeds per-day figures computed server-side by the generator; the date picker only sums them - no financial logic runs in the browser.","PostgreSQL argia_mont en pio06 (historia v1 + KPI v2, migrado 2026-08-25, totales verificados contra la conciliación v1/v2). Esta página incluye cifras por día calculadas en el servidor; el selector de fechas solo las suma - ninguna lógica financiera corre en el navegador.")}</p>
 </details></div>
 {pdf_bottom()}
 <script>
@@ -1684,8 +1684,8 @@ function compute(){{
  document.getElementById('k_exp').textContent=fmt(T.exp);
  document.getElementById('k_act').textContent=fmt(T.act);
  document.getElementById('k_net').textContent=fmt(T.act-T.om-T.debt);
- document.getElementById('k_de').textContent=T.debt? (100*(T.exp-T.om)/T.debt).toFixed(0)+'%':'—';
- document.getElementById('k_da').textContent=T.debt? (100*(T.act-T.om)/T.debt).toFixed(0)+'%':'—';
+ document.getElementById('k_de').textContent=T.debt? (100*(T.exp-T.om)/T.debt).toFixed(0)+'%':' - ';
+ document.getElementById('k_da').textContent=T.debt? (100*(T.act-T.om)/T.debt).toFixed(0)+'%':' - ';
  const rows=(o,which)=>`
   <tr><th></th><th class="num">MXN</th></tr>
   <tr><td data-en="Revenue" data-es="Ingreso">Revenue</td><td class="num">${{fmt(which==='e'?o.exp:o.act)}}</td></tr>
@@ -1694,7 +1694,7 @@ function compute(){{
   <tr><td><b data-en="Net cash after debt service" data-es="Flujo neto tras deuda">Net cash after debt service</b></td>
       <td class="num"><b>${{fmt((which==='e'?o.exp:o.act)-o.om-o.debt)}}</b></td></tr>
   <tr><td data-en="Portfolio DSCR" data-es="DSCR portafolio">Portfolio DSCR</td>
-      <td class="num">${{o.debt?pill(((which==='e'?o.exp:o.act)-o.om)/o.debt):'—'}}</td></tr>`;
+      <td class="num">${{o.debt?pill(((which==='e'?o.exp:o.act)-o.om)/o.debt):' - '}}</td></tr>`;
  document.getElementById('tbl_exp').innerHTML=rows(T,'e');
  document.getElementById('tbl_act').innerHTML=rows(T,'a');
  let h=`<tr><th data-en="Asset" data-es="Activo">Asset</th><th data-en="Type" data-es="Tipo">Type</th>
@@ -1717,8 +1717,8 @@ function compute(){{
    <td class="num">${{fmt(p.exp)}}</td><td class="num">${{fmt(p.act)}}</td>
    <td class="num">${{p.om?fmt(p.om):'–'}}</td><td class="num">${{fmt(p.debt)}}</td>
    <td class="num">${{m.loanpos}}</td>
-   <td class="num">${{p.debt?pill((p.exp-p.om)/p.debt):'—'}}</td>
-   <td class="num">${{p.debt?pill((p.act-p.om)/p.debt):'—'}}</td></tr>`;}}
+   <td class="num">${{p.debt?pill((p.exp-p.om)/p.debt):' - '}}</td>
+   <td class="num">${{p.debt?pill((p.act-p.om)/p.debt):' - '}}</td></tr>`;}}
  h+=`<tr><td><b>PORTFOLIO</b></td><td></td><td class="num"><b>${{fmt(T.exp)}}</b></td>
    <td class="num"><b>${{fmt(T.act)}}</b></td><td class="num">${{fmt(T.om)}}</td>
    <td class="num"><b>${{fmt(T.debt)}}</b></td><td></td>
@@ -1739,7 +1739,7 @@ function preset(w){{
  compute();
 }}
 window.addEventListener('DOMContentLoaded',()=>{{
- // window override via #d0=YYYY-MM-DD&d1=YYYY-MM-DD (or ?d0=&d1=) —
+ // window override via #d0=YYYY-MM-DD&d1=YYYY-MM-DD (or ?d0=&d1=) -
  // the financial mailer prints a chosen period; humans get the default
  let w0='{V2_START}', w1=ASOF;   // v2 billing start -> data edge (Mirek: the HTML now carries the same default in the inputs)
  try{{
@@ -1761,7 +1761,7 @@ window.addEventListener('DOMContentLoaded',()=>{{
 
 # ================= page: CAPEX overview =================
 def capex_index():
-    body = [chrome_top('CAPEX Plants — Overview', 'Plantas CAPEX — Resumen',
+    body = [chrome_top('CAPEX Plants - Overview', 'Plantas CAPEX - Resumen',
                        f'{t("data through","datos hasta")} {asof} · {gen_at}', home='..')]
     cap = sum(plants[k]['kwp'] for k in CAPEX)
     tot30 = sum(sum(daily.get((k, (dt.date.fromisoformat(asof) - dt.timedelta(days=i)).isoformat()), 0.0)
@@ -1780,14 +1780,14 @@ def capex_index():
         l30 = sum(daily.get((k, (dt.date.fromisoformat(asof) - dt.timedelta(days=i)).isoformat()), 0.0)
                   for i in range(30))
         pr = pr30.get(k)
-        ls = last_seen.get(k, '—')
+        ls = last_seen.get(k, ' - ')
         status = ('<span class="pill">OK</span>' if ls == asof
                   else f'<span class="pill warn">{t("data ends","datos hasta")} {ls}</span>')
-        pr_cell = f'{pr*100:,.1f}%' if pr else '—'
+        pr_cell = f'{pr*100:,.1f}%' if pr else ' - '
         sav30 = sum(daily.get((k, d2), 0.0) * tariff_for(k, d2[:7]) for d2 in
                     [(dt.date.fromisoformat(asof) - dt.timedelta(days=i)).isoformat()
                      for i in range(30)])
-        sav_cell = f'{sav30:,.0f}' if sav30 else '—'
+        sav_cell = f'{sav30:,.0f}' if sav30 else ' - '
         tkwp += p['kwp']; t30sum += l30; tsav += sav30
         rows.append(f'<tr><td><a href="../{k.lower()}/"><b>{k}</b></a><br><span class="sub">'
                     f'{html.escape(p["customer"][:40])}</span></td>'
@@ -1799,7 +1799,7 @@ def capex_index():
     rows.append(f'<tr><td><b>TOTAL</b></td><td class="num"><b>{tkwp:,.0f}</b></td>'
                 f'<td class="num"><b>{t30sum/1000:,.2f}</b></td>'
                 f'<td class="num"><b>{tsav:,.0f}</b></td>'
-                f'<td class="num">—</td><td></td></tr>')
+                f'<td class="num"> - </td><td></td></tr>')
     body.append(f'<div class="card"><h2>{t("Per plant","Por planta")}</h2><table>'
                 f'<tr><th>{t("Plant","Planta")}</th><th class="num">kWp DC</th>'
                 f'<th class="num">{t("30d MWh","MWh 30d")}</th>'
@@ -1807,18 +1807,18 @@ def capex_index():
                 f'<th class="num">PR 30d</th>'
                 f'<th>{t("Status","Estado")}</th></tr>' + ''.join(rows) + '</table></div>')
     body.append(pdf_bottom())
-    body.append(f'<footer>{t("Each plant has a standalone performance page — click its key.","Cada planta tiene su propia página de desempeño — haz clic en su clave.")}</footer>')
-    return page(''.join(body), 'CAPEX — ARGIA')
+    body.append(f'<footer>{t("Each plant has a standalone performance page - click its key.","Cada planta tiene su propia página de desempeño - haz clic en su clave.")}</footer>')
+    return page(''.join(body), 'CAPEX - ARGIA')
 
 
 # ================= page: landing (report.argia.com.mx) =================
-# Grid emission factor register — LITERAL COPY of argia/core/co2.py,
+# Grid emission factor register - LITERAL COPY of argia/core/co2.py,
 # because the bundle runs outside the package. test_constants.py keeps
 # the two byte-comparable: change one and the test names the other.
 # kg CO2e per kWh (= t CO2 per MWh, same number).
 CO2_BY_YEAR = {2020: 0.494, 2021: 0.423, 2022: 0.435,
                2023: 0.438, 2024: 0.444}
-CO2_PLANT_OVERRIDE = {'MEX1': 0.202}   # SAG — contracted, all years
+CO2_PLANT_OVERRIDE = {'MEX1': 0.202}   # SAG - contracted, all years
 CO2_T_PER_MWH = CO2_BY_YEAR[max(CO2_BY_YEAR)]   # currently applicable
 
 
@@ -1849,12 +1849,12 @@ def landing_page():
     this_m = asof[:7]
     mtd = sum(v for (k2, m2), v in monthly_kwh.items() if m2 == this_m)
     rev_life = sum(a[2] for a in atoms)                    # actual MXN, PPA + LaaS
-    # per plant per year — SAG's contracted factor differs, and the
+    # per plant per year - SAG's contracted factor differs, and the
     # published national factor changes year to year (v186)
     co2 = sum(v / 1000.0 * co2_factor(m2[:4], k2)
               for (k2, m2), v in monthly_kwh.items())        # tonnes
 
-    body = [chrome_top('ARGIA — Reports', 'ARGIA — Reportes',
+    body = [chrome_top('ARGIA - Reports', 'ARGIA - Reportes',
                        f'{len(plants)} {t("plants","plantas")} · 2 LaaS · '
                        f'{t("data","datos")} {first} → {asof} · {gen_at}',
                        show_home=False)]
@@ -1876,7 +1876,7 @@ def landing_page():
  <div class="tsub">{this_m} → {asof[8:]}</div></div>
 </div>''')
     y12, yfl, fleet_cur_exp = year_months_with_flags(list(plants))
-    body.append(f'<div class="card"><h2>{t("Monthly production — whole fleet","Producción mensual — flota completa")} · {asof[:4]}</h2>'
+    body.append(f'<div class="card"><h2>{t("Monthly production - whole fleet","Producción mensual - flota completa")} · {asof[:4]}</h2>'
                 f'<p class="note">MWh · <span style="color:#9aa1a8">&#9632;</span> {t("grey = expected (contract / prior year); current month: actual over expected","gris = esperado (contrato / año anterior); mes en curso: real sobre esperado")}</p>'
                 + columns_svg(y12, 'MWh', scale=1000.0, show_values=True, month_names=True,
                               flags=yfl, cur_expected=fleet_cur_exp)
@@ -1911,7 +1911,7 @@ def landing_page():
  <span>{t("PPA + LaaS · revenue, debt service, DSCR","PPA + LaaS · ingreso, deuda, DSCR")}</span></span></a>
 <a href="invoices/">{ic_inv}<span class="nb"><b>{t("Invoice Annexes","Anexos de Facturación")}</b>
  <span>{t("monthly PPA annex per plant · PDF download","anexo PPA mensual por planta · descarga PDF")}</span></span></a>
-<a href="capex/">{ic_cap}<span class="nb"><b>{t("CAPEX Plants — Overview","Plantas CAPEX — Resumen")}</b>
+<a href="capex/">{ic_cap}<span class="nb"><b>{t("CAPEX Plants - Overview","Plantas CAPEX - Resumen")}</b>
  <span>{t("portfolio overview + status","resumen del portafolio + estado")}</span></span></a>
 <a href="monitoring/">{ic_mon}<span class="nb"><b>{t("Live Monitoring","Monitoreo en Vivo")}</b>
  <span>{t("5-minute fleet view · inverters · reconciliation","vista de flota cada 5 min · inversores · conciliación")}</span></span></a>
@@ -1934,12 +1934,12 @@ def landing_page():
     body.append('<div class="nav">' + ''.join(cards) + '</div>')
     body.append(f'''<div class="card audit"><details><summary>{t("How these numbers are calculated","Cómo se calculan estos números")}</summary>
 <p><b>{t("Clean energy:","Energía limpia:")}</b> {t("sum of measured daily production of all 10 plants (PostgreSQL argia_mont: v1 history 2024-02-29 → 2026-06-30 + v2 KPI from 2026-07-01; totals verified against the v1/v2 reconciliation).","suma de la producción diaria medida de las 10 plantas (PostgreSQL argia_mont: historia v1 2024-02-29 → 2026-06-30 + KPI v2 desde 2026-07-01; totales verificados contra la conciliación v1/v2).")}</p>
-<p><b>{t("CO2 avoided:","CO2 evitado:")}</b> {t(f"energy × the official Mexican grid emission factor (SEMARNAT/CRE) for the year the energy was produced — {CO2_T_PER_MWH} tCO2/MWh from 2024 onward, lower in earlier years — except where a customer contracted a different factor. An estimate of displaced grid generation.", f"energía × el factor de emisión oficial de la red mexicana (SEMARNAT/CRE) del año en que se produjo — {CO2_T_PER_MWH} tCO2/MWh desde 2024, menor en años anteriores — salvo donde el cliente contrató un factor distinto. Estimación de generación de red desplazada.")}</p>
+<p><b>{t("CO2 avoided:","CO2 evitado:")}</b> {t(f"energy × the official Mexican grid emission factor (SEMARNAT/CRE) for the year the energy was produced - {CO2_T_PER_MWH} tCO2/MWh from 2024 onward, lower in earlier years - except where a customer contracted a different factor. An estimate of displaced grid generation.", f"energía × el factor de emisión oficial de la red mexicana (SEMARNAT/CRE) del año en que se produjo - {CO2_T_PER_MWH} tCO2/MWh desde 2024, menor en años anteriores - salvo donde el cliente contrató un factor distinto. Estimación de generación de red desplazada.")}</p>
 <p><b>{t("Revenue generated:","Ingreso generado:")}</b> {t("accrued PPA revenue (measured energy × contract tariff of each month) + LaaS fees at the loan-schedule FX of each month. An accrual estimate, not invoiced amounts; no IVA.","ingreso PPA devengado (energía medida × tarifa contractual de cada mes) + cuotas LaaS al tipo de cambio mensual de la tabla del crédito. Estimado devengado, no facturado; sin IVA.")}</p>
 <p>{t("Access is restricted to authorized ARGIA users. Data through","Acceso restringido a usuarios autorizados de ARGIA. Datos hasta")} {asof}.</p>
 </details></div>''')
     # CFE freshness: the lightning goes CFE-yellow when scraped
-    # (portal-verified) rates cover the current month — and it GLOWS
+    # (portal-verified) rates cover the current month - and it GLOWS
     # only when the whole pipeline is healthy too (fresh Pi heartbeat,
     # probe ok, nothing rejected). Yellow-but-not-glowing = rates are
     # current but the pipeline needs a look (v179, Tomasz 2026-09-03).
@@ -1996,7 +1996,7 @@ def landing_page():
 <a href="cfe/"{cfe_style} title="{cfe_title}">{ic_cfe}{t("CFE Tariffs","Tarifas CFE")}</a>
 </div>''')
     body.append(pdf_bottom())
-    return page(''.join(body), 'ARGIA — Reports')
+    return page(''.join(body), 'ARGIA - Reports')
 
 
 # ================= write =================
@@ -2015,14 +2015,14 @@ def logged_out_page():
     Until v153 this page had to apologise: under HTTP Basic there was
     no session to end and the browser re-sent the password on the next
     click, so the honest advice was "close all your windows".  With a
-    server-side session that is over — the sign-out has happened before
+    server-side session that is over - the sign-out has happened before
     this page renders, and the only thing left to offer is the way back
     in.
     """
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             '<meta name="robots" content="noindex,nofollow">'
-            '<title>Signed out \u2014 ARGIA</title>'
+            '<title>Signed out - ARGIA</title>'
             f'<style>{STYLE}</style></head><body><div class="wrap" style="max-width:520px;'
             'text-align:center;padding-top:80px">'
             f'{LOGO}<h1 style="margin:26px 0 10px">'
@@ -2036,14 +2036,14 @@ def logged_out_page():
 
 
 def no_access_page():
-    """Body nginx serves with any 401 — i.e. what you see after
+    """Body nginx serves with any 401 - i.e. what you see after
     cancelling the browser's sign-in box. Without it you landed on
     the bare 'Authorization Required' wall with no way back."""
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             '<meta name="robots" content="noindex,nofollow">'
             '<meta http-equiv="refresh" content="6;url=/">'
-            '<title>No access — ARGIA</title>'
+            '<title>No access - ARGIA</title>'
             f'<style>{STYLE}</style></head><body><div class="wrap" '
             'style="max-width:520px;text-align:center;padding-top:80px">'
             f'{LOGO}<h1 style="margin:26px 0 10px">No access / Sin acceso</h1>'

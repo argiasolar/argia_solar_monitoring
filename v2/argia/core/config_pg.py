@@ -4,11 +4,11 @@ The two config tabs are the last live READ of the ARGIA_MONT_V2
 workbook: ``load_portfolio`` (every job), ``dashboard_update`` and
 ``dashboard_html_publish``. pio06 already has ``plant`` (16 columns:
 identity, kWp, coordinates, portfolio, tariff, pr_baseline, contracted
-kWh, active, O&M, investment, SLA — the /setup/ editors write THESE and
-audit every change) and ``inverter`` (8 columns) — but the tabs carry
+kWh, active, O&M, investment, SLA - the /setup/ editors write THESE and
+audit every change) and ``inverter`` (8 columns) - but the tabs carry
 42 and 12 columns respectively. This module:
 
-* extends both tables with the tabs' remaining columns — TEXT unless the
+* extends both tables with the tabs' remaining columns - TEXT unless the
   value is a date or a flag, because the sheet holds mixed content
   ('590+650', 'n/a') that every reader parses through safe_float /
   normalize_text anyway; typed columns come with the admin drawer once
@@ -20,7 +20,7 @@ audit every change) and ``inverter`` (8 columns) — but the tabs carry
 
 Authority: the 16 existing plant columns are PostgreSQL's (audited
 edits since 2026-09-01: pr_baseline, kwp_fix, om); the sheet only ever
-FILLS the new columns (COALESCE(stored, sheet)) — see
+FILLS the new columns (COALESCE(stored, sheet)) - see
 scripts/config_backfill_pg.py, whose parity is authority-aware.
 """
 from __future__ import annotations

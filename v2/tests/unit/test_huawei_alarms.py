@@ -1,9 +1,9 @@
-"""v257 — the Huawei alarm list we were never reading.
+"""v257 - the Huawei alarm list we were never reading.
 
 On 2026-09-16 FusionSolar held three Major "Device Fault" alarms on SAG's
 inverters with Huawei's own cause and repair text, while ARGIA knew only
 that power had gone to zero. The fixture is the payload captured from
-the live account on 2026-09-17 with the identifiers replaced — field
+the live account on 2026-09-17 with the identifiers replaced - field
 names and types are the vendor's, not a guess."""
 from __future__ import annotations
 

@@ -2,7 +2,7 @@
 
 WHY (2026-07-08): the weather-adjusted "expected" goes blind exactly when
 measured irradiance fails (block days), and contracts are written against
-the DESIGN estimate anyway — the Prologis-style triple is actual vs
+the DESIGN estimate anyway - the Prologis-style triple is actual vs
 expected (weather-adjusted) vs estimated (design). The `Design_Monthly`
 tab carries the per-plant monthly design kWh (extracted from the
 ARGIA_Solar `ExpectedkWh` contract data, per-year rows because the source
@@ -11,7 +11,7 @@ degrades ~0.5%/yr):
     plant_key | year | month | design_kwh
 
 This module reads it and prorates to a daily figure (month total /
-calendar days). Static data — no reliability gating needed; that is its
+calendar days). Static data - no reliability gating needed; that is its
 whole value.
 """
 
@@ -35,7 +35,7 @@ def load_design_monthly(sheets) -> DesignMap:
     """Read the design tab into {(plant_key, year, month): kwh}.
 
     Missing tab or malformed rows degrade to an empty/partial map with a
-    log line — the baseline is an enhancement, never a failure mode."""
+    log line - the baseline is an enhancement, never a failure mode."""
     # v191: the grid comes through the finance door (sheet tab or
     # PostgreSQL contract_monthly.design_kwh, per ARGIA_FINANCE_SOURCE).
     from argia.finance.pg_source import design_grid
@@ -46,7 +46,7 @@ def load_design_monthly(sheets) -> DesignMap:
 def parse_design_grid(data, used=None) -> DesignMap:
     """The parser, source-agnostic (PURE): header + rows -> map."""
     if not data or len(data) < 2:
-        LOG.warning("Design_Monthly tab not found or empty — 'vs design' "
+        LOG.warning("Design_Monthly tab not found or empty - 'vs design' "
                     "will be blank until it is filled")
         return {}
 
@@ -64,7 +64,7 @@ def parse_design_grid(data, used=None) -> DesignMap:
     blank = 0
     for row in data[1:]:
         # Contract_Monthly carries design_kwh on a minority of its rows
-        # (the PPA horizon rows have none) — a blank is "no design", not a
+        # (the PPA horizon rows have none) - a blank is "no design", not a
         # malformed row (v191.1: it used to log 1,163 'malformed' rows).
         i = idx["design_kwh"]
         if i >= len(row) or row[i] is None or str(row[i]).strip() == "":

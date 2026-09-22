@@ -1,4 +1,4 @@
-"""v190 — Sheets retirement phase 2a: KPI_Daily readers on PostgreSQL.
+"""v190 - Sheets retirement phase 2a: KPI_Daily readers on PostgreSQL.
 
 Locks: the mirror now carries all 24 KPI_Daily columns with the same
 protected/frozen semantics; the PG grid has the sheet's shape so the six
@@ -21,7 +21,7 @@ CSV = ("date_iso,plant_key,energy_kwh,irradiance_kwh_m2,irradiance_source,pr,"
        "billable_kwh\n"
        "2026-09-03,GTO2,1716.47,7.721,shinemaster_history,0.3959,HIGH,0.1788,HIGH,"
        "4,0,,2026-09-04T12:00:22+00:00,0.4196,3.0564,0.75,0.5342,full,61.8431,"
-       "3252.09,0.5278,\"Well below plan (53%) — inverter availability 75% — see Alerts\","
+       "3252.09,0.5278,\"Well below plan (53%) - inverter availability 75% - see Alerts\","
        "2688.3,1716.47\n")
 
 
@@ -96,7 +96,7 @@ class TestSwitch:
 
     def test_one_door_for_every_reader(self):
         """No live reader may call the sheet for KPI_Daily directly any more
-        — that is how the two sources would drift apart again."""
+        - that is how the two sources would drift apart again."""
         readers = ["scripts/alerts_daily.py", "argia/finance/income.py",
                    "argia/finance/annex.py", "argia/report/daily.py",
                    "scripts/dashboard_update.py"]

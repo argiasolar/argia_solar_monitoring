@@ -370,7 +370,7 @@ CREATE INDEX IF NOT EXISTS gl_line_account_idx ON gl_line(entity_id, account);
 CREATE INDEX IF NOT EXISTS gl_line_segment_idx ON gl_line(entity_id, segment);
 CREATE TABLE IF NOT EXISTS gl_balance (                     -- per account, per period end (from the auxiliares / balanza)
     entity_id       text NOT NULL REFERENCES entity(entity_id),
-    period          text NOT NULL,                   -- 'YYYY-MM' (period end) — the YTD print gives one row per account
+    period          text NOT NULL,                   -- 'YYYY-MM' (period end) - the YTD print gives one row per account
     account         text NOT NULL,
     name            text NOT NULL DEFAULT '',
     opening         numeric(16,2) NOT NULL DEFAULT 0,   -- as shown (nature-signed)
@@ -449,7 +449,7 @@ CREATE TABLE IF NOT EXISTS portfolio_project (              -- Argia_Projects_Ov
     paid_mxn        numeric(16,2),
     po              text NOT NULL DEFAULT '',
     comment         text NOT NULL DEFAULT '',
-    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this - the sheet…
     src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
     src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
@@ -478,7 +478,7 @@ CREATE TABLE IF NOT EXISTS open_item (                      -- the AR/AP tracker
     paid_on         date,
     kind            text NOT NULL DEFAULT '',
     comment         text NOT NULL DEFAULT '',
-    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this - the sheet…
     src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
     src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     source_sha      text NOT NULL REFERENCES fin_source_file(sha256),
@@ -519,7 +519,7 @@ CREATE TABLE IF NOT EXISTS pmo_task (
     priority        text NOT NULL DEFAULT '',
     status          text NOT NULL DEFAULT '',
     progress        numeric(12,4),
-    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this - the sheet…
     src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
     src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     PRIMARY KEY (project_id, task_id)
@@ -539,7 +539,7 @@ CREATE TABLE IF NOT EXISTS pmo_cost (
     approved_by     text NOT NULL DEFAULT '',
     paid            numeric(16,2) NOT NULL DEFAULT 0,
     payment_status  text NOT NULL DEFAULT '',
-    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this - the sheet…
     src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
     src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     PRIMARY KEY (project_id, cost_id)
@@ -559,7 +559,7 @@ CREATE TABLE IF NOT EXISTS pmo_invoice (
     payment_status  text NOT NULL DEFAULT '',
     paid_on         date,
     received        numeric(16,2) NOT NULL DEFAULT 0,
-    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this — the sheet…
+    src_sheet       text NOT NULL DEFAULT '',       -- v250: where to change this - the sheet…
     src_row         integer NOT NULL DEFAULT 0,      -- …its 1-based row…
     src_gid         text NOT NULL DEFAULT '',        -- …and the tab id, when the file is a Google Sheet (then the link lands on the cell)
     PRIMARY KEY (project_id, invoice_id)
@@ -590,7 +590,7 @@ CREATE INDEX IF NOT EXISTS bank_transaction_account_date_idx ON bank_transaction
 CREATE INDEX IF NOT EXISTS fin_event_subject_idx ON fin_event(subject_kind, subject_ref);
 """
 
-# v250 — columns added to tables that already exist on a running server.
+# v250 - columns added to tables that already exist on a running server.
 # ``ENSURE_SQL`` above creates a fresh database with them in place; this list
 # brings an older one up to date. ``ADD COLUMN IF NOT EXISTS`` is idempotent,
 # so the list only ever grows and re-running it costs nothing. Every entry is
@@ -624,7 +624,7 @@ TABLES = (
     "supplier_invoice", "customer_invoice", "payment", "allocation",
     "bank_statement", "bank_transaction", "bank_match",
     "period_close", "fin_exception", "fin_event", "savio_event", "savio_cursor",
-    # v245 — the books
+    # v245 - the books
     "fin_source_file", "gl_account", "gl_journal", "gl_line", "gl_balance", "fin_report_line",
     "biz_case", "project_margin", "portfolio_project", "open_item", "pmo_project", "pmo_task", "pmo_cost", "pmo_invoice",
     "savio_check",

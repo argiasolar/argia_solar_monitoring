@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — SMA plant + device discovery (Stage 6.3).
+"""Argia_Mont - SMA plant + device discovery (Stage 6.3).
 
 Stage 6.3 improvements:
 - Filters paste-ready Inverters rows to ONLY real solar inverters
@@ -9,7 +9,7 @@ Stage 6.3 improvements:
   in a separate "for reference" section so you can see the full plant.
 
 The sandbox tags charging stations as type='Solar Inverters' without a
-generatorPower field — they get filtered out.
+generatorPower field - they get filtered out.
 
 ENV VARS REQUIRED
     SMA_CLIENT_ID, SMA_CLIENT_SECRET, SMA_LOGIN_HINT, SMA_ENVIRONMENT
@@ -163,7 +163,7 @@ def _print_plant(
 
     if other_devices:
         print()
-        print("Other devices in this plant (NOT paste-worthy — for reference):")
+        print("Other devices in this plant (NOT paste-worthy - for reference):")
         for d in other_devices:
             did = d.get("deviceId", "?")
             name = d.get("name", "?")

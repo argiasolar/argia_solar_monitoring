@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — unified 5-minute telemetry across all vendors.
+"""Argia_Mont - unified 5-minute telemetry across all vendors.
 
 Stage 6: SMA pipeline added (sandbox-ready).
 
@@ -28,8 +28,8 @@ USAGE
 
 EXIT CODES
     0  all processed plants succeeded
-    1  partial — some failed, some succeeded
-    2  total failure — no rows written
+    1  partial - some failed, some succeeded
+    2  total failure - no rows written
     3  config error
 """
 
@@ -125,12 +125,12 @@ def _today_iso_mx() -> str:
 # ============================================================
 
 # The wide ``Telemetry_<KEY>`` tabs are a WRITE-ONLY mirror: every reader
-# in the system — kpi_eod (via argia.kpi.reader), alerts_snapshot,
-# watchdog, dashboard_update — reads ``Telemetry_Argia``, and Postgres
+# in the system - kpi_eod (via argia.kpi.reader), alerts_snapshot,
+# watchdog, dashboard_update - reads ``Telemetry_Argia``, and Postgres
 # holds the full per-inverter history. Nine tabs x 143 columns x ~4.5k
 # rows/day is ~700k cells/day, which filled the 10M-cell workbook twice
-# (2026-08-18 and 2026-09-03) and took Telemetry_Argia — the tab KPI
-# actually needs — down with it. So the mirror is OFF by default.
+# (2026-08-18 and 2026-09-03) and took Telemetry_Argia - the tab KPI
+# actually needs - down with it. So the mirror is OFF by default.
 # Set ARGIA_SHEET_PLANT_TABS=1 to turn it back on.
 PLANT_TABS_ENV = "ARGIA_SHEET_PLANT_TABS"
 
@@ -151,14 +151,14 @@ def _mirror_plant_tab(sheets, plant_key, plant_rows, dry_run=False,
     """Upsert one plant's wide rows into its Telemetry_<KEY> tab.
 
     Returns the number of errors (0 or 1) so callers keep counting the
-    way they always have. A no-op — and never an error — when the mirror
+    way they always have. A no-op - and never an error - when the mirror
     is disabled or there is nothing to write.
     """
     if not plant_rows:
         return 0
     log = log or logging.getLogger("argia.telemetry_5m")
     # v203: the wide row is kept in PostgreSQL (telemetry_detail) whether or
-    # not the sheet tab mirror is on — fail-soft, never an error here
+    # not the sheet tab mirror is on - fail-soft, never an error here
     try:
         pg_detail.mirror_plant_rows(plant_key, plant_rows, dry_run=dry_run, log=log)
     except Exception as e:  # noqa: BLE001
@@ -206,7 +206,7 @@ def _fetch_weather_for_plant(
         and plant.datalogger_sn
     ):
         try:
-            # One env-history fetch feeds irradiance AND temperatures — the
+            # One env-history fetch feeds irradiance AND temperatures - the
             # readings ride the same ShineMaster record, so we don't pay for
             # the getEnvHistory call twice.
             device = irradiance_client.get_env_device(
@@ -272,7 +272,7 @@ def _process_growatt_plant(
             latest = extract_latest_row(history)
             if latest is None:
                 log.warning(
-                    "[%s/%s] no history rows for %s — skipping",
+                    "[%s/%s] no history rows for %s - skipping",
                     plant.plant_key, inv.inverter_sn, date_iso,
                 )
                 continue
@@ -296,8 +296,8 @@ def _process_growatt_plant(
 
     # Degraded-mode fallback (2026-07-07): the web session is the only
     # carrier of per-inverter data; when it is blocked (LoginBackoff /
-    # auth refusal) every inverter fails and plant_rows is empty. Then —
-    # and only then — fetch plant-level today_energy via the OpenAPI
+    # auth refusal) every inverter fails and plant_rows is empty. Then -
+    # and only then - fetch plant-level today_energy via the OpenAPI
     # token (v1's proven route) and cache it for tomorrow's kpi-eod.
     # Errors stand as counted: the run stays PARTIAL, honestly.
     if not plant_rows and errors and token_client is not None:
@@ -384,7 +384,7 @@ def brand_enabled(brand: str, only: str | None, skip: str | None) -> bool:
 
 class _SolarEdgeQuotaExhausted(Exception):
     """This SITE's daily API quota (300 req/day/site) is spent. v80:
-    per-site budgets — the orchestrator skips THIS plant only and
+    per-site budgets - the orchestrator skips THIS plant only and
     continues with the next SolarEdge plant, whose budget is separate.
     Quota exhaustion near end of day is an expected condition, not an
     outage: data resumes after site-local midnight and the evening gap
@@ -392,7 +392,7 @@ class _SolarEdgeQuotaExhausted(Exception):
 
 
 class _SolarEdgeAuthFailed(Exception):
-    """API key rejected — no point trying other calls with it; the
+    """API key rejected - no point trying other calls with it; the
     orchestrator skips ONLY plants sharing this key's secret name."""
 
 
@@ -422,7 +422,7 @@ def _process_solaredge_plant(
         if "rate-limited" in msg or "429" in msg:
             log.warning(
                 "[%s] site %s: daily SolarEdge API quota reached "
-                "(~300 req/day/site) — expected near end of day at the "
+                "(~300 req/day/site) - expected near end of day at the "
                 "20-min cadence, NOT an outage. Collection resumes "
                 "after site-local midnight; tomorrow's full-day fetch "
                 "backfills today's tail for KPI purposes.",
@@ -437,7 +437,7 @@ def _process_solaredge_plant(
 
     label_by_sn = {inv.inverter_sn: inv.inverter_label for inv in inverters}
 
-    # v81: the weather snapshot is CURRENT-conditions data — attach it
+    # v81: the weather snapshot is CURRENT-conditions data - attach it
     # only to each inverter's latest row. Stamping it on every row of
     # the v80 overlap window rewrote historical 5-min entries with
     # fresher weather each poll: wrong data on old timestamps AND a
@@ -479,7 +479,7 @@ def _process_solaredge_plant(
 
 
 class _SMAAuthFailed(Exception):
-    """Token/consent failed for the whole SMA pipeline — skip remaining SMA plants."""
+    """Token/consent failed for the whole SMA pipeline - skip remaining SMA plants."""
 
 
 def _process_sma_plant(
@@ -500,18 +500,18 @@ def _process_sma_plant(
             sma_client, plant, inverters,
         )
     except SMAAuthError as e:
-        log.error("[%s] SMA auth failed: %s — skipping remaining SMA plants",
+        log.error("[%s] SMA auth failed: %s - skipping remaining SMA plants",
                   plant.plant_key, e)
         raise _SMAAuthFailed() from e
     except SMAConsentError as e:
-        log.error("[%s] SMA consent failed: %s — skipping remaining SMA plants",
+        log.error("[%s] SMA consent failed: %s - skipping remaining SMA plants",
                   plant.plant_key, e)
         raise _SMAAuthFailed() from e
     except SMAAPIError as e:
         msg = str(e).lower()
         if "rate-limited" in msg or "429" in msg:
             log.warning(
-                "[%s] SMA rate-limited — skipping remaining SMA inverters",
+                "[%s] SMA rate-limited - skipping remaining SMA inverters",
                 plant.plant_key,
             )
             return [], 1
@@ -561,7 +561,7 @@ def _run_growatt(portfolio, sheets, date_iso, only_plant,
     g_user = os.environ.get("GROWATT_USERNAME", "").strip()
     g_pass = os.environ.get("GROWATT_PASSWORD", "").strip()
     if not g_user or not g_pass:
-        log.error("GROWATT_USERNAME/PASSWORD not set — skipping %d Growatt plant(s)",
+        log.error("GROWATT_USERNAME/PASSWORD not set - skipping %d Growatt plant(s)",
                   len(plants))
         return [], 0, len(plants), 1
 
@@ -569,7 +569,7 @@ def _run_growatt(portfolio, sheets, date_iso, only_plant,
     token_client = growatt_token.GrowattTokenClient.from_env()
     # Run-level session revalidation (2026-07-08): a restored session is
     # probed before trust; expired -> fresh login here, ONCE per run.
-    # Failures are non-fatal — per-inverter fetches surface them and the
+    # Failures are non-fatal - per-inverter fetches surface them and the
     # token fallback covers energy.
     try:
         web_client.ensure_session()
@@ -586,7 +586,7 @@ def _run_growatt(portfolio, sheets, date_iso, only_plant,
     for plant in plants:
         inverters = portfolio.inverters_for(plant.plant_key)
         if not inverters:
-            log.info("[%s] no active inverters — skipping", plant.plant_key)
+            log.info("[%s] no active inverters - skipping", plant.plant_key)
             skipped += 1
             continue
         log.info("[%s] %d active inverter(s): %s",
@@ -620,7 +620,7 @@ def _run_huawei(portfolio, sheets, date_iso, only_plant,
     h_user = os.environ.get("HUAWEI_USERNAME", "").strip()
     h_pass = os.environ.get("HUAWEI_PASSWORD", "").strip()
     if not h_user or not h_pass:
-        log.error("HUAWEI_USERNAME/PASSWORD not set — skipping %d Huawei plant(s)",
+        log.error("HUAWEI_USERNAME/PASSWORD not set - skipping %d Huawei plant(s)",
                   len(plants))
         return [], 0, len(plants), 1
 
@@ -628,7 +628,7 @@ def _run_huawei(portfolio, sheets, date_iso, only_plant,
         huawei_client = HuaweiClient(username=h_user, password=h_pass)
         huawei_client.login()
     except Exception as e:  # noqa: BLE001
-        log.error("Huawei login failed: %s — skipping all Huawei plants", e)
+        log.error("Huawei login failed: %s - skipping all Huawei plants", e)
         return [], 0, len(plants), 1
 
     log.info("Processing %d Huawei plant(s): %s",
@@ -642,7 +642,7 @@ def _run_huawei(portfolio, sheets, date_iso, only_plant,
     for plant in plants:
         inverters = portfolio.inverters_for(plant.plant_key)
         if not inverters:
-            log.info("[%s] no active inverters — skipping", plant.plant_key)
+            log.info("[%s] no active inverters - skipping", plant.plant_key)
             skipped += 1
             continue
         log.info("[%s] %d active inverter(s): %s",
@@ -689,7 +689,7 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
             continue
         api_key = os.environ.get(secret_name, "").strip() if secret_name else ""
         if not api_key:
-            log.warning("[%s] env var %s is not set — skipping",
+            log.warning("[%s] env var %s is not set - skipping",
                         plant.plant_key, secret_name)
             skipped += 1
             continue
@@ -705,7 +705,7 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
 
         inverters = portfolio.inverters_for(plant.plant_key)
         if not inverters:
-            log.info("[%s] no active inverters — skipping (run "
+            log.info("[%s] no active inverters - skipping (run "
                      "solaredge_discover_inverters.py and add SNs to Inverters tab)",
                      plant.plant_key)
             skipped += 1
@@ -723,7 +723,7 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
             processed += 1
         except _SolarEdgeQuotaExhausted:
             # per-SITE budget: only this plant pauses; the next SE
-            # plant has its own quota. Not counted as an error — the
+            # plant has its own quota. Not counted as an error - the
             # condition is expected and self-heals at midnight.
             skipped += 1
             continue
@@ -769,7 +769,7 @@ def _run_sma(portfolio, sheets, date_iso, only_plant,
     environment = os.environ.get("SMA_ENVIRONMENT", "sandbox").strip()
 
     if not (client_id and client_secret):
-        log.error("SMA_CLIENT_ID/SMA_CLIENT_SECRET not set — skipping %d SMA plant(s)",
+        log.error("SMA_CLIENT_ID/SMA_CLIENT_SECRET not set - skipping %d SMA plant(s)",
                   len(plants))
         return [], 0, len(plants), 1
 
@@ -782,10 +782,10 @@ def _run_sma(portfolio, sheets, date_iso, only_plant,
         )
         sma_client.login()
     except (SMAAuthError, SMAConsentError) as e:
-        log.error("SMA login failed: %s — skipping all SMA plants", e)
+        log.error("SMA login failed: %s - skipping all SMA plants", e)
         return [], 0, len(plants), 1
     except SMAAPIError as e:
-        log.error("SMA login API error: %s — skipping all SMA plants", e)
+        log.error("SMA login API error: %s - skipping all SMA plants", e)
         return [], 0, len(plants), 1
     except Exception as e:  # noqa: BLE001
         log.exception("SMA client setup crashed: %s", e)
@@ -802,7 +802,7 @@ def _run_sma(portfolio, sheets, date_iso, only_plant,
     for plant in plants:
         inverters = portfolio.inverters_for(plant.plant_key)
         if not inverters:
-            log.info("[%s] no active inverters — skipping (run "
+            log.info("[%s] no active inverters - skipping (run "
                      "sma_discover_plants.py and add SNs to Inverters tab)",
                      plant.plant_key)
             skipped += 1
@@ -859,7 +859,7 @@ def _finalize_and_log_run(
     """Stamp final accounting on ``result``, then append a row to ``SyncRuns``.
 
     Never raises. If the write itself fails (network blip, sheet permissions),
-    we log the error and return — telemetry data is already written by this
+    we log the error and return - telemetry data is already written by this
     point, and one missed SyncRuns row must not turn a green run red.
 
     Status is derived by ``RunResult.finalize()``:
@@ -874,13 +874,13 @@ def _finalize_and_log_run(
         # The detailed per-plant errors are already in the log; capture a
         # one-line summary here so an operator can spot a bad run at a glance.
         result.errors.append(
-            f"{total_errors} non-fatal error(s) during run — see log for details"
+            f"{total_errors} non-fatal error(s) during run - see log for details"
         )
     result.finalize()
 
     row = result.to_sheet_row()
     if dry_run:
-        log.info("[SyncRuns] DRY RUN — would log: %s", row)
+        log.info("[SyncRuns] DRY RUN - would log: %s", row)
         return
 
     # v188: PostgreSQL is the run log; the sheet tab only behind
@@ -1074,12 +1074,12 @@ def main(argv=None) -> int:
             if sheet_on:
                 log.warning("PG write failed (sheet copy still on): %s", e)
             else:
-                log.error("PostgreSQL telemetry write FAILED — %d rows not "
+                log.error("PostgreSQL telemetry write FAILED - %d rows not "
                           "stored this tick: %s", len(all_common), e)
                 total_errors += 1
         if not sheet_on and pg_rows == 0 and not args.dry_run:
             log.error("no telemetry sink: sheet off and PG mirror not "
-                      "enabled (ARGIA_PG_MIRROR) — %d rows not stored",
+                      "enabled (ARGIA_PG_MIRROR) - %d rows not stored",
                       len(all_common))
             total_errors += 1
     if all_common and sheet_on:

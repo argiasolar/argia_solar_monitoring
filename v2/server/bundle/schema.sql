@@ -1,4 +1,4 @@
--- Argia_Mont — PostgreSQL schema v1 (pio06), 2026-08-25
+-- Argia_Mont - PostgreSQL schema v1 (pio06), 2026-08-25
 -- Plain SQL, no ORM. Idempotent: CREATE IF NOT EXISTS only.
 
 CREATE TABLE IF NOT EXISTS plant (
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS daily_production (
 );
 CREATE INDEX IF NOT EXISTS idx_daily_date ON daily_production (prod_date);
 
--- NOTE: plant_key here is NOT a strict FK — the sheet also carries LaaS
+-- NOTE: plant_key here is NOT a strict FK - the sheet also carries LaaS
 -- contract entities (LGTO1, LOAX1) whose fees are keyed like plants.
 CREATE TABLE IF NOT EXISTS contract_monthly (
     plant_key        text NOT NULL,

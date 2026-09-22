@@ -21,7 +21,7 @@ LOAD = "/opt/argia/bundle/cfe_load.py"
 ALLOWED = {"SUMINISTRO BASICO", "ENERGIA BASE", "ENERGIA INTERMEDIA",
            "ENERGIA PUNTA", "DISTRIBUCION", "CAPACIDAD",
            # CFE introduced a semi-peak energy component with the
-           # Sep-2026 files (seen on DIST) — capture it as known
+           # Sep-2026 files (seen on DIST) - capture it as known
            # rather than warning (v179, Tomasz 2026-09-03)
            "ENERGIA SEMIPUNTA"}
 HEADER = "tariff_code,region,month,charge_type,unit,value_mxn"
@@ -64,7 +64,7 @@ def validate(path):
     if bad_vals:
         return False, f"{bad_vals} out-of-range values"
     if unknown:
-        # unknown concepts load fine but deserve eyes — warn, allow
+        # unknown concepts load fine but deserve eyes - warn, allow
         print(f"  WARNING unknown charge types: {sorted(unknown)[:5]}")
     # anomaly check vs values already in PG (previous month, same key)
     months = sorted({r["month"] for r in rows})
@@ -90,7 +90,7 @@ def main():
         if not os.path.isfile(p) or not f.endswith(".csv"):
             continue
         ok, info = validate(p)
-        print(f"{f}: {'OK' if ok else 'REJECT'} — {info}")
+        print(f"{f}: {'OK' if ok else 'REJECT'} - {info}")
         if ok:
             r = subprocess.run(
                 ["python3", LOAD, p, "cfe_scrape"],
@@ -144,7 +144,7 @@ def main():
                " WHERE source='cfe_scrape';")
     if loaded:
         # event-driven engine push (v181): a fresh load is the same
-        # event that turns the CFE mark yellow — push the overlay now.
+        # event that turns the CFE mark yellow - push the overlay now.
         # Fire-and-forget; the unit no-ops if the push is unconfigured.
         subprocess.run(["systemctl", "start", "--no-block",
                         "argia-cfe-push.service"], check=False)

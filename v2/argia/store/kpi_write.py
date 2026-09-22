@@ -8,8 +8,8 @@ kpi_eod already makes.
 
     ARGIA_KPI_WRITE = sheet | both | pg      (v193 default: sheet)
 
-  sheet  the sheet only (the mirror still bridges) — today's behaviour
-  both   PostgreSQL first, then the sheet — the shadow period; the
+  sheet  the sheet only (the mirror still bridges) - today's behaviour
+  both   PostgreSQL first, then the sheet - the shadow period; the
          mirror becomes a no-op check (parity must stay IDENTICAL)
   pg     PostgreSQL only; the sheet is no longer written
 
@@ -18,7 +18,7 @@ a row upsert or a single-column stamp becomes one INSERT ... ON CONFLICT
 in which only the columns provided change, a NULL never overwrites data,
 protected columns on vendor-authoritative rows stay, and CLOSED months
 are frozen. So kpi_eod re-running over a corrected month can no longer
-undo the correction — on the sheet it could, and the mirror had to
+undo the correction - on the sheet it could, and the mirror had to
 filter that out afterwards.
 """
 from __future__ import annotations
@@ -63,7 +63,7 @@ def rows_from_stamps(col_name: str, stamps: Dict[Tuple[str, str], Any],
                      date_key) -> List[Dict[str, Any]]:
     """{(date_iso, plant_key): value} for ONE sheet column -> partial
     mirror rows (only that column set; everything else NULL = keep).
-    Raises on a column daily_production does not carry — a stamp that
+    Raises on a column daily_production does not carry - a stamp that
     silently went nowhere is exactly the failure this must not have.
     PURE."""
     if col_name not in COLMAP:
@@ -141,7 +141,7 @@ def only_existing(rows: List[Dict[str, Any]], existing) -> List[Dict[str, Any]]:
         if (r["plant_key"], r["prod_date"]) in have:
             out.append(r)
         else:
-            LOG.warning("stamp: no daily_production row for (%s, %s) — skipping",
+            LOG.warning("stamp: no daily_production row for (%s, %s) - skipping",
                         r["prod_date"], r["plant_key"])
     return out
 

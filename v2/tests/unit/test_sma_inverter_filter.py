@@ -15,7 +15,7 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-# Two copies of the same helper — they MUST stay in sync. Test both.
+# Two copies of the same helper - they MUST stay in sync. Test both.
 from sma_capture import _is_real_inverter as _is_real_inverter_capture
 from sma_discover_plants import _is_real_inverter as _is_real_inverter_discover
 
@@ -80,7 +80,7 @@ ENERGY_METER = {
     "isActive": True,
 }
 
-# This is the tricky one — sandbox tags charging stations as "Solar Inverters"
+# This is the tricky one - sandbox tags charging stations as "Solar Inverters"
 # but they have no generatorPower. Must filter these out.
 EV_CHARGER = {
     "deviceId": "23",
@@ -156,7 +156,7 @@ class TestEdgeCases:
         ) is False
 
     def test_string_generator_power_handled(self, is_real_inverter):
-        """SMA sometimes returns numbers as strings — handle gracefully."""
+        """SMA sometimes returns numbers as strings - handle gracefully."""
         assert is_real_inverter(
             {"type": "Solar Inverters", "generatorPower": "6000"}
         ) is True
@@ -167,7 +167,7 @@ class TestEdgeCases:
         ) is False
 
     def test_wrong_type_string_rejected(self, is_real_inverter):
-        """Type comparison is exact — 'solar inverters' (lowercase) is
+        """Type comparison is exact - 'solar inverters' (lowercase) is
         rejected. SMA always uses Title Case in the sandbox responses."""
         assert is_real_inverter(
             {"type": "solar inverters", "generatorPower": 5000}
@@ -196,5 +196,5 @@ class TestFromCapturedPlant:
         accepted = [d for d in self.ALL_DEVICES if is_real_inverter(d)]
         assert len(accepted) == 3
         accepted_ids = {d["deviceId"] for d in accepted}
-        # Inverters 16, 17, 18 — NOT 23 (charging station)
+        # Inverters 16, 17, 18 - NOT 23 (charging station)
         assert accepted_ids == {"16", "17", "18"}

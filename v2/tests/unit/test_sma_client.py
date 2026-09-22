@@ -489,7 +489,7 @@ class TestParseDayKwh:
         assert SMAClient._parse_day_kwh(resp, "2026-05-14") == 100.0
 
     def test_wh_to_kwh_heuristic(self):
-        # 5_000_000 Wh = 5000 kWh — flagged as > 1e6 → divide
+        # 5_000_000 Wh = 5000 kWh - flagged as > 1e6 → divide
         resp = {"set": {"totalEnergyDay": 5_000_000}}
         assert SMAClient._parse_day_kwh(resp, "2026-05-14") == 5000.0
 

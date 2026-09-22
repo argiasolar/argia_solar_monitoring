@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the customer invoicing annex (v93) — self-contained HTML.
+"""Generate the customer invoicing annex (v93) - self-contained HTML.
 
 On-demand (no cron): one HTML annex per plant, covering a selectable
 year. The embedded month picker lets the customer read any month of that
 year; ``Descargar`` prints to PDF. Fed entirely by the Google Sheet
 (KPI_Daily energy/billable + performance columns, Contract_Monthly
 tariff). Energía compensada comes from the stamped ``billable_kwh`` (v91
-deemed engine) — never recomputed here.
+deemed engine) - never recomputed here.
 
 Per-client isolation: ``--channel`` renders an annex for every plant on
 that client_channel; ``--plant`` renders a single one.
@@ -47,13 +47,13 @@ def _year_window(year: int) -> Period:
 
 
 def previous_month(year: int, month: int):
-    """Calendar month before (year, month). Pure — Jan rolls to prior Dec."""
+    """Calendar month before (year, month). Pure - Jan rolls to prior Dec."""
     return (year - 1, 12) if month == 1 else (year, month - 1)
 
 
 def last_complete_month(now) -> str:
     """'YYYY-MM' of the month that has fully ended as of ``now`` (MX). On
-    the 1st this is the month that just closed — the invoice period."""
+    the 1st this is the month that just closed - the invoice period."""
     y, m = previous_month(now.year, now.month)
     return "%04d-%02d" % (y, m)
 
@@ -73,7 +73,7 @@ def _setup_logging(level: str = "INFO") -> None:
 
 
 def reconciliation_gate(ym: str, plants: list) -> tuple:
-    """(allowed, blocked) for invoice mode — v3 item 12: no invoice annex
+    """(allowed, blocked) for invoice mode - v3 item 12: no invoice annex
     for a month whose reconciliation is not CLOSED (PASS auto-closes on
     the 1st at 06:10 MX; REVIEW/FAIL need a manual close).
 
@@ -91,7 +91,7 @@ def reconciliation_gate(ym: str, plants: list) -> tuple:
             f" WHERE ref_month = DATE '{ym}-01'"
             " AND closed_at IS NOT NULL;") if r and r[0]}
     except Exception as e:  # noqa: BLE001
-        LOG.error("reconciliation gate unreadable (%s) — refusing to "
+        LOG.error("reconciliation gate unreadable (%s) - refusing to "
                   "invoice ANY plant for %s (fail-closed)", e, ym)
         return [], list(plants)
     allowed = [p for p in plants if p in closed]
@@ -124,7 +124,7 @@ def main(argv=None) -> int:
                         help="single billing month 'YYYY-MM' (invoice mode)")
     parser.add_argument("--last-month", action="store_true",
                         help="the month that just closed (for the 1st-of-"
-                             "month cron) — a single-month invoice")
+                             "month cron) - a single-month invoice")
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--dry-run", action="store_true",
                         help="render locally; no Drive upload")
@@ -145,7 +145,7 @@ def main(argv=None) -> int:
     #                 1st-of-month cron output.
     #   annex mode    (default / --year)       → the whole year with the
     #                 in-browser month picker, file "annex_<plant>_<year>"
-    #                 — the "big report", run on demand.
+    #                 - the "big report", run on demand.
     ym = None
     if args.last_month:
         ym = last_complete_month(now_mx())
@@ -166,11 +166,11 @@ def main(argv=None) -> int:
     if mode == "invoice":
         plants, blocked = reconciliation_gate(ym, plants)
         for pk in blocked:
-            LOG.warning("[%s] %s reconciliation NOT closed — invoice "
+            LOG.warning("[%s] %s reconciliation NOT closed - invoice "
                         "annex BLOCKED (close the month on the recon "
                         "board first)", pk, ym)
     if not plants:
-        LOG.warning("no plants matched — nothing to render")
+        LOG.warning("no plants matched - nothing to render")
         return 2
 
     out_dir = args.out_dir or tempfile.mkdtemp(prefix="argia_annex_")

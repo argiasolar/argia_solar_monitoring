@@ -1,5 +1,5 @@
 """The functions the assistant may call. Read-only, fixed SQL, validated
-inputs — the model never composes a query.
+inputs - the model never composes a query.
 
 Every tool is ``fn(rows, **params) -> dict`` where ``rows(sql)`` returns
 ``psql -A -t`` style rows (lists of strings, '' for NULL). Production
@@ -14,7 +14,7 @@ must parse as ISO dates, ranges are capped. Anything else raises
 result so it can rephrase or ask.
 
 Numbers returned here are the numbers the answer must quote. The model
-does not aggregate raw samples — the SQL does.
+does not aggregate raw samples - the SQL does.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ STALE_MIN = 30
 
 
 class ToolError(ValueError):
-    """Bad input from the model — returned to it as the tool result."""
+    """Bad input from the model - returned to it as the tool result."""
 
 
 # ----------------------------------------------------------------- helpers
@@ -103,7 +103,7 @@ def _range(date_from: Any, date_to: Any) -> tuple:
 
 # ------------------------------------------------------------------ plants
 def display_name(customer: Any) -> str:
-    """Human name, never the plant code — the same rule the portfolio
+    """Human name, never the plant code - the same rule the portfolio
     map follows (v177.1: 'do not use the code names like GTO1').
     'TAIGENE PPA roof (Leon, GTO)' -> 'Taigene'; short all-caps
     acronyms (SAG, SMS) survive. Pure; mirrors monitoring_gen."""
@@ -362,7 +362,7 @@ def get_generation(rows: Rows, plant: Any, date_from: Any, date_to: Any) -> dict
 def get_performance(rows: Rows, date_from: Any, date_to: Any,
                     plant: Any = None) -> dict:
     """PR, availability and production vs expected per plant over a
-    range — all plants (worst first) or one. Use it to compare plants
+    range - all plants (worst first) or one. Use it to compare plants
     or periods."""
     a, b = _range(date_from, date_to)
     k = resolve_plant(rows, plant) if plant else None
@@ -479,7 +479,7 @@ def get_active_alarms(rows: Rows, plant: Any = None) -> dict:
             "alarms": _active_alarms(rows, k),
             "open_maintenance": _maintenance(rows, k, None, None, True),
             "note": "alarm keys: plant-dark / plant-stale / inverter-silent / "
-                    "recon-fail / infra. Vendor fault codes are per inverter — "
+                    "recon-fail / infra. Vendor fault codes are per inverter - "
                     "see get_inverter_performance.",
             "source": {"tables": ["alert_state", "maintenance_event"],
                        **_freshness(rows)}}
@@ -586,7 +586,7 @@ def _month_overlap_days(a: str, b: str) -> Dict[str, tuple]:
 
 def get_revenue(rows: Rows, date_from: Any, date_to: Any, plant: Any = None) -> dict:
     """Accrued PPA revenue: measured energy × the contract tariff of each
-    month (contract_monthly.tariff_mxn, else the plant tariff) — the same
+    month (contract_monthly.tariff_mxn, else the plant tariff) - the same
     rule as the reports' 'Revenue generated'. Also the contracted
     expectation prorated over the range. PPA plants only; CAPEX plants
     earn nothing for Argia and LaaS fees are not plants."""
@@ -687,8 +687,8 @@ def get_reconciliation(rows: Rows, date_from: Any, date_to: Any, plant: Any = No
 
 
 def get_monthly_close(rows: Rows, month: Any = None) -> dict:
-    """The monthly close per plant — billing kWh, basis, status, closed
-    by whom — the gate the invoice annexes wait for."""
+    """The monthly close per plant - billing kWh, basis, status, closed
+    by whom - the gate the invoice annexes wait for."""
     ym = None
     if month:
         m = str(month).strip()[:7]
@@ -719,7 +719,7 @@ def get_monthly_close(rows: Rows, month: Any = None) -> dict:
                        "open": sum(1 for x in out if not x["closed"]),
                        "billing_kwh": _r(sum(x["billing_kwh"] or 0 for x in out))},
             "note": "a PASS month closes automatically; REVIEW/FAIL wait for a manual close; "
-                    "closed months are frozen — nothing changes their kWh afterwards.",
+                    "closed months are frozen - nothing changes their kWh afterwards.",
             "source": {"tables": ["reconciliation_monthly"], **_freshness(rows)}}
 
 
@@ -947,13 +947,13 @@ def search_standard(rows: Rows, query: Any, lang: Any = "en", limit: Any = 5) ->
     for r in rows(K.search_sql(q, lang, lim)):
         if len(r) >= 4:
             hits.append({"slide": _i(r[0]), "title": r[1], "excerpt": K.excerpt(r[2], q),
-                         "rank": _f(r[3]), "ref": f"AGS slide {r[0]}" + (f" — {r[1]}" if r[1] else ""),
+                         "rank": _f(r[3]), "ref": f"AGS slide {r[0]}" + (f" - {r[1]}" if r[1] else ""),
                          "link": slide_link(_i(r[0]), lang)})
     return {"query": q, "lang": lang, "hits": hits,
             "totals": {"hits": len(hits)},
-            "note": ("cite the slide as 'ARGIA Golden Standard, slide N — title'; "
+            "note": ("cite the slide as 'ARGIA Golden Standard, slide N - title'; "
                      f"the deck is at {slide_link(None, lang)}" if hits else
-                     f"nothing in the standard matches {q!r} — try other words or the other language"),
+                     f"nothing in the standard matches {q!r} - try other words or the other language"),
             "source": {"tables": ["knowledge"], "doc": "AGS"}}
 
 
@@ -975,7 +975,7 @@ def query_database(rows: Rows, sql: Any) -> dict:
         raise ToolError(f"query rejected: {e}")
     try:
         raw = rows(wrapped)
-    except Exception as e:                       # noqa: BLE001 — SQL error text helps the model
+    except Exception as e:                       # noqa: BLE001 - SQL error text helps the model
         msg = str(e)
         return {"error": "query failed: " + msg[msg.find("ERROR:"):][:400] if "ERROR:" in msg else msg[:400]}
     data = S.parse_rows(raw)
@@ -987,7 +987,7 @@ def query_database(rows: Rows, sql: Any) -> dict:
                 sums[col] = sums.get(col, 0) + v
     return {"rows": data, "totals": {"rows": len(data), "capped": len(data) >= S.MAX_ROWS,
                                      "column_sums": {c: _r(v, 3) for c, v in sums.items()}},
-            "note": "read-only query; rows capped at %d — aggregate in SQL rather than paging" % S.MAX_ROWS,
+            "note": "read-only query; rows capped at %d - aggregate in SQL rather than paging" % S.MAX_ROWS,
             "source": {"tables": ["(query)"]}}
 
 
@@ -1057,7 +1057,7 @@ TOOLS: List[dict] = [
                       "required": ["date_from", "date_to"]}},
     {"name": "get_monthly_close",
      "description": "Monthly close per plant (billing kWh, basis, PASS/REVIEW/FAIL, closed "
-                    "by whom) — the gate invoices wait for. Omit month for the latest months.",
+                    "by whom) - the gate invoices wait for. Omit month for the latest months.",
      "input_schema": {"type": "object",
                       "properties": {"month": {"type": "string", "description": "YYYY-MM"}}}},
     {"name": "get_tickets",
@@ -1102,7 +1102,7 @@ TOOLS: List[dict] = [
                     "requirements, checklists, terminology.",
      "input_schema": {"type": "object",
                       "properties": {"query": {"type": "string", "description": "key words (not a sentence)"},
-                                     "lang": {"type": "string", "description": "en (default), es or cz — the deck's language to search"},
+                                     "lang": {"type": "string", "description": "en (default), es or cz - the deck's language to search"},
                                      "limit": {"type": "integer", "description": "1-10, default 5"}},
                       "required": ["query"]}},
     {"name": "describe_tables",
@@ -1148,7 +1148,7 @@ DISPATCH: Dict[str, Callable[..., dict]] = {
     "query_database": query_database,
 }
 
-# v215: what a customer-scoped account (a plant owner) never gets —
+# v215: what a customer-scoped account (a plant owner) never gets -
 # fleet money and free SQL stay internal
 INTERNAL_ONLY = {"query_database", "describe_tables", "get_revenue", "get_lost_generation",
                  "get_monthly_close", "get_reconciliation"}
@@ -1164,7 +1164,7 @@ def run_tool(rows: Rows, name: str, params: Optional[dict],
     ``scope`` (v215) = the plant keys a customer-scoped account may see,
     None for internal users: internal-only tools are refused, a plant
     outside the scope is refused, and every list of plant rows in the
-    result is filtered (totals are dropped — they would leak the fleet).
+    result is filtered (totals are dropped - they would leak the fleet).
     """
     fn = DISPATCH.get(name)
     if fn is None:

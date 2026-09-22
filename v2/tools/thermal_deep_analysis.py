@@ -63,7 +63,7 @@ P.to_pickle("P.pkl")
 P["ratio_all"] = P["sp"] / P["ref_all"]
 # per-inverter cool baseline: its usual ratio to ALL running peers when it is cool and running,
 # PER HOUR OF DAY (v2 of the analysis: a unit shaded in the morning has a low all-day baseline
-# that hides its midday derating — Plastic Omnium inverter 4), global median as the fallback
+# that hides its midday derating - Plastic Omnium inverter 4), global median as the fallback
 COOL_BASE = 65.0
 cool = P[(P["temp"] < COOL_BASE) & (P["sp"] >= RUN_MIN) & P["ratio_all"].notna() & ~P["clip"]]
 base = cool.groupby(["pk", "sn"])["ratio_all"].median().clip(0.5, 1.3)
@@ -215,7 +215,7 @@ for pk in ("NL1", "SLP1", "MEX1"):
         a2.plot(s["b"].dt.hour + s["b"].dt.minute / 60, s["temp"], color=SERIES[i % 6], lw=1.6)
     a1.set_ylabel("output, % of DC rating"); a2.set_ylabel("internal °C"); a2.set_xlabel("hour (MX)")
     a2.axhline(T_HIGH, color=C["ink2"], lw=1, ls=":"); a2.axhline(T_HOT, color=C["ink2"], lw=0.8, ls=":")
-    a1.set_title(f"{pl.loc[pk, 'customer'].split('(')[0].split(' PPA')[0].title().strip()} — hottest day {day}: output and temperature per inverter", loc="left", fontsize=11)
+    a1.set_title(f"{pl.loc[pk, 'customer'].split('(')[0].split(' PPA')[0].title().strip()} - hottest day {day}: output and temperature per inverter", loc="left", fontsize=11)
     a1.legend(fontsize=8, loc="lower center", ncol=2)
     fig.tight_layout(); fig.savefig(f"chart_day_{pk}.png"); plt.close(fig)
 

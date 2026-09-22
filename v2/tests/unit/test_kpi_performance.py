@@ -308,7 +308,7 @@ class TestHistorySourceConfidence:
     """Regression for the enum fall-through found 2026-07-10: every day
     since the dense pipeline became primary was stamped
     pr_confidence=NONE because _confidence_from_irradiance never
-    learned SHINEMASTER_HISTORY — punishing the HIGHEST-quality
+    learned SHINEMASTER_HISTORY - punishing the HIGHEST-quality
     irradiance source (stored minute-scale history, ~300 samples/day,
     validated <1% vs an independent model) and starving the soiling
     estimator of qualifying days."""

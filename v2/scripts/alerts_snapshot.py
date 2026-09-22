@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — acute (per-snapshot) alert evaluation.
+"""Argia_Mont - acute (per-snapshot) alert evaluation.
 
 Runs frequently during daylight, right behind telemetry collection, so
 conditions that are evidence from a SINGLE sample surface within one cycle
@@ -71,7 +71,7 @@ TAIL_ROWS = 600
 TAIL_HOURS_PG = 3      # v189: PG equivalent of the 600-row sheet tail
 """How many trailing telemetry rows to read. The tab is append-ordered, so
 the tail IS the newest data. 600 rows spans ~2 days at today's GitHub
-cadence and ~4-5 h at the Pi's future 10-min cadence — far more than the
+cadence and ~4-5 h at the Pi's future 10-min cadence - far more than the
 45-min freshness window and the 2 h acute-gap check need. Reading the tail
 instead of the whole tab (13k+ rows, growing daily) cuts the per-run
 payload ~20x, and the ratio improves as the tab grows."""
@@ -101,7 +101,7 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     """
     from argia.telemetry import pg_source
     if pg_source.source() == "pg":
-        # v189: the same tail out of PostgreSQL — TAIL_ROWS at ~23 rows
+        # v189: the same tail out of PostgreSQL - TAIL_ROWS at ~23 rows
         # per 5-min tick is ~2 h, so take the last 3 h to be safe
         since = dt.datetime.now(UTC) - dt.timedelta(hours=TAIL_HOURS_PG)
         grid = pg_source.read_grid(since_utc=since)
@@ -170,7 +170,7 @@ def _read_vendor_thermal(now_utc: dt.datetime):
     try:
         rows = pg_detail.read_derating_modes(now_utc - dt.timedelta(hours=TAIL_HOURS_PG))
     except Exception as e:  # noqa: BLE001
-        log.warning("vendor derating modes unreadable (%s) — thermal rule judges by peers only", e)
+        log.warning("vendor derating modes unreadable (%s) - thermal rule judges by peers only", e)
         return {}
     state = vendor_thermal_state(rows)
     for (plant, sn), (ts, mode, minutes) in sorted(state.items()):
@@ -181,17 +181,17 @@ def _read_vendor_thermal(now_utc: dt.datetime):
 
 # ------------------------------------------------------------------ v257
 def loss_notes(plants, now_utc):
-    """{plant_key: "≈ 512 kWh lost — $1,284 MXN so far today"}.
+    """{plant_key: "≈ 512 kWh lost - $1,284 MXN so far today"}.
 
     Tomasz, 2026-09-16: "show the bleeding in MXN". The model is
     nameplate x measured irradiance x the plant's PR baseline, priced at
-    the PPA tariff — the arithmetic lives in argia/analytics/money.py and
+    the PPA tariff - the arithmetic lives in argia/analytics/money.py and
     is unit-tested there.
 
     The SQL buckets samples into FIVE-MINUTE SLOTS and sums the inverters
     inside each slot. Two earlier cuts got this wrong and both inflated
     the figure by roughly the inverter count: the first averaged across
-    inverter-samples, and the second grouped by ``ts_utc`` — which looks
+    inverter-samples, and the second grouped by ``ts_utc`` - which looks
     right but is not, because each inverter is written with its own
     timestamp, so a six-inverter plant produced six "ticks" per real
     tick, each priced against the whole plant's nameplate. GTO1 read
@@ -201,7 +201,7 @@ def loss_notes(plants, now_utc):
     A NULL power reading stays None (not 0): money.py counts a missing
     reading as zero production, which is what an outage looks like once
     the datalogger drops, while an irradiance gap is skipped entirely.
-    Never raises — a pricing failure must not stop an outage alert.
+    Never raises - a pricing failure must not stop an outage alert.
     """
     from argia.analytics import money as M
     try:
@@ -222,7 +222,7 @@ def loss_notes(plants, now_utc):
             "    GROUP BY 1, t.plant_key) s"
             " ORDER BY s.plant_key;")
     except Exception as e:                        # noqa: BLE001
-        log.warning("loss notes unavailable (%s) — alerts go out without a peso figure", e)
+        log.warning("loss notes unavailable (%s) - alerts go out without a peso figure", e)
         return {}
 
     def _f(v):
@@ -263,7 +263,7 @@ def main(argv=None) -> int:
 
     mx = now_mx()
     if not (DAYLIGHT_START_HOUR <= mx.hour < DAYLIGHT_END_HOUR):
-        log.info("outside daylight (%s MX) — acute checks are a no-op", mx)
+        log.info("outside daylight (%s MX) - acute checks are a no-op", mx)
         return 0
 
     try:
@@ -273,7 +273,7 @@ def main(argv=None) -> int:
         log.error("bootstrap failed: %s", e)
         return 3
 
-    # Only the TAIL of telemetry — the acute tier needs the latest samples,
+    # Only the TAIL of telemetry - the acute tier needs the latest samples,
     # not the day. The evaluator freshness-filters internally.
     samples, span_h = _read_recent_samples(sheets)
     log.info("acute evaluation at %s MX over %d tail sample(s)", mx, len(samples))
@@ -287,7 +287,7 @@ def main(argv=None) -> int:
     rated = {(p.plant_key, str(i.inverter_sn).strip()): float(i.rated_kw or 0)
              for p in portfolio.active_plants() for i in portfolio.inverters_for(p.plant_key)}
     # v222: the inverter's own derating word (Growatt DeratingMode in
-    # telemetry_detail) over the same tail — quoted in the thermal alert
+    # telemetry_detail) over the same tail - quoted in the thermal alert
     vendor = _read_vendor_thermal(now_utc)
     breaches = evaluate_acute(
         samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
@@ -300,7 +300,7 @@ def main(argv=None) -> int:
     if not candidates:
         log.info("no acute conditions")
 
-    # v92: same maintenance suppression as the daily tier — a plant in a
+    # v92: same maintenance suppression as the daily tier - a plant in a
     # logged window won't open an acute plant_offline/data_stale (it is
     # intentionally down). Hardware faults still fire.
     events = load_maintenance_events(sheets)
@@ -314,14 +314,14 @@ def main(argv=None) -> int:
 
     create_alerts_tab_if_missing(sheets)
     ledger = load_alerts_ledger(sheets)
-    # open/touch ONLY — daily owns resolution.
+    # open/touch ONLY - daily owns resolution.
     result = reconcile_alerts(ledger, candidates, now_utc,
                               resolve_missing=False)
     log.info("Reconcile (acute, no-resolve): %s", result.summary())
     for r in result.opened:
         log.info("OPEN   %s  %s", r.alert_id, r.message)
 
-    # v196: mail newly OPEN alerts to the 'maintenance' subscribers —
+    # v196: mail newly OPEN alerts to the 'maintenance' subscribers -
     # v223: CRITICAL only between the morning mails; a WARNING opened
     # during the day rides tomorrow's 06:30 mail (Tomasz: fewer mails,
     # each one carrying something that needs a hand)
@@ -343,7 +343,7 @@ def main(argv=None) -> int:
         n = write_ledger(sheets, records)
         log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:
-        log.info("ledger unchanged — nothing written")
+        log.info("ledger unchanged - nothing written")
     return 0
 
 

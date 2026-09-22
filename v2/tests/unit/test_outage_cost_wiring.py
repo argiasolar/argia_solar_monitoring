@@ -1,4 +1,4 @@
-"""v257 — the cost of an outage reaches the places a person reads it.
+"""v257 - the cost of an outage reaches the places a person reads it.
 
 The pure arithmetic is covered in test_money.py; this file pins the
 WIRING, which is what actually broke on 2026-09-16: a correct number
@@ -40,7 +40,7 @@ class TestTheDarkPlantAlertCarriesTheCost:
         assert msgs[0].endswith("[CRITICAL]"), "severity stays at the end where readers look"
 
     def test_a_price_for_another_plant_never_leaks_into_this_one(self):
-        msgs = [b.message for b in self._dark({"GTO1": "≈ 9,999 kWh lost — $99,999 MXN"})
+        msgs = [b.message for b in self._dark({"GTO1": "≈ 9,999 kWh lost - $99,999 MXN"})
                 if b.metric == "plant_offline"]
         assert "99,999" not in msgs[0]
 
@@ -59,11 +59,11 @@ class TestTheSnapshotJobComputesIt:
     def test_the_inverters_are_collapsed_per_timestamp_not_averaged(self):
         """v257 regression, caught on live data: averaging across
         inverter-samples multiplied every loss by the inverter count and
-        claimed GTO1 had lost 2,118 kWh before 09:30 — more than the
+        claimed GTO1 had lost 2,118 kWh before 09:30 - more than the
         plant can make in a morning."""
         blk = SNAP.split("def loss_notes(")[1].split("\n@instrument")[0]
         # each inverter is written with its OWN ts_utc, so grouping by the
-        # raw timestamp still yields one row per inverter — bucket to the
+        # raw timestamp still yields one row per inverter - bucket to the
         # 5-minute slot, then sum the inverters inside it.
         assert "floor(extract(epoch FROM t.ts_utc)/300)*300" in blk
         assert "t.ts_utc, t.plant_key) s" not in blk
@@ -79,7 +79,7 @@ class TestTheSnapshotJobComputesIt:
 
     def test_a_pricing_failure_never_blocks_the_outage_alert(self):
         """An alert about a dead plant must go out even if the money
-        lookup is down — that was the whole lesson of 2026-09-16."""
+        lookup is down - that was the whole lesson of 2026-09-16."""
         blk = SNAP.split("def loss_notes(")[1].split("\ndef ")[0]
         assert "except Exception" in blk and "return {}" in blk
 
@@ -103,7 +103,7 @@ class TestTheDailyReportPricesTheDay:
         blk = DAILY.split("def gather_yesterday_cost(")[1].split("\ndef ")[0]
         assert "expected_kwh" in blk and "lost_kwh_day" in blk
         # the closed day needs no model: no irradiance column, no intraday maths
-        # (the docstring may mention irradiance — the CODE must not use it)
+        # (the docstring may mention irradiance - the CODE must not use it)
         assert "irradiance_wm2" not in blk and "lost_kwh_intraday" not in blk
 
     def test_both_the_text_and_the_html_show_it(self):
@@ -119,15 +119,15 @@ class TestTheDailyReportPricesTheDay:
     def test_a_lossy_day_is_priced_and_a_tariff_free_one_is_not(self):
         import daily_perf_mail as D
         assert D._lost_caption({"lost_kwh": 1439.7, "lost_mxn": 3610.76}) == \
-            "closed — 1,440 kWh lost = $3,611 MXN"
+            "closed - 1,440 kWh lost = $3,611 MXN"
         assert D._lost_caption({"lost_kwh": 500.0, "lost_mxn": None}) == \
-            "closed — 500 kWh below expectation"
+            "closed - 500 kWh below expectation"
 
 
 class TestTheHuaweiAlarmCallIsWired:
     def test_the_client_can_fetch_alarms_from_the_right_path(self):
         assert "def fetch_alarms(" in HUAWEI
-        assert '"/getAlarmList"' in HUAWEI, "the leading slash matters — _post_json concatenates"
+        assert '"/getAlarmList"' in HUAWEI, "the leading slash matters - _post_json concatenates"
 
     def test_it_sends_what_the_api_actually_wants(self):
         blk = HUAWEI.split("def fetch_alarms(")[1].split("\n    def ")[0]

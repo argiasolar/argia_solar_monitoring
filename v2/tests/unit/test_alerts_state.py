@@ -66,7 +66,7 @@ class TestHeader:
         assert len(ALERTS_HEADER) == 15
 
     def test_header_columns(self):
-        # If you change the order, the migration matters — pin it.
+        # If you change the order, the migration matters - pin it.
         assert ALERTS_HEADER == [
             "alert_id", "alert_key", "plant_key", "inverter_sn",
             "metric", "severity", "state",
@@ -458,7 +458,7 @@ class TestTransitionLifecycle:
     """Walk a full open→touch→resolve cycle to make sure the pieces compose."""
 
     def test_full_lifecycle(self):
-        # 10:00 — alert opens
+        # 10:00 - alert opens
         rec1 = open_alert(
             alert_id="ALT-20260514-001",
             alert_key="qro1:inv:sn1:offline",
@@ -467,16 +467,16 @@ class TestTransitionLifecycle:
             now_utc=_dt(hour=10),
             value=0.0, threshold=15.0, message="dark 15 min",
         )
-        # 11:00 — still dark, touch
+        # 11:00 - still dark, touch
         rec2 = touch_alert(rec1, _dt(hour=11),
                            message="dark 75 min")
         assert rec2.state == AlertState.OPEN
         assert rec2.opened_utc == rec1.opened_utc
         assert rec2.last_seen_utc != rec1.last_seen_utc
-        # 11:00 — email sent
+        # 11:00 - email sent
         rec3 = mark_channels_sent(rec2, ["email"])
         assert "email" in rec3.channels_sent
-        # 12:00 — back online, resolve
+        # 12:00 - back online, resolve
         rec4 = resolve_alert(rec3, _dt(hour=12),
                              final_message="back online")
         assert rec4.state == AlertState.RESOLVED

@@ -10,17 +10,17 @@ May-August rows carry energy but no irradiance (the KPI job never ran
 on them), and since it went dark on Sep 2 the KPI job skipped it every
 morning. Its weather device is Plastic Omnium's ShineMaster
 (plant.weather_plant_id + datalogger_sn are NL1's), and NL1's stored
-daily irradiance IS that device's integral — so the honest value for
+daily irradiance IS that device's integral - so the honest value for
 a TAM1 day is the NL1 value of the same day, labelled as such.
 
 Rules (all enforced in the pure functions below, tested):
-  * only rows whose irradiance_kwh_m2 is NULL — a stored value is never
+  * only rows whose irradiance_kwh_m2 is NULL - a stored value is never
     overwritten (use the KPI job for that);
   * the donor is the plant with the same weather_plant_id AND
     datalogger_sn, never a plant of our choosing;
   * expected_kwh = kwp_dc x irradiance x expected_factor (the KPI job's
     own formula), only where expected_kwh is NULL too;
-  * writes are kpi_mirror.build_fill_nulls_sql — UPDATE ... SET col =
+  * writes are kpi_mirror.build_fill_nulls_sql - UPDATE ... SET col =
     COALESCE(stored, new): a NULL is filled, a value is never touched,
     and a CLOSED month keeps that guarantee (filling a NULL changes no
     invoiced figure, which is why that path may cross the freeze);
@@ -104,7 +104,7 @@ def main(argv=None) -> int:
         "SET statement_timeout='10s'; SELECT plant_key, coalesce(weather_plant_id,''), coalesce(datalogger_sn,'') FROM plant;")]
     donor = donor_for(pk, plants)
     if donor is None:
-        print(f"{pk}: no other plant shares its weather device — nothing to copy from")
+        print(f"{pk}: no other plant shares its weather device - nothing to copy from")
         return 2
     cfg = psql_rows(f"SET statement_timeout='10s'; SELECT kwp_dc::text, expected_factor::text FROM plant WHERE plant_key = {_q(pk)};")
     if not cfg:
@@ -129,7 +129,7 @@ def main(argv=None) -> int:
     if not todo:
         return 0
     if not a.apply:
-        print("dry run — add --apply to write")
+        print("dry run - add --apply to write")
         return 0
     from argia.store.pgq import psql_exec
     sql = fill_sql(pk, donor, todo)
@@ -141,7 +141,7 @@ def main(argv=None) -> int:
 
 
 def fill_sql(plant_key: str, donor: str, todo: Dict[str, Dict[str, float]]) -> str:
-    """The UPDATEs for ``plan``'s output — NULL cells only, by construction."""
+    """The UPDATEs for ``plan``'s output - NULL cells only, by construction."""
     from argia.store.kpi_mirror import build_fill_nulls_sql
     rows = [{"plant_key": plant_key, "prod_date": d, "irradiance_source": f"proxy:{donor}", **rec}
             for d, rec in sorted(todo.items())]

@@ -1,4 +1,4 @@
-# ARGIA Pi crontab — the Pi is the OFF-SITE vantage point since the
+# ARGIA Pi crontab - the Pi is the OFF-SITE vantage point since the
 # 2026-08-26 decommission: it runs nothing that pio06 runs. Edit with
 # `crontab -e`; NEVER run `crontab <file>` (it replaces the whole table).
 #
@@ -14,17 +14,17 @@
 # deploy: follow origin/main (every 10 min; does nothing unless main moved)
 */10 * * * * bash /home/zemel/argia_v2/v2/pi/deploy.sh >> /home/zemel/argia_logs/deploy_cron.log 2>&1
 
-# portal watchdog — is https://portal.argia.com.mx/login answering? ntfy on DOWN/UP
+# portal watchdog - is https://portal.argia.com.mx/login answering? ntfy on DOWN/UP
 */5 * * * * bash /home/zemel/argia_v2/v2/pi/report_watch/report_watch.sh >> /home/zemel/argia_logs/report_watch.log 2>&1
 
-# outage-mode PPA watch — only acts while the server is down (daylight)
+# outage-mode PPA watch - only acts while the server is down (daylight)
 */30 8-19 * * * bash /home/zemel/argia_v2/v2/pi/report_watch/ppa_watch.sh >> /home/zemel/argia_logs/ppa_watch.log 2>&1
 
-# off-site backups — nightly pull of the DB dump, auth DB, portfolio snapshot, report PDFs
+# off-site backups - nightly pull of the DB dump, auth DB, portfolio snapshot, report PDFs
 0 22 * * * bash /home/zemel/argia_v2/v2/pi/db_backups/pull_backup.sh >> /home/zemel/argia_logs/db_backup_pull.log 2>&1
 
-# CFE tariff fetcher — job and scraper from the checkout (v240); ~/cfe keeps venv/divmap/state/outbox/logs
+# CFE tariff fetcher - job and scraper from the checkout (v240); ~/cfe keeps venv/divmap/state/outbox/logs
 10 8 * * * bash /home/zemel/argia_v2/v2/pi/cfe/cfe_daily.sh
 
-# log hygiene — SD cards die of log diarrhea
+# log hygiene - SD cards die of log diarrhea
 17 3 * * * find /home/zemel/argia_logs -name '*.log' -size +5M -exec truncate -s 1M {} \;

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Argia_Mont — SMA response capture (Stage 6.3).
+"""Argia_Mont - SMA response capture (Stage 6.3).
 
 Stage 6.3 changes vs Stage 6:
 - Filters to REAL solar inverters only (type='Solar Inverters' AND has
   generatorPower field) instead of grabbing the first device per plant.
 - Walks SMA's actual /devices/{id}/measurements/sets list to discover what
   measurement sets exist for that device, then captures each one. No more
-  guessing whether 'pvGeneration' exists — we ask SMA.
+  guessing whether 'pvGeneration' exists - we ask SMA.
 - Logs the `set` block keys for every successfully captured set so we know
   exactly what fields the parser needs to handle.
 
@@ -101,7 +101,7 @@ def _plants_from(response: Any) -> List[Dict[str, Any]]:
 
 
 def _is_real_inverter(device: Dict[str, Any]) -> bool:
-    """True if this device is a real solar inverter — not a sensor, meter,
+    """True if this device is a real solar inverter - not a sensor, meter,
     battery, charging station, or datalogger.
 
     Filter: type == 'Solar Inverters' AND generatorPower field is present
@@ -143,7 +143,7 @@ def _set_types_from_list(response: Any) -> List[str]:
 
     SMA returns one of two shapes:
 
-    String array (observed in sandbox May 2026 — captured live from inverter 16):
+    String array (observed in sandbox May 2026 - captured live from inverter 16):
         { "plant": {...}, "device": {...},
           "sets": ["Sensor", "EnergyAndPowerPv", "PowerDc", "PowerAc"] }
 
@@ -200,7 +200,7 @@ def _capture_inverter(
     set_types = _set_types_from_list(dev_sets_response)
     if not set_types:
         log.warning(
-            "[plant %s / device %s] /measurements/sets returned no setTypes — "
+            "[plant %s / device %s] /measurements/sets returned no setTypes - "
             "this inverter has no data available in sandbox",
             plant_id, did,
         )
@@ -220,7 +220,7 @@ def _capture_inverter(
         _save_fixture(f"live_inverter_{safe_did}_{safe_set}.json", response, log)
         captured += 1
 
-        # Log keys for parser comparison — the moment of truth
+        # Log keys for parser comparison - the moment of truth
         if isinstance(response, dict) and isinstance(response.get("set"), dict):
             log.info(
                 "[plant %s / device %s / set %s] 'set' keys: %s",
@@ -272,7 +272,7 @@ def main(argv=None) -> int:
     # /plants
     plants_response = _try_get(client, "/plants", log)
     if plants_response is None:
-        log.error("Could not fetch /plants — aborting")
+        log.error("Could not fetch /plants - aborting")
         return 2
     _save_fixture("live_plants_list.json", plants_response, log)
 

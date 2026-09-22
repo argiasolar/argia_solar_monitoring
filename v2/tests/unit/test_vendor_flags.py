@@ -61,7 +61,7 @@ class TestEvaluateInverterFaults:
         assert evaluate_inverter_faults(samples) == []
 
     def test_huawei_unknown_state_values_do_not_fire(self):
-        # IS=768 (seen on a weak unit) is undecoded STATE — a lead to
+        # IS=768 (seen on a weak unit) is undecoded STATE - a lead to
         # investigate, not a fault to alert on.
         samples = [_s(10, "IS=768,RS=1"), _s(11, "IS=768,RS=1")]
         assert evaluate_inverter_faults(samples) == []
@@ -114,7 +114,7 @@ class TestStringNewBits:
 
     def test_new_bit_fires_warning(self):
         # Real case: JFM7DXN013 grew unmatch bits 10+11 (value 3072) on top
-        # of chronic break bit 9 — early warning weeks before its fault.
+        # of chronic break bit 9 - early warning weeks before its fault.
         base = [_ss(12, {"str_break": 512}, day=d) for d in range(1, 8)]      # 7 baseline days
         day = [_ss(10, {"str_break": 512, "str_unmatch": 3072}),
                _ss(12, {"str_break": 512, "str_unmatch": 3072})]
@@ -142,7 +142,7 @@ class TestStringNewBits:
         seven = six + [_ss(12, {"str_break": 0}, day=7)]
         b = evaluate_string_new_bits(day, seven)
         assert len(b) == 1 and b[0].new_bits == "break:4"
-        # the guard is a parameter — the historic behaviour is one call away
+        # the guard is a parameter - the historic behaviour is one call away
         assert evaluate_string_new_bits(day, [], min_baseline_days=0)[0].new_bits == "break:4"
 
     def test_night_day_samples_ignored(self):
@@ -168,7 +168,7 @@ def _t(h, m=0, day=30):
 
 class TestDataStale:
     def test_no_rows_is_a_warning_about_data(self):
-        # v223: no telemetry is a DATA problem — CRITICAL is for a measured loss or a unit off
+        # v223: no telemetry is a DATA problem - CRITICAL is for a measured loss or a unit off
         b = evaluate_data_stale({}, ["SLP1"], "2026-06-30")
         assert len(b) == 1
         assert b[0].severity.value == "WARNING" and b[0].gap_hours is None

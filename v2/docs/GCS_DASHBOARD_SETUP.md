@@ -1,4 +1,4 @@
-# HTML dashboard on Google Cloud Storage — one-time setup
+# HTML dashboard on Google Cloud Storage - one-time setup
 
 Result: a private page at
 `https://storage.cloud.google.com/<BUCKET>/dashboard.html`,
@@ -10,7 +10,7 @@ console (https://console.cloud.google.com) except step 5.
 
 ## 1. Pick / create a project
 Use the SAME project that owns your existing service account (the one in
-GOOGLE_CREDENTIALS — open the JSON and read `project_id`). No new project
+GOOGLE_CREDENTIALS - open the JSON and read `project_id`). No new project
 needed.
 
 ## 2. Create the bucket
@@ -41,15 +41,15 @@ Repo -> Settings -> Secrets and variables -> Actions -> New repository secret:
 Actions -> "v2 Dashboard update" -> Run workflow -> dry_run **false**.
 The "Publish HTML dashboard" step should print:
 
-    [apply] uploaded to gs://<bucket>/dashboard.html — view at ...
+    [apply] uploaded to gs://<bucket>/dashboard.html - view at ...
 
 Open `https://storage.cloud.google.com/<bucket>/dashboard.html` while logged
-in to your granted Google account. Anyone NOT granted gets a 403 — that is
+in to your granted Google account. Anyone NOT granted gets a 403 - that is
 the access control working.
 
 ## Notes
-- Before step 5 is done, the publish step prints a NOTICE and skips —
+- Before step 5 is done, the publish step prints a NOTICE and skips -
   the workflow stays green, nothing breaks.
 - Cost: a few MB + light traffic = effectively zero (pennies/month).
 - Later Pi/SQLite phase: the Pi runs the same publish script on its own
-  schedule and uploads to the SAME bucket — the URL never changes.
+  schedule and uploads to the SAME bucket - the URL never changes.

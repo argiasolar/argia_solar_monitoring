@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nightly backup PULL on the Pi (cron 22:00 Mexico City = after the
 # server's 03:30-CET dump). The Pi initiates with a read-only SFTP key
-# restricted to /root/argia_backups on pio06 — the server holds no Pi
+# restricted to /root/argia_backups on pio06 - the server holds no Pi
 # credentials, so compromising the server cannot touch these copies.
 #
 #   ~/db_backups/daily/    argia_mont_YYYYMMDD.dump + users_YYYYMMDD.db, 14 kept
@@ -35,17 +35,17 @@ get argia_mont_latest.dump $tmp_dump
 get users_latest.db $tmp_users
 EOF
 then
-  alert "backup pull FAILED (sftp) $stamp — server unreachable or key rejected"
+  alert "backup pull FAILED (sftp) $stamp - server unreachable or key rejected"
   exit 1
 fi
 
 if ! head -c 5 "$tmp_dump" | grep -q "PGDMP"; then
-  alert "backup INVALID $stamp — no PGDMP magic, not a pg_dump file"
+  alert "backup INVALID $stamp - no PGDMP magic, not a pg_dump file"
   rm -f "$tmp_dump" "$tmp_users"; exit 1
 fi
 sz="$(stat -c%s "$tmp_dump")"
 if [ "$sz" -lt 100000 ]; then
-  alert "backup SUSPICIOUS $stamp — only $sz bytes"
+  alert "backup SUSPICIOUS $stamp - only $sz bytes"
   rm -f "$tmp_dump" "$tmp_users"; exit 1
 fi
 mv "$tmp_dump" "$BASE/daily/argia_mont_$stamp.dump"
@@ -79,7 +79,7 @@ if [ "$(date +%d)" = "01" ] && command -v pg_restore >/dev/null 2>&1; then
   if pg_restore -l "$BASE/daily/argia_mont_$stamp.dump" >/dev/null 2>&1; then
     echo "$(date -Is) monthly restore-list test OK"
   else
-    alert "MONTHLY RESTORE TEST FAILED — $stamp dump does not list cleanly"
+    alert "MONTHLY RESTORE TEST FAILED - $stamp dump does not list cleanly"
     exit 1
   fi
 fi

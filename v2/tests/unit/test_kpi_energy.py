@@ -35,7 +35,7 @@ def _row(hour, etoday_kwh, status=1, sn="SN1", plant="P"):
 
 
 class TestSunnyDay:
-    """Monotonically increasing etoday — the easy case."""
+    """Monotonically increasing etoday - the easy case."""
 
     def test_simple_increasing_series(self):
         rows = [_row(7, 1.0), _row(10, 50.0), _row(13, 150.0),
@@ -117,7 +117,7 @@ class TestMidnightRollover:
 
 
 class TestReboot:
-    """Inverter reboots at 14:00 — etoday: 1, 50, 150, 0, 30, 80, 120"""
+    """Inverter reboots at 14:00 - etoday: 1, 50, 150, 0, 30, 80, 120"""
 
     def _rows(self):
         return [_row(7, 1.0), _row(10, 50.0), _row(13, 150.0),
@@ -139,7 +139,7 @@ class TestReboot:
 
     def test_small_dip_not_a_reboot(self):
         """A 0.3 kWh dip (below REBOOT_THRESHOLD_KWH) is sensor noise, not
-        a reboot — common with SolarEdge derived etoday."""
+        a reboot - common with SolarEdge derived etoday."""
         rows = [_row(10, 50.0), _row(13, 50.3),
                 _row(14, 50.0), _row(18, 280.0)]  # 0.3 dip
         e = compute_inverter_energy(rows)
@@ -161,7 +161,7 @@ class TestDiscrepancy:
     def test_discrepancy_computed_on_reboot(self):
         """After reboot at 14:00 MX with max=150, last=120, discrepancy is 20%.
 
-        Hours are UTC; 16/20/23 UTC = 10:00/14:00/17:00 MX — mid-day, so the
+        Hours are UTC; 16/20/23 UTC = 10:00/14:00/17:00 MX - mid-day, so the
         pre-dawn carryover strip (see test_kpi_energy_carryover) stays out of
         the way and this exercises the genuine-reboot path."""
         rows = [_row(16, 150.0), _row(20, 0.0), _row(23, 120.0)]

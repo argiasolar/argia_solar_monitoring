@@ -1,7 +1,7 @@
-"""Satellite irradiance cross-check — pure-function tests.
+"""Satellite irradiance cross-check - pure-function tests.
 
 Fixture is a REAL Open-Meteo response captured from pio06 on 2026-08-26
-(SLP1 coordinates) — the parser is tested against what the API actually
+(SLP1 coordinates) - the parser is tested against what the API actually
 returns, not what its docs promise.
 """
 

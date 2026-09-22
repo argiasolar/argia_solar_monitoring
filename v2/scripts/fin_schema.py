@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the finance/PM tables (argia.fin.schema.ENSURE_SQL) — v244.
+"""Create the finance/PM tables (argia.fin.schema.ENSURE_SQL) - v244.
 
     fin_schema.py            # print what exists / is missing (tables and columns)
     fin_schema.py --apply    # CREATE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS (idempotent, adds only)

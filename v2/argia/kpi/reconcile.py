@@ -1,9 +1,9 @@
-"""Daily energy reconciliation — v2 (KPI_Daily) vs v1 (ARGIA_Solar DailyData).
+"""Daily energy reconciliation - v2 (KPI_Daily) vs v1 (ARGIA_Solar DailyData).
 
 STAGE 1 of the v1→v2 migration: prove that v2's *collection* is at least as
 good as v1's, while the two collectors are still independent (v1 on the Pi,
 v2 on GitHub Actions). This window is the only time the comparison is a real
-test of collection quality — once v2 moves to the Pi and dual-writes from a
+test of collection quality - once v2 moves to the Pi and dual-writes from a
 single poll, both feeds share one collection and the comparison goes
 tautological. So we build and run it now.
 
@@ -12,7 +12,7 @@ WHAT IT COMPARES
               plant per day. If these agree within tolerance, v2 is collecting
               as well as v1. This is the pass/fail signal.
     PR      = the DIAGNOSTIC (alongside, not a gate). v1's PR is *derived* with
-              the same formula v2 uses — PR = E / (kwp_dc * irradiance_kwh_m2) —
+              the same formula v2 uses - PR = E / (kwp_dc * irradiance_kwh_m2) -
               from v1's own DailyData numbers. When energy agrees but PR
               diverges, the cause is config (different kwp) or a different
               irradiance source, NOT collection. We surface v1_kwp, v1_irr and
@@ -38,7 +38,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 from argia.core.normalize import normalize_text, safe_float
 
 # --------------------------------------------------------------------------
-# Buckets — the classification a plant/day lands in.
+# Buckets - the classification a plant/day lands in.
 # --------------------------------------------------------------------------
 BUCKET_OK = "OK"                    # energy agrees within tolerance
 BUCKET_ENERGY = "ENERGY-MISMATCH"   # energy differs > tolerance  -> collection problem (GATE FAIL)
@@ -61,13 +61,13 @@ _SERIAL_MAX = 80000
 
 
 # --------------------------------------------------------------------------
-# Normalizers — the type-fragility this whole exercise kept getting burned by.
+# Normalizers - the type-fragility this whole exercise kept getting burned by.
 # --------------------------------------------------------------------------
 def date_key(value: Any) -> Optional[str]:
     """Normalize any date representation to an ISO ``YYYY-MM-DD`` string.
 
     Handles the four shapes these two sheets actually produce:
-      - Google Sheets serial number (int/float, e.g. 46203 or 46203.5) — this
+      - Google Sheets serial number (int/float, e.g. 46203 or 46203.5) - this
         is what ``UNFORMATTED_VALUE`` returns for a real date cell.
       - ``datetime.datetime`` / ``datetime.date`` (openpyxl / fixtures).
       - ISO string ``"2026-06-30"`` or ``"2026-06-30T..."``.
@@ -132,7 +132,7 @@ def pct_diff(v1: Optional[float], v2: Optional[float]) -> Optional[float]:
 
     ``(v2 - v1) / v1 * 100``. Returns 0.0 when both are exactly zero (a plant
     that produced nothing on both sides is a match, not a mismatch). Returns
-    None when v1 is zero but v2 is not (undefined ratio — caller flags it), or
+    None when v1 is zero but v2 is not (undefined ratio - caller flags it), or
     when either side is missing.
     """
     if v1 is None or v2 is None:
@@ -188,8 +188,8 @@ def classify(v1_energy: Optional[float],
              v2_partial: bool = False) -> tuple[str, bool, str]:
     """Return ``(bucket, within_energy_tolerance, note)``.
 
-    The GATE is energy only. PR divergence never fails the gate — it's
-    expected once v2's corrected config kicks in — but it's reported so a
+    The GATE is energy only. PR divergence never fails the gate - it's
+    expected once v2's corrected config kicks in - but it's reported so a
     real config bug isn't hidden. A day v2 flagged incomplete (``v2_partial``)
     lands in its own bucket and never fails the gate.
     """
@@ -213,7 +213,7 @@ def classify(v1_energy: Optional[float],
     if v1_energy == 0 and v2_energy == 0:
         return BUCKET_OK, True, "both zero"
     if energy_delta_pct is None:
-        # v1 == 0, v2 != 0 — v2 saw production v1 recorded as zero.
+        # v1 == 0, v2 != 0 - v2 saw production v1 recorded as zero.
         return BUCKET_ENERGY, False, "v1 energy is 0 but v2 is non-zero"
 
     if abs(energy_delta_pct) > tolerance_pct:
@@ -226,13 +226,13 @@ def classify(v1_energy: Optional[float],
             and abs(pr_delta_pct) > tolerance_pct:
         return BUCKET_PR, True, (
             f"energy OK ({energy_delta_pct:+.1f}%) but PR {pr_delta_pct:+.1f}% "
-            f"— compare v1_kwp/v2 config and irradiance source"
+            f"- compare v1_kwp/v2 config and irradiance source"
         )
     return BUCKET_OK, True, f"energy OK ({energy_delta_pct:+.1f}%)"
 
 
 # --------------------------------------------------------------------------
-# Table loaders — turn read_table dicts into {(plant, date): value-bundle}.
+# Table loaders - turn read_table dicts into {(plant, date): value-bundle}.
 # --------------------------------------------------------------------------
 def _first_present(row: Dict[str, Any], keys: Iterable[str]) -> Any:
     for k in keys:

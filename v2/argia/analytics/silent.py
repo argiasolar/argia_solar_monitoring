@@ -3,7 +3,7 @@
 The acute tier opens ``inverter_silent`` when one inverter stops sending
 while its siblings produce. This module is the DAILY owner: over a full
 day it finds every daylight gap of an inverter, and classifies each one
-with the one fact the acute tier cannot have yet — what the inverter's
+with the one fact the acute tier cannot have yet - what the inverter's
 own energy counter (etoday) did across the gap, compared with the
 siblings' counters per rated kW over the same window:
 
@@ -17,7 +17,7 @@ PURE: rows in, breaches out.
 
 v223: a gap that the WHOLE fleet shares is the collector's (2026-09-06
 13:55-14:35 MX: PostgreSQL on pio06 was unreachable for 35 min and every
-Growatt plant went blank at once — the rule then blamed seven
+Growatt plant went blank at once - the rule then blamed seven
 inverters at two plants for a "silent" spell they never had). Such
 windows come from ``collector_windows`` and are excluded before an
 inverter is judged.
@@ -41,7 +41,7 @@ growth -> the inverter produced through the gap (comms only)."""
 MIN_SIBLING_SAMPLES = 3
 """Fewer producing sibling samples inside the gap = the plant as a whole
 was dark (NL2 2026-09-04: both units gone 13:14-14:35, one straggler
-sample) — plant-level rules own that."""
+sample) - plant-level rules own that."""
 MIN_SIBLING_KWH_PER_KW = 0.05
 """Below this the siblings barely produced during the gap (dusk, heavy
 cloud): nothing to compare against, the gap is reported as unclassified."""
@@ -63,7 +63,7 @@ class SilentBreach:
 
 
 Sample = Tuple[dt.datetime, str, Optional[float], Optional[float]]
-"""(ts_utc, inverter_sn, etoday_kwh, power_w) — one plant's day."""
+"""(ts_utc, inverter_sn, etoday_kwh, power_w) - one plant's day."""
 
 
 def _counter_at(rows: Sequence[Sample], sn: str, ts: dt.datetime,
@@ -207,7 +207,7 @@ def evaluate_silent_gaps(
             if b is None:
                 kind, sev = "unconfirmed", Severity.CRITICAL
                 msg = (f"{plant_key} {sn}: silent since {hhmm} MX ({gap_min:.0f} min to "
-                       f"the end of the day) while siblings produced — no counter to "
+                       f"the end of the day) while siblings produced - no counter to "
                        f"confirm production; treat as OFF [CRITICAL]")
             elif ratio is None:
                 kind, sev = "unclassified", Severity.WARNING
@@ -219,14 +219,14 @@ def evaluate_silent_gaps(
                 kind, sev = "comms", Severity.WARNING
                 msg = (f"{plant_key} {sn}: no data {hhmm}-{utc_to_mx(b):%H:%M} MX "
                        f"({gap_min:.0f} min) but its counter climbed +{self_kwh:.0f} kWh "
-                       f"({100 * ratio:.0f}% of siblings per kW) — it kept producing: "
+                       f"({100 * ratio:.0f}% of siblings per kW) - it kept producing: "
                        f"datalogger/RS485 link, no energy lost [WARNING]")
             else:
                 lost = max(sib * (kw_self or 0) - (self_kwh or 0), 0.0)
                 kind, sev = "off", Severity.CRITICAL
                 msg = (f"{plant_key} {sn}: no data {hhmm}-{utc_to_mx(b):%H:%M} MX "
                        f"({gap_min:.0f} min) and its counter grew only +{(self_kwh or 0):.0f} kWh "
-                       f"({100 * ratio:.0f}% of siblings per kW) — the unit was OFF, "
+                       f"({100 * ratio:.0f}% of siblings per kW) - the unit was OFF, "
                        f"~{lost:.0f} kWh lost [CRITICAL]")
             br = SilentBreach(plant_key, sn, a, b, round(gap_min), self_kwh, sib, ratio,
                               kind, sev, msg)

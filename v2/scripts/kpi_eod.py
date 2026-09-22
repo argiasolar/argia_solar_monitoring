@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Argia_Mont — End-of-day KPI archival.
+"""Argia_Mont - End-of-day KPI archival.
 
 Runs ONCE PER DAY, after the day's telemetry has fully landed. Typically
 scheduled in cron around 01:30 MX (when even slow vendors have flushed).
@@ -19,7 +19,7 @@ USAGE
 
 EXIT CODES
     0  ran cleanly, KPIs upserted
-    1  partial — some plants had no data
+    1  partial - some plants had no data
     2  nothing written (no data anywhere)
     3  config error
 """
@@ -114,13 +114,13 @@ def try_dense_irradiance(web, plant, date_iso):
                  plant.plant_key, sn, addr, len(points))
         result = integrate_history_points(points)
         if result.kwh_m2 is None:
-            LOG.warning("[%s] dense irradiance unusable (%d samples) — "
+            LOG.warning("[%s] dense irradiance unusable (%d samples) - "
                         "falling back", plant.plant_key,
                         result.samples_used)
             return None
         return result
-    except Exception as e:  # noqa: BLE001 — best-effort by contract
-        LOG.warning("[%s] dense irradiance fetch failed (%s) — falling "
+    except Exception as e:  # noqa: BLE001 - best-effort by contract
+        LOG.warning("[%s] dense irradiance fetch failed (%s) - falling "
                     "back", plant.plant_key, e)
         return None
 
@@ -132,7 +132,7 @@ def build_dense_web_client():
     pwd = os.environ.get("GROWATT_PASSWORD", "").strip()
     if not (user and pwd):
         LOG.info("dense irradiance requested but GROWATT_USERNAME/"
-                 "GROWATT_PASSWORD not set — skipping")
+                 "GROWATT_PASSWORD not set - skipping")
         return None
     client = GrowattWebClient(username=user, password=pwd)
     client.login()
@@ -141,7 +141,7 @@ def build_dense_web_client():
 
 def dark_plant_stamps(dense_web, plant, date_iso, design):
     """What a plant WITHOUT telemetry can still get for the day: the
-    weather device's irradiance (dense history — the same call the
+    weather device's irradiance (dense history - the same call the
     lit plants use), the expected kWh it implies, and the design
     baseline. None when there is no dense client, no device, or the
     device gave nothing usable. Never raises (try_dense_irradiance
@@ -200,7 +200,7 @@ def main(argv=None) -> int:
         log.error("SheetsClient failed: %s", e)
         return 3
 
-    # Bootstrap KPI_Daily if needed (sheet modes only — v193)
+    # Bootstrap KPI_Daily if needed (sheet modes only - v193)
     from argia.store import kpi_write
     log.info("KPI writes: %s (ARGIA_KPI_WRITE)", kpi_write.mode())
     if kpi_write.writes_sheet():
@@ -241,11 +241,11 @@ def main(argv=None) -> int:
     for plant in portfolio.active_plants():
         rows = bundle.rows_for_plant(plant.plant_key)
         if not rows:
-            log.info("[%s] no telemetry for %s — skipping",
+            log.info("[%s] no telemetry for %s - skipping",
                      plant.plant_key, date_iso)
             plants_without += 1
             # v241: a dark plant still owes the page its weather
-            # expectation — the sun shone on it, and the weather device
+            # expectation - the sun shone on it, and the weather device
             # (often another plant's ShineMaster: Ryder reads Plastic
             # Omnium's) keeps answering. Irradiance + expected_kwh land
             # on the day's row (recon created it); energy/PR stay as
@@ -329,7 +329,7 @@ def main(argv=None) -> int:
         if exp is not None:
             expected_stamps[(date_iso, plant.plant_key)] = exp
 
-        # Contract design baseline (static — works on blocked-sun days).
+        # Contract design baseline (static - works on blocked-sun days).
         dk = design_kwh_for_day(design, plant.plant_key, date_iso)
         if dk is not None:
             design_stamps[(date_iso, plant.plant_key)] = dk
@@ -342,7 +342,7 @@ def main(argv=None) -> int:
         if av is not None:
             avail_stamps[(date_iso, plant.plant_key)] = av
 
-        # Specific yield (kWh/kWp) — feeds the plant-vs-twin indicator.
+        # Specific yield (kWh/kWp) - feeds the plant-vs-twin indicator.
         sy = compute_specific_yield(perf.energy_kwh, plant.kwp_dc)
         if sy is not None:
             sy_stamps[(date_iso, plant.plant_key)] = sy
@@ -422,7 +422,7 @@ def main(argv=None) -> int:
         log.info("Stamped %d expected_kwh cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
-    # Stamp design_kwh (contract baseline, month/days — static).
+    # Stamp design_kwh (contract baseline, month/days - static).
     if design_stamps:
         log.info("Design kWh/day: %s",
                  {pk: v for (_, pk), v in design_stamps.items()})
@@ -440,7 +440,7 @@ def main(argv=None) -> int:
         log.info("Stamped %d specific_yield cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
-    # Stamp production_pct (real vs expected) — full days only.
+    # Stamp production_pct (real vs expected) - full days only.
     if prod_stamps:
         log.info("Production pct: %s",
                  {pk: v for (_, pk), v in prod_stamps.items()})
@@ -449,7 +449,7 @@ def main(argv=None) -> int:
         log.info("Stamped %d production_pct cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
-    # Stamp soiling_loss_pct (PR drift vs clean baseline) — full days only.
+    # Stamp soiling_loss_pct (PR drift vs clean baseline) - full days only.
     if soil_stamps:
         log.info("Soiling loss pct: %s",
                  {pk: v for (_, pk), v in soil_stamps.items()})
@@ -479,7 +479,7 @@ def main(argv=None) -> int:
     # contract-anchored (Contract_Monthly.contract_kwh_daily) and only
     # produced by APPROVED customer-category events; on a normal day it
     # is 0 and billable == energy. We stamp for EVERY processed plant so
-    # the column is populated wherever energy_kwh is — the finance layer
+    # the column is populated wherever energy_kwh is - the finance layer
     # prefers billable_kwh, and a blank cell there would drop a day.
     import datetime as _dt
 
@@ -525,7 +525,7 @@ def main(argv=None) -> int:
                  {pk: round(v, 1) for pk, v in deemed.items()})
     for pk in set(deemed) - set(energy_by_plant):
         log.warning("[%s] approved deemed energy on %s but no KPI row this "
-                    "run — billable not stamped (annex bills from events)",
+                    "run - billable not stamped (annex bills from events)",
                     pk, date_iso)
 
     billable_stamps: Dict[Tuple[str, str], object] = {}
@@ -541,7 +541,7 @@ def main(argv=None) -> int:
         log.info("Stamped %d billable_kwh cell(s)%s", stamped,
                  " (dry-run)" if args.dry_run else "")
 
-    # Prune (optional; the sheet's hot window — nothing to prune in PG)
+    # Prune (optional; the sheet's hot window - nothing to prune in PG)
     if (args.prune or args.prune_apply) and not kpi_write.writes_sheet():
         log.info("Prune: skipped (ARGIA_KPI_WRITE=pg, the sheet is not written)")
     elif args.prune or args.prune_apply:
@@ -559,7 +559,7 @@ def main(argv=None) -> int:
         # v205: a dark plant (QRO1 for months, TAM1 since Sep 1) is the
         # data_stale alert's business; it must not fail the unit every
         # morning and page "job failed: argia-kpi"
-        log.warning("%d plant(s) without telemetry — see data_stale alerts", plants_without)
+        log.warning("%d plant(s) without telemetry - see data_stale alerts", plants_without)
     return 0
 
 

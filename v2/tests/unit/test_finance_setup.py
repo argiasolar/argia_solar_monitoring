@@ -1,16 +1,16 @@
-"""/setup/finance — the admin finance editor (2026-09-01).
+"""/setup/finance - the admin finance editor (2026-09-01).
 
 Three layers:
 
-  * finance_core — pure validation + SQL builders (imported directly,
+  * finance_core - pure validation + SQL builders (imported directly,
     no flask needed);
-  * setup_app wiring — every finance POST route must pass _fin_guard
+  * setup_app wiring - every finance POST route must pass _fin_guard
     (admin + CSRF) before touching the database (checked at source
     level, the way the credential tests do);
-  * pg_loans — the PG loaders that make PostgreSQL the single finance
+  * pg_loans - the PG loaders that make PostgreSQL the single finance
     authority for the webreport once an admin can edit it.
 
-The rule under test everywhere: paid history is immutable — every bulk
+The rule under test everywhere: paid history is immutable - every bulk
 edit carries a ``ref_month >=`` clause and the from-month can never lie
 in the past.
 """

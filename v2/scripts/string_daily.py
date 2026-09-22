@@ -4,11 +4,11 @@ Nightly (argia-strings.timer, after MX sunset): one getMAXHistory pass
 per Growatt inverter for the current MX day, reduced by
 argia.kpi.strings.channel_day_stats and upserted into ``string_daily``.
 This is the raw material for the solar director's string-level
-analysis (relative index, shared-MPPT deficit, StrUnmatch evidence) —
+analysis (relative index, shared-MPPT deficit, StrUnmatch evidence) -
 collected from the same endpoint the pipeline already calls, so the
 single-holder Growatt session rule is untouched.
 
-Pages through history (80 rows/page) until haveNext is false — one
+Pages through history (80 rows/page) until haveNext is false - one
 page only covers ~7 hours and silently truncating the morning was the
 bug this comment exists to prevent.
 
@@ -50,7 +50,7 @@ def fetch_all_pages(client, sn: str, date_iso: str):
         page = parse_max_history(resp)
         rows.extend(page)
         # extract_obj unwraps the client envelope the same way the row
-        # parser does — reading resp['obj'] directly sees the wrapper,
+        # parser does - reading resp['obj'] directly sees the wrapper,
         # haveNext reads as absent, and pagination silently stops at
         # page 0 (caught on the first live run: exactly 80 samples)
         obj = extract_obj(resp)
@@ -73,7 +73,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     from argia.store.pgq import psql_exec
 

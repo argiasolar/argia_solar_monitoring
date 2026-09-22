@@ -1,4 +1,4 @@
-"""v245 — reader for the accountants' monthly workbook
+"""v245 - reader for the accountants' monthly workbook
 ``Argia_Accounting_Data_MM_YY_Vn.xlsx/xlsm`` (ACCOUNTING/Accounting
 Reporting/<year>/<n>.- <Month>/).
 
@@ -8,7 +8,7 @@ P&L and balance sheet by month in thousands, the 2026 budget on the same
 lines, gross margin per project (2019-2025 vs YTD vs plan), bank loans.
 Only the sheets the portal needs are read; each reader takes the sheet's
 rows (openpyxl ``iter_rows(values_only=True)``) and returns plain
-dataclasses / dicts — pure, so the tests run on a synthetic workbook.
+dataclasses / dicts - pure, so the tests run on a synthetic workbook.
 """
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def read_report(rows: Sequence[Sequence], year_hint: Optional[int] = None) -> Li
     the YTD column is the one headed 'YTD' (BS: no YTD, the OB column is
     ignored); the report code is the last cell matching PL_nnn/BS_nnn.
     The sheet's own year label wins unless it is obviously stale (the
-    budget sheet still says I-23) — then ``year_hint`` is used.
+    budget sheet still says I-23) - then ``year_hint`` is used.
     """
     month_cols: Dict[int, int] = {}
     ytd_col: Optional[int] = None

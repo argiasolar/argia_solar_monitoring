@@ -1,4 +1,4 @@
-"""Tests: per-string daily reduction (v170) — the raw material for the
+"""Tests: per-string daily reduction (v170) - the raw material for the
 solar director's string-level analysis.
 
 The math tested here decides whether a string gets flagged for a field
@@ -107,7 +107,7 @@ class TestCollectorScript:
         """First live run caught pagination stopping at page 0: the
         client wraps responses in {_meta, response} and haveNext was
         read on the wrapper. This drives fetch_all_pages with a stub
-        client that answers in envelope form — the regression test the
+        client that answers in envelope form - the regression test the
         bug deserves."""
         from scripts.string_daily import fetch_all_pages
 

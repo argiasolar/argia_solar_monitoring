@@ -1,4 +1,4 @@
-"""v197 — the monthly archive runs on the server from PostgreSQL; the
+"""v197 - the monthly archive runs on the server from PostgreSQL; the
 two remaining scheduled GitHub Actions that read the sheet
 (v2-watchdog, v2-archive-month) are manual-only."""
 import datetime as dt

@@ -61,7 +61,7 @@ def actual(lines: Iterable[CostLine]) -> Dict[str, Decimal]:
 
 
 def committed(lines: Iterable[CostLine]) -> Dict[str, Decimal]:
-    """Approved open POs less what has been invoiced against them — a
+    """Approved open POs less what has been invoiced against them - a
     partial invoice never double-counts (scenario 14)."""
     out: Dict[str, Decimal] = {}
     for l in lines:
@@ -84,7 +84,7 @@ def active_budget(versions: Sequence[BudgetVersion]) -> Optional[BudgetVersion]:
 
 
 def baseline_budget(versions: Sequence[BudgetVersion]) -> Optional[BudgetVersion]:
-    """Version 1 once approved — immutable, kept for comparison (scenario 8)."""
+    """Version 1 once approved - immutable, kept for comparison (scenario 8)."""
     for v in versions:
         if v.version == 1 and v.status in ("approved", "superseded"):
             return v
@@ -116,7 +116,7 @@ def contract_value(baseline: Decimal, change_orders: Iterable[ChangeOrder]) -> D
 
 
 def pending_exposure(change_orders: Iterable[ChangeOrder]) -> Dict[str, Decimal]:
-    """Cost and revenue of pending change orders — visible, never booked
+    """Cost and revenue of pending change orders - visible, never booked
     (scenario 37)."""
     cost = q(sum((D(c.cost_impact) for c in change_orders if c.status == "pending"), Decimal("0")))
     rev = q(sum((D(c.revenue_impact) for c in change_orders if c.status == "pending"), Decimal("0")))

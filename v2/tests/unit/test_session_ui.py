@@ -1,11 +1,11 @@
 """Session UI: admin-only links, logout across realms, no double-escaping.
 
 Three faults reported 2026-08-28 from one screenshot:
-  * the footer read "User &amp; access setup" — t() escapes its input,
+  * the footer read "User &amp; access setup" - t() escapes its input,
     so the literal &amp; got escaped a second time;
   * a non-admin (eduardo) saw that Setup link at all, and clicking it
     raised a password prompt the browser answered with the PREVIOUS
-    admin's cached credentials — so he silently became tomasz;
+    admin's cached credentials - so he silently became tomasz;
   * Log out only poisoned '/', leaving the cached credential for the
     /setup/ realm alive.
 """
@@ -48,12 +48,12 @@ class TestAdminOnlyLinks:
             assert ".adminonly" in branch
 
     def test_reveal_needs_whoami_to_answer(self):
-        """If whoami fails the links stay hidden — fail closed."""
+        """If whoami fails the links stay hidden - fail closed."""
         for src in (REP, MON):
             assert "catch(()=>{el.remove();})" in src
 
     def test_not_a_security_boundary_only_a_ui_hint(self):
-        """nginx still gates /setup/ with admin.htpasswd — hiding the
+        """nginx still gates /setup/ with admin.htpasswd - hiding the
         link is about not luring people into a password prompt."""
         auth = (ROOT / "server" / "bundle" /
                 "nginx-argia_auth.conf").read_text(encoding="utf-8")
@@ -76,7 +76,7 @@ class TestLogoutRaisesNoPrompt:
 
     def test_logout_navigates_straight_to_the_service(self):
         """v153: /logout deletes the session row and then redirects to
-        the public page itself. Still one plain navigation — the rule
+        the public page itself. Still one plain navigation - the rule
         above (no request that can answer 401) is what matters."""
         for src in (REP, MON, SET):
             i = src.index("function argiaLogout")
@@ -120,7 +120,7 @@ class TestOneRealm:
         assert realms == {"ARGIA"}, realms
 
     def test_setup_and_monitoring_no_longer_split_the_realm(self):
-        """Only the directives matter — the section comments may still
+        """Only the directives matter - the section comments may still
         say 'ARGIA reporting'."""
         for old in ("ARGIA reporting", "ARGIA setup", "ARGIA monitoring"):
             assert f'auth_basic "{old}"' not in self.AUTH

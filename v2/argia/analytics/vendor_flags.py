@@ -1,4 +1,4 @@
-"""Vendor-flag detectors — inverter self-diagnosed problems.
+"""Vendor-flag detectors - inverter self-diagnosed problems.
 
 Unlike the production-based detectors (inverter_relative, energy_daily_pct,
 plant_twin_yield), these relay what the INVERTER ITSELF reports is wrong.
@@ -6,7 +6,7 @@ The device already made the judgement; we surface it with the code attached,
 so the alert names the failure instead of inferring it from lost energy.
 
 Data source: the normalized ``Telemetry_Argia.fault_code`` column, already
-loaded by the alerts script's day bundle — no extra reads. Its format (see
+loaded by the alerts script's day bundle - no extra reads. Its format (see
 ``growatt_row._format_fault_code``): ``"0"`` when healthy, else a compact
 summary like ``"FT=302"`` or ``"FC1=1,FT=203"``.
 
@@ -42,7 +42,7 @@ two or more across the day is the device consistently reporting a problem."""
 #   FT=/FC1=/FC2=  Growatt fault type / fault codes
 #   DS=            Huawei devStatus abnormal (device not in normal state)
 # Deliberately NOT fault tokens: Huawei IS= (inverter_state) and RS=
-# (run_state) are STATE, not faults — IS=512,RS=1 is the normal on-grid
+# (run_state) are STATE, not faults - IS=512,RS=1 is the normal on-grid
 # running state and appears in every healthy sample (verified 2026-07-03:
 # treating them as faults flagged all six healthy MEX inverters at 9/9
 # samples). Decoding non-standard IS values (e.g. IS=768 seen on a weak
@@ -67,7 +67,7 @@ class FaultBreach:
 
     plant_key: str
     inverter_sn: str
-    codes: str            # e.g. "FT=302 (x115)" — worst/most common first
+    codes: str            # e.g. "FT=302 (x115)" - worst/most common first
     samples_faulted: int
     samples_total: int
     severity: Severity
@@ -83,10 +83,10 @@ def evaluate_inverter_faults(
     ``samples`` is [(timestamp_utc, plant_key, inverter_sn, fault_code), ...]
     straight from the day bundle. Night rows are ignored (some devices report
     standby codes after sunset). An inverter fires when it has at least
-    ``min_samples`` faulted daylight rows; severity is CRITICAL — the device
+    ``min_samples`` faulted daylight rows; severity is CRITICAL - the device
     itself says it has a fault, there is no "warning" interpretation.
 
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     total: Dict[Tuple[str, str], int] = defaultdict(int)
     faulted: Dict[Tuple[str, str], int] = defaultdict(int)
@@ -136,7 +136,7 @@ def evaluate_inverter_faults(
 # break:15 daily; NL1 JGMAE65009 break:13 daily) while producing within 1%
 # of peers. Alerting on "non-zero" would create 8 permanent false alarms.
 # What IS signal: a NEW bit appearing vs the inverter's own trailing
-# baseline — the currently-faulting GTO1 JFM7DXN013 grew unmatch:10,11 on
+# baseline - the currently-faulting GTO1 JFM7DXN013 grew unmatch:10,11 on
 # 2026-06-01 and break:4 on 2026-06-02, weeks before its FT=302 fault.
 
 STRING_BASELINE_DAYS = 14
@@ -150,7 +150,7 @@ MIN_BASELINE_DAYS = 7
 samples in its baseline before a bit can be called NEW. The flag columns
 only exist in telemetry_detail since 2026-09-04, so on 2026-09-06 every
 chronic bit of eight inverters across five plants looked "new" against a
-one-day baseline — that is how the Budenheim string alerts were born."""
+one-day baseline - that is how the Budenheim string alerts were born."""
 
 _STRING_COLS = ("str_break", "str_unmatch", "str_unblance")
 
@@ -193,7 +193,7 @@ def evaluate_string_new_bits(
     WARNING: it names a lead to inspect; actual production loss is the
     production detectors' job.
 
-    Pure function — no I/O.
+    Pure function - no I/O.
     """
     # bit -> count for today (daylight only)
     day_counts: Dict[Tuple[str, str], Counter] = defaultdict(Counter)
@@ -220,7 +220,7 @@ def evaluate_string_new_bits(
     breaches: List[StringBitBreach] = []
     for key, counts in sorted(day_counts.items()):
         if len(base_days[key]) < min_baseline_days:
-            LOG.info("string flags %s/%s: only %d baseline day(s) (< %d) — cannot tell new from chronic, skipped",
+            LOG.info("string flags %s/%s: only %d baseline day(s) (< %d) - cannot tell new from chronic, skipped",
                      key[0], key[1], len(base_days[key]), min_baseline_days)
             continue
         new = sorted(b for b, n in counts.items()

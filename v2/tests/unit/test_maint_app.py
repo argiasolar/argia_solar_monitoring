@@ -1,4 +1,4 @@
-"""v226 — the /maintenance/ Flask app against an in-memory fake of the
+"""v226 - the /maintenance/ Flask app against an in-memory fake of the
 ticket tables: access, create, transitions, comments with attachments,
 notifications, the alert prefill."""
 from __future__ import annotations
@@ -212,9 +212,9 @@ class TestCreate:
         assert t["number"] == "TK-NL1-0001" and t["inverter_sn"] == "SN1" and t["assigned_to"] == "juan" and t["status"] == "NEW"
         assert (1, "arturo") in client.db.followers and (1, "nl1:inv:sn1:inverter_temp_high") in client.db.alerts
         assert [e["kind"] for e in client.db.events] == ["created", "assign", "alert"]
-        # mail to juan (assignee) — arturo has no e-mail, tomasz did it
+        # mail to juan (assignee) - arturo has no e-mail, tomasz did it
         assert len(client.sent) == 1 and client.sent[0]["To"] == "juan@x"
-        assert client.sent[0]["Subject"] == "[TK-NL1-0001] Plastic Omnium: Inverter 1 cooling — New"   # v227: threads; a reply files as a comment
+        assert client.sent[0]["Subject"] == "[TK-NL1-0001] Plastic Omnium: Inverter 1 cooling - New"   # v227: threads; a reply files as a comment
         assert client.sent[0]["Reply-To"] == "svc@x"
         # second ticket on the same plant counts up
         create(client, title="Second")
@@ -283,7 +283,7 @@ class TestV227:
         assert table.count('class="ti"') >= 8   # one badge per column header at least
         t = client.get("/t/TK-NL1-0001/", headers=H()).data.decode()
         assert 'class="tipbox"' in t and "Who works on it." in t and "Followers are notified" in t
-        assert "In progress — someone is working on it." in t and "P2 High" in t
+        assert "In progress - someone is working on it." in t and "P2 High" in t
         assert re.search(r'<h2 class="ct">Add an update<span class="tw">', en(t)) and 'class="ct" title=' not in t
         st = client.get("/stats/", headers=H()).data.decode()
         assert "Open tickets by status" in st and "<svg" in st and "Opened / resolved per week" in st and "Plastic Omnium" in st
@@ -399,7 +399,7 @@ class TestV237Spanish:
         sp = es(client.get("/t/TK-NL1-0001/", headers=H()).data.decode())
         assert "Verificación" in sp and "En curso → Verificación" in sp and "Línea de tiempo" in sp
         # the SLA line depends on the wall clock: "quedan … de N h" while inside the target, "… sobre el objetivo de N h" after
-        # (the fixture ticket was opened 2026-09-08, so the day after it is over target — v244.2 fixed the date-bound assert)
+        # (the fixture ticket was opened 2026-09-08, so the day after it is over target - v244.2 fixed the date-bound assert)
         assert "quedan" in sp or "sobre el objetivo" in sp
         assert "Causa raíz" in sp and "Falla de equipo" in sp and "Resuelto: por el dato" in sp
 
@@ -409,6 +409,6 @@ class TestV237Spanish:
         assert 'data-ph-en="add follower by e-mail" data-ph-es="agregar seguidor por correo"' in t
         assert "[data-ph-en]" in (BUNDLE / "portal_chrome.py").read_text(encoding="utf-8")
         assert "How it works" in en(pages["/"]) and "Resolved (90 days)" in en(pages["/resolved/"])
-        assert "Inverter (optional — the list follows the plant)" in en(pages["/new/?alert=nl1:inv:sn1:inverter_temp_high"])
-        assert '<option value="" data-en="— plant level —" data-es="— nivel de planta —">— plant level —</option>' in t or True
+        assert "Inverter (optional - the list follows the plant)" in en(pages["/new/?alert=nl1:inv:sn1:inverter_temp_high"])
+        assert '<option value="" data-en="- plant level -" data-es="- nivel de planta -">- plant level -</option>' in t or True
         assert "abiertos ahora" in es(pages["/stats/"]) and "open now" in en(pages["/stats/"])

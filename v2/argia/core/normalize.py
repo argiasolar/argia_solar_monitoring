@@ -1,4 +1,4 @@
-"""Pure normalization helpers — no I/O, no side effects, easy to test."""
+"""Pure normalization helpers - no I/O, no side effects, easy to test."""
 
 from __future__ import annotations
 
@@ -54,10 +54,10 @@ def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
       - empty string / whitespace → default
       - "42" → 42
       - "1,234" → 1234 (strips commas)
-      - "3.7" → 3 (truncates floats — Python int() semantics)
+      - "3.7" → 3 (truncates floats - Python int() semantics)
       - 3.7  → 3
       - NaN / inf → default
-      - bool inputs are accepted (True → 1, False → 0) — same as ``int(True)``
+      - bool inputs are accepted (True → 1, False → 0) - same as ``int(True)``
 
     This is intentionally lenient: Growatt and other vendors return
     integer-shaped fields as strings ("1", "0", "9309575"), and Sheets

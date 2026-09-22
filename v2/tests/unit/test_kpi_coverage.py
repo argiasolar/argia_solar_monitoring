@@ -68,7 +68,7 @@ class TestClassifyCoverage:
 # --------------------------------------------------------------------------
 class TestStampDataClass:
     # v86: stamps flush through ONE batch_write_cells call (the per-cell
-    # write_cell loop blew the 60-writes/min quota at fleet size 10 —
+    # write_cell loop blew the 60-writes/min quota at fleet size 10 -
     # live crash during the July rerun, 2026-07-10). These tests assert
     # the batched contract.
     def _client(self, rows):
@@ -342,7 +342,7 @@ class TestGatedProductionPct:
         assert gated_production_pct(3732.0, 4978.0, 0.5623) == 0.7497
 
     def test_implausible_pr_clears_cell(self):
-        # Real July-1: SLP2 pr=1.2312 stamped 164% — gate returns "" so a
+        # Real July-1: SLP2 pr=1.2312 stamped 164% - gate returns "" so a
         # re-run CLEARS the inflated value instead of leaving it.
         assert gated_production_pct(1199.7, 730.83, 1.2312) == ""
         assert gated_production_pct(698.9, 495.47, 1.0579) == ""
@@ -359,7 +359,7 @@ class TestGatedProductionPct:
 class TestProductionStatement:
     def test_partial_day_wins_over_everything(self):
         n = production_statement(1.5, 1.3, 0.5, 0.4, "partial")
-        assert n == "Partial data day — daily figures not comparable."
+        assert n == "Partial data day - daily figures not comparable."
 
     def test_implausible_sun_measurement(self):
         n = production_statement("", 1.23, 1.0, None, "full")
@@ -372,7 +372,7 @@ class TestProductionStatement:
 
     def test_below_plan_low_availability_suppresses_soiling_claim(self):
         # Real GTO1 July-2: 75% of plan, availability 78%. The 39% drift is
-        # the two faulted units, NOT dirt — the note must not say "soiling"
+        # the two faulted units, NOT dirt - the note must not say "soiling"
         # when availability already explains the shortfall.
         n = production_statement(0.7497, 0.5623, 0.7833, 0.389, "full")
         assert n.startswith("Below plan (75%)")

@@ -1,4 +1,4 @@
-"""Soiling analysis — Stage 7.3.
+"""Soiling analysis - Stage 7.3.
 
 Decides "is this plant due for cleaning?" by comparing the rolling-median
 PR over the last N days against a stored baseline PR (from when the plant
@@ -22,7 +22,7 @@ Honest limitations
 3. **The dollar math is a projection, not a measurement**. We project
    "what would the next 30 days cost at current loss rate" using the
    plant's typical daily kWh and tariff. Actual recovery after cleaning
-   may differ — sometimes the panels just keep getting dirty.
+   may differ - sometimes the panels just keep getting dirty.
 
 4. **Tariff in MXN per kWh must be set on Plants tab**. Missing tariff
    → we skip the dollar comparison and report only the loss %.
@@ -96,11 +96,11 @@ class CleaningCost:
 def load_cleaning_costs(sheets: SheetsClient) -> Dict[str, CleaningCost]:
     """Read Cleaning_Costs tab. Returns dict plant_key → CleaningCost.
 
-    Missing tab is non-fatal — returns empty dict and logs."""
+    Missing tab is non-fatal - returns empty dict and logs."""
     try:
         rows = sheets.read_table(CLEANING_COSTS_TAB, "A1:D")
     except Exception as e:
-        LOG.warning("Could not read %s: %s — returning empty", CLEANING_COSTS_TAB, e)
+        LOG.warning("Could not read %s: %s - returning empty", CLEANING_COSTS_TAB, e)
         return {}
 
     out: Dict[str, CleaningCost] = {}
@@ -127,7 +127,7 @@ def create_cleaning_costs_tab_if_missing(
     sheets.ensure_tab(CLEANING_COSTS_TAB)
     existing = sheets.read_range(CLEANING_COSTS_TAB, "A1:D1")
     if existing and any(str(c).strip() for c in (existing[0] if existing else [])):
-        LOG.info("%s already has header — leaving alone", CLEANING_COSTS_TAB)
+        LOG.info("%s already has header - leaving alone", CLEANING_COSTS_TAB)
         return False
     sheets.ensure_header(CLEANING_COSTS_TAB, CLEANING_COSTS_HEADER)
     if plant_keys:
@@ -223,7 +223,7 @@ def _decide(
     """Apply ratio thresholds.
 
     Returns NOT_DUE if projected loss is negative (rolling PR ABOVE
-    baseline — typical after a recent cleaning). That's good news but
+    baseline - typical after a recent cleaning). That's good news but
     not actionable."""
     if projected_loss_mxn is None or cleaning_cost_mxn is None:
         return SoilingDecision.INSUFFICIENT_DATA
@@ -257,7 +257,7 @@ def assess_plant_soiling(
     cleaning_cost: Optional[CleaningCost],
     window_days: int = 14,
 ) -> SoilingAssessment:
-    """The main analysis function. Pure — caller passes pre-loaded inputs.
+    """The main analysis function. Pure - caller passes pre-loaded inputs.
 
     Args:
         plant_key: identifier for the result
@@ -279,7 +279,7 @@ def assess_plant_soiling(
 
     notes: List[str] = []
 
-    # Early exits — assemble result with as much detail as we have
+    # Early exits - assemble result with as much detail as we have
     if pr_baseline is None:
         notes.append(
             "pr_baseline missing on Plants tab. Set it to a known-clean "

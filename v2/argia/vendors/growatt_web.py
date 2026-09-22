@@ -5,14 +5,14 @@ Thin wrapper around ``requests.Session`` that:
   * logs in (form-encoded POST to ``/login``, expects ``assToken`` cookie)
   * exposes one method per documented read-only endpoint
   * refuses to call anything that looks like a write/mutation path
-  * does NOT parse responses — that's ``growatt_web_parser``'s job
+  * does NOT parse responses - that's ``growatt_web_parser``'s job
 
 This module is paired with ``growatt_web_parser``. Together they replace
 the v1 split of ``argia_growatt.py`` / ``argia_growatt_monitoring.py`` /
 ``argia_growatt_inverters.py`` / ``argia_growatt_health_client.py``.
 
 Wiring into the orchestrator (the v2 ``GrowattClient`` facade in
-``growatt.py``) is intentionally out of scope for Stage 1 — that lands in
+``growatt.py``) is intentionally out of scope for Stage 1 - that lands in
 Stage 2 once the parser is proven.
 """
 
@@ -129,7 +129,7 @@ class GrowattWebClient:
         if self._reauth_done:
             return False
         self._reauth_done = True
-        LOG.warning("Growatt session stale (%s) — dropping and logging "
+        LOG.warning("Growatt session stale (%s) - dropping and logging "
                     "in fresh", reason)
         growatt_session.drop_session()
         self._session.cookies.clear()
@@ -145,11 +145,11 @@ class GrowattWebClient:
         if self._logged_in:
             return
 
-        # A refused login recently? Then do NOT hit the endpoint — raising
+        # A refused login recently? Then do NOT hit the endpoint - raising
         # here is what lets a soft block cool down (2026-07-07).
         growatt_session.check_backoff()
 
-        # Prime the session — Growatt sets some pre-auth cookies on GET /login
+        # Prime the session - Growatt sets some pre-auth cookies on GET /login
         self._session.get(f"{self._base}/login", timeout=self._timeout)
 
         resp = self._session.post(
@@ -218,7 +218,7 @@ class GrowattWebClient:
             )
             # Stale-session signature observed live 2026-07-08: HTTP 200
             # with an HTML login page where JSON belongs. Heal at the
-            # point of truth — once per run.
+            # point of truth - once per run.
             if (resp.status_code == 200
                     and resp.text.lstrip().startswith("<")
                     and self._reauth_once(f"HTML from {path}")):
@@ -280,7 +280,7 @@ class GrowattWebClient:
         date_iso: str,
         start: int = 0,
     ) -> Dict[str, Any]:
-        """POST /device/getMAXHistory — per-inverter 5-min samples for a day."""
+        """POST /device/getMAXHistory - per-inverter 5-min samples for a day."""
         return self._post(
             "/device/getMAXHistory",
             {
@@ -297,29 +297,29 @@ class GrowattWebClient:
         plant_id: str,
         date_iso: str,
     ) -> Dict[str, Any]:
-        """POST /panel/max/getMAXDayChart — 288-slot pac series for a day."""
+        """POST /panel/max/getMAXDayChart - 288-slot pac series for a day."""
         return self._post(
             "/panel/max/getMAXDayChart",
             {"maxSn": sn, "plantId": plant_id, "date": date_iso},
         )
 
     def get_max_total_data(self, plant_id: str) -> Dict[str, Any]:
-        """POST /panel/max/getMAXTotalData?plantId=… — plant aggregate."""
+        """POST /panel/max/getMAXTotalData?plantId=… - plant aggregate."""
         return self._post(f"/panel/max/getMAXTotalData?plantId={plant_id}")
 
     def get_plant_data(self, plant_id: str) -> Dict[str, Any]:
-        """POST /panel/getPlantData?plantId=… — plant metadata (note: POST)."""
+        """POST /panel/getPlantData?plantId=… - plant metadata (note: POST)."""
         return self._post(f"/panel/getPlantData?plantId={plant_id}")
 
     def get_devices_by_plant(self, plant_id: str) -> Dict[str, Any]:
-        """POST /panel/getDevicesByPlant?plantId=… — devices in this plant.
+        """POST /panel/getDevicesByPlant?plantId=… - devices in this plant.
 
-        Returns at most one SN per device-type bucket — see parser docstring.
+        Returns at most one SN per device-type bucket - see parser docstring.
         """
         return self._post(f"/panel/getDevicesByPlant?plantId={plant_id}")
 
     def get_alert_plant_event(self, plant_id: str) -> Dict[str, Any]:
-        """GET /panel/alertPlantEvent?plantId=… — current alerts."""
+        """GET /panel/alertPlantEvent?plantId=… - current alerts."""
         return self._get(f"/panel/alertPlantEvent?plantId={plant_id}")
 
     def seed_env_page(self, plant_id: str) -> None:
@@ -333,7 +333,7 @@ class GrowattWebClient:
     def get_env_list(self, plant_id: str,
                      curr_page: int = 1) -> Dict[str, Any]:
         """List env/weather devices for a plant. The configured datalogger
-        SN is NOT guaranteed to be the env device (v1's explicit warning) —
+        SN is NOT guaranteed to be the env device (v1's explicit warning) -
         this is the authoritative source."""
         self.login()
         self._session.cookies.set("selectedPlantId", str(plant_id))
@@ -359,11 +359,11 @@ class GrowattWebClient:
         })
 
     def get_weather_by_plant_id(self, plant_id: str) -> Dict[str, Any]:
-        """POST /index/getWeatherByPlantId?plantId=… — Growatt's weather feed."""
+        """POST /index/getWeatherByPlantId?plantId=… - Growatt's weather feed."""
         return self._post(f"/index/getWeatherByPlantId?plantId={plant_id}")
 
     def list_device(self, account_name: str) -> Dict[str, Any]:
-        """GET /returnDevice/listDevice?accountName=… — account-wide list."""
+        """GET /returnDevice/listDevice?accountName=… - account-wide list."""
         return self._get(
             "/returnDevice/listDevice",
             params={"accountName": account_name},

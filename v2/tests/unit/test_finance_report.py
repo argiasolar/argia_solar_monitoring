@@ -153,7 +153,7 @@ class TestBuilder:
 
     def test_om_is_sum_of_approved_events(self):
         # Two approved events in-period (GTO1 repair 20000, SLP1 cleaning
-        # 15000) + one DRAFT (no approved_by, 99999 — must NOT count) +
+        # 15000) + one DRAFT (no approved_by, 99999 - must NOT count) +
         # one approved but OUT of period (Aug). O&M = 35000, no baseline.
         events = [
             {"plant_key": "GTO1", "start_ts": "2026-07-03 09:00:00",
@@ -212,7 +212,7 @@ class TestRenderer:
 
     def test_footer_is_generated_from_registry(self):
         h = self._html()
-        # verbatim registry fragments — if provenance.py changes, the
+        # verbatim registry fragments - if provenance.py changes, the
         # footer changes with it (and vice versa this test breaks on
         # hand-edited footer text)
         assert COLUMN_NOTES["Maintenance_Events"]["cost_mxn"][:30] in h
@@ -246,7 +246,7 @@ class TestHeaderContracts:
 
 def test_dscr_definition_in_audit_footer():
     """User audit question 2026-07-09: the portfolio DSCR must state its
-    aggregation in the audit text — summed revenue over summed service,
+    aggregation in the audit text - summed revenue over summed service,
     not an average of per-asset ratios."""
     data = build_finance_report_data(_sheets(), _portfolio(),
                                      Period.from_iso("2026-07-01",

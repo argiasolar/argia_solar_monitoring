@@ -1,13 +1,13 @@
 """Regression tests for the portal's production-vs-expected gauge.
 
 monitoring_gen.py queries PostgreSQL at import time, so the gauge is
-lifted out of the real source with ast and executed on its own — the
+lifted out of the real source with ast and executed on its own - the
 test therefore always runs the code that actually ships, and cannot
 drift from a copy.
 
 Bug this guards (reported 2026-08-28, /ppa 108% and /capex 69%): the
 SVG large-arc flag was set to 1 whenever the fill exceeded half the
-scale, which draws the MAJOR arc the long way round — visible as
+scale, which draws the MAJOR arc the long way round - visible as
 broken, clipped arc segments. A semicircle gauge sweeps at most 180
 degrees, so the flag must always be 0.
 """
@@ -57,7 +57,7 @@ class TestArcFlag:
                 assert rx == ry, "gauge arc must stay circular"
 
     def test_value_arc_ends_on_the_circle(self):
-        """End point must sit on the radius — a wrong centre or sign
+        """End point must sit on the radius - a wrong centre or sign
         flip would push the arc outside the viewBox (the clipped look)."""
         cx, cy, r = GNS["GAUGE_CX"], GNS["GAUGE_CY"], GNS["GAUGE_R"]
         for pct in (10, 45, 69, 88, 108, 129):
@@ -106,7 +106,7 @@ class TestBandsAndLayout:
         assert "#1e8e3e" in gauge_svg(90)
 
     def test_drawing_stays_inside_the_viewbox(self):
-        """Stroke half-width included — anything outside gets clipped,
+        """Stroke half-width included - anything outside gets clipped,
         which is what made the broken gauges look mispositioned."""
         cx, cy, r = GNS["GAUGE_CX"], GNS["GAUGE_CY"], GNS["GAUGE_R"]
         half = 6.0                                    # stroke-width 12

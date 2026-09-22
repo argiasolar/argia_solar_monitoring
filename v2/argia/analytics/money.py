@@ -1,4 +1,4 @@
-"""v257 — what an outage COSTS, in pesos.
+"""v257 - what an outage COSTS, in pesos.
 
 Tomasz, 2026-09-16, watching SAG sit at 0 W all afternoon: "show the
 bleeding in MXN, so we can see how much money we are losing".
@@ -6,8 +6,8 @@ bleeding in MXN, so we can see how much money we are losing".
 Two questions, two honest methods:
 
 * **During** the outage (the acute alert): we cannot know what the plant
-  *would* have made, so we model it — nameplate x measured irradiance x
-  the plant's baseline performance ratio — and say plainly that it is an
+  *would* have made, so we model it - nameplate x measured irradiance x
+  the plant's baseline performance ratio - and say plainly that it is an
   estimate. Irradiance is on every telemetry row (verified: 612/612
   samples carried it on 2026-09-16), so this works for every plant, with
   no dependence on a healthy twin.
@@ -19,7 +19,7 @@ Two questions, two honest methods:
 The tariff is the PPA price for the month in force
 (``contract_monthly.tariff_mxn``), falling back to the plant's standing
 ``tariff_mxn_per_kwh``. The five CAPEX plants have no per-kWh tariff at
-all — they are net-metering sites ARGIA does not bill per kWh — so for
+all - they are net-metering sites ARGIA does not bill per kWh - so for
 them the answer is kWh and an explicit "no tariff", never a fabricated
 peso figure.
 
@@ -40,7 +40,7 @@ def expected_kw(kwp_dc: Optional[float], irradiance_wm2: Optional[float],
                 pr: Optional[float] = None) -> Optional[float]:
     """What this plant should be making right now, in kW.
 
-    nameplate x (irradiance / 1000) x performance ratio — the standard
+    nameplate x (irradiance / 1000) x performance ratio - the standard
     first-order expectation, and the same shape the nightly
     ``expected_kwh`` uses. Returns None when an input is missing, so a
     gap never silently becomes a zero (which would read as "lost")."""
@@ -57,7 +57,7 @@ def lost_kwh_intraday(samples: Sequence[Tuple[Optional[float], Optional[float]]]
                       interval_min: float = 5.0) -> float:
     """Energy missed so far, from ``(irradiance_wm2, actual_kw)`` samples.
 
-    ``actual_kw`` None means the vendor sent no reading — during an
+    ``actual_kw`` None means the vendor sent no reading - during an
     outage that is exactly the case that matters (SAG's inverters went
     from 0 W to no value at all once the datalogger dropped), so a
     missing reading counts as zero production, not as a missing sample.
@@ -77,7 +77,7 @@ def lost_kwh_intraday(samples: Sequence[Tuple[Optional[float], Optional[float]]]
 
 def lost_kwh_day(expected_kwh: Optional[float], actual_kwh: Optional[float]) -> Optional[float]:
     """The closed day's shortfall. None when there is no expectation to
-    compare against — an unknown is not a zero."""
+    compare against - an unknown is not a zero."""
     if expected_kwh is None:
         return None
     return round(max(0.0, float(expected_kwh) - float(actual_kwh or 0.0)), 1)
@@ -100,7 +100,7 @@ def tariff_mxn(contract_tariff: Optional[float] = None,
 
 
 def cost_mxn(lost_kwh: Optional[float], tariff: Optional[float]) -> Optional[float]:
-    """Pesos not earned. None when either half is unknown — the caller
+    """Pesos not earned. None when either half is unknown - the caller
     then shows kWh and says why there is no peso figure."""
     if lost_kwh is None or tariff is None:
         return None
@@ -108,15 +108,15 @@ def cost_mxn(lost_kwh: Optional[float], tariff: Optional[float]) -> Optional[flo
 
 
 def fmt_mxn(v: Optional[float]) -> str:
-    """'$12,345 MXN' — whole pesos; centavos are noise on a loss estimate."""
+    """'$12,345 MXN' - whole pesos; centavos are noise on a loss estimate."""
     if v is None:
-        return "—"
+        return " - "
     return f"${v:,.0f} MXN"
 
 
 def fmt_kwh(v: Optional[float]) -> str:
     if v is None:
-        return "—"
+        return " - "
     return f"{v:,.0f} kWh"
 
 
@@ -132,14 +132,14 @@ def loss_phrase(lost_kwh: Optional[float], tariff: Optional[float],
     approx = "≈ " if estimated else ""
     if money is None:
         return f"{approx}{fmt_kwh(lost_kwh)} lost (no per-kWh tariff for this site)"
-    return f"{approx}{fmt_kwh(lost_kwh)} lost — {fmt_mxn(money)}"
+    return f"{approx}{fmt_kwh(lost_kwh)} lost - {fmt_mxn(money)}"
 
 
 def total_cost(rows: Iterable[Tuple[Optional[float], Optional[float]]]) -> Tuple[float, Optional[float]]:
     """Roll (lost_kwh, tariff) pairs into (total kWh, total MXN).
 
     The peso total covers only the rows that HAVE a tariff, and is None
-    when none of them do — so a fleet total never quietly prices the
+    when none of them do - so a fleet total never quietly prices the
     CAPEX plants at zero and calls it complete."""
     kwh = 0.0
     money: Optional[float] = None

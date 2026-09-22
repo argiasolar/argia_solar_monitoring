@@ -18,7 +18,7 @@ Stage 4.2 refinements based on what we learned from live daylight data:
 The Huawei docs list field names that vary by inverter model (SUN2000-100KTL
 vs SUN2000-330KTL, etc.). The parser tries the canonical names plus common
 variants. If a field is consistently missing for your hardware, the wide
-telemetry row simply leaves that cell blank — the rest still lands.
+telemetry row simply leaves that cell blank - the rest still lands.
 
 DEBUG instrumentation: when called with logging at DEBUG level, the parser
 prints the raw key list from each ``dataItemMap`` so you can see what's
@@ -40,7 +40,7 @@ LOG = logging.getLogger("argia.vendors.huawei_telemetry")
 
 # Per-MPPT range we read from each response. SUN2000 inverters expose up to
 # pv36; live data so far shows up to pv16 actively used. Schema width is 16
-# (vpv1_v..vpv16_v). MPPTs 17+ in the API response are ignored for now —
+# (vpv1_v..vpv16_v). MPPTs 17+ in the API response are ignored for now -
 # documented in the runbook.
 MPPT_RANGE = range(1, 17)
 
@@ -79,7 +79,7 @@ class HuaweiTelemetryRow:
     ab_u_v: Optional[float] = None
     bc_u_v: Optional[float] = None
     ca_u_v: Optional[float] = None
-    # Line-to-neutral (each phase to ground) — NEW in Stage 4.2
+    # Line-to-neutral (each phase to ground) - NEW in Stage 4.2
     a_u_v: Optional[float] = None
     b_u_v: Optional[float] = None
     c_u_v: Optional[float] = None
@@ -97,7 +97,7 @@ class HuaweiTelemetryRow:
     temperature_c: Optional[float] = None
     mppt_power_w: Optional[float] = None      # mppt_power (kW → W)
 
-    # Per-MPPT — voltage, current, lifetime energy (up to 16)
+    # Per-MPPT - voltage, current, lifetime energy (up to 16)
     pv_voltages_v: tuple = ()    # (pv1_u, pv2_u, ...)
     pv_currents_a: tuple = ()    # (pv1_i, pv2_i, ...)
     # ``mppt_X_cap`` is per-MPPT LIFETIME energy in Wh (not daily). We
@@ -160,7 +160,7 @@ def parse_telemetry_item(
 ) -> Optional[HuaweiTelemetryRow]:
     """Parse one ``getDevRealKpi.data[]`` element into a HuaweiTelemetryRow.
 
-    Returns None if the item lacks an SN. All other fields are best-effort —
+    Returns None if the item lacks an SN. All other fields are best-effort -
     missing fields stay None.
     """
     if not isinstance(item, dict):
@@ -275,7 +275,7 @@ def parse_telemetry_response(
 
 
 # ============================================================
-# Fetch helper — uses existing HuaweiClient transport
+# Fetch helper - uses existing HuaweiClient transport
 # ============================================================
 
 _SN_BATCH_SIZE = 50
@@ -291,7 +291,7 @@ def fetch_inverter_telemetry(
 
     Reuses ``HuaweiClient._post_json`` and ``_ensure_logged_in`` instead of
     duplicating transport / auth logic. Inverters not returned by Huawei
-    (offline, unknown SN) are omitted — same behavior as the existing
+    (offline, unknown SN) are omitted - same behavior as the existing
     ``fetch_inverter_snapshots``.
 
     Raises ``HuaweiAPIError`` on API failure, ``HuaweiAuthError`` on bad login.

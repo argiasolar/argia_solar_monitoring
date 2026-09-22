@@ -1,7 +1,7 @@
 """
 Tests for argia.vendors.growatt_web.GrowattWebClient.
 
-The HTTP client is thin — most logic is in the parser — so these tests
+The HTTP client is thin - most logic is in the parser - so these tests
 focus on:
   * Constructor validation
   * Safety guards (refusing mutation-shaped paths)
@@ -22,7 +22,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _isolated_growatt_state(tmp_path, monkeypatch):
-    """Session/backoff persistence (2026-07-07) writes real files in ~ —
+    """Session/backoff persistence (2026-07-07) writes real files in ~ -
     isolate them per test or a failure test's backoff marker blocks every
     later login test (observed the day it shipped)."""
     monkeypatch.setenv("ARGIA_GROWATT_SESSION_FILE",
@@ -41,7 +41,7 @@ from argia.vendors.growatt_web import (
 
 
 # =====================================================================
-# Fake Session — captures requests, returns scripted responses
+# Fake Session - captures requests, returns scripted responses
 # =====================================================================
 
 class FakeResponse:
@@ -187,7 +187,7 @@ class TestSafetyGuards:
 class TestLogin:
     def test_login_via_asstoken_cookie(self):
         session = FakeSession()
-        # GET /login (prime), POST /login (auth) — both 200, second sets cookie
+        # GET /login (prime), POST /login (auth) - both 200, second sets cookie
         session.queue(
             FakeResponse(200, text=""),  # the prime
             FakeResponse(200, text="ok"),  # the auth (cookie set below)
@@ -246,7 +246,7 @@ class TestLogin:
 
 
 # =====================================================================
-# 4. Endpoint methods — verify URL + request body shape
+# 4. Endpoint methods - verify URL + request body shape
 # =====================================================================
 
 class TestEndpointMethods:

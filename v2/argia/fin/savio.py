@@ -1,4 +1,4 @@
-"""Savio API client (AR side) — https://api.savio.mx/docs, verified
+"""Savio API client (AR side) - https://api.savio.mx/docs, verified
 2026-09-08.
 
     base   https://api.savio.mx/api/v1  (sandbox api-sandbox.savio.mx)

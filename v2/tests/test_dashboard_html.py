@@ -155,7 +155,7 @@ class TestPublishRun:
         assert "b/argia-dashboard/o" in args[0]
         assert "name=dashboard.html" in args[0]
         assert kwargs["headers"]["Cache-Control"] == "no-cache"
-        assert b"ARGIA \xe2\x80\x94 Smart Energy Solutions" in kwargs["data"]   # v251: the company wordmark, not the solar one
+        assert b"ARGIA - Smart Energy Solutions" in kwargs["data"]   # v251: the company wordmark, not the solar one
 
     def test_apply_without_bucket_skips_gracefully(self, tmp_path):
         session = MagicMock()
@@ -240,9 +240,9 @@ class TestFeatureRegressions20260705:
         assert "mxTodayIso" in H._TEMPLATE
         assert "if (day !== mxTodayIso()) return rows;" in H._TEMPLATE
         # regression 2026-07-06: the IN-PROGRESS hour must be kept (<=, not <)
-        # — cutting it hid the first real data after an overnight gap
+        # - cutting it hid the first real data after an overnight gap
         # 2026-07-08 supersedes <=: the in-flight bucket is excluded
-        # (see TestInFlightBucketExcluded20260708) — "last complete
+        # (see TestInFlightBucketExcluded20260708) - "last complete
         # hour", exactly as the banner always promised.
         assert "parseInt(r.hour_label, 10) < h" in H._TEMPLATE
         # both draw paths apply the cut
@@ -303,7 +303,7 @@ class TestLossAndInverterAvailability20260705:
         assert "AVAIL_OK_SET" in H._TEMPLATE   # same rule as portfolio
 
     def test_loss_shows_kwh_until_tariff_set(self):
-        """tariff_mxn_per_kwh is still EMPTY in Plants — the page must
+        """tariff_mxn_per_kwh is still EMPTY in Plants - the page must
         degrade to kWh with a hint, never invent pesos."""
         assert "set tariff_mxn_per_kwh for MXN" in H._TEMPLATE
         assert "tariffs incomplete" in H._TEMPLATE
@@ -313,7 +313,7 @@ class TestLogoAndAudit20260705:
     def test_logo_replaces_text_header(self):
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")
         assert "ARGIA SOLAR" not in html and "plant dashboard" in html
-        assert 'alt="ARGIA — Smart Energy Solutions"' in html      # v251: the whole company, not only solar
+        assert 'alt="ARGIA - Smart Energy Solutions"' in html      # v251: the whole company, not only solar
         assert "data:image/png;base64," in html
         assert len(H.LOGO_B64) > 3000           # a real image, not a stub (palette PNG, ~5.9 KiB of base64)
         assert "PERFORMANCE&nbsp;REPORT" in html
@@ -341,7 +341,7 @@ class TestLogoAndAudit20260705:
     def test_generated_stamp_right_aligned_without_tz_suffix(self):
         """User request 2026-07-05: stamp sits under the selectors on the
         far right, without the (America/Mexico_City) suffix. The suffix
-        removal is display-only — the value itself is computed in MX time
+        removal is display-only - the value itself is computed in MX time
         by the publish script."""
         html = H.render([_plant_row()], [_inv_row()], generated_at="t")
         # the DISPLAY suffix must be gone; the IANA zone string legitimately
@@ -391,7 +391,7 @@ class TestInverterIdentityAndTempVoice20260707:
 class TestAvailabilityUnknownIsNotDowntime20260707:
     def test_only_assessable_buckets_enter_denominator(self):
         """2026-07-06: MEX1 showed 80% availability while producing 130%
-        of expected with zero issues — NO_DATA buckets (collector gaps,
+        of expected with zero issues - NO_DATA buckets (collector gaps,
         partial polls) were counted as downtime. Unknown is unknown."""
         assert "AVAIL_ASSESS = { ONLINE: 1" in H._TEMPLATE
         assert "FAULT: 1, OFFLINE: 1 }" in H._TEMPLATE
@@ -405,12 +405,12 @@ class TestAvailabilityUnknownIsNotDowntime20260707:
 class TestGapDayPctSuppressed20260708:
     def test_live_percent_hidden_on_gap_mornings(self):
         """08:42 screenshot: a giant green 1,138% gauge above a banner
-        apologizing for it. During gap mornings the % is unknowable —
+        apologizing for it. During gap mornings the % is unknowable -
         headline, gauge and per-plant cells show nothing instead;
         tonight's KPI carries the corrected number."""
         # 2026-07-08 pm supersedes the bare dash: gap mornings now show
         # an honest COVERED-HOURS % (see TestCoveredHoursPct20260708)
-        # instead of nothing — suppression of the full-day fiction
+        # instead of nothing - suppression of the full-day fiction
         # remains, the mechanism improved.
         t = H._TEMPLATE
         assert "function lateSetOf(late)" in t
@@ -441,7 +441,7 @@ class TestCoveredHoursPct20260708:
         """User: 4 of 6 plants showed no %% all day after a late start.
         Estimating the missing sun (from other days or other cities'
         plants) would be fiction; instead the %% is computed over hours
-        where BOTH sides are measured — the roll-in bucket excluded —
+        where BOTH sides are measured - the roll-in bucket excluded -
         and visibly marked. Full-day truth still arrives via the KPI's
         stored-history backfill."""
         t = H._TEMPLATE
@@ -455,7 +455,7 @@ class TestCoveredHoursPct20260708:
 # --- fault events bypass the in-flight cutoff (display-only) ----------------
 
 def test_fault_events_js_reads_uncut_rows():
-    """The events map must be built from ALL-day rows BEFORE cutLive —
+    """The events map must be built from ALL-day rows BEFORE cutLive -
     classification honors the in-flight rule, raw fault facts do not."""
     html = H.render([_plant_row()], [_inv_row()], generated_at="t")
     assert "faultEventsByInv" in html

@@ -1,4 +1,4 @@
-"""Maintenance tickets — the operational record behind an alert (v226).
+"""Maintenance tickets - the operational record behind an alert (v226).
 
 Tomasz, 2026-09-07: "log maintenance tickets, connect them to plants,
 notify the people on the ticket, track progress, comments and
@@ -14,7 +14,7 @@ Design (see docs/MAINTENANCE_TICKETS.md):
   new occurrences of the alert land on the ticket's timeline.
 * ONE timeline per ticket (``ticket_event``): creation, comments,
   status changes, assignments, attachments, alert occurrences, system
-  notes — in order, with the actor. Comments are not a separate thing.
+  notes - in order, with the actor. Comments are not a separate thing.
 * Lifecycle NEW → IN_PROGRESS → WAITING → VERIFICATION → RESOLVED →
   CLOSED (plus REOPEN from VERIFICATION/RESOLVED/CLOSED back to
   IN_PROGRESS). RESOLVED and CLOSED are separate on purpose: resolved
@@ -89,7 +89,7 @@ SLA_RESOLVE_H = {p[0]: p[4] for p in PRIORITIES}     # 0 = planned, no target
 
 PRIORITY_FOR_SEVERITY = {"CRITICAL": "P2", "WARNING": "P3", "INFO": "P4"}
 """Default priority when a ticket is opened from an alert: a CRITICAL
-alert (energy lost / unit off) is P2 — P1 stays a human decision (plant
+alert (energy lost / unit off) is P2 - P1 stays a human decision (plant
 outage, safety)."""
 
 # ------------------------------------------------------------ categories
@@ -142,7 +142,7 @@ NUMBER_RE = re.compile(r"^TK-([A-Z0-9]{3,6})-(\d{4,})$")
 
 
 def make_number(plant_key: str, seq: int) -> str:
-    """TK-NL1-0007 — the plant is in the number."""
+    """TK-NL1-0007 - the plant is in the number."""
     return f"TK-{(plant_key or 'FLEET').upper()}-{int(seq):04d}"
 
 
@@ -219,7 +219,7 @@ def parse_ts(s: str) -> Optional[dt.datetime]:
 
 
 def participants(t: Ticket) -> List[str]:
-    """Everyone on the ticket: creator, assignee, followers — deduplicated,
+    """Everyone on the ticket: creator, assignee, followers - deduplicated,
     order kept."""
     out: List[str] = []
     for u in [t.created_by, t.assigned_to] + list(t.followers):
@@ -289,7 +289,7 @@ def progress_line(t: Ticket, last_comment: Optional[Event], now: dt.datetime) ->
     line = " · ".join(parts)
     if last_comment and last_comment.body:
         body = last_comment.body.strip().replace("\n", " ")
-        line += f" — last update: {body[:160]}{'…' if len(body) > 160 else ''}"
+        line += f" - last update: {body[:160]}{'…' if len(body) > 160 else ''}"
     return line
 
 
@@ -542,12 +542,12 @@ def verify_decision(t: Ticket, ledger_open_keys: Iterable[str], touched_keys: It
     """The data's verdict on a ticket (pure):
 
     * VERIFICATION + a linked alert recurred today → ("IN_PROGRESS",
-      reason) — the fix did not hold;
+      reason) - the fix did not hold;
     * VERIFICATION + no linked alert open and none seen for
       ``quiet_days`` → ("RESOLVED", reason);
     * VERIFICATION + linked alerts still open / recently seen → (None,
-      "waiting: …") — keep watching;
-    * any other status, or no linked alerts → (None, "") — nothing for
+      "waiting: …") - keep watching;
+    * any other status, or no linked alerts → (None, "") - nothing for
       the data to say (a ticket without alerts is resolved by people).
     """
     if t.status != "VERIFICATION" or not t.alert_keys:
@@ -556,7 +556,7 @@ def verify_decision(t: Ticket, ledger_open_keys: Iterable[str], touched_keys: It
     touched = set(touched_keys)
     hit = [k for k in t.alert_keys if k in touched]
     if hit:
-        return "IN_PROGRESS", f"monitoring saw the alert again ({', '.join(hit)}) — back to In progress"
+        return "IN_PROGRESS", f"monitoring saw the alert again ({', '.join(hit)}) - back to In progress"
     still = [k for k in t.alert_keys if k in open_keys]
     if still:
         return None, f"waiting: {len(still)} linked alert(s) still open in the ledger"
@@ -567,7 +567,7 @@ def verify_decision(t: Ticket, ledger_open_keys: Iterable[str], touched_keys: It
             recent.append(k)
     if recent:
         return None, f"waiting: last occurrence less than {quiet_days} days ago"
-    return "RESOLVED", f"no linked alert open or seen for {quiet_days} days — resolved by the data"
+    return "RESOLVED", f"no linked alert open or seen for {quiet_days} days - resolved by the data"
 
 
 def matching_ticket(open_tickets: Iterable[Ticket], plant_key: str, inverter_sn: str) -> Optional[Ticket]:
@@ -676,7 +676,7 @@ STATUS_COLOR = {"NEW": "#c2554e", "IN_PROGRESS": "#f0a83b", "WAITING": "#9aa3ad"
 
 
 def status_chart_svg(series: Sequence[Tuple[dt.date, Dict[str, int]]], width: int = 720, height: int = 180) -> str:
-    """Stacked area of open tickets by status over time — inline SVG, no
+    """Stacked area of open tickets by status over time - inline SVG, no
     library. Pure."""
     if not series:
         return ""

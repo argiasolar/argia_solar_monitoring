@@ -1,4 +1,4 @@
-"""Inverter thermal health (v216) — from "65 °C = critical" to a measured
+"""Inverter thermal health (v216) - from "65 °C = critical" to a measured
 diagnosis: how hot, hotter than whom, and what it cost.
 
 Tomasz 2026-09-06: the monitoring flags Growatt inverters above 65 °C
@@ -8,7 +8,7 @@ above 45 °C ambient, Warning 407 / Error 408 over-temperature, warranty
 exclusions for insufficient ventilation) but never says "65 °C internal
 = X % lost". So ARGIA measures it on its own fleet, every 5 minutes:
 
-* **Bands** — ARGIA operational thresholds on the inverter's internal
+* **Bands** - ARGIA operational thresholds on the inverter's internal
   temperature (not manufacturer warranty limits): normal < 50, watch
   50–60, warning 60–65, high 65–70, critical ≥ 70 (immediate ≥ 75).
 * **Thermal stress index** ΔT_ambient = internal − ambient (the weather
@@ -24,19 +24,19 @@ exclusions for insufficient ventilation) but never says "65 °C internal
   its own cool-weather baseline so a smaller DC field is not "loss")
   by more than LOSS_MIN_PCT. Loss = expected − actual over the interval;
   summed per day into kWh, valued at the PPA tariff elsewhere.
-* **Derating curve** — every interval with a peer reference feeds a
+* **Derating curve** - every interval with a peer reference feeds a
   temperature-binned ratio actual/expected; the knee is the first bin
   from which the median ratio stays below 1 − LOSS_MIN_PCT. Measured,
   per inverter, from ARGIA's own data.
-* **Vendor-confirmed derating** (v222) — Growatt MAX inverters publish
+* **Vendor-confirmed derating** (v222) - Growatt MAX inverters publish
   a DeratingMode register (telemetry_detail.derating_mode): 5 = Tboost,
   6 = Tinv mean the inverter ITSELF is limiting power because of its
   temperature. Minutes in those modes are counted per inverter-day as a
   separate column next to ARGIA's measured loss: the device's own word,
   independent of the peer comparison (2026-09-05: Plastic Omnium
-  inverters 1 and 4, 95 and 60 min of Tinv — the only fleet units ever
+  inverters 1 and 4, 95 and 60 min of Tinv - the only fleet units ever
   in a thermal mode; the fleet never showed W407/E408). Huawei and
-  SolarEdge publish no such register — their column stays 0.
+  SolarEdge publish no such register - their column stays 0.
 
 Pure functions over sample tuples; the nightly job (scripts/
 thermal_daily.py) feeds them and stores thermal_daily / thermal_bins.
@@ -64,7 +64,7 @@ BIN_MIN, BIN_MAX = 40.0, 90.0
 KNEE_MIN_N = 20        # samples a bin needs before it can be the knee
 
 # (ts_utc, inverter_sn, power_w, temperature_c, ambient_c[, derating_mode])
-# — the sixth element is optional (v222): the Growatt DeratingMode code
+# - the sixth element is optional (v222): the Growatt DeratingMode code
 Sample = Tuple[dt.datetime, str, Optional[float], Optional[float], Optional[float]]
 
 # Growatt MAX Modbus register 104 "DeratingMode": 0 no derate, 1 PV,
@@ -257,7 +257,7 @@ def derating_curve(bins: Dict[float, Tuple[int, float]]) -> Dict:
     whose following populated bins stay below it too."""
     pts = [{"bin_c": b, "n": n, "ratio": round(s / n, 3)} for b, (n, s) in sorted(bins.items()) if n > 0]
     # the curve's own cool level (bins below T_HOT with enough samples):
-    # a knee is a drop from THAT, not from 1.0 — a unit carrying more DC
+    # a knee is a drop from THAT, not from 1.0 - a unit carrying more DC
     # than its peers runs above 1 when cool and still derates
     cool = [p for p in pts if p["bin_c"] < T_HOT and p["n"] >= KNEE_MIN_N // 2]
     n_cool = sum(p["n"] for p in cool)

@@ -1,4 +1,4 @@
-"""v241 — the plant report tells the truth when a plant is dark.
+"""v241 - the plant report tells the truth when a plant is dark.
 
 Tomasz 2026-09-08: 'in Tetra Pak we do not have data, everything should
 be in red with errors, and it is showing like nothing is happening';
@@ -7,7 +7,7 @@ is a bit too small'; 'some logos do not fit the space correctly'; 'in
 Ryder we do not see the expected from weather kWp in Daily production'.
 
 The range engine is JavaScript, so its behaviour is exercised for real
-under node with a 40-line DOM stub (skipped where node is absent — the
+under node with a 40-line DOM stub (skipped where node is absent - the
 pure-Python assertions below still guard the source).
 """
 from __future__ import annotations
@@ -111,15 +111,15 @@ class TestRangeEngineDarkPlant:
         g = globals_for(days, [1000.0] * 28, {d: 1.0 for d in days}, {d: 1 for d in days},
                         expected=[900.0] * 28, asof="2026-09-07")
         o = run_engine(g, "2026-08-09", "2026-09-07", tmp_path=tmp_path)
-        assert o["r_prod"]["text"] == "—" and "bad" in o["t_prod"]["cls"] and "haswhy" in o["t_prod"]["cls"]
+        assert o["r_prod"]["text"] == " - " and "bad" in o["t_prod"]["cls"] and "haswhy" in o["t_prod"]["cls"]
         assert "nothing arrived for the 30 selected day(s)" in o["r_prodwhy"]["text"]
         assert "the last data is from 2026-07-28" in o["r_prodwhy"]["text"]
-        assert o["r_avail"]["text"] == "—" and o["r_sla"]["text"] == "NO DATA"
+        assert o["r_avail"]["text"] == " - " and o["r_sla"]["text"] == "NO DATA"
         assert "bad" in o["t_avail"]["cls"] and "haswhy" in o["t_avail"]["cls"]
-        assert o["r_loss"]["text"] == "—" and "bad" in o["t_loss"]["cls"]
+        assert o["r_loss"]["text"] == " - " and "bad" in o["t_loss"]["cls"]
         assert "nothing was measured" in o["r_loss_sub"]["text"]
         assert o["r_dq"]["text"] == "0%" and "bad" in o["t_dq"]["cls"]
-        assert o["r_co2"]["text"] == "—"
+        assert o["r_co2"]["text"] == " - "
         assert "No data in the selected range." in o["dchart"]["html"]
 
     def test_empty_range_before_the_plant_existed(self, tmp_path):
@@ -127,7 +127,7 @@ class TestRangeEngineDarkPlant:
         g = globals_for(days, [1.0] * 5, {}, {}, asof="2026-08-05")
         o = run_engine(g, "2026-07-01", "2026-07-10", tmp_path=tmp_path)
         assert "no data in the selected range" in o["r_prodwhy"]["text"]
-        assert o["r_dq"]["text"] == "—"           # nothing was owed either
+        assert o["r_dq"]["text"] == " - "           # nothing was owed either
 
     def test_dark_days_count_as_unavailable_and_uncovered(self, tmp_path):
         # Ryder: 7 lit days, then 3 days with a 0.0 vendor row and no telemetry
@@ -150,7 +150,7 @@ class TestRangeEngineDarkPlant:
 
     def test_dark_days_never_read_as_produced_through_the_gap(self, tmp_path):
         # energy on the lit days beats the weather expectation, but dark
-        # days are not a telemetry gap — REVIEW must not appear
+        # days are not a telemetry gap - REVIEW must not appear
         days = _days("2026-09-01", 10)
         e = [2500.0] * 8 + [0.0] * 2
         g = globals_for(days, e, {d: 1.0 for d in days[:8]}, {d: 1 for d in days[:8]}, expected=[1000.0] * 10)
@@ -173,7 +173,7 @@ class TestRangeEngineDarkPlant:
         assert o["r_avail"]["text"] == "100.0%" and o["r_dq"]["text"] == "100%"
 
     def test_vendor_only_days_stay_out_of_availability(self, tmp_path):
-        # a backfilled month: energy from the vendor, no telemetry —
+        # a backfilled month: energy from the vendor, no telemetry -
         # the plant produced; only coverage says we were not watching
         days = _days("2026-08-01", 10)
         g = globals_for(days, [1000.0] * 10, {days[-1]: 1.0}, {days[-1]: 1})
@@ -197,7 +197,7 @@ class TestSourceGuards:
         assert "const T=(en,es)=>" in SRC
         assert "tl.classList.toggle('haswhy',!!html)" in SRC
         for en in ("nothing arrived for the", "with no telemetry and no energy", "NO DATA",
-                   "unknown — nothing was measured", "No data in the selected range."):
+                   "unknown - nothing was measured", "No data in the selected range."):
             assert en in SRC, en
 
     def test_stale_card_is_red_and_counts_the_silent_days(self):
@@ -208,7 +208,7 @@ class TestSourceGuards:
 
     def test_coverage_tooltip_admits_the_red_case(self):
         assert "Days with no telemetry at all count as zero" in SRC
-        assert "Informational — never colored" not in SRC
+        assert "Informational - never colored" not in SRC
 
 
 class TestFlipTileBackFace:

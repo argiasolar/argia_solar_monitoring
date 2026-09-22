@@ -1,4 +1,4 @@
-"""Growatt OpenAPI token fallback — degraded-mode plant energy.
+"""Growatt OpenAPI token fallback - degraded-mode plant energy.
 
 WHY (incident 2026-07-07): Growatt soft-blocked our web-session logins
 (the path that carries per-inverter data, temps, faults, ShineMaster
@@ -11,15 +11,15 @@ business numbers keep flowing:
     -> data.today_energy  (kWh, resets at midnight)
 
 Degraded-mode design, honestly scoped:
-- PLANT-LEVEL ENERGY ONLY. No per-inverter rows are fabricated — the
+- PLANT-LEVEL ENERGY ONLY. No per-inverter rows are fabricated - the
   dashboard shows real gaps (post-v44, unknown != downtime), and only
   the daily energy/production numbers are preserved.
 - The midnight problem: kpi-eod runs at 06:00 for YESTERDAY, when
   today_energy has already reset. So telemetry CACHES the value intraday
-  (last write ~21:55, after sunset — the day is complete) and kpi-eod
+  (last write ~21:55, after sunset - the day is complete) and kpi-eod
   reads the cache next morning.
 - Fallback triggers ONLY when the web path produced zero rows for a
-  plant (the block signature). Healthy days never touch the token API —
+  plant (the block signature). Healthy days never touch the token API -
   it stays cold, rate-limit budget intact, for emergencies.
 """
 
@@ -63,7 +63,7 @@ class GrowattTokenClient:
 
     def plant_today_energy(self, plant_id: str) -> Optional[float]:
         """today_energy in kWh, or None on any failure (logged, never
-        raised — the fallback must not add failure modes to telemetry)."""
+        raised - the fallback must not add failure modes to telemetry)."""
         if not plant_id:
             return None
         try:
@@ -88,7 +88,7 @@ class GrowattTokenClient:
                 return None
             val = data.get("today_energy")
             return float(val) if val not in (None, "") else None
-        except Exception as e:  # noqa: BLE001 — fallback never raises
+        except Exception as e:  # noqa: BLE001 - fallback never raises
             LOG.warning("growatt token API failed for plant %s: %s",
                         plant_id, e)
             return None
@@ -97,7 +97,7 @@ class GrowattTokenClient:
 # ---- intraday energy cache (telemetry writes, kpi-eod reads) ----------------
 
 def cache_energy(date_iso: str, plant_key: str, kwh: float) -> None:
-    """Persist today's plant energy. Keeps ONLY the current date — the
+    """Persist today's plant energy. Keeps ONLY the current date - the
     file self-prunes so stale values can never leak into a later day."""
     try:
         path = cache_file()

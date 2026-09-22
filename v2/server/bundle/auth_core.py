@@ -2,7 +2,7 @@
 
 Everything here is a plain function over plain data: no Flask, no
 sockets, no filesystem beyond an explicit sqlite path.  That is
-deliberate — this module decides who may read which page, so it has to
+deliberate - this module decides who may read which page, so it has to
 be testable without a server.
 
 Three jobs:
@@ -18,7 +18,7 @@ Three jobs:
 
 The session itself lives server-side (see sessions.py usage in
 auth_app): the cookie carries only an opaque id.  That is what makes
-logout real — deleting the row kills the session even if someone kept
+logout real - deleting the row kills the session even if someone kept
 a copy of the cookie, which is exactly what HTTP Basic could not do.
 """
 import base64
@@ -55,15 +55,15 @@ PREFIX_AREA = {
     # Ask ARGIA (v187): any signed-in user passes nginx; ask_app then
     # allow-lists by e-mail and answers 403 to everyone else.
     '/ask/': ALL,
-    # v244: finance + projects — fin_app allow-lists by e-mail (Tomasz only
+    # v244: finance + projects - fin_app allow-lists by e-mail (Tomasz only
     # while the modules are built); nginx only asks for a session
     '/finance/': ALL,
     '/projects/': ALL,
     '/financial/': 'financial',
-    # invoice annexes carry PPA tariffs and revenue — same audience as
+    # invoice annexes carry PPA tariffs and revenue - same audience as
     # the financial report (v155, monthly-close feature 2026-09-01)
     '/invoices/': 'financial',
-    # the portfolio map shows fleet-wide PPA revenue — financial-grade
+    # the portfolio map shows fleet-wide PPA revenue - financial-grade
     # content, financial-grade gate (v177)
     '/portfolio/': 'financial',
     '/capex/': 'capex',
@@ -82,7 +82,7 @@ for _p in ('gto2', 'qro1', 'nl2', 'mex3', 'tam1'):
 
 # portal.argia.com.mx (v208): the same grants behind the new paths.
 # Slugs come from portal_chrome (static, customer-name based); the
-# plant areas keep their code names — grants do not change.
+# plant areas keep their code names - grants do not change.
 try:
     from portal_chrome import SLUGS as _SLUGS
 except ImportError:                       # tests importing auth_core alone
@@ -90,7 +90,7 @@ except ImportError:                       # tests importing auth_core alone
 PREFIX_AREA.update({
     '/report/': ALL, '/assets/': ALL,
     # v214 (Tomasz): the CFE tariff explorer is open to every signed-in
-    # user, as the old /cfe/ page was — the rest of Setup stays ADMIN
+    # user, as the old /cfe/ page was - the rest of Setup stays ADMIN
     '/setup/cfe/': ALL,
     '/report/financial/': 'financial', '/report/invoices/': 'financial',
     '/map/': 'financial',
@@ -139,7 +139,7 @@ def may(user, area):
 
     `user` is a mapping with level / reports / is_admin / plant_admin /
     disabled, as stored by setup_app.  A missing or disabled user may
-    nothing — including the pages any signed-in user can read.
+    nothing - including the pages any signed-in user can read.
     """
     if not user or user.get('disabled'):
         return False
@@ -165,7 +165,7 @@ def _b64(raw):
 
 
 def sign(sid, secret):
-    """sid.signature — the cookie value."""
+    """sid.signature - the cookie value."""
     sid = sid.encode() if isinstance(sid, str) else sid
     mac = hmac.new(secret, sid, hashlib.sha256).digest()[:18]
     return f'{_b64(sid)}.{_b64(mac)}'

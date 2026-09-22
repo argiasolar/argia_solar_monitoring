@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Argia_Mont — Soiling assessment.
+"""Argia_Mont - Soiling assessment.
 
 Reads KPI_Daily history + Plants (pr_baseline, tariff) + Cleaning_Costs,
-prints a per-plant soiling assessment. Read-only — no alerts, no writes.
+prints a per-plant soiling assessment. Read-only - no alerts, no writes.
 
 USAGE
     PYTHONPATH=. python scripts/soiling_check.py

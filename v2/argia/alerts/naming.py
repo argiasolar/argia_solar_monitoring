@@ -1,7 +1,7 @@
 """Display names for every outgoing communication (v217).
 
 Tomasz, 2026-09-06: "I do not want to see code names like NL2 in any
-communication — we have names for that; the code name can be a
+communication - we have names for that; the code name can be a
 detailed description only." The engine, the ledger and the alert keys
 keep their plant codes and serial numbers (they are the stable ids);
 this module is the rendering layer every mail and push message goes
@@ -11,11 +11,11 @@ through on its way out:
   useful detail;
 * inverter: ``Inverter 3`` (the label the vendor portal shows and an
   engineer can find on site), ``Inverter 3 · SN JJM4D4P017`` in detail;
-* message text: the composers write ``NL2 JJM4D4P017: ...`` — the
+* message text: the composers write ``NL2 JJM4D4P017: ...`` - the
   leading code prefix is dropped (the header already names the unit)
   and any other code mention is replaced by its name;
 * metric / key phrases: ``string_fault`` -> "new string diagnostic
-  flag" — one table for the alert mails and the daily mail.
+  flag" - one table for the alert mails and the daily mail.
 
 Everything here is pure except ``load_names()`` (PostgreSQL, {} on
 error so a database hiccup degrades to codes, never to no mail).
@@ -88,7 +88,7 @@ class Names:
         return self.plants.get(k, key or "")
 
     def plant_full(self, key: Optional[str]) -> str:
-        """'Budenheim (NL2)' — name first, code as the detail."""
+        """'Budenheim (NL2)' - name first, code as the detail."""
         k = (key or "").upper()
         name = self.plants.get(k)
         if k == "PORTFOLIO":
@@ -96,7 +96,7 @@ class Names:
         return f"{name} ({key})" if name else (key or "")
 
     # ---- inverters
-    # v230 (Tomasz): "Inverter 3" alone is not good enough — every place
+    # v230 (Tomasz): "Inverter 3" alone is not good enough - every place
     # a person reads shows the label AND the serial, one format:
     #     Inverter 3 (JGMAE65009)        text (mails, tickets, Ask)
     #     Inverter 3 <span class="sn">JGMAE65009</span>   pages
@@ -107,7 +107,7 @@ class Names:
         return lab if lab else f"inverter {sn}" if sn else ""
 
     def inverter(self, plant_key: Optional[str], sn: Optional[str]) -> str:
-        """'Inverter 3 (JGMAE65009)' — label and serial, always."""
+        """'Inverter 3 (JGMAE65009)' - label and serial, always."""
         return inverter_text(self.inverters.get(((plant_key or "").upper(), (sn or "").strip())), sn)
 
     inverter_full = inverter          # one format since v230

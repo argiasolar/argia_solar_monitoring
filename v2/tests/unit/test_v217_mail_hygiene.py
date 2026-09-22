@@ -1,6 +1,6 @@
-"""v217 — mail / push hygiene (Tomasz, 2026-09-06, after two mails):
+"""v217 - mail / push hygiene (Tomasz, 2026-09-06, after two mails):
 
-1. no alerts about CAPEX plants — ever (the two Budenheim string_fault
+1. no alerts about CAPEX plants - ever (the two Budenheim string_fault
    mails went out while the portfolio filter failed OPEN on a PG timeout);
 2. no plant codes in any communication: names first, code as detail;
 3. infrastructure / monitoring-internal messages only to the admin;
@@ -163,8 +163,8 @@ class TestNames:
 class TestLedgerMailNames:
     def test_single_alert_names_first_codes_as_detail(self):
         subj, body, html = LM.render_mail([rec()], NAMES, when_mx="2026-09-06 06:30")
-        assert subj == "[ARGIA] 6 Sep — 1 warning (Budenheim)"
-        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1 (JJM4D4P017)\n      Inverter 1 (JJM4D4P017): NEW string-diagnostic bit(s)" in body
+        assert subj == "[ARGIA] 6 Sep - 1 warning (Budenheim)"
+        assert "  Budenheim (NL2)\n    new string diagnostic flag - Inverter 1 (JJM4D4P017)\n      Inverter 1 (JJM4D4P017): NEW string-diagnostic bit(s)" in body
         assert "NL2 JJM4D4P017:" not in body and "NL2 JJM4D4P017:" not in html
         assert "Inverter 1 (JJM4D4P017)" in html and "new string diagnostic flag" in html
 
@@ -172,9 +172,9 @@ class TestLedgerMailNames:
         subj, body, _ = LM.render_mail([rec(aid="ALT-1"), rec(sn="JJM4D4P01C", aid="ALT-2"),
                                         rec(plant="GTO1", sn="SN9", metric="inverter_temp_high", aid="ALT-3")],
                                        NAMES, when_mx="2026-09-06 06:30")
-        assert subj == "[ARGIA] 6 Sep — 3 warnings (Budenheim, Taigene)"
-        assert "  Budenheim (NL2)\n    new string diagnostic flag — Inverter 1 (JJM4D4P017), inverter JJM4D4P01C" in body
-        assert "  Taigene (GTO1)\n    inverter running hot — Inverter 3 (SN9)" in body
+        assert subj == "[ARGIA] 6 Sep - 3 warnings (Budenheim, Taigene)"
+        assert "  Budenheim (NL2)\n    new string diagnostic flag - Inverter 1 (JJM4D4P017), inverter JJM4D4P01C" in body
+        assert "  Taigene (GTO1)\n    inverter running hot - Inverter 3 (SN9)" in body
         assert re.search(r"^NL2\b", body, re.M) is None
 
     def test_old_label_dict_still_accepted(self):
@@ -200,7 +200,7 @@ class TestMonitorNames:
         assert "Last usable sample from Taigene is 50 minutes old" in body
         assert "• job failed: argia-telemetry.service" in body
         assert "• Plastic Omnium (NL1): no telemetry today" in body
-        assert "• Taigene (GTO1): inverter silent — Inverter 3 (SN9)" in body
+        assert "• Taigene (GTO1): inverter silent - Inverter 3 (SN9)" in body
         assert "• scheduled job failed: argia-kpi.service" in body
         assert "• SAG (MEX1): reconciliation FAIL 2026-09-05" in body
         assert "plant-dark:" not in body and "recon-fail:" not in body
@@ -341,7 +341,7 @@ class TestV217_1PiFollowUp:
 
     def test_pi_cron_example_runs_the_watchdog_from_the_repo(self):
         """The Pi's crontab must call the repo checkout, never a copy in
-        ~/report_watch — the copy is how v214/v217 never reached it."""
+        ~/report_watch - the copy is how v214/v217 never reached it."""
         ex = (V2 / "pi/crontab.example").read_text(encoding="utf-8")
         assert "argia_v2/v2/pi/report_watch/report_watch.sh" in ex
         assert "argia_v2/v2/pi/report_watch/ppa_watch.sh" in ex

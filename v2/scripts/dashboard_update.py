@@ -33,7 +33,7 @@ from argia.report import dashboard as D
 MX_TZ = ZoneInfo("America/Mexico_City")
 INVERTER_TAB = "Dashboard_Inverter"
 PLANT_TAB = "Dashboard_Plant"
-# Cell coercion is DELEGATED to the shared module (argia/core/cells.py) —
+# Cell coercion is DELEGATED to the shared module (argia/core/cells.py) -
 # the one place that knows the live Sheets API returns datetimes as serial
 # floats (watchdog false-alarm lesson, 2026-07-05).
 from argia.core.cells import GOOGLE_EPOCH, coerce_date, coerce_ts  # noqa: E402

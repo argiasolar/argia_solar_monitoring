@@ -2,12 +2,12 @@
 
 Two distinct schemas:
 
-* **``PLANT_SCHEMA``** — wide (143 cols), vendor-shaped. One row per inverter
+* **``PLANT_SCHEMA``** - wide (143 cols), vendor-shaped. One row per inverter
   per 5-min sample. Used for ``Telemetry_<KEY>`` per-plant tabs. Customers
   eventually get scoped access here via Sheets sharing. Each vendor fills in
   what it has and leaves the rest blank.
 
-* **``ARGIA_SCHEMA``** — narrow (16 cols), cross-vendor common. Used for the
+* **``ARGIA_SCHEMA``** - narrow (16 cols), cross-vendor common. Used for the
   single aggregated ``Telemetry_Argia`` tab. This is what Argia ops looks at:
   power, status, eToday, weather, by vendor/plant/inverter. No wasted columns.
 
@@ -64,7 +64,7 @@ class TelemetrySchema:
 
 
 # ============================================================
-# PLANT_SCHEMA — wide, vendor-shaped (UNCHANGED from Stage 3)
+# PLANT_SCHEMA - wide, vendor-shaped (UNCHANGED from Stage 3)
 # ============================================================
 
 
@@ -167,29 +167,29 @@ PLANT_SCHEMA = TelemetrySchema(
 
 
 # ============================================================
-# ARGIA_SCHEMA — narrow, cross-vendor common (NEW in Stage 4)
+# ARGIA_SCHEMA - narrow, cross-vendor common (NEW in Stage 4)
 # ============================================================
 
 
 # Columns chosen for: cross-vendor consistency + operational signal at a
 # glance. Anything vendor-specific stays in the per-plant tabs.
 ARGIA_COMMON_COLS: Tuple[str, ...] = (
-    "timestamp_utc",       # 0  — UTC ISO string
-    "timestamp_mx",        # 1  — MX local "YYYY-MM-DD HH:MM:SS"
-    "vendor",              # 2  — GROWATT | HUAWEI | SOLAREDGE | SMA
+    "timestamp_utc",       # 0  - UTC ISO string
+    "timestamp_mx",        # 1  - MX local "YYYY-MM-DD HH:MM:SS"
+    "vendor",              # 2  - GROWATT | HUAWEI | SOLAREDGE | SMA
     "plant_key",           # 3
     "inverter_sn",         # 4
     "inverter_label",      # 5
-    "status",              # 6  — 1=online, 3=offline (normalized across vendors)
+    "status",              # 6  - 1=online, 3=offline (normalized across vendors)
     "power_w",             # 7
     "etoday_kwh",          # 8
-    "temperature_c",       # 9  — blank for vendors that don't expose it yet
-    "fault_code",          # 10 — vendor-specific format, stored as string
+    "temperature_c",       # 9  - blank for vendors that don't expose it yet
+    "fault_code",          # 10 - vendor-specific format, stored as string
     "irradiance_wm2",      # 11
     "irradiance_kwh_m2_5m",  # 12
     "cloud_cover_pct",     # 13
-    "ambient_temp_c",      # 14 — env-station Environment Temp (ambient air)
-    "module_temp_c",       # 15 — env-station Backplane Temp (back-of-module; PR_STC input)
+    "ambient_temp_c",      # 14 - env-station Environment Temp (ambient air)
+    "module_temp_c",       # 15 - env-station Backplane Temp (back-of-module; PR_STC input)
 )
 
 
@@ -197,7 +197,7 @@ ARGIA_SCHEMA = TelemetrySchema(
     name="argia",
     columns=ARGIA_COMMON_COLS,
     # Natural key: (timestamp_utc, plant_key, inverter_sn).
-    # Vendor is NOT in the key — within a single moment, one inverter belongs
+    # Vendor is NOT in the key - within a single moment, one inverter belongs
     # to one vendor; including vendor in the key would be redundant.
     natural_key_columns=(0, 3, 4),
 )

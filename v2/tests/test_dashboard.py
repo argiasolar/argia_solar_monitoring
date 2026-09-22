@@ -133,7 +133,7 @@ def test_build_per_kw_ratings_prevent_small_inverter_false_positive():
     b10 = dt.datetime(2026, 7, 2, 10, 0)
     rows = {r["inverter_sn"]: r for r in res.inverter_rows if r["bucket_ts"] == b10}
     assert rows["SMALL"]["status"] == D.ONLINE
-    # without ratings the same data DOES flag it — proving ratings matter
+    # without ratings the same data DOES flag it - proving ratings matter
     res2 = D.build(DAY, plant_map(), samples,
                    active_inverters={"GTO1": {"BIG1", "BIG2", "SMALL"}})
     rows2 = {r["inverter_sn"]: r for r in res2.inverter_rows if r["bucket_ts"] == b10}
@@ -258,7 +258,7 @@ def test_carryover_row_does_not_zero_the_inverters_day():
 
 
 def test_carryover_strip_shares_rule_with_kpi_energy():
-    """Dashboard must use the SAME carryover function as kpi_eod — no second
+    """Dashboard must use the SAME carryover function as kpi_eod - no second
     implementation allowed to drift."""
     from argia.kpi.energy import find_carryover_cut as kpi_cut
     assert D.find_carryover_cut is kpi_cut
@@ -287,7 +287,7 @@ def test_trapezoid_splits_across_bucket_edge():
 
 
 def test_trapezoid_caps_long_gaps():
-    """A 6h gap contributes only its first IRR_MAX_GAP_H hours — the sky
+    """A 6h gap contributes only its first IRR_MAX_GAP_H hours - the sky
     state across a long silence is unknown, not free energy."""
     s = [mk(dt.datetime(2026, 7, 2, 8, 0), "GTO1", "A", 10, irr_wm2=1000),
          mk(dt.datetime(2026, 7, 2, 14, 0), "GTO1", "A", 20, irr_wm2=1000)]
@@ -408,7 +408,7 @@ def test_plant_rows_carry_tariff_and_parse_reads_it():
 
 def test_parse_plants_skips_inactive_and_defaults_to_active():
     """Regression: 4 inactive plants (MEX3/NL2/QRO1/GTO2) generated pure
-    NO_DATA padding rows every run — filter at the source. Rows without an
+    NO_DATA padding rows every run - filter at the source. Rows without an
     `active` column stay included (backward compatible)."""
     rows = [
         {"plant_key": "GTO1", "kwp_dc": 818.33, "expected_factor": 0.75,
@@ -512,7 +512,7 @@ class TestCoverageGuards20260706:
 
 # --- fault events survive last-sample bucket classification -----------------
 # Regression for 2026-07-09: JFM5D8900B tripped FT=302 at 13:06 and 13:11,
-# recovered by 13:16 — the bucket's LAST sample was healthy, so the status
+# recovered by 13:16 - the bucket's LAST sample was healthy, so the status
 # machine (correctly, v55 family) classified the hour ONLINE and the fault
 # vanished from every surface. fault_events preserves the raw fact.
 

@@ -1,4 +1,4 @@
-"""Tests for the alert engine (plan #5) — pure reconcile logic."""
+"""Tests for the alert engine (plan #5) - pure reconcile logic."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ class TestReconcileLifecycle:
 
     def test_escalation_rearms_the_mail(self):
         """v202: a WARNING that was mailed and then becomes CRITICAL must be
-        mailed again — channels_sent is cleared on escalation only."""
+        mailed again - channels_sent is cleared on escalation only."""
         from argia.core.alerts_state import mark_channels_sent
         day1 = reconcile_alerts(_ledger(), [_cand(sev="WARNING", threshold=0.85)], NOW)
         mailed = [mark_channels_sent(day1.records[0], ["email"])]
@@ -102,7 +102,7 @@ class TestReconcileLifecycle:
         assert down.records[0].severity == "WARNING" and down.records[0].channels_sent == ""
 
     def test_acute_tier_never_de_escalates(self):
-        """v202: NL1 case — 81 degC at noon (CRITICAL), 66 degC at 18:00
+        """v202: NL1 case - 81 degC at noon (CRITICAL), 66 degC at 18:00
         (WARNING candidate). The snapshot tier keeps CRITICAL and the peak
         message; only the daily tier (resolve_missing=True) lowers it."""
         crit = _cand(metric="inverter_temp_high", key="nl1:inv:i9:inverter_temp_high",
@@ -201,7 +201,7 @@ class TestScriptLoadingPath:
         from scripts.alerts_daily import build_candidates
         from argia.analytics.inverter_health import InverterReading
 
-        # Healthy INV1/INV2, dead INV3 — through the REAL energy pipeline.
+        # Healthy INV1/INV2, dead INV3 - through the REAL energy pipeline.
         rows = []
         for sn, final in (("INV1", 800.0), ("INV2", 780.0), ("INV3", 0.0)):
             rows += [self._row(8, final * 0.2, sn),

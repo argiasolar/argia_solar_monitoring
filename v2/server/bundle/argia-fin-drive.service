@@ -1,6 +1,6 @@
 [Unit]
 # v245: read the books and the project files from Google Drive into
-# PostgreSQL (fin_source_file keeps every file by content hash — an
+# PostgreSQL (fin_source_file keeps every file by content hash - an
 # unchanged file is skipped, so the daily run costs nothing between
 # monthly closes). Folder ids and the entity come from /root/.argia_env
 # (ARGIA_FIN_DRIVE_REPORTING / _OVERVIEW / _PM / _TRACKER, ARGIA_FIN_ENTITY);

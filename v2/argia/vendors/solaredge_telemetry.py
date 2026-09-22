@@ -3,7 +3,7 @@
 Stage 5.1: extracts the per-phase (L1Data/L2Data/L3Data), line-to-line
 voltages (vL1To2, vL2To3, vL3To1), and grid frequency that the SolarEdge
 API ACTUALLY returns. Stage 5 was leaving these blank because we assumed
-SolarEdge had a thin response — live capture proved otherwise.
+SolarEdge had a thin response - live capture proved otherwise.
 
 The ``/equipment/{siteId}/{sn}/data`` endpoint returns ~30 meaningful values
 per inverter (not the 9 documented in older API references):
@@ -16,7 +16,7 @@ per inverter (not the 9 documented in older API references):
     vL1To2, vL2To3, vL3To1
 
   Per-phase nested dicts (NEW in 5.1):
-    L1Data, L2Data, L3Data — each containing:
+    L1Data, L2Data, L3Data - each containing:
       acCurrent, acVoltage, acFrequency,
       activePower, apparentPower, reactivePower, cosPhi
 
@@ -155,7 +155,7 @@ def _parse_entry(
     site_tz=MX_TZ,
 ) -> Optional[SolarEdgeTelemetryRow]:
     """One 5-minute telemetry entry -> one rich row. ``etoday_kwh`` is
-    cumulative: this entry's totalEnergy minus the day's FIRST entry —
+    cumulative: this entry's totalEnergy minus the day's FIRST entry -
     the same EToday semantics every other vendor feed uses, so the KPI
     max(EToday) aggregation works unchanged."""
     if not isinstance(entry, dict):
@@ -213,10 +213,10 @@ def parse_telemetry_entries(
     min_ts_utc: Optional[dt.datetime] = None,
 ) -> List[SolarEdgeTelemetryRow]:
     """Parse EVERY telemetry entry in a ``/equipment/.../data`` response
-    (v80 — previously only the latest was kept, discarding the 5-minute
+    (v80 - previously only the latest was kept, discarding the 5-minute
     history the API hands over in the same payload).
 
-    ``min_ts_utc``: only build rows at/after this timestamp — the day's
+    ``min_ts_utc``: only build rows at/after this timestamp - the day's
     FIRST entry is still used as the eToday base regardless, so callers
     can request a small recent window without breaking the cumulative
     energy semantics. Rows older than the window are simply already in
@@ -259,7 +259,7 @@ def parse_telemetry_response(
     inverter_sn: str,
     site_tz=MX_TZ,
 ) -> Optional[SolarEdgeTelemetryRow]:
-    """Latest entry only — kept as a compatibility wrapper over
+    """Latest entry only - kept as a compatibility wrapper over
     :func:`parse_telemetry_entries` (v80)."""
     rows = parse_telemetry_entries(response, plant_key, inverter_sn,
                                    site_tz)
@@ -267,7 +267,7 @@ def parse_telemetry_response(
 
 
 # ============================================================
-# Fetch helper — uses existing SolarEdgeClient transport
+# Fetch helper - uses existing SolarEdgeClient transport
 # ============================================================
 
 
@@ -280,7 +280,7 @@ def fetch_inverter_telemetry(
     """Call ``/equipment/{siteId}/{sn}/data`` for each inverter and parse rich rows.
 
     Uses ``SolarEdgeClient._get_json``. Failures per inverter are logged and
-    skipped — other inverters still process. The whole batch returns whatever
+    skipped - other inverters still process. The whole batch returns whatever
     rows succeeded.
 
     **Rate-limit handling**: HTTP 429 surfaces as ``SolarEdgeAPIError`` with
@@ -312,7 +312,7 @@ def fetch_inverter_telemetry(
             msg = str(e)
             if "rate-limited" in msg.lower() or "429" in msg:
                 LOG.warning(
-                    "[%s/%s] rate-limited — skipping remaining inverters",
+                    "[%s/%s] rate-limited - skipping remaining inverters",
                     plant.plant_key, inv.inverter_sn,
                 )
                 raise
@@ -323,7 +323,7 @@ def fetch_inverter_telemetry(
             continue
 
         # v80: keep the full 5-minute series, not just the latest
-        # sample. Window: last 60 min (3 poll cadences of overlap —
+        # sample. Window: last 60 min (3 poll cadences of overlap -
         # idempotent upsert dedups); the day's first entry still
         # anchors eToday.
         min_ts = dt.datetime.now(UTC) - dt.timedelta(minutes=60)
@@ -333,7 +333,7 @@ def fetch_inverter_telemetry(
         )
         if not rows:
             LOG.warning(
-                "[%s/%s] no telemetry entries — likely offline or no data today",
+                "[%s/%s] no telemetry entries - likely offline or no data today",
                 plant.plant_key, inv.inverter_sn,
             )
             continue

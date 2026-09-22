@@ -1,6 +1,6 @@
 """Monthly-invoice scheduling helpers (v94).
 
-The 1st-of-month cron uses ``last_complete_month`` to pick the period —
+The 1st-of-month cron uses ``last_complete_month`` to pick the period -
 the month that just closed. The edge cases that matter: the January
 roll-back to the prior December, and month windows landing on the right
 last day (28/29/30/31).

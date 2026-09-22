@@ -3,14 +3,14 @@ d=json.load(open('results.json'))
 def img(p): return "data:image/png;base64,"+base64.b64encode(open(p,'rb').read()).decode()
 inv={r['sn']:r for r in d['inverters']}
 names={"GTO1":"Taigene","MEX1":"SAG","MEX2":"Vitalmex","NL1":"Plastic Omnium","SLP1":"Quimica Coyoacan","SLP2":"Holiday Inn Express","NL2":"Budenheim","GTO2":"Hirschmann","QRO1":"Tetra Pak","MEX3":"SMS","TAM1":"Ryder"}
-def f(v,dec=0): return "—" if v is None else f"{v:,.{dec}f}"
+def f(v,dec=0): return " - " if v is None else f"{v:,.{dec}f}"
 hot=[r for r in d['inverters'] if r['h70']>=5]
 hot.sort(key=lambda r:(-r['h75'],-r['h70']))
 rows=""
 for r in hot:
     md=r['midday']; ge75 = (md['hot_ge75']/md['cool_lt65']-1)*100 if md['hot_ge75'] and md['cool_lt65'] else None
-    ml = "—" if (r['mean_loss_pct'] is None or r['se_pct'] is None or r['n_hot_ref'] < 10) else ("%+.1f %% ± %.1f" % (-r['mean_loss_pct'], r['se_pct']))
-    g75 = "—" if ge75 is None else ("%+.1f %%" % ge75)
+    ml = " - " if (r['mean_loss_pct'] is None or r['se_pct'] is None or r['n_hot_ref'] < 10) else ("%+.1f %% ± %.1f" % (-r['mean_loss_pct'], r['se_pct']))
+    g75 = " - " if ge75 is None else ("%+.1f %%" % ge75)
     rows+=("<tr><td>%s · %s<div class=sub>%s · %g kWp DC</div></td><td>%.1f</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s<div class=sub>n=%d</div></td><td>%s<div class=sub>n=%d</div></td><td><b>%s</b> – %s</td><td>%s</td></tr>"
            % (names[r['plant']], r['label'], r['sn'], r['rated_dc'], r['peak_c'], f(r['h65']), f(r['h70']), f(r['h75']), f(r['h_derating']), g75, md['n_hot'], ml, r['n_hot_ref'], f(r['net_kwh']), f(r['lost_kwh']), f(r['lost_mxn'])))
 nl1=d['monthly']['NL1']

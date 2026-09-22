@@ -7,22 +7,22 @@ POST {CFE_PUSH_URL} with header X-ARGIA-CFE-KEY.
 
 What one run does:
   1. pulls the engine's six tariff codes for the target year from
-     cfe_tariff (scrape-preferred, master_db_10 fallback — the ORDER BY
+     cfe_tariff (scrape-preferred, master_db_10 fallback - the ORDER BY
      puts cfe_scrape rows last so the fold lets them win),
   2. builds the overlay {year, sourceThrough, generated, data} and
      validates it LOCALLY against the same gates the engine enforces
-     (ranges per unit, >= 60 values, month format) — an invalid overlay
+     (ranges per unit, >= 60 values, month format) - an invalid overlay
      never leaves this host,
   3. POSTs it. 200 -> log applied stats; anything else -> exit 1, which
      fails the systemd unit and rides the maintenance alert channel.
 
 Config lives in a root-only file (default /root/.argia_cfe_push;
-KEY=VALUE: CFE_PUSH_URL, CFE_PUSH_KEY) — never in the repo, env exports,
+KEY=VALUE: CFE_PUSH_URL, CFE_PUSH_KEY) - never in the repo, env exports,
 or logs. Missing config -> log-and-skip (exit 0): a plant server must
 never crash because the engine link is not set up.
 
 Triggers: argia-cfe-push.timer daily at 15:45 UTC (30 min after the CFE
-ingest) AND event-driven — cfe_ingest.py starts this unit immediately
+ingest) AND event-driven - cfe_ingest.py starts this unit immediately
 after loading a new CSV. Re-pushes are idempotent on the engine side.
 """
 
@@ -79,7 +79,7 @@ def load_config(path: str = CONFIG_PATH) -> Optional[Dict[str, str]]:
     return None
 
 
-# v239 — energy basis. app.cfe.mx publishes INTEGRATED energy prices
+# v239 - energy basis. app.cfe.mx publishes INTEGRATED energy prices
 # (generación + transmisión + CENACE + servicios conexos; PDBT also +
 # distribución + capacidad, which are per-kWh in that tariff), while
 # master_db_10 rows are DECOMPOSED (generación only) and the engine adds
@@ -111,7 +111,7 @@ def build_overlay(rows: Sequence[Tuple[str, str, str, str, str, str]],
                   year: int,
                   now: Optional[dt.datetime] = None) -> dict:
     """Fold (code, region, charge, ym, value, source) rows into the
-    engine overlay. Later rows win per key — feed rows ordered with
+    engine overlay. Later rows win per key - feed rows ordered with
     cfe_scrape LAST (the contract SQL does) so scrape beats master.
     Unknown codes/charges (SEMIPUNTA included) and bad months/values
     are dropped, mirroring the reference generator.
@@ -187,7 +187,7 @@ def _range_for(charge: str) -> Tuple[float, float]:
 
 
 def validate_overlay(ov: dict) -> List[str]:
-    """The engine's own gates, run locally BEFORE the push — one
+    """The engine's own gates, run locally BEFORE the push - one
     out-of-range value rejects the whole overlay (same discipline as
     our CFE ingest). Returns [] when the payload should pass. Pure."""
     errors: List[str] = []
@@ -285,11 +285,11 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     cfg = load_config()
     if not cfg and not args.dry_run:
-        LOG.info("no %s — engine push not configured, skipping",
+        LOG.info("no %s - engine push not configured, skipping",
                  CONFIG_PATH)
         return 0
 
@@ -307,7 +307,7 @@ def main(argv=None) -> int:
     if errors:
         for e in errors[:10]:
             LOG.error("validation: %s", e)
-        LOG.error("overlay INVALID (%d error(s)) — not pushed",
+        LOG.error("overlay INVALID (%d error(s)) - not pushed",
                   len(errors))
         return 1
     if args.out:

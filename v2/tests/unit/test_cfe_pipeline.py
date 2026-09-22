@@ -40,7 +40,7 @@ class TestParseChargeTable:
         assert cfe_scrape.parse_charge_table("<html></html>") == \
             (None, None, [])
 
-    # flat layout (no "Int. Horario" column) — PDBT/GDMTO/RABT/RAMT/
+    # flat layout (no "Int. Horario" column) - PDBT/GDMTO/RABT/RAMT/
     # APBT/APMT/GDBT; structure mirrors the live page, values from the
     # rendered PDBT/GDMTO JALISCO AGO-26 pages (captured 2026-08-28)
     FLAT = (
@@ -201,7 +201,7 @@ class TestIngestValidate:
 
 
 class TestSemipuntaAndGlow:
-    """v179 — CFE added an ENERGIA SEMIPUNTA component (Sep 2026,
+    """v179 - CFE added an ENERGIA SEMIPUNTA component (Sep 2026,
     DIST): it must load as KNOWN, render in charge order, ship in the
     JSON export; and the home-page lightning must glow only when rates
     are current AND the pipeline is healthy."""
@@ -243,7 +243,7 @@ class TestSemipuntaAndGlow:
 
 
 class TestGapFill:
-    """v240 — the Pi retries the cells a monthly fetch missed."""
+    """v240 - the Pi retries the cells a monthly fetch missed."""
 
     def test_parse_key(self):
         assert cfe_scrape.parse_key("PDBT/BAJA CALIFORNIA/2026-07") == ("PDBT", "BAJA CALIFORNIA", (2026, 7))

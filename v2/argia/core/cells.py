@@ -1,4 +1,4 @@
-"""Sheet-cell coercion — the ONE place that knows what the Sheets API
+"""Sheet-cell coercion - the ONE place that knows what the Sheets API
 returns.
 
 With valueRenderOption=UNFORMATTED_VALUE, datetime cells arrive as SERIAL
@@ -8,7 +8,7 @@ consumer tested only against exports ships a parser that fails against the
 live API (watchdog false-alarm incident, 2026-07-05: "no parseable
 timestamps at all" on a healthy sheet).
 
-Every script reading date/time cells must use these helpers — never a
+Every script reading date/time cells must use these helpers - never a
 private parser.
 """
 

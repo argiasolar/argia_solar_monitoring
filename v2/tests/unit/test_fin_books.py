@@ -1,8 +1,8 @@
-"""v245 — the books: CONTPAQi prints, the accountants' workbook, the
+"""v245 - the books: CONTPAQi prints, the accountants' workbook, the
 projects overview, the AR/AP tracker, one PMO sheet → readers, row
 builders, the page derivations and the pages themselves (fake rows).
 Everything runs on the synthetic fixtures in tests/fixtures/fin/books
-(scripts/fin_books_fixtures.py) — never on the real books."""
+(scripts/fin_books_fixtures.py) - never on the real books."""
 from __future__ import annotations
 
 import datetime as dt
@@ -336,7 +336,7 @@ def book_rows():
             return [{"jdate": "2026-02-03", "kind": "Egresos", "number": "1", "concept": "PAGO PROVEEDOR GAMMA", "reference": "SPEI 5120", "debit": "0", "credit": "348000.00", "segment": "9001"}]
         if name == "sources":
             return [{"kind": "polizas", "name": "0226 Polizas Argia.xlsx", "period": "2026-02", "modified": "2026-03-21", "imported": "2026-03-22 07:00", "rows": "20", "notes": ""}]
-        # v248 — cost centres and suppliers
+        # v248 - cost centres and suppliers
         if name == "cost_centers":
             return [{"code": "9001", "name": "SOLAR CAPEX ROOF 300 kWp DEMO UNO", "kind": "project", "grp": "", "manual": "f"},
                     {"code": "701", "name": "OPERATION COSTS", "kind": "overhead", "grp": "", "manual": "f"},
@@ -366,7 +366,7 @@ def book_rows():
             k = name[4:]
             return [{"src_name": {"polizas": "0226 Polizas Argia.xlsx", "tracker": "Tracker.xlsx", "acctbook": "Argia_Accounting_Data_02_26.xlsx"}.get(k, k),
                      "src_kind": k, "src_drive_id": k.upper(), "src_mime": XLSX_MIME}]
-        return []                      # the demo pages ask for their own tables — empty here
+        return []                      # the demo pages ask for their own tables - empty here
     return rows
 
 

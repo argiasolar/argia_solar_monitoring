@@ -5,10 +5,10 @@ Per ``Telemetry_<plant>`` tab: rows older than the retention window
 (default 10 days) whose day KPI_Daily has already stamped are written to
 Google Drive as one CSV per plant per day, then deleted from the live
 tab. This keeps the workbook far under the 10M-cell ceiling while leaving
-every report reproducible — the financial report and annex read KPI_Daily
+every report reproducible - the financial report and annex read KPI_Daily
 aggregates, which are never touched.
 
-SAFETY — the two properties that make this non-destructive:
+SAFETY - the two properties that make this non-destructive:
 * Archive-before-delete: a row is deleted ONLY after its day's CSV is
   confirmed present on Drive. Any archive failure aborts the delete for
   that tab; worst case the sheet keeps a few extra days.
@@ -47,7 +47,7 @@ from argia.telemetry.retention import (
 
 LOG = logging.getLogger("argia.telemetry.archive")
 
-ARGIA_TAB = "Telemetry_Argia"     # shared irradiance/env — window-only
+ARGIA_TAB = "Telemetry_Argia"     # shared irradiance/env - window-only
 TS_COL = "timestamp_utc"
 
 
@@ -77,7 +77,7 @@ class _FolderCache:
 
 def _dated_rows(data_rows, ts_idx):
     """(mx_date, row) for the parseable oldest-first prefix. Stops at the
-    first row it can't date — never prune what it can't place in time."""
+    first row it can't date - never prune what it can't place in time."""
     out = []
     for row in data_rows:
         ts = row[ts_idx] if ts_idx < len(row) else None
@@ -95,13 +95,13 @@ def process_tab(sheets, drive, folders, tab, plant, stamped, keep_from,
     try:
         raw = sheets.read_range(tab, "A1:ZZ")
     except Exception:  # noqa: BLE001
-        LOG.info("[%s] tab not found — skipping", tab)
+        LOG.info("[%s] tab not found - skipping", tab)
         return 0, 0
     if not raw or len(raw) < 2:
         return 0, 0
     header = [str(h).strip() for h in raw[0]]
     if TS_COL not in header:
-        LOG.warning("[%s] no %s column — skipping", tab, TS_COL)
+        LOG.warning("[%s] no %s column - skipping", tab, TS_COL)
         return 0, 0
     ts_idx = header.index(TS_COL)
 
@@ -139,13 +139,13 @@ def process_tab(sheets, drive, folders, tab, plant, stamped, keep_from,
             LOG.info("[%s]   archived %d row(s) -> %s", tab, len(day_rows),
                      name)
         except Exception as e:  # noqa: BLE001
-            LOG.error("[%s]   ARCHIVE FAILED for %s: %s — NOT deleting",
+            LOG.error("[%s]   ARCHIVE FAILED for %s: %s - NOT deleting",
                       tab, name, e)
             archived_ok = False
             break
 
     if not apply:
-        LOG.info("[%s] DRY RUN — would delete rows 2..%d after archive",
+        LOG.info("[%s] DRY RUN - would delete rows 2..%d after archive",
                  tab, 1 + plan.n_prune)
         return plan.n_prune, 0
     if not archived_ok:
@@ -160,7 +160,7 @@ def process_tab(sheets, drive, folders, tab, plant, stamped, keep_from,
 # ---------------------------------------------------------------- v189
 # PG -> Drive export. With ARGIA_TELEMETRY_SOURCE=pg the sheet is no
 # longer the thing being archived: the `telemetry` table is the record and
-# Drive keeps the human-readable daily CSVs it always did — same folders
+# Drive keeps the human-readable daily CSVs it always did - same folders
 # (Telemetry_Archive/<plant>/<YYYY-MM>), same names
 # (telemetry_<plant>_<date>.csv), 16 ARGIA_SCHEMA columns. Idempotent: a
 # day already on Drive is skipped. Nothing is ever deleted.
@@ -296,13 +296,13 @@ def main(argv=None) -> int:
     LOG.info("Summary: %d row(s) %s, %d deleted from live tabs",
              tot_arch, "archived" if args.apply else "to archive", tot_del)
     if not args.apply:
-        LOG.info("Dry run — re-run with --apply to archive and prune.")
+        LOG.info("Dry run - re-run with --apply to archive and prune.")
     return 0
 
 
 def main_pg(args) -> int:
     """v189 path: PG -> Drive daily CSVs. Plants come from the portfolio
-    (still the sheet until Phase 5 — read-only here)."""
+    (still the sheet until Phase 5 - read-only here)."""
     base_folder = os.environ.get("GOOGLE_ARCHIVE_FOLDER_ID", "").strip()
     if args.apply and not base_folder:
         LOG.error("GOOGLE_ARCHIVE_FOLDER_ID not set (needed to export)")

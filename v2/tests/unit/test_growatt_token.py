@@ -2,7 +2,7 @@
 
 Incident 2026-07-07: the web-session block (the only carrier of
 per-inverter data) left four Growatt plants dark. The fallback mirrors
-v1's months-proven OpenAPI call — plant-level today_energy — captured
+v1's months-proven OpenAPI call - plant-level today_energy - captured
 intraday by telemetry into a day-cache and consumed next morning by
 kpi-eod (today_energy resets at midnight, kpi runs at 06:00).
 """
@@ -80,7 +80,7 @@ class TestEnergyCache:
 
     def test_new_day_prunes_old_values(self):
         """Stale energy leaking into a later day would be silent data
-        corruption — the cache keeps ONLY the current date."""
+        corruption - the cache keeps ONLY the current date."""
         gt.cache_energy("2026-07-07", "SLP1", 1000.0)
         gt.cache_energy("2026-07-08", "SLP1", 50.0)
         assert gt.cached_energy("2026-07-07", "SLP1") is None
@@ -125,7 +125,7 @@ class TestKpiFallbackGate:
 
 class TestTelemetryTrigger:
     """The fallback fires ONLY on the block signature: zero rows AND
-    errors. Partial success (some inverters answered) must not fire —
+    errors. Partial success (some inverters answered) must not fire -
     real data is present and the token would add nothing."""
 
     def _call(self, *, plant_rows, errors, token_client):
@@ -160,7 +160,7 @@ class TestTelemetryTrigger:
 class TestWiring:
     def test_telemetry_and_kpi_are_wired(self):
         # anchored to this file, not cwd (2026-07-07: passed in the
-        # sandbox, failed on the laptop — cwd-relative paths in tests
+        # sandbox, failed on the laptop - cwd-relative paths in tests
         # are traps)
         from pathlib import Path
         v2 = Path(__file__).resolve().parents[2]

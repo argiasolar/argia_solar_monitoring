@@ -1,4 +1,4 @@
-"""irr_compare — dense ShineMaster history vs snapshot trapezoid vs stored KPI.
+"""irr_compare - dense ShineMaster history vs snapshot trapezoid vs stored KPI.
 
 The verification tool for the dense-irradiance rollout: for one date, for
 every plant with a datalogger_sn, print
@@ -89,7 +89,7 @@ def main(argv=None) -> int:
               f"{dense.samples_used:6d} {sv if sv else 0:9.3f} "
               f"{snap.samples_used:5d} "
               f"{stored.get(plant.plant_key, float('nan')):10.3f} {delta}")
-    print("\nread-only comparison — nothing was written.")
+    print("\nread-only comparison - nothing was written.")
     return 0
 
 

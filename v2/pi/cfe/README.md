@@ -11,7 +11,7 @@ to CFE directly.
     venv/          python venv with playwright (+ its arm64 chromium;
                    the distro chromium/firefox builds SIGILL on Pi 4)
     (cfe_scrape.py / cfe_daily.sh: since v240 both run from the
-     checkout ~/argia_v2/v2/pi/cfe/ — deploy.sh keeps them current;
+     checkout ~/argia_v2/v2/pi/cfe/ - deploy.sh keeps them current;
      the copies here are only a fallback and can be deleted)
     divmap.json    division -> (estado, municipio) select values,
                    built once by `cfe_scrape.py --discover`

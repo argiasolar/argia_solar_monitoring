@@ -3,12 +3,12 @@
 Runs at 23:50 MX (generation window is 05:00-21:00, so the day's
 counters are final). For every active plant it captures the vendor's own
 daily / monthly / lifetime energy counters into
-``vendor_counter_snapshot`` — the immutable audit trail the monthly
-billing control rides on — then (re)computes ``reconciliation_daily``
+``vendor_counter_snapshot`` - the immutable audit trail the monthly
+billing control rides on - then (re)computes ``reconciliation_daily``
 for the last N days so late KPI rows and healed telemetry are picked up.
 
 Requires ARGIA_PG_MIRROR=1 (the server env); exits 0 quietly elsewhere.
-SolarEdge cost: 3 API requests per site per night — far inside quota.
+SolarEdge cost: 3 API requests per site per night - far inside quota.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def now_mx() -> dt.datetime:
 
 RECON_TODAY_FROM_HOUR = 22
 """Reconciling TODAY before the day is over produces garbage rows
-(midday vendor counter vs midday interval sum — the 2026-08-26 false
+(midday vendor counter vs midday interval sum - the 2026-08-26 false
 FAIL). The nightly timer fires 23:50 MX; a manual daytime run starts
 from yesterday instead."""
 
@@ -59,7 +59,7 @@ def recon_dates(base: dt.date, days_back: int, hour_mx: int,
                 today: dt.date = None) -> List[str]:
     """The dates one run reconciles, newest first. ``base`` (and only
     ``base``) is skipped when it IS today and the MX clock says the day
-    is still in progress — historical dates are always fair game."""
+    is still in progress - historical dates are always fair game."""
     today = today or _today_mx()
     out = []
     for back in range(days_back):
@@ -71,7 +71,7 @@ def recon_dates(base: dt.date, days_back: int, hour_mx: int,
 
 
 # ---------------------------------------------------------------------------
-# Counter capture, one function per vendor. Each degrades to note-only —
+# Counter capture, one function per vendor. Each degrades to note-only -
 # a vendor outage must never sink the whole snapshot run.
 # ---------------------------------------------------------------------------
 def snap_growatt(plants: List[PlantConfig], snap_date: str
@@ -82,7 +82,7 @@ def snap_growatt(plants: List[PlantConfig], snap_date: str
     user = os.environ.get("GROWATT_USERNAME", "").strip()
     pwd = os.environ.get("GROWATT_PASSWORD", "").strip()
     if not user or not pwd:
-        LOG.warning("growatt: no credentials — skipped")
+        LOG.warning("growatt: no credentials - skipped")
         return out
     from argia.vendors.growatt_web import GrowattWebClient
     client = GrowattWebClient(username=user, password=pwd)
@@ -119,7 +119,7 @@ def snap_huawei(plants: List[PlantConfig], snap_date: str
     user = os.environ.get("HUAWEI_USERNAME", "").strip()
     pwd = os.environ.get("HUAWEI_PASSWORD", "").strip()
     if not user or not pwd:
-        LOG.warning("huawei: no credentials — skipped")
+        LOG.warning("huawei: no credentials - skipped")
         return out
     from argia.vendors.huawei import HuaweiClient
     client = HuaweiClient(username=user, password=pwd)
@@ -224,7 +224,7 @@ def _num(v: Optional[float]) -> str:
 
 
 def inverter_coverage(date_iso: str) -> Dict[str, Tuple[int, int]]:
-    """{plant: (reporting, configured)} for one MX date — configured
+    """{plant: (reporting, configured)} for one MX date - configured
     ACTIVE inverters vs those with any usable sample. Feeds the
     completeness scaling (a comms-dead inverter guarantees an interval
     undercount that perfect ticks can't see)."""
@@ -246,7 +246,7 @@ def inverter_coverage(date_iso: str) -> Dict[str, Tuple[int, int]]:
 
 def closed_plant_months(dates: List[str]) -> Set[Tuple[str, str]]:
     """{(plant_key, 'YYYY-MM')} with a closed monthly close among the
-    months the dates touch — frozen for every heal (v212)."""
+    months the dates touch - frozen for every heal (v212)."""
     months = sorted({d[:7] for d in dates})
     if not months:
         return set()
@@ -266,7 +266,7 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
                   frozen: Optional[Set[Tuple[str, str]]] = None) -> int:
     """(Re)compute reconciliation_daily for one date. Returns row count.
     ``frozen`` = closed plant-months: their KPI rows are never healed
-    (the recon row is still recomputed — it is a check, not billing)."""
+    (the recon row is still recomputed - it is a check, not billing)."""
     frozen = frozen or set()
     interval = interval_by_plant(date_iso)
     stored = stored_daily(date_iso)
@@ -284,16 +284,16 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
         completeness = E.effective_completeness(completeness, rep, conf)
         if (rep is not None and conf and rep < conf):
             LOG.info("recon %s %s: %d/%d configured inverters reported"
-                     " — completeness scaled to %s", date_iso, pk,
+                     " - completeness scaled to %s", date_iso, pk,
                      rep, conf, completeness)
         r = E.daily_recon(ikwh, vendor_daily, kpi, completeness)
         LOG.info("recon %s %s: %s (%s)", date_iso, pk, r.status, r.note)
         # Self-heal (v206): a KPI day missing or below the day's REFERENCE
-        # — the inverters' own counters, the vendor plant daily only where
-        # higher — is filled/raised (never lowered). Provenance lands in
+        # - the inverters' own counters, the vendor plant daily only where
+        # higher - is filled/raised (never lowered). Provenance lands in
         # status_note ("energy from inverter counters (...)").
         if (pk.upper(), date_iso[:7]) in frozen:
-            LOG.info("recon %s %s: month closed — KPI row frozen",
+            LOG.info("recon %s %s: month closed - KPI row frozen",
                      date_iso, pk)
         elif not dry_run and r.reference_kwh is not None:
             cls, _delta = B.classify_day(kpi, r.reference_kwh)
@@ -409,7 +409,7 @@ def stamp_pr_stc(gamma_by_plant: Dict[str, Optional[float]],
     """Stamp daily_production.pr_stc (AGS-701 R2) for every plant-day in
     the window that has BOTH a KPI PR and measured irradiance-weighted
     module temperature. Idempotent; days without measurements stay NULL
-    — a correction is computed from data or not at all."""
+    - a correction is computed from data or not at all."""
     temps = psql_rows(
         f"SELECT {MX_DATE_SQL}::text, plant_key,"
         " round((sum(irradiance_wm2 * module_temp_c)"
@@ -463,7 +463,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
 
     try:
@@ -526,7 +526,7 @@ def main(argv=None) -> int:
             LOG.warning("billable resync failed (recon unaffected): %s", e)
 
     # AGS-701 R2: weather-normalized PR_STC wherever module temperature
-    # was measured (whole telemetry window — heals late KPI arrivals)
+    # was measured (whole telemetry window - heals late KPI arrivals)
     gamma_by_plant = {p.plant_key: p.gamma_pmax for p in active}
     try:
         stamp_pr_stc(gamma_by_plant, dry_run=args.dry_run)

@@ -1,4 +1,4 @@
-"""v212 — Setup › CFE › Tariff explorer (pure module, no PostgreSQL).
+"""v212 - Setup › CFE › Tariff explorer (pure module, no PostgreSQL).
 
 Tomasz 2026-09-05: "make it like it used to be where we can search for
 it, make also an easy indicator that they are up to date, and also make
@@ -72,7 +72,7 @@ class TestAverages:
         assert g["ENERGIA BASE"]["avg"] == pytest.approx(1.1)
         assert g["ENERGIA BASE"]["prev_avg"] == pytest.approx(1.0)
         assert g["ENERGIA INTERMEDIA"]["prev_avg"] is None      # not quoted in August
-        # a flat scheme lists with no period prices — never an error
+        # a flat scheme lists with no period prices - never an error
         assert s["GDMTO"] == {"month": None, "prev": None}
 
     def test_seeded_future_months_stay_out_of_the_averages(self):
@@ -120,7 +120,7 @@ class TestFreshness:
 class TestHtml:
     def test_card_has_search_selects_tiles_and_gdmth_default(self):
         ds = CX.build_dataset(rows())
-        h = CX.explorer_html(ds, "good", "Up to date — CFE-verified through 2026-09",
+        h = CX.explorer_html(ds, "good", "Up to date - CFE-verified through 2026-09",
                              "Al día", sources_note="cfe_scrape: through 2026-09 (loaded 2026-09-02)")
         assert 'id="cfe_q"' in h and 'type="search"' in h
         assert 'id="cfe_tar"' in h and 'id="cfe_reg"' in h

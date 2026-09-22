@@ -3,7 +3,7 @@
 2026-07-08: the weather-adjusted expected went blind on the block day
 (183% fiction); contracts are written against the design estimate. The
 static Design_Monthly baseline gives every day a 'vs design' figure that
-no vendor outage can distort — the Prologis actual/expected/estimated
+no vendor outage can distort - the Prologis actual/expected/estimated
 triple.
 """
 
@@ -36,7 +36,7 @@ class TestLoadDesignMonthly:
     def test_tab_fallback_order(self):
         # v61: Contract_Monthly became the primary design source; the
         # legacy names remain as fallbacks. This test previously pinned
-        # ("Design_Monthly", "design_monthly") — consciously rewritten
+        # ("Design_Monthly", "design_monthly") - consciously rewritten
         # for the new candidate chain.
         m = MagicMock(spec=SheetsClient)
         m.read_range.side_effect = [RuntimeError("no such tab"),
@@ -96,7 +96,7 @@ class TestWiring:
 
 class TestReportBuilderFallback:
     def test_builder_uses_tab_when_kpi_cell_empty(self):
-        """Evening (live) editions have no KPI row — design comes from
+        """Evening (live) editions have no KPI row - design comes from
         the Design_Monthly tab directly, so the contract comparison
         exists in BOTH daily editions."""
         from pathlib import Path

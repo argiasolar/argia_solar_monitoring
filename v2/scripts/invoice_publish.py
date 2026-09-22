@@ -16,7 +16,7 @@ silently missing.
 PDF needs a JS-capable renderer (the annex fills its numbers from
 embedded day atoms in JS), hence chromium and not weasyprint. When no
 chromium is available the HTMLs still publish and the index says the
-PDF is pending — degraded, never silent.
+PDF is pending - degraded, never silent.
 
 Usage:
     invoice_publish.py --month 2026-08 [--out-root DIR] [--no-pdf]
@@ -115,7 +115,7 @@ def record_invoicing(ym, names, history):
     {factura_name: (kwh, mxn, status)} for the index.
 
     Source of billed kWh and MXN: the ARGIA Solar Invoicing_Overview
-    slice (``history``) — what was actually invoiced. The check
+    slice (``history``) - what was actually invoiced. The check
     compares that against the reconciliation close's billing_kwh, so a
     factura can never silently drift from the closed month. Off-server
     (no PG) records nothing and returns the history values so the
@@ -156,7 +156,7 @@ def record_invoicing(ym, names, history):
             status = "XLSX"                    # index-only, unrecorded
         if status == "MISMATCH":
             LOG.error("INVOICING CHECK %s %s: billed %.1f kWh vs close"
-                      " %.1f (%+0.3f%%) — investigate before sending",
+                      " %.1f (%+0.3f%%) - investigate before sending",
                       pk, ym, kwh, billing, dp)
         rows[name] = (kwh, round(amount, 2) if amount else None, status)
         if not have_pg:
@@ -168,7 +168,7 @@ def record_invoicing(ym, names, history):
 
 
 def all_records():
-    """{ym: {factura_name: (kwh, mxn, status)}} — every register row,
+    """{ym: {factura_name: (kwh, mxn, status)}} - every register row,
     so the index shows amounts for every month, not just the newest."""
     out = {}
     try:
@@ -196,7 +196,7 @@ def push_to_drive(ym, out_dir):
     already live on: <archive>/Invoicing/<YYYY-MM>/. That is where
     Tomasz looks for customer documents ("I see report but not the
     folder", 2026-09-01). Best-effort: no Drive credentials, no drama
-    — the website copy under /invoices/ is the system of record."""
+    - the website copy under /invoices/ is the system of record."""
     try:
         import glob as _glob
         from argia.core.drive import DriveClient
@@ -220,7 +220,7 @@ def push_to_drive(ym, out_dir):
 
 
 def build_month_zip(out_dir, ym):
-    """facturas_<yyyymm>.zip with every PDF of the month — the
+    """facturas_<yyyymm>.zip with every PDF of the month - the
     one-click "download all plants" button (Tomasz 2026-09-01).
     Rebuilt from scratch on every publish so it can never carry a
     stale factura. Returns the number of PDFs bundled (0 = no zip)."""
@@ -343,8 +343,8 @@ def index_body(months, blocked_now=None, records=None, zips=None, base=""):
             if mxn:
                 tot_m += mxn
             n_rows += 1
-            kwh_td = "&mdash;" if kwh is None else f"{kwh:,.1f}"
-            mxn_td = "&mdash;" if mxn is None else f"${mxn:,.2f}"
+            kwh_td = " - " if kwh is None else f"{kwh:,.1f}"
+            mxn_td = " - " if mxn is None else f"${mxn:,.2f}"
             flag = ('' if chk in (None, "OK", "XLSX") else
                     f' <span class="blocked">{_esc(chk)}</span>')
             fbase = f"{base}{ym}/factura_{name}_{ym.replace('-', '')}"
@@ -360,8 +360,8 @@ def index_body(months, blocked_now=None, records=None, zips=None, base=""):
                         f"<td>{pdf} {web}</td></tr>")
         for name, why in sorted(blocked_now.get(ym, [])):
             rows.append(f"<tr><td>{_esc(FACTURA_CLIENT.get(name, ('', name))[1])}"
-                        f'</td><td class="num">&mdash;</td>'
-                        f'<td class="num">&mdash;</td>'
+                        f'</td><td class="num"> - </td>'
+                        f'<td class="num"> - </td>'
                         f'<td><span class="blocked">{_esc(why)}</span>'
                         f"</td></tr>")
         dlall = ""
@@ -394,7 +394,7 @@ def _index_page(body, generated_at=""):
     return f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>Anexos de facturación — ARGIA</title><style>
+<title>Anexos de facturación - ARGIA</title><style>
 body{{margin:0;background:#f6f7f8;color:#202124;
 font-family:"Segoe UI",system-ui,sans-serif;font-size:15px}}
 .wrap{{max-width:820px;margin:0 auto;padding:26px 18px 48px}}
@@ -475,7 +475,7 @@ def main(argv=None) -> int:
 
     chromium = None if args.no_pdf else find_chromium()
     if not args.no_pdf and not chromium:
-        LOG.warning("no chromium found — HTML only, PDFs pending")
+        LOG.warning("no chromium found - HTML only, PDFs pending")
 
     history_by_year = {}
     for ym in yms:
@@ -483,7 +483,7 @@ def main(argv=None) -> int:
         os.makedirs(out_dir, exist_ok=True)
         rc = ria.main(["--month", ym, "--out-dir", out_dir])
         if rc == 3:
-            return rc                  # config error — nothing rendered
+            return rc                  # config error - nothing rendered
 
         if chromium:
             pat = "factura_*_%s.html" % ym.replace("-", "")

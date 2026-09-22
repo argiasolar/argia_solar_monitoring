@@ -2,7 +2,7 @@
 
 The gap it closes (2026-07-06): mail-once dedupe left three GTO1 FAULT
 inverters silently open for days. The digest mails one summary per
-morning while anything is open, and nothing when the ledger is clean —
+morning while anything is open, and nothing when the ledger is clean -
 so inbox silence means "all clear" again.
 """
 

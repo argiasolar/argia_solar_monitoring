@@ -1,4 +1,4 @@
-"""v245 — reader for one ARGIA PROJECT workbook (the V8.1 PMO template the
+"""v245 - reader for one ARGIA PROJECT workbook (the V8.1 PMO template the
 PMs keep per project under ``PROJECT MANAGEMENT/Project ARGnnnn - …/``).
 
 The reader is tab-name agnostic: every tab's rows are scanned and
@@ -196,7 +196,7 @@ def _summary(rows: Sequence[Sequence]) -> Dict[str, str]:
     """The PROJECT SUMMARY block: vertical label/value pairs ('Project_Status'
     in one cell, the value in the next non-empty cell of the same row). The
     horizontal header rows beside the block carry dropdown LISTS (every
-    status, every phase) — they are not values and are never read."""
+    status, every phase) - they are not values and are never read."""
     out: Dict[str, str] = {}
     for r in rows:
         cells = [_s(c) for c in r]

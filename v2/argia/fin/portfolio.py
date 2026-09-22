@@ -1,13 +1,13 @@
-"""v245 — readers for the two business-side workbooks the portal joins
+"""v245 - readers for the two business-side workbooks the portal joins
 to the books through the business-case number:
 
 * ``REALIZATIONS/RUNNING PROJECTS OVERVIEW/Argia_Projects_Overview_MX.xlsx``
-  sheet ``Data`` — Marcela's portfolio: one row per business case since
+  sheet ``Data`` - Marcela's portfolio: one row per business case since
   2018 (510 rows), phase 0_closing … 6_done, value, planned cost, dates,
   PM, installation progress, invoiced, paid. Updated weekly; the phase and
   progress are the PM truth until the PMO sheets carry them.
 * ``ACCOUNTING/Argia Mexico Payables and receivables 2026_V2.xlsx`` sheet
-  ``Payables and Receivables.`` — Tania's open-item tracker: every open
+  ``Payables and Receivables.`` - Tania's open-item tracker: every open
   customer / supplier invoice with due dates, folio fiscal and status.
   The freshest AR/AP view there is (the books close ~3 weeks after month
   end; this is kept daily).
@@ -116,7 +116,7 @@ def read_overview(rows: Sequence[Sequence], sheet: str = "Data") -> List[Overvie
         if hdr is None:
             cells = [_s(c).replace("\n", " ") for c in r]
             # the sheet carries a partial header block at the top (Id, name, value…) and the full
-            # one above the data — the full one names the invoiced / paid / cost columns
+            # one above the data - the full one names the invoiced / paid / cost columns
             if "Id" in cells and "Project Name" in cells and "Invoiced MXN" in cells:
                 hdr = {c: i for i, c in enumerate(cells) if c}
             continue

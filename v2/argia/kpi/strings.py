@@ -2,15 +2,15 @@
 
 The solar director's monthly closes analyse plant health string by
 string. Every number he uses is already inside the getMAXHistory rows
-the pipeline downloads daily — per-string currents (currentString1..32),
+the pipeline downloads daily - per-string currents (currentString1..32),
 per-MPPT voltages (vpv1..16) and daily energies (epv1Today..16Today,
 NOTE: epv16Today exists in real fixtures even though an older parser
 comment said otherwise), and the StrUnmatch / StrUnblance flags. This
 module reduces one day of samples for one inverter to one compact
-record per channel. Pure functions — no I/O, testable from fixtures.
+record per channel. Pure functions - no I/O, testable from fixtures.
 
 Method, chosen for honesty:
-  * MPPT energy = max(epvXToday) — the inverter's own counter, exact.
+  * MPPT energy = max(epvXToday) - the inverter's own counter, exact.
   * String energy = MPPT energy split by each string's share of the
     pair's integrated current (amp-hours). Current share is what the
     director's shared-MPPT analysis measures; multiplying by the
@@ -60,7 +60,7 @@ def channel_day_stats(rows: List[Any]) -> Dict[str, Any]:
 
     Returns {'mppt': {i: {...}}, 'string': {n: {...}}, 'flags': {...},
     'samples': int}. Channels that never woke up (no voltage above
-    V_ACTIVE_MIN and no current and no energy) are omitted entirely —
+    V_ACTIVE_MIN and no current and no energy) are omitted entirely -
     an unpopulated input is not a zero-performing string.
     """
     parsed = []
@@ -155,7 +155,7 @@ ENSURE_TABLE_SQL = """CREATE TABLE IF NOT EXISTS string_daily (
 def upsert_sqls(plant_key: str, sn: str, date_iso: str,
                 stats: Dict[str, Any]) -> List[str]:
     """INSERT ... ON CONFLICT DO UPDATE statements for one inverter-day.
-    Pure — the caller executes them."""
+    Pure - the caller executes them."""
     def _n(v):
         return "NULL" if v is None else f"{v}"
 

@@ -5,10 +5,10 @@ service@argia.com.mx. When a participant replies, this job reads the
 mailbox over IMAP, files the reply as a comment on the ticket (actor =
 the sender's address; a portal account is recognised by its e-mail),
 saves attachments, notifies the other participants and marks the mail
-read. Only participants of the ticket may comment this way — anything
+read. Only participants of the ticket may comment this way - anything
 else is left unread and logged.
 
-Configuration (in /root/.argia_mail, next to the SMTP keys — never in
+Configuration (in /root/.argia_mail, next to the SMTP keys - never in
 the repo):
 
     IMAP_HOST=imap.gmail.com
@@ -16,7 +16,7 @@ the repo):
     IMAP_PASS=<app password>
     IMAP_FOLDER=INBOX            (optional)
 
-Without those keys the job logs "IMAP not configured" and exits 0 —
+Without those keys the job logs "IMAP not configured" and exits 0 -
 the timer stays harmless until the mailbox is set up.
 
     ticket_mail_in.py            # process unread replies
@@ -140,7 +140,7 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = imap_config(emailer.load_smtp())
     if cfg is None:
-        LOG.info("IMAP not configured (IMAP_HOST/IMAP_USER/IMAP_PASS in the mail config) — nothing to do")
+        LOG.info("IMAP not configured (IMAP_HOST/IMAP_USER/IMAP_PASS in the mail config) - nothing to do")
         return 0
     email_of, _name_of = NOTIFY.account_lookups()
     try:
@@ -160,15 +160,15 @@ def main(argv=None) -> int:
             raw = msgdata[0][1]
             number, sender, text, files = parse_message(raw)
             if not number:
-                LOG.info("mail from %s without a ticket number — left unread", sender)
+                LOG.info("mail from %s without a ticket number - left unread", sender)
                 continue
             t = load_ticket(number)
             if t is None:
-                LOG.info("mail from %s for unknown ticket %s — left unread", sender, number)
+                LOG.info("mail from %s for unknown ticket %s - left unread", sender, number)
                 continue
             who = may_comment(t, sender, email_of)
             if who is None:
-                LOG.warning("mail from %s is not a participant of %s — ignored", sender, number)
+                LOG.warning("mail from %s is not a participant of %s - ignored", sender, number)
                 if not a.dry_run:
                     box.store(mid, "+FLAGS", "\\Seen")
                 continue

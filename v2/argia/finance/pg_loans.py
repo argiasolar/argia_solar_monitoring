@@ -1,7 +1,7 @@
 """PostgreSQL-backed loan loaders (pio06 only).
 
 Since the /setup/finance editor (2026-09-01) the PG ``loan`` and
-``loan_schedule`` tables are the single authority for finance inputs —
+``loan_schedule`` tables are the single authority for finance inputs -
 an admin edit lands there, never in the old Loans/Loan_Schedule sheet
 tabs. Jobs that run where PG lives (financial_report_publish via
 run_job.sh) must therefore read loans from PG, or they would keep
@@ -40,7 +40,7 @@ def load_loans_pg() -> Dict[str, Loan]:
                 total_installments=int(float(r[6])),
                 first_month=r[7], last_month=r[8])
         except (ValueError, TypeError):
-            LOG.warning("loan %s: malformed PG row — skipped", r[0])
+            LOG.warning("loan %s: malformed PG row - skipped", r[0])
     LOG.info("finance: %d loan(s) from PostgreSQL", len(out))
     return out
 
@@ -69,7 +69,7 @@ def load_loan_schedule_pg() -> List[ScheduleRow]:
                 payment_ccy=_opt(r[6]), xr=_opt(r[7]),
                 due_after_mxn=float(r[8])))
         except (ValueError, TypeError):
-            LOG.warning("loan_schedule %s %s: malformed PG row — skipped",
+            LOG.warning("loan_schedule %s %s: malformed PG row - skipped",
                         r[0], r[2])
     LOG.info("finance: %d schedule row(s) from PostgreSQL", len(rows))
     return rows

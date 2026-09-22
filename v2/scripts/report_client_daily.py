@@ -1,19 +1,19 @@
-"""Per-client daily reports — one PERFORMANCE REPORT per client channel.
+"""Per-client daily reports - one PERFORMANCE REPORT per client channel.
 
 For every distinct ``client_channel`` on active plants (or one channel
 via --channel), builds the same daily report the internal edition uses
-— but scoped to THAT client's plants only: their plant cards, their
+- but scoped to THAT client's plants only: their plant cards, their
 fleet totals, their alerts, their verdict. Uploads HTML+PDF to Drive
 and queues each on Report_Outbox with channel=<client_channel>, so the
 v46 notifier mails it to that client's Recipients rows.
 
 Isolation guarantees (inherited, not reimplemented):
   * plants: Portfolio.for_client_channel() contains only the channel's
-    active plants — nothing else can render;
+    active plants - nothing else can render;
   * alerts: build_report_data scopes the alert section and verdict to
     the same plant set (v76);
   * delivery: the notifier fails CLOSED on a channel without
-    Recipients rows — a report for an unconfigured client goes
+    Recipients rows - a report for an unconfigured client goes
     nowhere, never to a default list.
 
 Usage:
@@ -59,7 +59,7 @@ MX = ZoneInfo("America/Mexico_City")
 
 
 def default_date() -> str:
-    """Yesterday, MX — client reports are KPI-final morning editions."""
+    """Yesterday, MX - client reports are KPI-final morning editions."""
     return (dt.datetime.now(MX).date() - dt.timedelta(days=1)).isoformat()
 
 
@@ -93,7 +93,7 @@ def main(argv=None) -> int:
     channels = ([args.channel] if args.channel
                 else portfolio.client_channels())
     if not channels:
-        log.info("no client channels configured — nothing to do")
+        log.info("no client channels configured - nothing to do")
         return 0
 
     out_dir = args.out_dir or tempfile.mkdtemp(prefix="argia_client_")
@@ -103,9 +103,9 @@ def main(argv=None) -> int:
     for channel in channels:
         view = portfolio.for_client_channel(channel)
         if not view.plants:
-            log.warning("channel %r: no active plants — skipped", channel)
+            log.warning("channel %r: no active plants - skipped", channel)
             continue
-        log.info("channel %r: %d plant(s) — %s", channel,
+        log.info("channel %r: %d plant(s) - %s", channel,
                  len(view.plants), ", ".join(sorted(view.plants)))
         try:
             data = build_report_data(sheets, view, date_iso)
@@ -149,7 +149,7 @@ def main(argv=None) -> int:
             failed.append(channel)
 
     if args.dry_run:
-        log.info("[dry-run] files in %s — no upload, no outbox", out_dir)
+        log.info("[dry-run] files in %s - no upload, no outbox", out_dir)
     return 5 if failed else 0
 
 

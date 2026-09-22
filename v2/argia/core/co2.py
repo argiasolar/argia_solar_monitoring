@@ -1,4 +1,4 @@
-"""Grid emission factor for "avoided CO2" claims — the single source.
+"""Grid emission factor for "avoided CO2" claims - the single source.
 
 The factor is published per year by SEMARNAT/CRE for the Mexican grid
 (kg CO2e per kWh delivered). Tomasz set the register on 2026-09-04:
@@ -11,17 +11,17 @@ The factor is published per year by SEMARNAT/CRE for the Mexican grid
 
 A year later than the newest entry uses the newest entry (the factor
 stays in force until CRE publishes the next one); a year earlier than
-the oldest uses the oldest. Neither ever raises — a report must never
+the oldest uses the oldest. Neither ever raises - a report must never
 fail to render over a CO2 line.
 
 PLANT OVERRIDES: a customer may contract a different factor. SAG (MEX1)
 asked for 0.202 kg/kWh across their whole history, so their invoices and
-pages use that for every year. An override is not a fallback — it wins
+pages use that for every year. An override is not a fallback - it wins
 over the year table outright.
 
 Everything here is pure. The server bundle cannot import this package,
 so report_gen.py carries a literal copy that test_constants.py keeps
-identical — change this table and that test tells you what else to edit.
+identical - change this table and that test tells you what else to edit.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ FACTOR_BY_YEAR: Dict[int, float] = {
 
 # plant_key -> kg CO2e per kWh, all years. Customer-contracted values.
 PLANT_OVERRIDE: Dict[str, float] = {
-    "MEX1": 0.202,        # SAG — customer asked for this across all history
+    "MEX1": 0.202,        # SAG - customer asked for this across all history
 }
 
 _FIRST_YEAR = min(FACTOR_BY_YEAR)

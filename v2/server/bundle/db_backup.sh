@@ -5,7 +5,7 @@
 #   argia_mont_YYYYMMDD.dump   pg_dump -Fc of the monitoring DB
 #   users_YYYYMMDD.db          sqlite online-backup of the auth DB
 #   *_latest.*                 stable names the Pi pulls by
-# Keeps the newest 3 dated copies locally — the real retention lives
+# Keeps the newest 3 dated copies locally - the real retention lives
 # on the Pi (14 daily + 8 weekly), pulled via a read-only SFTP key, so
 # a compromised or wiped server cannot reach the Pi's copies.
 set -euo pipefail
@@ -30,7 +30,7 @@ dst.close(); src.close()
 EOF
 cp -f "$OUT/users_$stamp.db" "$OUT/users_latest.db"
 
-# portfolio snapshot for the Pi's outage watch (v214) — best-effort
+# portfolio snapshot for the Pi's outage watch (v214) - best-effort
 /root/argia_v2/v2/pi/run_job.sh portfolio-export portfolio_export.py --out "$OUT/portfolio_latest.json" || echo "$(date -Is) portfolio export FAILED (backup unaffected)"
 
 # local retention: newest 3 dated copies of each

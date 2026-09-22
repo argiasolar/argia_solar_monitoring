@@ -1,8 +1,8 @@
-"""Vendor cumulative-counter snapshots — parsers + upsert SQL. PURE.
+"""Vendor cumulative-counter snapshots - parsers + upsert SQL. PURE.
 
 One snapshot row per plant per day: the vendor's own daily / monthly /
 lifetime energy counters as THEY report them, captured after generation
-ends. This is the immutable audit trail the billing control rides on —
+ends. This is the immutable audit trail the billing control rides on -
 we never depend on querying a vendor's history months later.
 
 Vendor sources:
@@ -36,7 +36,7 @@ class CounterSnapshot:
 
 
 # ---------------------------------------------------------------------------
-# Growatt — plant-level eToday/eTotal from the getMAXTotalData envelope.
+# Growatt - plant-level eToday/eTotal from the getMAXTotalData envelope.
 # ---------------------------------------------------------------------------
 def growatt_counters(fixture_or_response: Any
                      ) -> Tuple[Optional[float], Optional[float],
@@ -53,7 +53,7 @@ def growatt_counters(fixture_or_response: Any
 
 
 # ---------------------------------------------------------------------------
-# Huawei — one getStationRealKpi item's dataItemMap.
+# Huawei - one getStationRealKpi item's dataItemMap.
 # ---------------------------------------------------------------------------
 _H_DAY = ("day_cap", "daily_cap", "day_power")
 _H_MONTH = ("month_cap", "month_power", "monthEnergy")
@@ -90,7 +90,7 @@ def huawei_station_counters(result: Any) -> Dict[str, Tuple[
 
 
 # ---------------------------------------------------------------------------
-# SolarEdge — /site/energy (unit-aware) and /site/overview lifetime.
+# SolarEdge - /site/energy (unit-aware) and /site/overview lifetime.
 # ---------------------------------------------------------------------------
 def _unit_to_kwh(value: Optional[float], unit: str) -> Optional[float]:
     if value is None:
@@ -175,7 +175,7 @@ def build_snapshot_upsert_sql(snaps: Sequence[CounterSnapshot]
 
 
 # ---------------------------------------------------------------------------
-# Historical daily series (for backfill — vendors DO let us go back in time).
+# Historical daily series (for backfill - vendors DO let us go back in time).
 # ---------------------------------------------------------------------------
 def solaredge_daily_series(response: Any) -> Dict[str, Optional[float]]:
     """{'YYYY-MM-DD': kwh} from /site/{id}/energy timeUnit=DAY over a

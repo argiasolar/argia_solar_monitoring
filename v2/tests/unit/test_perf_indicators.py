@@ -47,7 +47,7 @@ class TestLayer1DailyEnergyReuse:
         assert evaluate_inverter_relative(readings) == []
 
     def test_mex1_june28_two_dead_online_inverters_flag(self):
-        # 963 / 0 / 0 — "ONLINE" but producing nothing. Peer mean for a dead
+        # 963 / 0 / 0 - "ONLINE" but producing nothing. Peer mean for a dead
         # unit is (963+0)/2, ratio 0 -> CRITICAL for both dead ones.
         readings = [InverterReading("MEX1", "I1", 963, 196.0),
                     InverterReading("MEX1", "I2", 0, 196.0),

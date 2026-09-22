@@ -1,7 +1,7 @@
 """Shared report output plumbing: HTML→PDF and the Report_Outbox queue.
 
 Moved verbatim from scripts/report_daily.py (v64) so the finance report
-uses the exact same rendering and delivery path — one Chromium print
+uses the exact same rendering and delivery path - one Chromium print
 profile, one outbox schema, no drift. report_daily re-exports these
 names for backward compatibility (tests and the notifier contract).
 """
@@ -12,7 +12,7 @@ import os
 
 
 def html_to_pdf(html_path: str, pdf_path: str) -> None:
-    """Print the HTML to PDF with headless Chromium — renders the inline
+    """Print the HTML to PDF with headless Chromium - renders the inline
     SVG charts and web fonts exactly as a browser does."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
@@ -40,7 +40,7 @@ def append_outbox(sheets, *, date_iso: str, kind: str,
     The Apps Script notifier (docs/notifier.gs) scans this APPEND-ONLY tab
     every few minutes, mails rows whose notified_at is empty (PDF attached
     from Drive), and stamps notified_at. Append-only means the stamp can
-    never be wiped by a rewrite — unlike the engine-owned Alerts tab, which
+    never be wiped by a rewrite - unlike the engine-owned Alerts tab, which
     is why alerts use a separate ledger instead.
     """
     sheets.ensure_tab(OUTBOX_TAB)

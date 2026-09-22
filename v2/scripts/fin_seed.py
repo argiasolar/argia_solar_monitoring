@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Load the DEMO world (tests/fixtures/fin/world.json) into the finance
-tables — v244. Everything lands under the DEMO-* entities; nothing here
+tables - v244. Everything lands under the DEMO-* entities; nothing here
 touches a real entity, and --wipe removes exactly what --apply loaded.
 
     fin_seed.py              # dry run: statement counts
@@ -182,7 +182,7 @@ def main(argv=None) -> int:
     stmts = seed_sql(world, sup, cus)
     n = sum(s.count("INSERT INTO") for s in stmts)
     if not a.apply:
-        print(f"dry run: {n} upserts in {len(stmts)} groups (suppliers known: {len(sup)}, customers known: {len(cus)}) — add --apply")
+        print(f"dry run: {n} upserts in {len(stmts)} groups (suppliers known: {len(sup)}, customers known: {len(cus)}) - add --apply")
         return 0
     psql_exec("SET statement_timeout='60s';\n" + "\n".join(stmts))
     # second pass: serial ids now exist -> POs and customer links

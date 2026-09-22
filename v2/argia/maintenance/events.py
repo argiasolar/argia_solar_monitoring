@@ -1,6 +1,6 @@
-"""Maintenance_Events tab — model, loader, and O&M cost rollup.
+"""Maintenance_Events tab - model, loader, and O&M cost rollup.
 
-Schema (one row per event, entered manually — these are rare and
+Schema (one row per event, entered manually - these are rare and
 contractual, so nothing automated ever invents a billing event):
 
     plant_key | start_ts | end_ts | category | cost_type | cost_mxn
@@ -14,14 +14,14 @@ Semantics
       customer       → deemed IS billable (customer operations)
       argia          → our O&M, never billable (honest self-report)
       force_majeure  → per contract, not billable by default
-  An unrecognized category is KEPT but treated as NON-billable — a typo
+  An unrecognized category is KEPT but treated as NON-billable - a typo
   must never invent income.
 * ``cost_type``  cost axis so cleaning spend is reportable on its own
   (cleaning / repair / parts / inspection / other). Unknown → other.
 * ``cost_mxn``   ACTUAL cost of this event, MXN. Blank = no cost (e.g. a
   pure customer-shutdown window with no work done).
 * ``approved_by``  blank = draft. Deemed energy AND cost enter reports
-  only when this is set — fail-closed, like Recipients.
+  only when this is set - fail-closed, like Recipients.
 
 This tab does NOT replace Cleaning_Costs: that tab keeps its own
 expected-cleaning-cost as the break-even / alert input for the soiling
@@ -29,7 +29,7 @@ scheduler. Here we record the ACTUAL spend that hits the financial
 report. Two numbers, two jobs.
 
 The loader degrades to ``[]`` on a missing tab, like every other config
-reader in this codebase — it never creates the tab (that is the
+reader in this codebase - it never creates the tab (that is the
 ``maintenance_events_setup`` script's job).
 """
 
@@ -67,7 +67,7 @@ COST_TYPES = ("cleaning", "repair", "parts", "inspection", "other")
 
 
 def _mx_aware(when: Optional[dt.datetime]) -> Optional[dt.datetime]:
-    """Coerced sheet datetimes are NAIVE local (MX) — attach MX_TZ so
+    """Coerced sheet datetimes are NAIVE local (MX) - attach MX_TZ so
     all downstream arithmetic is DST-correct and tz-aware."""
     if when is None:
         return None
@@ -111,7 +111,7 @@ class MaintenanceEvent:
         return _mx_aware(n)
 
     def cost_date_iso(self) -> str:
-        """Date the cost is attributed to for period membership — the day
+        """Date the cost is attributed to for period membership - the day
         work started (a lump cost is realized when the event occurs)."""
         return self.start_ts.astimezone(MX_TZ).date().isoformat()
 
@@ -133,12 +133,12 @@ def _parse_category(value, plant_key: str) -> str:
     s = normalize_text(value).lower().replace(" ", "_")
     if s == "":
         # Blank category on a real event: cannot be billable, log it.
-        LOG.warning("Maintenance_Events[%s]: blank category — treated as "
+        LOG.warning("Maintenance_Events[%s]: blank category - treated as "
                     "non-billable", plant_key)
         return ""
     if s not in CATEGORIES:
         LOG.warning("Maintenance_Events[%s]: unknown category %r (kept, "
-                    "non-billable — known: %s)", plant_key, value,
+                    "non-billable - known: %s)", plant_key, value,
                     "/".join(CATEGORIES))
     return s
 
@@ -148,7 +148,7 @@ def _parse_cost_type(value, plant_key: str) -> str:
     if s == "":
         return ""
     if s not in COST_TYPES:
-        LOG.warning("Maintenance_Events[%s]: unknown cost_type %r — kept as "
+        LOG.warning("Maintenance_Events[%s]: unknown cost_type %r - kept as "
                     "'other'", plant_key, value)
         return "other"
     return s
@@ -159,12 +159,12 @@ def load_maintenance_events(sheets) -> List[MaintenanceEvent]:
     a warning. A row with no plant_key or an unparseable start_ts is
     skipped (it can never be a valid billing/cost basis).
 
-    Note: reads the WHOLE row range (``A1:ZZ``) — narrow ranges silently
+    Note: reads the WHOLE row range (``A1:ZZ``) - narrow ranges silently
     drop columns (house rule).
 
     v191: with ARGIA_FINANCE_SOURCE=pg this returns the PostgreSQL
     ``maintenance_event`` rows instead (the /setup/ UI's table, the only
-    place events have been entered since 2026-09) — so every caller that
+    place events have been entered since 2026-09) - so every caller that
     only ever asked the sheet now sees them too.
     """
     from argia.finance.pg_source import source
@@ -173,7 +173,7 @@ def load_maintenance_events(sheets) -> List[MaintenanceEvent]:
     try:
         rows = sheets.read_table(MAINTENANCE_EVENTS_TAB, "A1:ZZ")
     except Exception:  # noqa: BLE001
-        LOG.warning("%s tab not found — no deemed energy or event-based "
+        LOG.warning("%s tab not found - no deemed energy or event-based "
                     "O&M available", MAINTENANCE_EVENTS_TAB)
         return []
 
@@ -186,13 +186,13 @@ def load_maintenance_events(sheets) -> List[MaintenanceEvent]:
         start = _mx_aware(coerce_ts(row.get("start_ts")))
         if start is None:
             LOG.warning("Maintenance_Events[%s]: unparseable/blank start_ts "
-                        "%r — skipping row", plant_key, row.get("start_ts"))
+                        "%r - skipping row", plant_key, row.get("start_ts"))
             skipped += 1
             continue
         end = _mx_aware(coerce_ts(row.get("end_ts")))
         if end is not None and end < start:
             LOG.warning("Maintenance_Events[%s]: end_ts %s before start_ts "
-                        "%s — skipping row", plant_key, end, start)
+                        "%s - skipping row", plant_key, end, start)
             skipped += 1
             continue
 
@@ -220,7 +220,7 @@ def events_from_pg_rows(rows) -> List[MaintenanceEvent]:
     pio06 table ``maintenance_event``): [plant_key, start_mx_iso,
     end_mx_iso_or_'', category, cost_type, cost, note, approved_by].
     Timestamps arrive as MX-local ISO strings (to_char with the MX zone)
-    and get MX_TZ attached — identical semantics to the sheet loader.
+    and get MX_TZ attached - identical semantics to the sheet loader.
     Malformed rows are skipped, like the sheet path. PURE."""
     out: List[MaintenanceEvent] = []
     for r in rows or []:
@@ -232,7 +232,7 @@ def events_from_pg_rows(rows) -> List[MaintenanceEvent]:
         try:
             start = dt.datetime.fromisoformat(str(r[1]).strip())
         except ValueError:
-            LOG.warning("maintenance_event[%s]: bad start_ts %r — skipped",
+            LOG.warning("maintenance_event[%s]: bad start_ts %r - skipped",
                         plant_key, r[1])
             continue
         end = None
@@ -256,7 +256,7 @@ def events_from_pg_rows(rows) -> List[MaintenanceEvent]:
 
 def load_maintenance_events_pg() -> List[MaintenanceEvent]:
     """Events from the pio06 PostgreSQL table (the /setup/ UI). Empty
-    list anywhere PG isn't available — a Pi/CI run is unaffected."""
+    list anywhere PG isn't available - a Pi/CI run is unaffected."""
     try:
         from argia.store import pg_mirror
         from argia.store.pgq import psql_rows
@@ -272,7 +272,7 @@ def load_maintenance_events_pg() -> List[MaintenanceEvent]:
             " coalesce(cost_mxn::text,''), coalesce(note,''),"
             " coalesce(approved_by,'') FROM maintenance_event;")
     except Exception as e:  # noqa: BLE001
-        LOG.warning("maintenance_event PG read failed: %s — sheet events "
+        LOG.warning("maintenance_event PG read failed: %s - sheet events "
                     "only", e)
         return []
     events = events_from_pg_rows(rows)
@@ -287,10 +287,10 @@ def om_cost_from_events(events: List[MaintenanceEvent], plant_key: str,
     date falls inside ``period`` (an :class:`argia.finance.income.Period`).
 
     Fail-closed: drafts (no approved_by) contribute nothing. Blank cost
-    contributes nothing. Every category counts toward cost — argia and
+    contributes nothing. Every category counts toward cost - argia and
     force_majeure work is real spend even though it is not billable to
     the customer. Cost is a lump attributed to the event's start day (no
-    proration — unlike a monthly retainer, a repair is not spread across
+    proration - unlike a monthly retainer, a repair is not spread across
     the month).
     """
     pk = str(plant_key).upper()
@@ -308,7 +308,7 @@ def om_cost_from_events(events: List[MaintenanceEvent], plant_key: str,
 # suppression and the daily-report badge. Approval-INDEPENDENT: a logged
 # window (draft or approved) means the operator knows the plant is down,
 # so the alert must annotate rather than scream. Approval still gates
-# BILLING (deemed energy + cost) — a separate concern.
+# BILLING (deemed energy + cost) - a separate concern.
 # ---------------------------------------------------------------------------
 
 CATEGORY_BADGE_LABEL = {
@@ -323,7 +323,7 @@ def plant_maintenance_on_date(events: List[MaintenanceEvent], date_iso: str,
                               ) -> Dict[str, MaintenanceEvent]:
     """{plant_key: covering event} for plants whose window overlaps the MX
     calendar day ``date_iso``. Approval-independent. If several events
-    cover the same plant-day, the first (earliest-listed) is returned —
+    cover the same plant-day, the first (earliest-listed) is returned -
     enough to raise the badge and suppress the redundant alarm."""
     out: Dict[str, MaintenanceEvent] = {}
     for e in events:
@@ -337,13 +337,13 @@ def plant_maintenance_on_date(events: List[MaintenanceEvent], date_iso: str,
 def maintenance_badge_text(event: MaintenanceEvent,
                            max_note: int = 60) -> str:
     """Short human label for the daily-report badge / status line, e.g.
-    ``"known maintenance — awaiting protection parts (ongoing)"``."""
+    ``"known maintenance - awaiting protection parts (ongoing)"``."""
     label = CATEGORY_BADGE_LABEL.get(event.category, "maintenance")
     note = event.note.strip()
     if note:
         if len(note) > max_note:
             note = note[: max_note - 1].rstrip() + "\u2026"
-        label += " \u2014 " + note
+        label += " - " + note
     if event.is_ongoing:
         label += " (ongoing)"
     return label

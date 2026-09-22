@@ -1,4 +1,4 @@
-# Stage 7.3 — Archive + Soiling + Cleaning Costs
+# Stage 7.3 - Archive + Soiling + Cleaning Costs
 
 Three things at once. Honest order: if you only read part of this doc,
 read the **honest disclaimers** section first.
@@ -18,8 +18,8 @@ read the **honest disclaimers** section first.
 
 ## Honest disclaimers (read these first)
 
-1. **Soiling math is a framework, not a truth.** The thresholds —
-   "DUE when projected monthly loss ≥ 100% of cleaning cost" — are
+1. **Soiling math is a framework, not a truth.** The thresholds -
+   "DUE when projected monthly loss ≥ 100% of cleaning cost" - are
    educated guesses. Real-world tuning happens after 30+ days of
    archived KPIs per plant. For now, expect false positives if
    `pr_baseline` was set too high.
@@ -39,8 +39,8 @@ read the **honest disclaimers** section first.
    When you next run anything that calls `load_portfolio()`, you'll
    see WARNING logs like:
    - `[GTO1] kwp_dc=100.0 disagrees with module_count×module_wp=599.4 by >15%.`
-   - `[QRO1/SN1] rated_kw is 0 on Inverters tab — peer ranking will not work for this inverter`
-   These are HELPFUL — they pinpoint exactly which cells you need to fix.
+   - `[QRO1/SN1] rated_kw is 0 on Inverters tab - peer ranking will not work for this inverter`
+   These are HELPFUL - they pinpoint exactly which cells you need to fix.
 
 5. **Soiling alerts haven't been wired to email yet.** That's Stage 7.4.
    In 7.3, you run `soiling_check.py` manually and see the output. The
@@ -89,8 +89,8 @@ PYTHONPATH=. python scripts/kpi_eod.py --dry-run
 
 Expected output:
 - Per-plant log line with energy, PR, CF, confidence
-- "KPI_Daily upsert: {'inserted': N, 'updated': 0, 'unchanged': 0}" — N being your plant count
-- Lots of sanity warnings (kwp_dc, rated_kw, module math) — these are your sheet TODO list
+- "KPI_Daily upsert: {'inserted': N, 'updated': 0, 'unchanged': 0}" - N being your plant count
+- Lots of sanity warnings (kwp_dc, rated_kw, module math) - these are your sheet TODO list
 
 If the numbers look right, drop `--dry-run`:
 
@@ -128,7 +128,7 @@ This is the part you have to do by hand. Recipe:
 4. Enter that median as `pr_baseline` on the Plants tab.
 5. Repeat for each plant.
 
-There's no automation for this in 7.3 — and shouldn't be. Setting a
+There's no automation for this in 7.3 - and shouldn't be. Setting a
 baseline is a deliberate "this is what clean looks like for THIS
 plant" decision that needs your eyes on it.
 

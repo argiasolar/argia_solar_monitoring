@@ -7,9 +7,9 @@ The vendors keep per-day history, so we CAN go back in time:
   SolarEdge  /site/energy timeUnit=DAY over the whole range
 
 Dry-run prints the comparison table; --apply then (a) stores the vendor
-values in vendor_counter_snapshot (ON CONFLICT DO NOTHING — real nightly
+values in vendor_counter_snapshot (ON CONFLICT DO NOTHING - real nightly
 snapshots are never overwritten), (b) fills MISSING / raises UNDER days
-in daily_production with provenance in status_note (never lowers — OVER
+in daily_production with provenance in status_note (never lowers - OVER
 days are flagged for review), (c) recomputes reconciliation_daily.
 
 Usage: recon_backfill.py --from-date 2026-08-01 --to-date 2026-08-26 [--apply]
@@ -171,7 +171,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: "
                                "%(message)s")
     if not pg_mirror.enabled():
-        LOG.info("ARGIA_PG_MIRROR not enabled — nothing to do here")
+        LOG.info("ARGIA_PG_MIRROR not enabled - nothing to do here")
         return 0
     d0 = dt.date.fromisoformat(args.from_date)
     d1 = dt.date.fromisoformat(args.to_date)
@@ -207,9 +207,9 @@ def main(argv=None) -> int:
             counts[cls] = counts.get(cls, 0) + 1
             if cls != B.CLASS_OK:
                 LOG.info("%-6s %-11s %10s %10s %8s  %s", p.plant_key, d,
-                         "—" if k is None else f"{k:,.1f}",
-                         "—" if v is None else f"{v:,.1f}",
-                         "—" if delta is None else f"{delta:+.2f}", cls)
+                         " - " if k is None else f"{k:,.1f}",
+                         " - " if v is None else f"{v:,.1f}",
+                         " - " if delta is None else f"{delta:+.2f}", cls)
             if v is not None:
                 snap_rows.append(
                     f"('{p.plant_key}','{p.brand.upper()}',DATE '{d}',"

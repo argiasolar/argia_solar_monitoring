@@ -1,4 +1,4 @@
-"""cfe_daily.sh push path — three bugs found live on 2026-08-28.
+"""cfe_daily.sh push path - three bugs found live on 2026-08-28.
 
 The Pi scraped CFE fine every morning and delivered nothing for a day
 and a half.  Three separate faults, each silent on its own:
@@ -10,7 +10,7 @@ and a half.  Three separate faults, each silent on its own:
      named "argia-cfe": "Permission denied (publickey)" every run.
   2. push() ended in `... || echo "PUSH FAILED"`, which exits 0.  The
      caller chains `push "$FULL" && ... && touch "$MARK"`, so the
-     month was marked as delivered while nothing had arrived — and the
+     month was marked as delivered while nothing had arrived - and the
      marker then suppressed every later attempt.
   3. A failed push meant the next run re-scraped from scratch (two
      hours) instead of re-sending the CSV already sitting in outbox.
@@ -57,7 +57,7 @@ class TestInboxTarget:
         assert not re.search(r"\d+\.\d+\.\d+\.\d+", m.group(1))
 
     def test_the_broken_spelling_is_gone_from_every_command(self):
-        """Comments may quote it — no command may use it."""
+        """Comments may quote it - no command may use it."""
         code = [ln for ln in SRC.splitlines()
                 if not ln.lstrip().startswith("#")]
         assert "argia-cfe@" not in "\n".join(code)

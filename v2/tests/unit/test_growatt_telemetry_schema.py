@@ -27,7 +27,7 @@ from argia.telemetry.schema import (
 
 
 # ============================================================
-# PLANT_SCHEMA — wide, vendor-shaped (unchanged from Stage 3)
+# PLANT_SCHEMA - wide, vendor-shaped (unchanged from Stage 3)
 # ============================================================
 
 
@@ -95,7 +95,7 @@ class TestPlantSchema:
 
 
 # ============================================================
-# ARGIA_SCHEMA — narrow common (NEW Stage 4 shape)
+# ARGIA_SCHEMA - narrow common (NEW Stage 4 shape)
 # ============================================================
 
 
@@ -122,7 +122,7 @@ class TestArgiaSchema:
 
     def test_natural_key_is_timestamp_plant_sn(self):
         # Columns 0, 3, 4: timestamp_utc, plant_key, inverter_sn
-        # vendor is NOT in the key — within one moment, one inverter has one vendor
+        # vendor is NOT in the key - within one moment, one inverter has one vendor
         assert ARGIA_SCHEMA.natural_key_columns == (0, 3, 4)
         assert ARGIA_SCHEMA.columns[0] == "timestamp_utc"
         assert ARGIA_SCHEMA.columns[3] == "plant_key"

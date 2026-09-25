@@ -73,3 +73,26 @@ def test_package_imports_without_google_libs(monkeypatch):
     import argia.core.config  # noqa: F401  (imports argia.core.sheets)
     import argia.core.sheets as S
     assert S.NullSheets().sheet_id == ""
+
+
+def test_schema_ddl_is_a_read_only_schema_dump(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        class R: returncode = 0; stdout = "CREATE TABLE public.plant (\n);\n"; stderr = ""
+        return R()
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv(pgq.DB_ENV, "argia_test")
+    assert pgq.schema_ddl().startswith("CREATE TABLE")
+    assert seen["cmd"][:5] == ["runuser", "-u", "postgres", "--", "pg_dump"]
+    assert "--schema-only" in seen["cmd"] and seen["cmd"][-1] == "argia_test"
+
+
+def test_schema_ddl_failure_raises(monkeypatch):
+    def fake_run(cmd, **kw):
+        class R: returncode = 1; stdout = ""; stderr = "pg_dump: error"
+        return R()
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="pg_dump failed"):
+        pgq.schema_ddl()

@@ -222,23 +222,23 @@ function el(cls,txt){const d=document.createElement('div');d.className='msg '+cl
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 let ALANG='en';/* v219: language of the answer being rendered - citations link to that deck language */
 function slideLink(n){return '/ags/#lang='+ALANG+'&slide='+n;}
-function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\b(slide|diapositiva)\s+(\d{1,3})\b/gi,(m,w,n)=>'<a href="'+slideLink(n)+'" target="_blank" rel="noopener">'+w+' '+n+'</a>');}
+function inline(s){return esc(s).replace(/\\*\\*(.+?)\\*\\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\\b(slide|diapositiva)\\s+(\\d{1,3})\\b/gi,(m,w,n)=>'<a href="'+slideLink(n)+'" target="_blank" rel="noopener">'+w+' '+n+'</a>');}
 function md(text){/* markdown-lite: paragraphs, **bold**, `code`, pipe tables, - bullets; headings become plain lines */
  const out=[];const lines=text.replace(/\\r/g,'').split('\\n');let i=0;
  while(i<lines.length){let ln=lines[i];
-  if(/^\s*\|/.test(ln)){const rows=[];while(i<lines.length&&/^\s*\|/.test(lines[i])){rows.push(lines[i]);i++;}
-   const cells=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
-   const body=rows.filter(r=>!/^\s*\|?\s*:?-{2,}/.test(r));
+  if(/^\\s*\\|/.test(ln)){const rows=[];while(i<lines.length&&/^\\s*\\|/.test(lines[i])){rows.push(lines[i]);i++;}
+   const cells=r=>r.trim().replace(/^\\||\\|$/g,'').split('|').map(c=>c.trim());
+   const body=rows.filter(r=>!/^\\s*\\|?\\s*:?-{2,}/.test(r));
    if(body.length){out.push('<table class="md">'+body.map((r,k)=>'<tr>'+cells(r).map(c=>(k?'<td>':'<th>')+inline(c)+(k?'</td>':'</th>')).join('')+'</tr>').join('')+'</table>');}
    continue;}
-  if(/^\s*[-*] /.test(ln)){const items=[];while(i<lines.length&&/^\s*[-*] /.test(lines[i])){items.push(lines[i].replace(/^\s*[-*] /,''));i++;}
+  if(/^\\s*[-*] /.test(ln)){const items=[];while(i<lines.length&&/^\\s*[-*] /.test(lines[i])){items.push(lines[i].replace(/^\\s*[-*] /,''));i++;}
    out.push('<ul>'+items.map(x=>'<li>'+inline(x)+'</li>').join('')+'</ul>');continue;}
   if(!ln.trim()){i++;continue;}
-  const para=[];while(i<lines.length&&lines[i].trim()&&!/^\s*\|/.test(lines[i])&&!/^\s*[-*] /.test(lines[i])){para.push(lines[i].replace(/^#+\s*/,''));i++;}
+  const para=[];while(i<lines.length&&lines[i].trim()&&!/^\\s*\\|/.test(lines[i])&&!/^\\s*[-*] /.test(lines[i])){para.push(lines[i].replace(/^#+\\s*/,''));i++;}
   out.push('<p>'+para.map(inline).join('<br>')+'</p>');}
  return out.join('');}
 function fmt(v){if(v===null||v===undefined)return ' - ';if(typeof v==='number')return Number.isInteger(v)?v.toString():v.toFixed(Math.abs(v)<10?2:1);if(Array.isArray(v))return v.length?v.join(', '):' - ';if(typeof v==='object')return JSON.stringify(v);return String(v);}
-function cell(c,v){const s=fmt(v).replace(/</g,'&lt;');return (c==='link'&&/^https:\/\/portal\.argia\.com\.mx\//.test(s))?'<a href="'+s+'" target="_blank" rel="noopener">open</a>':s;}
+function cell(c,v){const s=fmt(v).replace(/</g,'&lt;');return (c==='link'&&/^https:\\/\\/portal\\.argia\\.com\\.mx\\//.test(s))?'<a href="'+s+'" target="_blank" rel="noopener">open</a>':s;}
 function table(rows){if(!rows.length||typeof rows[0]!=='object')return null;const cols=Object.keys(rows[0]);const t=document.createElement('table');t.innerHTML='<tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+cell(c,r[c])+'</td>').join('')+'</tr>').join('');return t;}
 function render(call){const d=document.createElement('details');const args=Object.entries(call.input).map(([k,v])=>k+'='+v).join(', ');
  const s=document.createElement('summary');s.textContent=call.name+'('+args+')'+(call.result&&call.result.error?' - error':'');d.appendChild(s);

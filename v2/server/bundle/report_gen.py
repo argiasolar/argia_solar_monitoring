@@ -1710,7 +1710,7 @@ function compute(){{
   // plant assets link to their performance report (LaaS has no page)
   // v204: short asset name on one line (the long customer string wrapped
   // to five lines and pushed the PDF onto a second page)
-  const shortName=(m.name||k).split(/ PPA| CAPEX| roof| land| LaaS|,|\(/)[0].trim();
+  const shortName=(m.name||k).split(/ PPA| CAPEX| roof| land| LaaS|,|\\(/)[0].trim();
   const nm=m.type==='LaaS'?`<b title="${{m.name}}">${{shortName}}</b>`
    :`<a href="../${{k.toLowerCase()}}/" style="color:inherit" title="${{m.name}}"><b>${{shortName}}</b></a>`;
   h+=`<tr><td class="asset">${{nm}} <span class="sub">${{k}}${{m.kwp?' · '+Math.round(m.kwp)+' kWp':''}}</span></td>
@@ -1744,9 +1744,9 @@ window.addEventListener('DOMContentLoaded',()=>{{
  // the financial mailer prints a chosen period; humans get the default
  let w0='{V2_START}', w1=ASOF;   // v2 billing start -> data edge (Mirek: the HTML now carries the same default in the inputs)
  try{{
-  const raw=(location.hash||'').replace(/^#/,'')+'&'+(location.search||'').replace(/^\?/,'');
+  const raw=(location.hash||'').replace(/^#/,'')+'&'+(location.search||'').replace(/^\\?/,'');
   const p=new URLSearchParams(raw);
-  const ok=s=>/^\d{{4}}-\d{{2}}-\d{{2}}$/.test(s||'');
+  const ok=s=>/^\\d{{4}}-\\d{{2}}-\\d{{2}}$/.test(s||'');
   if(ok(p.get('d0')))w0=p.get('d0');
   if(ok(p.get('d1')))w1=p.get('d1');
  }}catch(e){{}}

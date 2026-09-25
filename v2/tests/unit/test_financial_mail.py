@@ -100,7 +100,9 @@ class TestReportGenWindowParams:
         assert "location.hash" in src and "location.search" in src
         assert "URLSearchParams" in src
         # strict date shape - garbage in the fragment must not stick
-        assert r"^\d{{4}}-\d{{2}}-\d{{2}}$" in src
+        # v263: the backslashes are doubled in the Python source (no invalid escapes);
+        # tests/portal checks the regex as the browser receives it
+        assert r"^\\d{{4}}-\\d{{2}}-\\d{{2}}$" in src
 
 
 class TestBackupChain:

@@ -8,3 +8,6 @@ freezegun>=1.4.0
 # tests (test_auth_app.py) importorskip when this is absent, so CI
 # needs it to actually exercise login/logout rather than skip them
 flask>=3.0.0
+
+# v263: tests/unit/test_static_checks.py runs pyflakes for real defects
+pyflakes>=3.2.0

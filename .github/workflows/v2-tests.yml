@@ -1,7 +1,7 @@
 name: v2-tests
 
 # Runs on every push/PR that touches v2/ code. v1 changes don't trigger this.
-# No secrets needed — pure unit tests.
+# No secrets needed - unit tests plus a private throwaway PostgreSQL (tests/portal).
 
 on:
   push:
@@ -39,6 +39,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      # v263: the portal and job end-to-end tests (tests/portal) start a private
+      # PostgreSQL from the runner's preinstalled binaries. ARGIA_REQUIRE_PG=1
+      # turns "PostgreSQL not found - skipped" into a failure, so they can never
+      # silently stop running here.
       - name: Run pytest
         working-directory: ./v2
-        run: PYTHONPATH=. pytest -v --tb=short
+        env:
+          ARGIA_REQUIRE_PG: "1"
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            # coverage ratchet: the total may not drop below the floor. Raise the
+            # floor when a gap from docs/TEST_COVERAGE_GAPS.md is closed.
+            PYTHONPATH=. pytest -v --tb=short --cov=argia --cov=scripts --cov=server --cov-branch \
+              --cov-report=term-missing:skip-covered --cov-fail-under=76
+          else
+            PYTHONPATH=. pytest -v --tb=short
+          fi

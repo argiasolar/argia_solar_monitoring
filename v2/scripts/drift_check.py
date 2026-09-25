@@ -158,6 +158,7 @@ def findings(report: dict) -> List[str]:
         out.append(f"unmapped bundle file (no deploy rule): {u}")
     for line in report.get("registry", []):
         out.append(f"inverter registry: {line}")
+    out += list(report.get("schema", []))
     for s in report.get("smoke", []):
         if not s.get("ok"):
             if "code" in s:
@@ -240,6 +241,44 @@ def registry_findings(repo: str) -> List[str]:
         return [f"check failed: {type(e).__name__}: {e}"]
 
 
+# v263: the end-to-end tests build their database from this copy of the
+# production DDL. When a table changes on pio06 and the copy does not, the
+# tests keep passing against a schema production no longer has - so the
+# morning check compares the two.
+TEST_SCHEMA = "v2/tests/fixtures/pg/schema.sql"
+
+
+def ddl_lines(text: str) -> List[str]:
+    """DDL statements' lines without comments, SET noise, psql meta-commands
+    or blank lines - what must match between production and the test copy. Pure."""
+    out = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if not s or s.startswith(("--", "SET ", "\\")) or s.startswith("SELECT pg_catalog.set_config"):
+            continue
+        out.append(s)
+    return out
+
+
+def schema_findings(repo: str, live: Optional[str] = None) -> List[str]:
+    fixture = _read(os.path.join(repo, TEST_SCHEMA))
+    if fixture is None:
+        return [f"test schema copy missing: {TEST_SCHEMA}"]
+    if live is None:
+        try:
+            from argia.store.pgq import schema_ddl
+            live = schema_ddl()
+        except Exception as e:  # noqa: BLE001 - a check must report, never crash the run
+            return [f"test schema: pg_dump failed ({type(e).__name__}) - could not compare"]
+    if not live.strip():
+        return ["test schema: pg_dump returned nothing - could not compare"]
+    a, b = set(ddl_lines(live)), set(ddl_lines(fixture.decode("utf-8")))
+    if a == b:
+        return []
+    return [f"test schema is out of date: {len(a - b)} DDL line(s) only in production, "
+            f"{len(b - a)} only in {TEST_SCHEMA} - refresh it (docs/TEST_HARNESS.md)"]
+
+
 def build_report(repo: str = REPO) -> dict:
     bundle_files = sorted(os.listdir(os.path.join(repo, "v2/server/bundle")))
     prs = pairs(repo, bundle_files)
@@ -254,7 +293,7 @@ def build_report(repo: str = REPO) -> dict:
     rep = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "git": git_state(repo), "files": files,
            "extras": extras(deployed, expected), "unmapped": unmapped(bundle_files),
-           "smoke": smoke, "registry": registry_findings(repo)}
+           "smoke": smoke, "registry": registry_findings(repo), "schema": schema_findings(repo)}
     rep["findings"] = findings(rep)
     return rep
 

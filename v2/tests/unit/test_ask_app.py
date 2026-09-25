@@ -252,6 +252,20 @@ class TestV219QuestionLanguage:
         assert "(slide|diapositiva)" in html
         assert "c==='link'" in html
 
+    def test_slide_regex_reaches_the_browser_intact(self, app):
+        """v263: '\\b' inside the Python template used to arrive as a BACKSPACE
+        character, so 'slide 12' in an answer never became a link."""
+        import re
+        html = app.app.test_client().get("/ask/", headers=hdr("tomasz")).get_data(as_text=True)
+        assert "\x08" not in html
+        m = re.search(r"replace\((/\\b\(slide\|diapositiva\)[^/]*/gi)", html)
+        assert m, "slide-link regex not found in the served page"
+        body = m.group(1)[1:-3]                      # strip the JS /.../gi
+        rx = re.compile(body, re.I)                  # same semantics for \b \s \d in Python
+        assert rx.search("see slide 12 for details").groups() == ("slide", "12")
+        assert rx.search("ver diapositiva 3").groups() == ("diapositiva", "3")
+        assert rx.search("slideshow 12") is None
+
     def test_ags_redirect_forwards_the_hash(self):
         import portal_chrome as PC
         page = PC.redirect_page(PC.AGS_URL, "ARGIA Golden Standard")

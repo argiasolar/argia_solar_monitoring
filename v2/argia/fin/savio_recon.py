@@ -149,7 +149,6 @@ def match_invoices(savio: Sequence[dict], tracker: Sequence[dict], rec: Recon) -
         elif s_paid != t_paid:
             rec.findings.append(Finding("STATE", sid, t.get("invoice", ""), total, ccy,
                                         "paid in Savio, still open in the tracker" if s_paid else "paid in the tracker, still open in Savio", "warn"))
-    matched_uuids = {_uuid(inv) for inv in savio if inv.get("invoice_id") in out}
     matched_ids = {id(t) for t in out.values()}
     for t in tracker:
         if id(t) in matched_ids or bool(t.get("paid_on")):

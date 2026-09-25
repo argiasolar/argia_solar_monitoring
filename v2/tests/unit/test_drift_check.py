@@ -140,3 +140,36 @@ class TestRunbookCoversEveryJob:
     def test_checklist_and_readme_point_at_the_runbook(self):
         assert "docs/OPERATIONS.md" in (V2 / "README.md").read_text(encoding="utf-8")
         assert "OPERATIONS.md" in (V2 / "docs/GO_LIVE_CHECKLIST.md").read_text(encoding="utf-8")
+
+
+class TestTestSchemaMatchesProduction:
+    """v263: the end-to-end tests build their database from a copy of the
+    production DDL; the morning check says when that copy is stale."""
+
+    def _fixture(self):
+        import pathlib
+        return (pathlib.Path(__file__).resolve().parents[2] / "tests/fixtures/pg/schema.sql").read_text(encoding="utf-8")
+
+    def test_identical_schema_is_silent(self):
+        import drift_check as dc
+        repo = str(__import__("pathlib").Path(__file__).resolve().parents[3])
+        live = "-- dumped\nSET statement_timeout = 0;\n\\restrict abc\n" + self._fixture()
+        assert dc.schema_findings(repo, live=live) == []
+
+    def test_a_new_production_column_is_reported(self):
+        import drift_check as dc
+        repo = str(__import__("pathlib").Path(__file__).resolve().parents[3])
+        live = self._fixture().replace("    plant_key text NOT NULL,", "    plant_key text NOT NULL,\n    new_col text,", 1)
+        out = dc.schema_findings(repo, live=live)
+        assert len(out) == 1 and "test schema is out of date: 1 DDL line(s) only in production" in out[0]
+
+    def test_empty_dump_is_a_finding_not_a_pass(self):
+        import drift_check as dc
+        repo = str(__import__("pathlib").Path(__file__).resolve().parents[3])
+        assert "could not compare" in dc.schema_findings(repo, live="")[0]
+
+    def test_schema_findings_reach_the_report(self):
+        import drift_check as dc
+        rep = {"git": {"head": "a", "origin": "a", "dirty": []}, "files": [], "extras": [], "unmapped": [],
+               "smoke": [], "registry": [], "schema": ["test schema is out of date: x"]}
+        assert "test schema is out of date: x" in dc.findings(rep)

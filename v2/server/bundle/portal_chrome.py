@@ -142,7 +142,6 @@ _ICONS = {
     'arrow': '<path d="M5 12h14M13 6l6 6-6 6"/>',
     'globe': '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
     'out': '<path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"/>',
-    'print': '<path d="M7 8V4h10v4M7 17H4v-6h16v6h-3"/><rect x="7" y="14" width="10" height="6"/>',
     'ext': '<path d="M14 4h6v6M20 4l-9 9M18 13v7H4V6h7"/>',
     'cal': '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     'bolt': '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',

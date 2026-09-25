@@ -1,0 +1,37 @@
+argia-ags-ingest  |  Sun *-*-* 04:20:00  |  ags_ingest.py
+argia-alerts-daily  |  *-*-* 06:30:00 America/Mexico_City  |  alerts_daily.py
+argia-alerts-snap  |  *-*-* 07..19:00/30:00 America/Mexico_City  |  alerts_snapshot.py
+argia-archive-month  |  *-*-02 03:00:00 America/Mexico_City  |  archive_month_pg.py
+argia-archive  |  *-*-* 03:00:00 America/Mexico_City  |  telemetry_archive.py
+argia-ask  |  (service)  |  ask_app.py
+argia-auth  |  (service)  |  auth_app.py
+argia-cfe-ingest  |  *-*-* 09:15:00 America/Mexico_City  |  cfe_ingest.py
+argia-cfe-push  |  *-*-* 15:45:00 UTC  |  cfe_engine_push.py
+argia-client-pages  |  *-*-* 07..20:15:00 America/Mexico_City  |  client_reports_publish.py
+argia-dailyperf  |  *-*-* 19:00:00 America/Mexico_City  |  daily_perf_mail.py
+argia-dash-update  |  *-*-* 06..20:02/10:00 America/Mexico_City  |  dashboard_update.py dashboard_html_publish.py
+argia-dbdump  |  *-*-* 03:30:00  |  db_backup.sh
+argia-drift  |  *-*-* 06:30:00 America/Mexico_City  |  drift_check.py
+argia-fin-drive  |  *-*-* 12:20:00  |  fin_drive_ingest.py
+argia-fin-savio  |  *-*-* 12:40:00  |  fin_savio_recon.py
+argia-fin  |  (service)  |  fin_app.py
+argia-finmail-monthly  |  *-*-01 23:59:00 America/Mexico_City  |  financial_mail.py
+argia-finmail-weekly  |  Fri *-*-* 23:59:00 America/Mexico_City  |  financial_mail.py
+argia-finreport  |  *-*-* 06:50:00 America/Mexico_City  |  financial_report_publish.py
+argia-invoice  |  *-*-01 07:30:00 America/Mexico_City  |  invoice_publish.py
+argia-kpi  |  *-*-* 06:00:00 America/Mexico_City  |  kpi_eod.py
+argia-mailer  |  *-*-* *:07/30:00  |  alert_mailer.py
+argia-maint  |  (service)  |  maint_app.py
+argia-portal-gen  |  *:0/5  |  portal_gen.py
+argia-recon-close  |  *-*-01 06:10:00 America/Mexico_City  |  recon_close.py
+argia-recon  |  *-*-* 23:50:00 America/Mexico_City  |  recon_snapshot.py
+argia-report-am  |  *-*-* 07:05:00 America/Mexico_City  |  report_daily.py
+argia-report-pm  |  *-*-* 20:45:00 America/Mexico_City  |  report_daily.py
+argia-satcheck  |  *-*-* 06:20:00 America/Mexico_City  |  satellite_check.py
+argia-savio-mock  |  (service)  |  savio_mock.py
+argia-setup  |  (service)  |  setup_app.py
+argia-strings  |  *-*-* 21:15:00 America/Mexico_City  |  string_daily.py
+argia-telemetry-se  |  *-*-* 06..20:03,23,43:00 America/Mexico_City  |  telemetry_5m.py
+argia-telemetry  |  *-*-* 05..21:00/5:00 America/Mexico_City  |  telemetry_5m.py
+argia-thermal  |  *-*-* 01:10:00 America/Mexico_City  |  thermal_daily.py
+argia-ticket-mail  |  *-*-* *:00/10:00  |  ticket_mail_in.py

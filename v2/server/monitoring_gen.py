@@ -1788,8 +1788,6 @@ def portfolio_page(skin='old'):
     tot_live = sum(r['live_kw'] for r in rows)
     tot_today = sum(r['today_kwh'] for r in rows)
     tot_today_mxn = sum(r['today_mxn'] or 0 for r in rows)
-    tot_life_mwh = sum(r['life_mwh'] for r in rows)
-    tot_life_mxn = sum(r['life_mxn'] or 0 for r in rows)
     # per plant - SAG's contracted factor differs from the national one,
     # so a single fleet scalar would overstate the total (v186)
     co2 = sum(r['life_mwh'] * co2_factor(None, r['key']) for r in rows)

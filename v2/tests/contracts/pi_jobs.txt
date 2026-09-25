@@ -1,0 +1,6 @@
+*/10 * * * *  |  pi/deploy.sh
+*/5 * * * *  |  pi/report_watch/report_watch.sh
+*/30 8-19 * * *  |  pi/report_watch/ppa_watch.sh
+0 22 * * *  |  pi/db_backups/pull_backup.sh
+10 8 * * *  |  pi/cfe/cfe_daily.sh
+17 3 * * *  |  find /home/zemel/argia_logs

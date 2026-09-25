@@ -51,3 +51,15 @@ def psql_rows(sql: str) -> List[List[str]]:
 def psql_exec(sql: str, timeout: int = _TIMEOUT) -> None:
     """Execute DML/DDL (stdin); raises on any error."""
     _run(sql, [], timeout=timeout)
+
+
+def schema_ddl(timeout: int = 60) -> str:
+    """The database's DDL, no rows (``pg_dump --schema-only``). v263: the
+    morning drift check compares it with the copy the end-to-end tests use."""
+    r = subprocess.run(
+        ["runuser", "-u", "postgres", "--", "pg_dump", "--schema-only", "--no-owner",
+         "--no-privileges", "--no-comments", db_name()],
+        capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise RuntimeError(f"pg_dump failed: {r.stderr[-800:]}")
+    return r.stdout

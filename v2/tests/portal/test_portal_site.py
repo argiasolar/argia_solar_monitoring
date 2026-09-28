@@ -209,3 +209,51 @@ class TestReports:
         _, _, files = site
         s = files["report/taigene/index.html"].read_text(encoding="utf-8")
         assert "kWh" in s and ("Taigene" in s or "TAIGENE" in s)
+
+
+# ------------------------------------------------------------ v264 losses in MXN
+class TestLosses:
+    """Tomasz, 2026-09-28: 'where can I see how big the impact is in MXN?'"""
+
+    def test_the_seeded_sag_outage_is_priced_as_unavailability(self, site, psql):
+        row = psql("SELECT expected_basis, lost_kwh, unavailability_kwh, underperformance_kwh, tariff_mxn, lost_mxn"
+                   " FROM loss_daily WHERE plant_key = 'MEX1'"
+                   " AND prod_date = (now() AT TIME ZONE 'America/Mexico_City')::date - 2")[0]
+        basis, lost, unav, under, tariff, mxn = row[0], *map(float, row[1:])
+        assert basis == "peers"                                   # MEX2 and MEX3 were healthy
+        assert lost > 500 and unav > 0.8 * lost                   # the 0 W hours, not the panels
+        assert mxn == pytest.approx(lost * tariff, abs=1)
+
+    def test_capex_losses_are_kwh_never_pesos(self, psql):
+        rows = psql("SELECT count(*) FROM loss_daily l JOIN plant p USING (plant_key)"
+                    " WHERE p.portfolio = 'CAPEX' AND (l.lost_mxn IS NOT NULL OR l.tariff_mxn IS NOT NULL)")
+        assert rows == [["0"]]
+
+    def test_the_causes_add_up_to_the_loss_on_every_row(self, psql):
+        bad = psql("SELECT plant_key, prod_date FROM loss_daily WHERE abs(coalesce(lost_kwh,0) - coalesce(unavailability_kwh,0)"
+                   " - coalesce(overheating_kwh,0) - coalesce(underperformance_kwh,0)) > 0.2")
+        assert bad == []
+
+    def test_the_losses_page_shows_sag_with_its_money(self, site, psql):
+        _, _, files = site
+        s = files["monitoring/losses/index.html"].read_text(encoding="utf-8")
+        lost_mxn = float(psql("SELECT sum(lost_mxn) FROM loss_daily WHERE plant_key = 'MEX1'")[0][0])
+        assert "Sag" in s or "SAG" in s
+        assert f"${lost_mxn:,.0f}" in s                           # the 30-day figure, to the peso
+        for word in ("Unavailability", "Overheating", "Underperformance", "Expected from"):
+            assert word in s, word
+        assert 'id="loss-mex1"' in s                              # the day-by-day table
+
+    def test_the_monitoring_tabs_offer_the_losses_page(self, site):
+        _, _, files = site
+        assert 'href="/monitoring/losses/"' in files["monitoring/index.html"].read_text(encoding="utf-8")
+
+    def test_sags_live_page_leads_with_the_money(self, site):
+        _, _, files = site
+        s = files["monitoring/sag/index.html"].read_text(encoding="utf-8")
+        assert "Lost to under-production" in s and "/monitoring/losses/#loss-mex1" in s
+
+    def test_a_capex_live_page_shows_kwh_and_no_link_to_the_financial_page(self, site):
+        _, _, files = site
+        s = files["monitoring/sms/index.html"].read_text(encoding="utf-8")
+        assert "CAPEX, not billed per kWh" in s and "/monitoring/losses/#loss-" not in s   # the tab bar is the same for all

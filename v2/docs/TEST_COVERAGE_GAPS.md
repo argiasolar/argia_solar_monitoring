@@ -1,5 +1,7 @@
 # Test coverage gaps - what is not yet protected
 
+Correction 2026-09-28: an earlier version said `kpi_eod.py` has no `--dry-run`. That was wrong: it has one; the job smoke test now uses it.
+
 v263, 2026-09-25. Measured with `pytest --cov=argia --cov=scripts --cov=server --cov-branch`
 on the full suite (4,278 tests). How the harness works: `docs/TEST_HARNESS.md`.
 
@@ -60,7 +62,6 @@ These run by hand, not on a schedule, and have no tests. They are safe to leave 
 ## Design findings (not coverage, but they make changes risky)
 
 1. **The fleet is hardcoded in three places**: `report_gen.PPA/CAPEX`, `setup_app.PLANTS` and `portal_chrome.SLUGS`. A plant missing from the database also crashes the portal generator. A test now makes the three lists agree; the real fix is one list read from the `plant` table.
-2. **`kpi_eod.py` has no `--dry-run`**, so it writes every time it runs, including by hand.
-3. **Hardcoded paths** (`financial_mail.WEBROOT`, `cfe_ingest.LOAD`, `setup_app.REPORT_GEN`) block end-to-end tests. Each should accept an environment override, as `ARGIA_WEBROOT` already does in `setup_app`.
-4. **About 47 test files check the source text** rather than behaviour (194 `... in src` assertions). They pass as long as the text is there, even when the feature is broken. Now that the portal and jobs run for real, the important ones should move to checks on the rendered page or the job output.
-5. **Style backlog** (low): 89 unused imports, 19 `zip()` calls without `strict=`, 6 `global` statements.
+2. **Hardcoded paths** (`financial_mail.WEBROOT`, `cfe_ingest.LOAD`, `setup_app.REPORT_GEN`) block end-to-end tests. Each should accept an environment override, as `ARGIA_WEBROOT` already does in `setup_app`.
+3. **About 47 test files check the source text** rather than behaviour (194 `... in src` assertions). They pass as long as the text is there, even when the feature is broken. Now that the portal and jobs run for real, the important ones should move to checks on the rendered page or the job output.
+4. **Style backlog** (low): 89 unused imports, 19 `zip()` calls without `strict=`, 6 `global` statements.

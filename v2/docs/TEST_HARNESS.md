@@ -15,7 +15,7 @@ cd v2 && PYTHONPATH=. pytest
 | No em dash | `tests/unit/test_no_em_dash.py` | No em dash in any file of the tree | laptop, CI |
 | Inventory contracts | `tests/contracts/` | Every URL the apps answer (`routes.txt`), every server job and its schedule (`jobs.txt`), every Pi cron job (`pi_jobs.txt`), the fleet list agrees in the three places it is hardcoded, and every server job is run by a test or says why not | laptop, CI |
 | Portal end to end | `tests/portal/test_portal_site.py` | `portal_gen.py` runs for real; every page in `expected_pages.txt` is generated, complete, bilingual, free of None/nan/em dash; every internal link resolves; the seeded plant states show up where they belong | CI, sandbox (needs PostgreSQL) |
-| Jobs end to end | `tests/portal/test_jobs_smoke.py` | 16 scheduled jobs run their `main()` in safe mode against the database and print the line that proves they worked; dry runs write nothing | CI, sandbox |
+| Jobs end to end | `tests/portal/test_jobs_smoke.py` | 17 scheduled jobs run their `main()` in safe mode against the database and print the line that proves they worked; dry runs write nothing | CI, sandbox |
 | Setup app | `tests/portal/test_setup_app_routes.py` | 31 of 35 Setup URLs: people, passwords, mail subscriptions, maintenance windows, finance edits - each checked in the database afterwards | CI, sandbox |
 | Finance pipeline | `tests/portal/test_fin_pipeline_pg.py` | schema, seed, ingest twice, decisions, the finance app's own queries | CI, sandbox |
 | Coverage floor | `.github/workflows/v2-tests.yml` | total line+branch coverage may not drop below the floor (76% on 2026-09-25, measured 77.4%) | CI (Python 3.12 leg) |

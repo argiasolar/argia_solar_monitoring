@@ -1919,3 +1919,27 @@ ALTER TABLE ONLY public.ticket_follower
     ADD CONSTRAINT ticket_follower_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES public.ticket(id) ON DELETE CASCADE;
 
 
+
+-- v264: loss_daily (scripts/loss_daily.py creates it on pio06)
+CREATE TABLE public.loss_daily (
+    plant_key text NOT NULL,
+    prod_date date NOT NULL,
+    kwp_dc numeric(10,3),
+    expected_weather_kwh numeric(12,1),
+    expected_peers_kwh numeric(12,1),
+    expected_kwh numeric(12,1),
+    expected_basis text DEFAULT ''::text NOT NULL,
+    peers text DEFAULT ''::text NOT NULL,
+    actual_kwh numeric(12,1),
+    lost_kwh numeric(12,1),
+    unavailability_kwh numeric(12,1),
+    overheating_kwh numeric(12,1),
+    underperformance_kwh numeric(12,1),
+    excused_kwh numeric(12,1),
+    tariff_mxn numeric(8,4),
+    lost_mxn numeric(12,2),
+    computed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.loss_daily
+    ADD CONSTRAINT loss_daily_pkey PRIMARY KEY (plant_key, prod_date);

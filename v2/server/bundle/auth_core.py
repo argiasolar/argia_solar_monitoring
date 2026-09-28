@@ -94,6 +94,9 @@ PREFIX_AREA.update({
     '/setup/cfe/': ALL,
     '/report/financial/': 'financial', '/report/invoices/': 'financial',
     '/map/': 'financial',
+    # v264: the loss page prices every PPA plant's lost energy in MXN -
+    # financial-grade content, the same gate as the map and the report
+    '/monitoring/losses/': 'financial',
     '/report/capex/': 'capex', '/monitoring/capex/': 'capex',
 })
 for _code, _slug in _SLUGS.items():

@@ -37,7 +37,8 @@ SERVER_ENV = {
 JOBS = [
     ("alerts_snapshot", ["--dry-run"], r"MEX3: no telemetry"),
     ("alerts_daily", ["--dry-run"], r"\[DRY RUN\] no rows written"),
-    ("kpi_eod", [], r"Stamped \d+ billable_kwh"),
+    ("kpi_eod", ["--dry-run"], r"Stamped \d+ billable_kwh cell\(s\) \(dry-run\)"),
+    ("loss_daily", ["--dry-run"], r"DONE: [1-9]\d* plant-day\(s\)"),
     ("recon_snapshot", ["--dry-run"], r"DONE: reconciliation rows upserted=\d+ dry_run=True"),
     ("recon_close", ["--dry-run"], r"DONE: \d{4}-\d{2} months-rows"),
     ("thermal_daily", ["--dry-run"], r"DONE: [1-9]\d* inverter-days evaluated"),

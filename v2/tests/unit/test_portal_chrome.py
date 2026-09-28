@@ -36,7 +36,8 @@ class TestHeader:
         h = C.header("monitoring")
         assert [u for _on, u in re.findall(r'class="tab( on)?" href="([^"]+)"', h)] == [
             "/monitoring/", "/monitoring/ppa/", "/monitoring/capex/",
-            "/monitoring/performance/", "/monitoring/recon/"]      # v213: nothing dropped
+            "/monitoring/performance/", "/monitoring/losses/",     # v264: losses in MXN
+            "/monitoring/recon/"]                                  # v213: nothing dropped
         h = C.header("setup", "people")
         assert [u for _on, u in re.findall(r'class="tab( on)?" href="([^"]+)"', h)] == [
             "/setup/people/", "/setup/plants/", "/setup/finance/", "/setup/cfe/", "/setup/system/"]

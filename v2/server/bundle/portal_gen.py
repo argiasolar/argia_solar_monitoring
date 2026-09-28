@@ -12,6 +12,7 @@ from day one and every feature can be compared side by side.
 """
 from __future__ import annotations
 
+import datetime as dt
 import html
 import os
 import sys
@@ -32,6 +33,7 @@ from plain_text import plain                       # noqa: E402
 from argia_client_logos import CLIENT_LOGOS        # noqa: E402
 import report_gen as RG                            # noqa: E402  (loads PG)
 import monitoring_gen as MG                        # noqa: E402  (loads PG)
+import losses_view as LV                           # noqa: E402  (v264)
 
 t, ti, ico, tile, pill = C.t, C.ti, C.ico, C.tile, C.pill
 PPA, CAPEX = RG.PPA, RG.CAPEX
@@ -342,6 +344,10 @@ def monitoring_plant(k, d):
     live = parts['live']
     code_path, slug_path = f'/monitoring/{k.lower()}/', f'/monitoring/{C.slug(k)}/'
     body = parts['body'].replace(code_path, slug_path)
+    if live:                            # v264: the money, at the top of the live page
+        # CAPEX owners open their own live page; the loss page is financial-grade, so no link for them
+        more = f'/monitoring/losses/#loss-{k.lower()}' if p.get('portfolio') == 'PPA' else ''
+        body = LV.plant_card(k, LOSS_ROWS, dt.date.fromisoformat(MG.TODAY), more) + body
     picker = parts['picker'].replace(code_path, slug_path)
     buttons = parts['buttons'].replace(code_path, slug_path)
     head = f'''
@@ -356,6 +362,24 @@ def monitoring_plant(k, d):
     extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES + '</style>'
     return C.page(name(k), head + f'<div class="monbody">{body}</div>', 'monitoring', '',
                   refresh=(300 if live else 0), extra_head=extra)
+
+
+# ------------------------------------------------------------ v264 losses
+try:
+    LOSS_ROWS = LV.normalise(MG.q(LV.SELECT_SQL))
+except Exception:                     # table not created yet (first deploy) - the page says so
+    LOSS_ROWS = []
+
+
+def monitoring_losses():
+    """/monitoring/losses/ - expected vs actual, the loss in MXN, by cause (v264)."""
+    plants = {k: {"portfolio": v.get("portfolio")} for k, v in MG.PLANTS.items()}
+    today = dt.date.fromisoformat(MG.TODAY)
+    body = LV.render(LOSS_ROWS, plants, today, name, lambda k: f'/monitoring/{C.slug(k)}/')
+    return mon_wrap('Losses in MXN', 'Pérdidas en MXN',
+                    'Expected vs actual · the money lost to unavailability, overheating and underperformance',
+                    'Esperado vs real · el dinero perdido por indisponibilidad, sobrecalentamiento y bajo desempeño',
+                    body, 'losses')
 
 
 def mon_wrap(title_en, title_es, kicker_en, kicker_es, body, on, buttons=''):
@@ -499,6 +523,7 @@ def main():
     write('monitoring/capex/index.html', monitoring_overview('capex')); n += 1
     write('monitoring/performance/index.html', monitoring_performance()); n += 1
     write('monitoring/recon/index.html', monitoring_recon()); n += 1
+    write('monitoring/losses/index.html', monitoring_losses()); n += 1
     write('monitoring/recon/reconciliation.csv', MG.recon_csv(MG.RECON_M, MG.RECON_D)); n += 1   # v242: the accountant's export
     # parity phase: not-yet-rebuilt destinations land on the old site
     write('report/financial/index.html', financial_report()); n += 1

@@ -51,7 +51,8 @@ SECTIONS = {
         ('financial', 'Financial', 'Financiero'), ('invoices', 'Invoices', 'Facturas')]),
     'monitoring': ('Monitoring', 'Monitoreo', [
         ('', 'Overview', 'Resumen'), ('ppa', 'PPA', 'PPA'), ('capex', 'CAPEX', 'CAPEX'),
-        ('performance', 'Performance', 'Desempeño'), ('recon', 'Reconciliation', 'Conciliación')]),
+        ('performance', 'Performance', 'Desempeño'), ('losses', 'Losses (MXN)', 'Pérdidas (MXN)'),
+        ('recon', 'Reconciliation', 'Conciliación')]),
     'map': ('Map', 'Mapa', []),
     'engine': ('Engine', 'Engine', []),
     'ags': ('ARGIA Golden Standard', 'ARGIA Golden Standard', []),

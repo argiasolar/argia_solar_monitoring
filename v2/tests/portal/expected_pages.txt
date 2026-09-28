@@ -13,6 +13,7 @@ monitoring/hirschmann/index.html
 monitoring/holiday-inn-express/d/<date>.html
 monitoring/holiday-inn-express/index.html
 monitoring/index.html
+monitoring/losses/index.html
 monitoring/mex1/index.html
 monitoring/mex2/index.html
 monitoring/mex3/index.html

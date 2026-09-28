@@ -150,6 +150,28 @@ def gather_yesterday_cost(today: dt.date):
     total_kwh, total_mxn|None); never raises."""
     from argia.analytics import money as M
     d = (today - dt.timedelta(days=1)).isoformat()
+    # v264: the same figure as /monitoring/losses/ - expected from peers/weather,
+    # computed at 06:00 by loss_daily. The plain weather gap below is the fallback.
+    try:
+        from argia.store.pgq import psql_rows
+        lrows = psql_rows("SET statement_timeout='20s';"
+                          f" SELECT plant_key, lost_kwh, tariff_mxn FROM loss_daily WHERE prod_date = '{d}';")
+    except Exception:                            # noqa: BLE001 - table not there yet
+        lrows = []
+    if lrows:
+        per, pairs = {}, []
+        for r in lrows:
+            try:
+                lost = float(r[1]) if r[1] not in (None, "") else None
+                tariff = float(r[2]) if r[2] not in (None, "") else None
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not lost:
+                continue
+            per[r[0]] = (lost, M.cost_mxn(lost, tariff))
+            pairs.append((lost, tariff))
+        kwh, mxn = M.total_cost(pairs)
+        return per, kwh, mxn
     try:
         from argia.store.pgq import psql_rows
         rows = psql_rows(

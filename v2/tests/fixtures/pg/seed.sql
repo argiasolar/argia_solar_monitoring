@@ -68,16 +68,25 @@ INSERT INTO daily_production (plant_key, prod_date, energy_kwh, irradiance_kwh_m
                               cloud_cover_pct, availability, inverters_reporting, data_class, status_note, source,
                               specific_yield, design_kwh)
 SELECT p.plant_key, d::date,
-       round((p.kwp_dc * 5.2 * p.pr_baseline * (0.92 + 0.08 * sin(extract(doy FROM d) / 9.0)))::numeric, 3),
+       round((p.kwp_dc * 5.2 * p.pr_baseline * (0.95 + 0.05 * sin(extract(doy FROM d) / 9.0)))::numeric, 3),
        round((5.2 * (0.95 + 0.05 * cos(extract(doy FROM d) / 30.0)))::numeric, 4),
        round((p.pr_baseline * (0.97 + 0.03 * sin(extract(doy FROM d) / 9.0)))::numeric, 4),
        round((p.kwp_dc * 5.2 * p.pr_baseline)::numeric, 3),
-       round((p.kwp_dc * 5.2 * p.pr_baseline * (0.92 + 0.08 * sin(extract(doy FROM d) / 9.0)))::numeric, 3),
+       round((p.kwp_dc * 5.2 * p.pr_baseline * (0.95 + 0.05 * sin(extract(doy FROM d) / 9.0)))::numeric, 3),
        15, 1.0, 2, 'measured', '', 'v2',
        round((5.2 * p.pr_baseline)::numeric, 3), round((p.kwp_dc * 5.0 * 0.8)::numeric, 3)
 FROM plant p, generate_series((SELECT today FROM _d) - 430, (SELECT today FROM _d) - 1, interval '1 day') d;
 UPDATE daily_production SET energy_kwh = energy_kwh * 0.3, availability = 0.3, status_note = 'inverter offline part of the day'
  WHERE plant_key = 'MEX3' AND prod_date = (SELECT today FROM _d) - 1;
+
+-- v264: SAG (MEX1, PPA) had an outage two days ago - all inverters at 0 W from 10:00 to 16:00 MX,
+-- so the loss page must show it as unavailability, priced at SAG's PPA tariff
+UPDATE telemetry SET power_w = 0
+ WHERE plant_key = 'MEX1'
+   AND (ts_utc AT TIME ZONE 'America/Mexico_City')::date = (SELECT today FROM _d) - 2
+   AND extract(hour FROM ts_utc AT TIME ZONE 'America/Mexico_City') BETWEEN 10 AND 15;
+UPDATE daily_production SET energy_kwh = round(energy_kwh * 0.35, 3), status_note = 'outage 10:00-16:00'
+ WHERE plant_key = 'MEX1' AND prod_date = (SELECT today FROM _d) - 2;
 
 INSERT INTO contract_monthly (plant_key, year, month, design_kwh, contract_kwh, tariff_mxn, fixed_income_ccy, ccy)
 SELECT p.plant_key, y, m, p.kwp_dc * 150, p.kwp_dc * 140, p.tariff_mxn_per_kwh, NULL, 'MXN'

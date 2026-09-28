@@ -28,6 +28,8 @@ import pathlib
 import shutil
 import subprocess
 
+import sys
+
 import pytest
 
 V2 = pathlib.Path(__file__).resolve().parents[2]
@@ -40,6 +42,12 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done
 [ "$1" = "--" ] && shift
 exec "$@"
 """
+
+
+def _mx_today():
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    return dt.datetime.now(ZoneInfo("America/Mexico_City")).date()
 
 
 def _pg_bin():
@@ -141,6 +149,11 @@ def portal_site(pg_env, tmp_path_factory):
     import sys
 
     reset_db(pg_env)
+    # v264: the nightly loss job runs first, exactly as on pio06 (kpi 06:00, pages every 5 min)
+    r = subprocess.run([sys.executable, str(V2 / "scripts/loss_daily.py"), "--from",
+                        (_mx_today() - __import__("datetime").timedelta(days=8)).isoformat()],
+                       env=dict(pg_env, ARGIA_PG_MIRROR="1", PYTHONPATH=str(V2)), capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
     out = tmp_path_factory.mktemp("www")
     saved_env, saved_argv, saved_path = dict(os.environ), list(sys.argv), list(sys.path)
     buf = io.StringIO()

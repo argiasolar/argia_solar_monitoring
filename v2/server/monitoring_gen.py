@@ -407,6 +407,46 @@ for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh"
         DAILY.setdefault(r[0], []).append(
             (r[1], f(r[2]), f(r[3]) if r[3] not in ('', None) else None))
 
+# v264/v266: the day's loss (scripts/loss_daily.py) - expected with 100%
+# availability (peers, else the weather model) and the cause. Missing table
+# (first deploy) = no loss columns, never a crash.
+LOSS = {}         # (plant, date) -> dict
+try:
+    for r in q("SELECT plant_key, prod_date::text, expected_kwh, expected_basis, lost_kwh, lost_mxn,"
+               " unavailability_kwh, overheating_kwh, underperformance_kwh FROM loss_daily"
+               f" WHERE prod_date >= DATE '{TODAY}' - 31;"):
+        if len(r) >= 9:
+            LOSS[(r[0], r[1])] = {"exp": f(r[2]), "basis": r[3], "lost": f(r[4]), "mxn": f(r[5]),
+                                  "unavailability": f(r[6]), "overheating": f(r[7]), "underperformance": f(r[8])}
+except Exception:
+    LOSS = {}
+
+CAUSE_LABEL = {"unavailability": ("unavailability", "indisponibilidad"),
+               "overheating": ("overheating", "sobrecalentamiento"),
+               "underperformance": ("underperformance", "bajo desempeño")}
+
+
+def loss_cells(pk, dd, e, xx):
+    """(expected shown, the % cell, lost kWh / MXN / cause cells) for one day of
+    the 'Last 7 days' table. Expected = the loss figure's 100%-available
+    expectation when loss_daily has the day, else the weather model."""
+    L = LOSS.get((pk, dd))
+    exp = L["exp"] if L and L["exp"] else xx
+    pct = " - " if not e or not exp else f"{100*e/exp:,.0f}%"
+    if not L or L["lost"] is None:
+        return exp, pct, '<td> - </td><td> - </td><td> - </td>'
+    lost = L["lost"] or 0.0
+    if lost < 1:
+        return exp, pct, '<td>0</td><td>' + ('$0' if L["mxn"] is not None else ' - ') + '</td><td> - </td>'
+    main = max(CAUSE_LABEL, key=lambda c: L[c] or 0.0)
+    share = 100 * (L[main] or 0.0) / lost
+    en, es = CAUSE_LABEL[main]
+    cls = ' class="st-FAIL"' if exp and lost > 0.10 * exp else ''
+    money = ' - ' if L["mxn"] is None else f'${L["mxn"]:,.0f}'
+    return exp, pct, (f'<td{cls}>{lost:,.0f}</td><td{cls}>{money}</td>'
+                      f'<td data-en="{en} {share:.0f}%" data-es="{es} {share:.0f}%">{en} {share:.0f}%</td>')
+
+
 # MTD from the day pairs, not a blind SQL sum: 'exp' counts only days
 # the KPI pipeline stamped, and 'pm' is production on THOSE SAME days -
 # so vs-expected never divides a full month of production by a partial
@@ -1172,11 +1212,12 @@ def plant_page(pk, d, skin='old'):
         f'<td>{" - " if f(r[5]) is None else f"{f(r[5]):+.2f}%"}</td>'
         f'<td class="st-{esc(r[6])}">{esc(r[6])}</td></tr>'
         for r in RECON_D.get(pk, [])[:7])
-    daily_rows = ''.join(
-        f'<tr><td><a href="{BASE + "/" + pk.lower() + "/" if dd == TODAY else f"{BASE}/{pk.lower()}/d/{dd}.html"}">{esc(dd)}</a></td>'
-        f'<td>{fmt_kwh(e)}</td><td>{fmt_kwh(xx)}</td>'
-        f'<td>{" - " if not e or not xx else f"{100*e/xx:,.0f}%"}</td></tr>'
-        for dd, e, xx in reversed(DAILY.get(pk, [])[-7:]))
+    daily_rows = ''
+    for dd, e, xx in reversed(DAILY.get(pk, [])[-7:]):
+        exp, pct, lc = loss_cells(pk, dd, e, xx)
+        daily_rows += (
+            f'<tr><td><a href="{BASE + "/" + pk.lower() + "/" if dd == TODAY else f"{BASE}/{pk.lower()}/d/{dd}.html"}">{esc(dd)}</a></td>'
+            f'<td>{fmt_kwh(e)}</td><td>{fmt_kwh(exp)}</td><td>{pct}</td>{lc}</tr>')
 
     maint = MAINT_TODAY.get(pk, [])
     maint_html = ''.join(
@@ -1231,7 +1272,9 @@ def plant_page(pk, d, skin='old'):
 {thermal_card(pk, d)}
 {alerts_card(pk) if live else ''}
 <div class="card"><h2 data-en="Last 7 days - production (click a date)" data-es="Últimos 7 días - producción (clic en la fecha)">Last 7 days - production (click a date)</h2>
-<table><tr><th data-en="Date" data-es="Fecha">Date</th><th>kWh</th><th data-en="Expected" data-es="Esperado">Expected</th><th>%</th></tr>{daily_rows}</table></div>
+<table><tr><th data-en="Date" data-es="Fecha">Date</th><th>kWh</th><th data-en="Expected" data-es="Esperado">Expected</th><th>%</th><th data-en="Lost kWh" data-es="Perdido kWh">Lost kWh</th><th data-en="Lost MXN" data-es="Perdido MXN">Lost MXN</th><th data-en="Main cause" data-es="Causa principal">Main cause</th></tr>{daily_rows}</table>
+<p class="note" data-en="Expected = what the plant should have made with 100% availability: its healthy neighbours' production that day where they exist, else the weather model. Lost = expected minus actual; MXN at the PPA tariff (CAPEX: kWh only). Cause and the full split: Monitoring, Losses (MXN)."
+ data-es="Esperado = lo que la planta debió producir con 100% de disponibilidad: la producción de sus vecinas sanas ese día donde existen, si no el modelo de clima. Perdido = esperado menos real; MXN a la tarifa PPA (CAPEX: solo kWh). Causa y desglose completo: Monitoreo, Pérdidas (MXN).">Expected = what the plant should have made with 100% availability (neighbours, else weather model). Lost = expected minus actual.</p></div>
 <div class="card"><h2 data-en="Daily reconciliation - interval vs vendor counter" data-es="Conciliación diaria - intervalos vs contador">Daily reconciliation - interval vs vendor counter</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th data-en="Compl." data-es="Compl.">Compl.</th><th>Δ%</th><th>Status</th></tr>{recon_rows}</table>
 <p class="note" data-en="The vendor cumulative counter is the billing control; interval data is analytics. A gap in our collection can never shrink an invoice."

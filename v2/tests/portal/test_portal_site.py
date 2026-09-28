@@ -257,3 +257,25 @@ class TestLosses:
         _, _, files = site
         s = files["monitoring/sms/index.html"].read_text(encoding="utf-8")
         assert "CAPEX, not billed per kWh" in s and "/monitoring/losses/#loss-" not in s   # the tab bar is the same for all
+
+    def test_the_7_day_table_carries_the_loss_and_its_cause(self, site, psql):
+        """v266: Tomasz - 'lets also show the losses in this Last 7 days table'."""
+        _, _, files = site
+        s = files["monitoring/sag/index.html"].read_text(encoding="utf-8")
+        table = s[s.index("Last 7 days - production"):]
+        table = table[:table.index("</table>")]
+        assert "Lost kWh" in table and "Lost MXN" in table and "Main cause" in table
+        day, exp, lost, mxn = psql("SELECT prod_date::text, expected_kwh, lost_kwh, lost_mxn FROM loss_daily WHERE plant_key = 'MEX1'"
+                                   " AND prod_date = (now() AT TIME ZONE 'America/Mexico_City')::date - 2")[0]
+        row = table[table.index(day):]
+        row = row[:row.index("</tr>")]
+        assert f"{float(exp):,.1f}" in row                       # expected = the 100%-available figure
+        assert f"{float(lost):,.0f}" in row and f"${float(mxn):,.0f}" in row
+        assert "unavailability" in row
+
+    def test_a_capex_7_day_table_has_no_pesos(self, site):
+        _, _, files = site
+        s = files["monitoring/sms/index.html"].read_text(encoding="utf-8")
+        table = s[s.index("Last 7 days - production"):]
+        table = table[:table.index("</table>")]
+        assert "Main cause" in table and "$" not in table

@@ -79,6 +79,12 @@ FROM plant p, generate_series((SELECT today FROM _d) - 430, (SELECT today FROM _
 UPDATE daily_production SET energy_kwh = energy_kwh * 0.3, availability = 0.3, status_note = 'inverter offline part of the day'
  WHERE plant_key = 'MEX3' AND prod_date = (SELECT today FROM _d) - 1;
 
+-- v267: Vitalmex (MEX2) INV-02 at half power three days ago; the plant counter lost that energy too
+UPDATE telemetry SET power_w = round(power_w * 0.5, 2), etoday_kwh = round(etoday_kwh * 0.5, 3)
+ WHERE inverter_sn = 'MEX2INV02' AND (ts_utc AT TIME ZONE 'America/Mexico_City')::date = (SELECT today FROM _d) - 3;
+UPDATE daily_production SET energy_kwh = round(energy_kwh * 0.75, 3), status_note = 'INV-02 at half power'
+ WHERE plant_key = 'MEX2' AND prod_date = (SELECT today FROM _d) - 3;
+
 -- v264: SAG (MEX1, PPA) had an outage two days ago - all inverters at 0 W from 10:00 to 16:00 MX,
 -- so the loss page must show it as unavailability, priced at SAG's PPA tariff
 UPDATE telemetry SET power_w = 0
@@ -163,8 +169,14 @@ INSERT INTO maintenance_event (plant_key, start_ts, end_ts, category, cost_type,
 VALUES ('QRO1', now() - interval '10 days', now() - interval '10 days' + interval '4 hours', 'customer', 'opex', 1500,
         'Customer shutdown for roof work', 'demo', 'demo');
 
-INSERT INTO ticket (number, plant_key, inverter_sn, title, description, category, priority, status, created_by)
-VALUES ('T-0001', 'MEX1', '', 'Check datalogger connection', 'Created from the plant_offline alert.', 'comms', 'P1', 'NEW', 'demo');
+INSERT INTO ticket (number, plant_key, inverter_sn, title, description, category, priority, status, created_by, created_at)
+VALUES ('T-0001', 'MEX1', '', 'Check datalogger connection', 'Created from the plant_offline alert.', 'inverter/comms', 'P1', 'NEW', 'demo', now() - interval '4 days');
+
+-- v267: an inverter ticket on Vitalmex (MEX2) INV-02, which made half of its peer
+-- three days ago; the plant lost the same energy that day
+INSERT INTO ticket (number, plant_key, inverter_sn, title, description, category, priority, status, created_by, created_at)
+VALUES ('T-0002', 'MEX2', 'MEX2INV02', 'INV-02 low output', 'Half of its peer.', 'inverter/fault', 'P2', 'IN_PROGRESS', 'demo',
+        now() - interval '5 days');
 INSERT INTO ticket_alert (ticket_id, alert_key) SELECT id, 'plant_offline|MEX1|' FROM ticket WHERE number = 'T-0001';
 
 -- one subscriber per channel so the mail jobs build real messages (dry-run never sends)

@@ -40,6 +40,7 @@ import portal_chrome as PC                              # noqa: E402
 from argia.alerts import emailer, naming                # noqa: E402
 from argia.maintenance import notify as NOTIFY           # noqa: E402
 from argia.maintenance import tickets as TK             # noqa: E402
+from argia.maintenance import ticket_cost as TC         # noqa: E402  (v267)
 from argia.store import pgq                             # noqa: E402
 
 app = Flask(__name__)
@@ -189,6 +190,113 @@ def load_tickets(where: str) -> List[TK.Ticket]:
         TK.SELECT_TICKETS + f" WHERE {where} ORDER BY CASE priority WHEN 'P1' THEN 0 WHEN 'P2' THEN 1 WHEN 'P3' THEN 2 ELSE 3 END, updated_at DESC;"))]
 
 
+# ------------------------------------------------------------- v267 cost
+def _in_list(keys) -> str:
+    return ",".join(TK._txt(k) for k in sorted(set(keys))) or "''"
+
+
+def ticket_costs(tks: List[TK.Ticket], today: Optional[dt.date] = None) -> Dict[str, List[TC.DayCost]]:
+    """{ticket number: [DayCost]} for the days each ticket has been open.
+    Two queries for the whole list. A missing loss table or telemetry never
+    breaks a ticket page: those tickets simply show no figure."""
+    today = today or dt.datetime.now(TC.MX).date()
+    wins = {t.number: TC.window(t.created_at, t.resolved_at, t.closed_at, today) for t in tks}
+    starts = [w[0] for w in wins.values() if w]
+    if not starts:
+        return {}
+    since = min(starts).isoformat()
+    plants = {t.plant_key for t in tks if wins.get(t.number)}
+    loss: Dict[str, Dict[str, TC.PlantDay]] = {}
+    try:
+        for r in TK.rows_from_csv(rows_csv(
+                "SELECT plant_key, prod_date::text AS d, lost_kwh, tariff_mxn, unavailability_kwh, overheating_kwh,"
+                f" underperformance_kwh FROM loss_daily WHERE prod_date >= DATE '{since}'"
+                f" AND plant_key IN ({_in_list(plants)});")):
+            f = (lambda v: float(v) if v not in (None, "") else None)
+            loss.setdefault(r["plant_key"], {})[r["d"]] = TC.PlantDay(
+                f(r["lost_kwh"]), f(r["tariff_mxn"]), f(r["unavailability_kwh"]) or 0.0,
+                f(r["overheating_kwh"]) or 0.0, f(r["underperformance_kwh"]) or 0.0)
+    except Exception:                                    # noqa: BLE001
+        return {}
+    inv_plants = {t.plant_key for t in tks if t.inverter_sn and wins.get(t.number)}
+    per_inv: Dict[tuple, tuple] = {}                     # (plant, sn, day) -> (rated_kw, kwh)
+    if inv_plants:
+        try:
+            for r in TK.rows_from_csv(rows_csv(
+                    "WITH inv AS (SELECT plant_key, inverter_sn, (ts_utc AT TIME ZONE 'America/Mexico_City')::date::text AS d,"
+                    " max(etoday_kwh) AS kwh FROM telemetry WHERE plant_key IN (" + _in_list(inv_plants) + ")"
+                    f" AND ts_utc >= (DATE '{since}' AT TIME ZONE 'America/Mexico_City') GROUP BY 1, 2, 3)"
+                    " SELECT inv.plant_key, inv.inverter_sn, inv.d, inv.kwh, i.rated_kw FROM inv"
+                    " JOIN inverter i ON i.plant_key = inv.plant_key AND i.inverter_sn = inv.inverter_sn WHERE i.active;")):
+                f = (lambda v: float(v) if v not in (None, "") else None)
+                per_inv[(r["plant_key"], r["inverter_sn"], r["d"])] = (f(r["rated_kw"]), f(r["kwh"]))
+        except Exception:                                # noqa: BLE001
+            per_inv = {}
+    out = {}
+    for t in tks:
+        days = wins.get(t.number) or []
+        inverter = None
+        if t.inverter_sn:
+            inverter = {}
+            for d in days:
+                ds = d.isoformat()
+                rated, kwh = per_inv.get((t.plant_key, t.inverter_sn, ds), (None, None))
+                peers = [k / r for (pk, sn, dd), (r, k) in per_inv.items()
+                         if pk == t.plant_key and dd == ds and sn != t.inverter_sn and r and k is not None]
+                inverter[ds] = (rated, kwh, peers)
+        out[t.number] = TC.ticket_days(days, loss.get(t.plant_key, {}), inverter)
+    return out
+
+
+def cost_text(days: Optional[List[TC.DayCost]]) -> str:
+    """'$4,933' / '1,967 kWh' / ' - ' for a list cell."""
+    if not days:
+        return '<span class="muted"> - </span>'
+    kwh, mxn = TC.total(days)
+    if mxn is not None:
+        return f'<b>${mxn:,.0f}</b>' if mxn >= 1 else '$0'
+    return f'{kwh:,.0f} kWh'
+
+
+CAUSE_TXT = {"unavailability": ("unavailability", "indisponibilidad"), "overheating": ("overheating", "sobrecalentamiento"),
+             "underperformance": ("underperformance", "bajo desempeño"), "inverter": ("this inverter vs its peers", "este inversor vs sus pares"),
+             "none": (" - ", " - ")}
+
+
+def cost_card(t: TK.Ticket, days: Optional[List[TC.DayCost]]) -> str:
+    """What this ticket has cost so far, day by day (v267)."""
+    head_en = "Revenue lost while this ticket is open" if t.open else "Revenue lost while this ticket was open"
+    head_es = "Ingreso perdido mientras este ticket está abierto" if t.open else "Ingreso perdido mientras este ticket estuvo abierto"
+    if not days:
+        return (f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">{T(head_en, head_es)}</h2>'
+                f'<div class="muted">{T("No closed day yet: a day is priced the next morning, when its production is final.", "Aún no hay un día cerrado: cada día se valora a la mañana siguiente, cuando su producción es definitiva.")}</div></div>')
+    kwh, mxn = TC.total(days)
+    priced = mxn is not None
+    worst = max(days, key=lambda d: d.lost_kwh)
+    summary = (T(f"{kwh:,.0f} kWh = ${mxn:,.0f} MXN over {len(days)} day(s), ${mxn / len(days):,.0f} per day on average",
+                 f"{kwh:,.0f} kWh = ${mxn:,.0f} MXN en {len(days)} día(s), ${mxn / len(days):,.0f} por día en promedio") if priced else
+               T(f"{kwh:,.0f} kWh over {len(days)} day(s) (CAPEX plant: not billed per kWh)",
+                 f"{kwh:,.0f} kWh en {len(days)} día(s) (planta CAPEX: no se factura por kWh)"))
+    rows = ''.join(
+        f'<tr><td>{e(d.day)}</td><td>{d.lost_kwh:,.0f}</td><td>{("$" + format(d.mxn, ",.0f")) if d.mxn is not None else " - "}</td>'
+        f'<td>{T(*CAUSE_TXT.get(d.cause, (d.cause, d.cause)))}</td></tr>'
+        for d in sorted(days, key=lambda d: d.day, reverse=True))
+    if t.inverter_sn and any(d.basis == "inverter" for d in days):
+        how = T("Inverter ticket: each day counts only this inverter's shortfall against the plant's other inverters (kWh per rated kW), never more than the plant lost.",
+                "Ticket de inversor: cada día cuenta solo el faltante de este inversor frente a los demás inversores de la planta (kWh por kW nominal), nunca más de lo que perdió la planta.")
+    elif t.inverter_sn:
+        how = T("Inverter ticket on a plant without comparable inverters: the plant's whole loss is shown.",
+                "Ticket de inversor en una planta sin inversores comparables: se muestra la pérdida completa de la planta.")
+    else:
+        how = T("Plant ticket: each day counts the plant's whole loss (expected with 100% availability minus actual), whatever the cause - see Monitoring, Losses (MXN).",
+                "Ticket de planta: cada día cuenta la pérdida completa de la planta (esperado con 100% de disponibilidad menos real), sea cual sea la causa - ver Monitoreo, Pérdidas (MXN).")
+    return (f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">{T(head_en, head_es)}</h2>'
+            f'<div style="font-size:15px;margin:2px 0 8px"><b>{summary}</b></div>'
+            f'<div class="muted" style="font-size:12px;margin-bottom:8px">{T(f"Worst day: {worst.day}, {worst.lost_kwh:,.0f} kWh.", f"Peor día: {worst.day}, {worst.lost_kwh:,.0f} kWh.")} {how} '
+            f'{T("Today is added tomorrow morning.", "Hoy se agrega mañana por la mañana.")}</div>'
+            f'<table><tr><th>{T("Date", "Fecha")}</th><th>{T("Lost kWh", "Perdido kWh")}</th><th>{T("Lost MXN", "Perdido MXN")}</th><th>{T("Main cause", "Causa principal")}</th></tr>{rows}</table></div>')
+
+
 def load_events(ticket_id: int) -> List[TK.Event]:
     return [TK.event_from_row(r) for r in TK.rows_from_csv(rows_csv(
         "SELECT id, ticket_id, ts::text AS ts, actor, kind, body, meta::text AS meta FROM ticket_event"
@@ -280,6 +388,8 @@ COL_HELP = {
     'age': ('Time since the ticket was opened.', 'Tiempo desde que se abrió el ticket.'),
     'sla': ('Resolve target of the priority (P1 4 h, P2 24 h, P3 72 h, P4 planned): time left, or how far over.',
             'Objetivo de resolución de la prioridad (P1 4 h, P2 24 h, P3 72 h, P4 planificado): tiempo restante, o cuánto se excedió.'),
+    'lost': ('Revenue lost on the days the ticket has been open, up to yesterday (PPA tariff; CAPEX in kWh). Plant ticket: the plant loss; inverter ticket: that inverter against its peers.',
+             'Ingreso perdido en los días que el ticket lleva abierto, hasta ayer (tarifa PPA; CAPEX en kWh). Ticket de planta: la pérdida de la planta; ticket de inversor: ese inversor frente a sus pares.'),
 }
 TABS = [('', 'Open', 'Abiertos'), ('new', 'New ticket', 'Nuevo ticket'), ('resolved', 'Resolved', 'Resueltos'),
         ('stats', 'Statistics', 'Estadísticas')]
@@ -399,8 +509,9 @@ def th(en: str, es: str, key: str) -> str:
     return f'<th>{T(en, es)}{tip(COL_HELP[key])}</th>'
 
 
-def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
+def ticket_rows(tks: List[TK.Ticket], now: dt.datetime, costs: Optional[Dict[str, List[TC.DayCost]]] = None) -> str:
     n = names()
+    costs = costs or {}
     out = []
     for t in tks:
         state, sla_txt = TK.sla_state(t, now)
@@ -411,15 +522,19 @@ def ticket_rows(tks: List[TK.Ticket], now: dt.datetime) -> str:
             f'<td><b>{e(n.plant(t.plant_key))}</b>' + (f'<div class="muted" style="font-size:12px">{n.inverter_html(t.plant_key, t.inverter_sn)}</div>' if t.inverter_sn else '')
             + f'</td><td><a href="/maintenance/t/{e(t.number)}/">{e(t.title)}</a><div class="muted" style="font-size:12px">{category_label(t.category)}</div></td>'
             f'<td>{e(name_of(t.assigned_to)) if t.assigned_to else "<span class=muted> - </span>"}</td>'
-            f'<td>{e(TK.fmt_age(TK.age(t, now)))}</td><td class="sla-{state}" style="font-size:12px">{sla_text(sla_txt)}</td></tr>')
+            f'<td>{e(TK.fmt_age(TK.age(t, now)))}</td><td class="sla-{state}" style="font-size:12px">{sla_text(sla_txt)}</td>'
+            f'<td style="text-align:right">{cost_text(costs.get(t.number))}</td></tr>')
     if not out:
         return f'<p class="muted" style="margin:0;padding:16px 20px">{T("No tickets.", "Sin tickets.")}</p>'
     return ('<table><tr>' + th('Ticket', 'Ticket', 'ticket') + th('Prio', 'Prio', 'prio') + th('Status', 'Estado', 'status') + th('Plant', 'Planta', 'plant')
-            + th('Title', 'Título', 'title') + th('Assigned', 'Asignado', 'assigned') + th('Age', 'Edad', 'age') + th('SLA', 'SLA', 'sla') + '</tr>'
+            + th('Title', 'Título', 'title') + th('Assigned', 'Asignado', 'assigned') + th('Age', 'Edad', 'age') + th('SLA', 'SLA', 'sla')
+            + th('Lost so far', 'Perdido hasta ahora', 'lost') + '</tr>'
             + ''.join(out) + '</table>')
 
 
-def dashboard(tks: List[TK.Ticket], now: dt.datetime, me: str) -> str:
+def dashboard(tks: List[TK.Ticket], now: dt.datetime, me: str,
+              costs: Optional[Dict[str, List[TC.DayCost]]] = None) -> str:
+    costs = costs or {}
     n_open = len(tks)
     n_crit = sum(1 for t in tks if t.priority in ('P1', 'P2'))
     n_prog = sum(1 for t in tks if t.status == 'IN_PROGRESS')
@@ -431,14 +546,22 @@ def dashboard(tks: List[TK.Ticket], now: dt.datetime, me: str) -> str:
         by_plant[t.plant_key] = by_plant.get(t.plant_key, 0) + 1
     n = names()
     plants_txt = ' · '.join(f'{e(n.plant(k))} {v}' for k, v in sorted(by_plant.items(), key=lambda kv: -kv[1])) or ' - '
+    tariffs = {}
+    for t in tks:
+        for d in costs.get(t.number, []):
+            if d.mxn is not None and d.lost_kwh:
+                tariffs[(t.plant_key, d.day)] = d.mxn / d.lost_kwh
+    lost_kwh, lost_mxn = TC.combined([(t.plant_key, costs.get(t.number, [])) for t in tks], tariffs)
+    lost_txt = f'${lost_mxn:,.0f}' if lost_mxn is not None else f'{lost_kwh:,.0f} kWh'
     cnt = ''.join(f'<div class="card"><div class="n">{v}</div><div class="l">{T(en, es)}</div></div>' for v, en, es in
                   ((n_open, 'open', 'abiertos'), (n_crit, 'P1 / P2', 'P1 / P2'), (n_prog, 'in progress', 'en curso'),
-                   (n_ver, 'verification', 'verificación'), (n_over, 'over SLA', 'fuera de SLA')))
+                   (n_ver, 'verification', 'verificación'), (n_over, 'over SLA', 'fuera de SLA'),
+                   (lost_txt, 'MXN lost while open (each plant-day once)', 'MXN perdidos mientras abiertos (cada día de planta una vez)')))
     return (f'<div class="kicker">{T("Maintenance", "Mantenimiento")}</div><h1 class="pt">Tickets</h1>'
             f'<div class="muted" style="margin:4px 0 16px">{T("Open by plant", "Abiertos por planta")}: {plants_txt}</div>'
             f'<div class="cnt">{cnt}</div>'
-            + (f'<div class="card"><h2 class="ct" style="padding:14px 20px 0">{T("My tickets", "Mis tickets")} ({len(mine)})</h2>{ticket_rows(mine, now)}</div>' if mine else '')
-            + f'<div class="card" style="margin-top:14px"><h2 class="ct" style="padding:14px 20px 0">{T("All open", "Todos los abiertos")} ({n_open})</h2>{ticket_rows(tks, now)}</div>'
+            + (f'<div class="card"><h2 class="ct" style="padding:14px 20px 0">{T("My tickets", "Mis tickets")} ({len(mine)})</h2>{ticket_rows(mine, now, costs)}</div>' if mine else '')
+            + f'<div class="card" style="margin-top:14px"><h2 class="ct" style="padding:14px 20px 0">{T("All open", "Todos los abiertos")} ({n_open})</h2>{ticket_rows(tks, now, costs)}</div>'
             + legend())
 
 
@@ -539,7 +662,7 @@ def timeline(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]]) ->
 
 
 def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]], me: str, now: dt.datetime,
-                msg: str = '') -> str:
+                msg: str = '', cost: Optional[List[TC.DayCost]] = None) -> str:
     n = names()
     state, sla_txt = TK.sla_state(t, now)
     st = staff()
@@ -582,8 +705,9 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
                f'<h2 class="ct">{T("Resolution", "Resolución")}</h2><label>{T("Root cause", "Causa raíz")}</label>'
                f'{select("root_cause", [(c, l, TK.ROOT_CAUSE_ES.get(c, l)) for c, l in TK.ROOT_CAUSES], t.root_cause, ("- pick -", "- elija -"))}'
                f'<label>{T("What was done / prevent recurrence", "Qué se hizo / cómo evitar que se repita")}</label><textarea name="resolution">{e(t.resolution)}</textarea>'
-               f'<label>{T("Energy lost (kWh, if known)", "Energía perdida (kWh, si se conoce)")}</label><input type="text" name="lost_kwh" value="{e("" if t.lost_kwh is None else t.lost_kwh)}" style="max-width:160px">'
-               f'<div class="act"><button class="btn2" type="submit">{T("Save resolution", "Guardar resolución")}</button></div></form>')
+               f'<label>{T("Energy lost (kWh, if known)", "Energía perdida (kWh, si se conoce)")}</label><input type="text" name="lost_kwh" value="{e(TC.total(cost)[0] if (t.lost_kwh is None and cost) else ("" if t.lost_kwh is None else t.lost_kwh))}" style="max-width:160px">'
+               + (f' <span class="muted" style="font-size:12px">{T("prefilled from the measured loss while the ticket was open", "prellenado con la pérdida medida mientras el ticket estuvo abierto")}</span>' if (t.lost_kwh is None and cost) else '')
+               + f'<div class="act"><button class="btn2" type="submit">{T("Save resolution", "Guardar resolución")}</button></div></form>')
     sla_help = (COL_HELP["sla"][0] + " Green = on track, amber = last quarter of the target, red = over.",
                 COL_HELP["sla"][1] + " Verde = en tiempo, ámbar = último cuarto del objetivo, rojo = excedido.")
     flash = T(msg, FLASH.get(msg, msg)) if msg else ''
@@ -613,7 +737,7 @@ def ticket_page(t: TK.Ticket, evs: List[TK.Event], files: Dict[int, List[dict]],
                f'<label>{T("Attachments (photos, PDF, up to %d MB each)" % (MAX_UPLOAD // (1024 * 1024)), "Adjuntos (fotos, PDF, hasta %d MB cada uno)" % (MAX_UPLOAD // (1024 * 1024)))}</label><input type="file" name="files" multiple>'
                f'<div class="act"><button class="btn" type="submit">{T("Post update", "Publicar actualización")}</button></div></form>')
     tl = f'<div class="card" style="padding:14px 20px;margin-top:14px"><h2 class="ct">{T("Timeline", "Línea de tiempo")}</h2>{timeline(t, evs, files)}</div>'
-    return head + al + comment + tl + res
+    return head + cost_card(t, cost) + al + comment + tl + res
 
 
 # --------------------------------------------------------------- routes
@@ -631,7 +755,7 @@ def home():
         return no_access()
     now = dt.datetime.now(dt.timezone.utc)
     tks = load_tickets("status IN ('NEW','IN_PROGRESS','WAITING','VERIFICATION')")
-    return page('Maintenance', dashboard(tks, now, me), '')
+    return page('Maintenance', dashboard(tks, now, me, ticket_costs(tks)), '')
 
 
 @app.get('/resolved/')
@@ -642,7 +766,7 @@ def resolved():
     now = dt.datetime.now(dt.timezone.utc)
     tks = load_tickets("status IN ('RESOLVED','CLOSED') AND updated_at > now() - interval '90 days'")
     return page('Maintenance', f'<div class="kicker">{T("Maintenance", "Mantenimiento")}</div><h1 class="pt">{T("Resolved (90 days)", "Resueltos (90 días)")}</h1>'
-                f'<div class="card" style="margin-top:14px">{ticket_rows(tks, now)}</div>', 'resolved')
+                f'<div class="card" style="margin-top:14px">{ticket_rows(tks, now, ticket_costs(tks))}</div>', 'resolved')
 
 
 @app.get('/stats/')
@@ -779,7 +903,7 @@ def ticket_get(number):
     t = _ticket_or_404(number)
     now = dt.datetime.now(dt.timezone.utc)
     return page(t.number, ticket_page(t, load_events(t.id), load_attachments(t.id), me, now,
-                                      msg=(request.args.get('m') or '')[:120]))
+                                      msg=(request.args.get('m') or '')[:120], cost=ticket_costs([t]).get(t.number)))
 
 
 @app.post('/t/<number>/status')

@@ -159,6 +159,7 @@ def findings(report: dict) -> List[str]:
     for line in report.get("registry", []):
         out.append(f"inverter registry: {line}")
     out += list(report.get("schema", []))
+    out += list(report.get("exec", []))
     for s in report.get("smoke", []):
         if not s.get("ok"):
             if "code" in s:
@@ -279,6 +280,32 @@ def schema_findings(repo: str, live: Optional[str] = None) -> List[str]:
             f"{len(b - a)} only in {TEST_SCHEMA} - refresh it (docs/TEST_HARNESS.md)"]
 
 
+def direct_exec_paths(unit_texts: Sequence[str]) -> List[str]:
+    """Scripts a unit runs directly (ExecStart=/path/x.sh, no interpreter in
+    front) - they need the execute bit. Pure."""
+    out = []
+    for text in unit_texts:
+        for line in text.splitlines():
+            if line.startswith("ExecStart="):
+                first = line[len("ExecStart="):].split()[0] if line[len("ExecStart="):].split() else ""
+                if first.startswith("/") and first.endswith((".sh", ".py")):
+                    out.append(first)
+    return sorted(set(out))
+
+
+def exec_findings(repo: str, is_exec=None) -> List[str]:
+    """v264: db_backup.sh lost its execute bit on 25 Sep (copied from the git
+    checkout, where it was 644) and the nightly backup failed three nights
+    with 'Permission denied' before anyone saw it."""
+    is_exec = is_exec or (lambda p: os.path.exists(p) and os.access(p, os.X_OK))
+    bdir = os.path.join(repo, "v2/server/bundle")
+    texts = []
+    for name in sorted(os.listdir(bdir)) if os.path.isdir(bdir) else []:
+        if name.endswith(".service"):
+            texts.append((_read(os.path.join(bdir, name)) or b"").decode("utf-8", "replace"))
+    return [f"not executable (a unit runs it directly): {p}" for p in direct_exec_paths(texts) if not is_exec(p)]
+
+
 def build_report(repo: str = REPO) -> dict:
     bundle_files = sorted(os.listdir(os.path.join(repo, "v2/server/bundle")))
     prs = pairs(repo, bundle_files)
@@ -293,7 +320,8 @@ def build_report(repo: str = REPO) -> dict:
     rep = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "git": git_state(repo), "files": files,
            "extras": extras(deployed, expected), "unmapped": unmapped(bundle_files),
-           "smoke": smoke, "registry": registry_findings(repo), "schema": schema_findings(repo)}
+           "smoke": smoke, "registry": registry_findings(repo), "schema": schema_findings(repo),
+           "exec": exec_findings(repo)}
     rep["findings"] = findings(rep)
     return rep
 

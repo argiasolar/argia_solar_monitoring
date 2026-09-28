@@ -173,3 +173,44 @@ class TestTestSchemaMatchesProduction:
         rep = {"git": {"head": "a", "origin": "a", "dirty": []}, "files": [], "extras": [], "unmapped": [],
                "smoke": [], "registry": [], "schema": ["test schema is out of date: x"]}
         assert "test schema is out of date: x" in dc.findings(rep)
+
+
+class TestExecuteBit:
+    """v264: the backup script lost its execute bit and the backup stopped."""
+
+    def test_direct_exec_paths_are_found_and_interpreted_ones_ignored(self):
+        units = ["[Service]\nExecStart=/opt/argia/bundle/db_backup.sh\n",
+                 "ExecStart=/root/argia_v2/v2/pi/run_job.sh kpi kpi_eod.py\n",
+                 "ExecStart=/usr/bin/python3 /opt/argia/bundle/portal_gen.py /www\n",
+                 "ExecStart=/bin/bash -c 'x.sh'\n"]
+        assert DC.direct_exec_paths(units) == ["/opt/argia/bundle/db_backup.sh", "/root/argia_v2/v2/pi/run_job.sh"]
+
+    def test_a_script_without_the_bit_is_a_finding(self):
+        repo = str(V2.parent)
+        out = DC.exec_findings(repo, is_exec=lambda p: not p.endswith("db_backup.sh"))
+        assert out == ["not executable (a unit runs it directly): /opt/argia/bundle/db_backup.sh"]
+        assert DC.exec_findings(repo, is_exec=lambda p: True) == []
+
+    def test_exec_findings_reach_the_report(self):
+        rep = {"git": {"head": "a", "origin": "a", "dirty": []}, "files": [], "extras": [], "unmapped": [],
+               "smoke": [], "registry": [], "exec": ["not executable (a unit runs it directly): /x.sh"]}
+        assert "not executable (a unit runs it directly): /x.sh" in DC.findings(rep)
+
+
+def test_scripts_units_run_directly_are_executable_in_git():
+    """The deploy copies from the git checkout, so the mode must live in git."""
+    import shutil
+    import subprocess
+    if not shutil.which("git"):
+        import pytest
+        pytest.skip("git not available")
+    units = [p.read_text(encoding="utf-8") for p in (V2 / "server/bundle").glob("*.service")]
+    for path in DC.direct_exec_paths(units):
+        rel = {"/opt/argia/bundle/": "v2/server/bundle/", "/root/argia_v2/v2/": "v2/"}
+        repo_rel = next((path.replace(a, b) for a, b in rel.items() if path.startswith(a)), None)
+        if repo_rel is None:
+            continue
+        out = subprocess.run(["git", "ls-files", "-s", repo_rel], cwd=str(V2.parent), capture_output=True, text=True).stdout
+        if not out:
+            continue                                   # not a git checkout (a bundle): nothing to check
+        assert out.startswith("100755"), f"{repo_rel} is {out.split()[0]} in git - run: git update-index --chmod=+x {repo_rel}"

@@ -143,24 +143,26 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
 
     out = []
     for k, meta in P.items():
-        # this plant's normal, from the calibration window before the range
-        peer_pairs, weather_pairs = [], []
+        # this plant's normal, from the CALIB_WINDOW_DAYS before each day (rolling:
+        # a long backfill must not judge September by what was known in June)
+        hist = []                                     # (day, own actual/model, own sy / peer median sy)
         day = c0
-        while day < d0:
+        while day < d1:
             ds = day.isoformat()
             if is_healthy(k, ds):
                 e, x = prod[(k, ds)]
-                weather_pairs.append((e, x))
                 py = healthy_peer_yields(k, ds)
-                if py:
-                    peer_pairs.append((sy(k, ds), median(py.values())))
+                hist.append((ds, (e, x), (sy(k, ds), median(py.values())) if py else None))
             day += dt.timedelta(days=1)
-        peer_ratio, weather_ratio = L.calibration(peer_pairs), L.calibration(weather_pairs)
         day = d0
         while day <= d1:
             ds = day.isoformat()
             actual, weather = prod.get((k, ds), (None, None))
             if actual is not None or weather is not None:
+                lo = (day - dt.timedelta(days=CALIB_WINDOW_DAYS)).isoformat()
+                window = [h for h in hist if lo <= h[0] < ds]
+                peer_ratio = L.calibration([h[2] for h in window if h[2]])
+                weather_ratio = L.calibration([h[1] for h in window])
                 tariff = (tar.get((k, ds[:7])) or meta["tariff"]) if meta["portfolio"] == "PPA" else None
                 out.append(L.compute_day(
                     k, ds, meta["kwp"], actual, weather, healthy_peer_yields(k, ds), peer_ratio, weather_ratio,

@@ -550,6 +550,48 @@ def app_plants():
     return out
 
 
+def app_tickets():
+    """v271: open tickets of PPA plants for the app's Tickets screen, each with
+    its cost so far - the same query and arithmetic as the tickets page
+    (argia.maintenance.ticket_cost_pg), so both show the same figure.
+    Returns (tickets, (total_mxn, total_kwh)); the total counts each
+    plant-day once, like the tickets dashboard."""
+    from argia.maintenance import ticket_cost as TC
+    from argia.maintenance import ticket_cost_pg as TCQ
+    from argia.maintenance import tickets as TK
+    from argia.store import pgq
+    ppa = [k for k in PPA if k in MG.PLANTS]
+    if not ppa:
+        return [], (None, None)
+    try:
+        tks = [TK.ticket_from_row(r) for r in TK.rows_from_csv(pgq.psql_csv(
+            TK.SELECT_TICKETS + " WHERE status IN (" + ",".join(TK._txt(x) for x in TK.OPEN_STATUSES) + ")"
+            f" AND plant_key IN ({TCQ.in_list(ppa)})"
+            " ORDER BY CASE priority WHEN 'P1' THEN 0 WHEN 'P2' THEN 1 WHEN 'P3' THEN 2 ELSE 3 END, created_at;"))]
+    except Exception as exc:                          # noqa: BLE001 - no ticket table yet: the screen says 'no open tickets'
+        print(f'portal_gen: app tickets unavailable: {type(exc).__name__}: {exc}', file=sys.stderr)
+        return [], (None, None)
+    costs = TCQ.costs_for(tks, pgq.psql_csv)
+    now = dt.datetime.now(dt.timezone.utc)
+    out, tariffs = [], {}
+    for tk in tks:
+        days = costs.get(tk.number, [])
+        kwh, mxn = TC.total(days) if days else (None, None)
+        for d in days:
+            if d.mxn is not None and d.lost_kwh:
+                tariffs[(tk.plant_key, d.day)] = d.mxn / d.lost_kwh
+        opened = TC.mx_day(tk.created_at)
+        out.append({'number': tk.number, 'plant': name(tk.plant_key), 'title': tk.title,
+                    'priority': tk.priority, 'status_en': TK.STATUS_LABEL.get(tk.status, tk.status),
+                    'status_es': TK.STATUS_LABEL_ES.get(tk.status, tk.status),
+                    'assignee': tk.assigned_to, 'opened': opened.isoformat() if opened else '',
+                    'inverter': MG.inverter_name(tk.plant_key, tk.inverter_sn) if tk.inverter_sn else '',
+                    'lost_mxn': mxn, 'lost_kwh': kwh,
+                    'over_sla': TK.sla_state(tk, now)[0] == 'breached'})
+    tot_kwh, tot_mxn = TC.combined([(tk.plant_key, costs.get(tk.number, [])) for tk in tks], tariffs)
+    return out, (tot_mxn, tot_kwh)
+
+
 def write_bytes(rel, data):
     p = os.path.join(OUTROOT, rel)
     os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -560,7 +602,9 @@ def write_bytes(rel, data):
 
 def write_app():
     """/app/ + the Home Screen icon. Returns the number of files written."""
-    write('app/index.html', AV.render(app_plants(), MG.NOW_MX.strftime('%Y-%m-%d %H:%M'), int(MG.NOW_MX.timestamp())))
+    tickets, totals = app_tickets()
+    write('app/index.html', AV.render(app_plants(), MG.NOW_MX.strftime('%Y-%m-%d %H:%M'), int(MG.NOW_MX.timestamp()),
+                                      tickets, totals))
     write('app/manifest.webmanifest', AV.manifest())
     write('app/sw.js', AV.SW_JS)
     write_bytes('apple-touch-icon.png', AV.icon_png(180))

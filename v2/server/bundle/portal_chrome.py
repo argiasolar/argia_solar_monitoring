@@ -166,6 +166,7 @@ CSS = '''
  /* tokens the report_gen fragments (charts, plant page) paint with */
  --s1:#05b1a9;--s2:#eb6834;--surface:#fff;--border:#e3e6ea;--grid:#eceef0;--axis:#d5d9dd;--warn:#f0a83b;
  --green-bg:#e6f7f5;--green-tx:#05847d;--amber-bg:#fff4e0;--amber-tx:#b26a00;--laas-bg:#efe6fb;--laas-tx:#6b3fb5;}
+.backapp{display:block;background:var(--teal2);color:#fff!important;padding:calc(12px + env(safe-area-inset-top)) 18px 12px;font-weight:600;font-size:16px}   /* v271: first thing on the page, not fixed - a wide desktop page zooms out and a fixed button can end up off screen */
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--teal2);text-decoration:none}a:hover{color:var(--deep)}
@@ -467,6 +468,11 @@ window.addEventListener('DOMContentLoaded',()=>{
  }).catch(()=>{});
  document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();location.href='/ask/';}});
 });
+/* v271: the ARGIA Home Screen app (/app/) has no browser bar and no back button. A portal page
+   reached inside it (sign-in, an old link) gets a way back to the app instead of a dead end. */
+(function(){try{var sa=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
+ if(sa&&location.pathname.indexOf('/app/')!==0){var a=document.createElement('a');a.href='/app/';a.className='backapp';
+  a.textContent=(document.documentElement.lang==='es')?'‹ Volver a la app ARGIA':'‹ Back to the ARGIA app';document.body.insertBefore(a,document.body.firstChild);}}catch(e){}})();
 </script>'''
 
 

@@ -57,13 +57,21 @@ CAPEX = plant(slug="sms", name="SMS", portfolio="CAPEX", state="bad", state_en="
               days=[{"date": "2026-09-27", "actual": 100.0, "expected": 400.0, "lost_kwh": 300.0, "lost_mxn": None}],
               loss30={"days": 30, "kwh": 300.0, "mxn": None, "unavailability": 300.0},
               alerts=[{"sev": "CRITICAL", "since": "2026-09-29", "text": "Plant offline <script>x</script>", "inverter": ""}])
+TICKETS = [
+    {"number": "TK-MEX1-0001", "plant": "SAG", "title": "plant offline, check datalogger", "priority": "P1",
+     "status_en": "New", "status_es": "Nuevo", "assignee": "", "opened": "2026-09-25", "inverter": "",
+     "lost_mxn": 1679.4, "lost_kwh": 700.0, "over_sla": True},
+    {"number": "TK-MEX2-0001", "plant": "Vitalmex", "title": "INV-02 low output", "priority": "P2",
+     "status_en": "In progress", "status_es": "En curso", "assignee": "juan", "opened": "2026-09-24",
+     "inverter": "Inverter 2", "lost_mxn": 297.0, "lost_kwh": 120.0, "over_sla": False},
+]
 FLEET = [plant(), CAPEX, plant(slug="taigene", name="Taigene", state="warn", state_en="1 inverter hot",
                                alerts=[{"sev": "WARNING", "since": "2026-09-28", "text": "Inverter 2 at 67 C", "inverter": "Inverter 2"}])]
 
 
 @pytest.fixture(scope="module")
 def page():
-    return AV.render(FLEET, "2026-09-29 10:10", 1790000000)
+    return AV.render(FLEET, "2026-09-29 10:10", 1790000000, TICKETS, (1976.4, 820.0))
 
 
 class TestIcon:
@@ -128,7 +136,23 @@ class TestInstallable:
 
     def test_tab_bar_and_safe_area(self, page):
         assert page.count('class="tabbar"') == 1 and "env(safe-area-inset-bottom)" in page
-        assert 'href="/maintenance/"' in page
+        assert 'href="#tickets" data-tab="tickets"' in page          # v271: tickets live inside the app
+
+    def test_no_link_leaves_the_app_inside_it(self, page):
+        """v271: Tomasz tapped Tickets and landed in the desktop portal inside the
+        Home Screen app - no back button, no tab bar. Every link out of /app/ must
+        open outside the app (target=_blank); only #screens, /app/ files and the
+        icons stay."""
+        stay = ("/app/", "/apple-touch-icon.png", "/favicon.png")
+        bad = []
+        for m in re.finditer(r'<(a|link)\b[^>]*\bhref="(/[^"]*)"[^>]*>', page):
+            tag, href = m.group(1), m.group(2)
+            if tag == "link" or href.startswith(stay):
+                continue
+            if 'target="_blank"' not in m.group(0):
+                bad.append(href)
+        assert not bad, bad
+        assert "/logout" not in page                                # signing out inside the app would strand it
 
 
 class TestContent:
@@ -174,7 +198,8 @@ class TestContent:
 
     def test_no_plant_codes_and_no_em_dash(self, page):
         assert EM not in page and EM not in AV.SW_JS and EM not in AV.manifest()
-        assert not re.search(r"\b(SLP[12]|GTO[12]|NL[12]|MEX[123]|QRO1|TAM1)\b", page)
+        shown = re.sub(r'href="[^"]*"', "", page)            # ticket numbers (TK-<code>-n) only inside links
+        assert not re.search(r"\b(SLP[12]|GTO[12]|NL[12]|MEX[123]|QRO1|TAM1)\b", shown)
 
     def test_empty_fleet_still_renders(self):
         s = AV.render([], "2026-09-29 10:10", 0)
@@ -183,3 +208,31 @@ class TestContent:
     def test_plant_without_loss_figures(self):
         s = AV.render([plant(loss30={"days": 0, "kwh": 0.0, "mxn": None}, days=[])], "2026-09-29 10:10", 0)
         assert "no loss figures for this plant yet" in s
+
+
+class TestTickets:
+    """v271: the open tickets inside the app, with what each has cost so far."""
+
+    def section(self, page):
+        s = page[page.index('id="v-tickets"'):]
+        return s[:s.index("</section>")]
+
+    def test_each_ticket_with_its_money_and_the_total(self, page):
+        s = self.section(page)
+        assert s.count('class="row tk"') == 2
+        assert "$1,679" in s and "$297" in s and "$1,976" in s
+        assert "plant offline, check datalogger" in s and "Inverter 2" in s
+        assert "over SLA" in s and "unassigned" in s and "juan" in s
+
+    def test_ticket_numbers_carry_plant_codes_so_they_are_not_shown(self, page):
+        s = re.sub(r'href="[^"]*"', "", self.section(page))
+        assert "TK-MEX1" not in s and "TK-MEX2" not in s
+
+    def test_opening_a_ticket_goes_outside_the_app(self, page):
+        s = self.section(page)
+        assert 'href="/maintenance/t/TK-MEX1-0001/" target="_blank"' in s
+        assert 'href="/maintenance/new/" target="_blank"' in s
+
+    def test_no_tickets(self):
+        s = AV.render(FLEET, "2026-09-29 10:10", 0)
+        assert "No open tickets." in s and 'id="v-tickets"' in s

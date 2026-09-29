@@ -305,6 +305,7 @@ class TestPhoneApp:
             assert (f'id="v-p-{C.slug(k)}"' in s) == (portfolio == "PPA"), (k, portfolio)
         assert "CAPEX" not in s
         shown = re.sub(r'<small class="inv">.*?</small>', "", s)      # the seed's serials embed codes; real ones do not
+        shown = re.sub(r'href="[^"]*"', "", shown)                      # ticket numbers (TK-<code>-n) live only in links
         assert not re.search(r"\b(SLP[12]|GTO[12]|NL[12]|MEX[123]|QRO1|TAM1)\b", shown)
 
     def test_sag_screen_carries_its_loss_money(self, site, psql):
@@ -335,3 +336,35 @@ class TestPhoneApp:
         s = files["app/index.html"].read_text(encoding="utf-8")
         header = s[s.index("<header>"):s.index("</header>")]
         assert 'class="logo" src="data:image/png;base64,' in header and 'alt="ARGIA - Smart Energy Solutions"' in header
+
+
+class TestPhoneAppTickets:
+    """v271: Tomasz, 2026-09-29 - 'when I click on tickets it switched to strange
+    web app mode and it is not working properly'. Tickets now live in the app."""
+
+    def app_page(self, site):
+        return site[2]["app/index.html"].read_text(encoding="utf-8")
+
+    def test_open_ppa_tickets_are_listed_with_the_same_money_as_the_ticket_page(self, site, psql):
+        s = self.app_page(site)
+        tk = s[s.index('id="v-tickets"'):]
+        tk = tk[:tk.index("</section>")]
+        (n,), = psql("SELECT count(*) FROM ticket t JOIN plant p USING (plant_key)"
+                     " WHERE t.status IN ('NEW','IN_PROGRESS','WAITING','VERIFICATION') AND p.portfolio = 'PPA'")
+        assert tk.count('class="row tk"') == int(n) >= 2
+        want = float(psql("SELECT sum(l.lost_mxn) FROM loss_daily l, ticket t WHERE t.number = 'T-0001' AND l.plant_key = 'MEX1'"
+                          " AND l.prod_date >= (t.created_at AT TIME ZONE 'America/Mexico_City')::date"
+                          " AND l.prod_date < (now() AT TIME ZONE 'America/Mexico_City')::date")[0][0])
+        assert want > 500 and f"${want:,.0f}" in tk                   # the SAG outage ticket, same figure as test_ticket_cost_e2e
+        assert "Check datalogger connection" in tk and "INV-02 low output" in tk
+
+    def test_nothing_in_the_app_opens_the_portal_inside_it(self, site):
+        s = self.app_page(site)
+        bad = [m.group(0) for m in re.finditer(r'<a\b[^>]*\bhref="(/[^"]*)"[^>]*>', s)
+               if not m.group(1).startswith("/app/") and 'target="_blank"' not in m.group(0)]
+        assert not bad, bad
+
+    def test_every_portal_page_offers_the_way_back_to_the_app(self, site):
+        _, _, files = site
+        s = files["monitoring/index.html"].read_text(encoding="utf-8")
+        assert "backapp" in s and "navigator.standalone" in s

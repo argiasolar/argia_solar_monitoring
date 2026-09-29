@@ -195,6 +195,19 @@ def icon(name, size=22) -> str:
             f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{ICONS[name]}</svg>')
 
 
+def ext(href, en, es, cls="btn") -> str:
+    """A link OUT of the app. v271 (Tomasz: 'when I click on tickets it
+    switched to strange web app mode'): a Home Screen app has no browser bar
+    and no back button, so a portal page opened inside it is a dead end. Every
+    link leaving /app/ opens in Safari instead (target=_blank does that on
+    iOS); the app stays where it was."""
+    return (f'<a class="{cls}" href="{esc(href)}" target="_blank" rel="noopener">{t(en, es)} ↗</a>')
+
+
+SAFARI_NOTE = ('<p class="note">' + t("↗ opens outside the app (Safari); the app stays where you left it.",
+                                      "↗ abre fuera de la app (Safari); la app se queda donde la dejaste.") + '</p>')
+
+
 def sorted_plants(plants):
     return sorted(plants, key=lambda p: (STATE_ORDER.get(p.get("state"), 9), str(p.get("name", "")).lower()))
 
@@ -301,8 +314,8 @@ def plant_view(p) -> str:
             f'<div class="tile"><b>{num(p.get("today_kwh"))}</b>{t("kWh today", "kWh hoy")}</div>'
             f'<div class="tile"><b>{num(p.get("inv_live"))}/{num(p.get("inv_total"))}</b>{t("inverters live", "inversores")}</div></div>'
             f'{loss_card(p)}{days_card(p)}{alerts}'
-            f'<div class="btns"><a class="btn" href="/monitoring/{slug}/">{t("Full plant page", "Página completa")}</a>'
-            f'<a class="btn" href="/report/{slug}/">{t("Report", "Reporte")}</a></div>'
+            f'<div class="btns">{ext(f"/monitoring/{slug}/", "Full plant page", "Página completa")}'
+            f'{ext(f"/report/{slug}/", "Report", "Reporte")}</div>{SAFARI_NOTE}'
             f'</section>')
 
 
@@ -347,8 +360,45 @@ def losses_view(plants) -> str:
             f'<p class="sec">{t("By cause (MXN)", "Por causa (MXN)")}</p><div class="card pad">{bars}</div>'
             f'<p class="sec">{t("By plant", "Por planta")}</p>'
             f'<div class="card list">{"".join(rows) or t("No loss figures yet.", "Aún sin cifras.", tag="p", cls="empty")}</div>'
-            f'<div class="btns"><a class="btn" href="/monitoring/losses/">{t("Full losses page", "Página completa de pérdidas")}</a></div>'
+            f'<div class="btns">{ext("/monitoring/losses/", "Full losses page", "Página completa de pérdidas")}</div>{SAFARI_NOTE}'
             f'</section>')
+
+
+PRIO_CLS = {"P1": "crit", "P2": "warn", "P3": "p3", "P4": "p3"}
+
+
+def ticket_row(k) -> str:
+    """One open ticket. The ticket number is left out on purpose: it carries
+    the plant code (TK-NL1-0001) and the app speaks customer names."""
+    lost = (money(k["lost_mxn"]) if k.get("lost_mxn") is not None
+            else (f'{num(k["lost_kwh"])} kWh' if k.get("lost_kwh") else "-"))
+    sla = f' · {t("over SLA", "fuera de SLA", cls="red")}' if k.get("over_sla") else ""
+    who = esc(k["assignee"]) if k.get("assignee") else t("unassigned", "sin asignar")
+    inv = f'{esc(k["inverter"])} · ' if k.get("inverter") else ""
+    return (f'<a class="row tk" href="/maintenance/t/{esc(k["number"])}/" target="_blank" rel="noopener">'
+            f'<div class="grow"><span class="pills"><span class="pill {PRIO_CLS.get(k.get("priority"), "p3")}">{esc(k.get("priority"))}</span>'
+            f'{t(k.get("status_en") or "", k.get("status_es"), cls="pill st")}</span>'
+            f'<b>{esc(k["plant"])}</b><span class="what">{esc(k.get("title") or "")}</span>'
+            f'<small>{inv}{t("opened", "abierto")} {day_label(k.get("opened") or "")} · {who}{sla}</small></div>'
+            f'<div class="right"><b class="{"red" if (k.get("lost_mxn") or 0) >= 1 else ""}">{lost}</b>'
+            f'<small>{t("lost while open", "perdido abierto")}</small></div></a>')
+
+
+def tickets_view(tickets, total_mxn=None, total_kwh=None) -> str:
+    """v271: the open tickets INSIDE the app (PPA plants), each with what it has
+    cost so far - the same figure as the tickets page. Opening one, or a new
+    ticket, goes to Safari (the tickets page is where they are edited)."""
+    tickets = list(tickets or [])
+    over = sum(1 for k in tickets if k.get("over_sla"))
+    total = money(total_mxn) if total_mxn is not None else (f"{num(total_kwh)} kWh" if total_kwh else "$0")
+    rows = "".join(ticket_row(k) for k in tickets) or t("No open tickets.", "Sin tickets abiertos.", tag="p", cls="empty")
+    return (f'<section class="v" id="v-tickets" data-tab="tickets" hidden><h1>{t("Tickets", "Tickets")}</h1>'
+            f'<p class="sub">{len(tickets)} {t("open, PPA plants", "abiertos, plantas PPA")}</p>'
+            f'<div class="tiles"><div class="tile{" red" if over else ""}"><b>{over}</b>{t("over SLA", "fuera de SLA")}</div>'
+            f'<div class="tile red"><b>{total}</b>{t("lost while open (each plant-day once)", "perdido mientras abiertos (cada planta-día una vez)")}</div></div>'
+            f'<div class="card list">{rows}</div>'
+            f'<div class="btns">{ext("/maintenance/new/", "New ticket", "Nuevo ticket")}{ext("/maintenance/", "All tickets", "Todos los tickets")}</div>'
+            f'{SAFARI_NOTE}</section>')
 
 
 def more_view(gen_mx) -> str:
@@ -360,9 +410,7 @@ def more_view(gen_mx) -> str:
             f'<div class="row"><div class="grow"><b>{t("Test a notification", "Probar una notificación")}</b>'
             f'<small id="note-out">{t("Shows how a critical alert would arrive on this phone.", "Muestra cómo llegaría una alerta crítica a este teléfono.")}</small></div>'
             f'<button class="btn sm" onclick="testNote()">{t("Send", "Enviar")}</button></div>'
-            f'<a class="row" href="/maintenance/"><div class="grow"><b>{t("Maintenance tickets", "Tickets de mantenimiento")}</b><small>{t("the full tickets page", "la página completa de tickets")}</small></div></a>'
-            f'<a class="row" href="/"><div class="grow"><b>{t("Full portal", "Portal completo")}</b><small>portal.argia.com.mx</small></div></a>'
-            f'<a class="row" href="/logout"><div class="grow"><b>{t("Sign out", "Cerrar sesión")}</b></div></a>'
+            f'<a class="row" href="/" target="_blank" rel="noopener"><div class="grow"><b>{t("Full portal ↗", "Portal completo ↗")}</b><small>{t("opens outside the app", "abre fuera de la app")}</small></div></a>'
             f'</div><p class="note">{t("Data as of", "Datos al")} {esc(gen_mx)} MX · {t("refreshed every 5 minutes; tap the arrow at the top to reload.", "se actualiza cada 5 minutos; toca la flecha arriba para recargar.")}</p>'
             f'</section>')
 
@@ -373,7 +421,7 @@ def tabbar(n_alerts) -> str:
     def tab(key, en, es, href=None, extra=""):
         return (f'<a href="{href or "#" + key}" data-tab="{key}">{icon(key)}{extra}{t(en, es)}</a>')
     return ('<nav class="tabbar">' + tab("fleet", "Fleet", "Flota") + tab("alerts", "Alerts", "Alertas", extra=badge)
-            + tab("losses", "Losses", "Pérdidas") + tab("tickets", "Tickets", "Tickets", href="/maintenance/")
+            + tab("losses", "Losses", "Pérdidas") + tab("tickets", "Tickets", "Tickets")
             + tab("more", "More", "Más") + '</nav>')
 
 
@@ -424,6 +472,8 @@ h1{font-size:26px;margin:4px 0 2px}
 .seg button{border:1px solid var(--line);background:#fff;padding:5px 10px;font:600 13px inherit}.seg button:first-child{border-radius:8px 0 0 8px}
 .seg button:last-child{border-radius:0 8px 8px 0}.seg button.on{background:var(--teal2);color:#fff;border-color:var(--teal2)}
 .empty{color:var(--muted);padding:14px;margin:0}
+.pills{display:flex;gap:6px;margin-bottom:3px}.pill.p3{background:#eceef0;color:var(--muted)}.pill.st{background:#e6f7f5;color:var(--teal2)}
+.red{color:var(--red)}.tk .right b.red{color:var(--red)}
 .muted{color:var(--muted)}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:space-around;background:rgba(255,255,255,.96);
  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
@@ -473,7 +523,7 @@ fetch('/session/whoami',{credentials:'same-origin'}).then(function(r){return r.j
 """
 
 
-def render(plants, gen_mx: str, gen_epoch: int) -> str:
+def render(plants, gen_mx: str, gen_epoch: int, tickets=None, tickets_total=(None, None)) -> str:
     """The whole app, one document: every screen is a <section>, the tab bar
     and #hash links switch between them without a round trip."""
     plants = list(plants or [])
@@ -495,6 +545,6 @@ def render(plants, gen_mx: str, gen_epoch: int) -> str:
     top = (f'<header>{logo}<span class="age" id="age"></span>'
            f'<button type="button" onclick="location.reload()" aria-label="reload">{icon("refresh", 20)}</button></header>')
     views = (fleet_view(plants, hhmm) + "".join(plant_view(p) for p in sorted_plants(plants))
-             + alerts_view(plants) + losses_view(plants) + more_view(gen_mx))
+             + alerts_view(plants) + losses_view(plants) + tickets_view(tickets, *tickets_total) + more_view(gen_mx))
     return (head + top + f'<main>{views}</main>' + tabbar(n_alerts)
             + f'<script>{JS % {"gen": int(gen_epoch)}}</script></body></html>')

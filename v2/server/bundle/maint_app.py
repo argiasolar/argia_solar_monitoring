@@ -41,6 +41,7 @@ from argia.alerts import emailer, naming                # noqa: E402
 from argia.maintenance import notify as NOTIFY           # noqa: E402
 from argia.maintenance import tickets as TK             # noqa: E402
 from argia.maintenance import ticket_cost as TC         # noqa: E402  (v267)
+from argia.maintenance import ticket_cost_pg as TCQ     # noqa: E402  (v271)
 from argia.store import pgq                             # noqa: E402
 
 app = Flask(__name__)
@@ -191,61 +192,11 @@ def load_tickets(where: str) -> List[TK.Ticket]:
 
 
 # ------------------------------------------------------------- v267 cost
-def _in_list(keys) -> str:
-    return ",".join(TK._txt(k) for k in sorted(set(keys))) or "''"
-
-
 def ticket_costs(tks: List[TK.Ticket], today: Optional[dt.date] = None) -> Dict[str, List[TC.DayCost]]:
     """{ticket number: [DayCost]} for the days each ticket has been open.
-    Two queries for the whole list. A missing loss table or telemetry never
-    breaks a ticket page: those tickets simply show no figure."""
-    today = today or dt.datetime.now(TC.MX).date()
-    wins = {t.number: TC.window(t.created_at, t.resolved_at, t.closed_at, today) for t in tks}
-    starts = [w[0] for w in wins.values() if w]
-    if not starts:
-        return {}
-    since = min(starts).isoformat()
-    plants = {t.plant_key for t in tks if wins.get(t.number)}
-    loss: Dict[str, Dict[str, TC.PlantDay]] = {}
-    try:
-        for r in TK.rows_from_csv(rows_csv(
-                "SELECT plant_key, prod_date::text AS d, lost_kwh, tariff_mxn, unavailability_kwh, overheating_kwh,"
-                f" underperformance_kwh FROM loss_daily WHERE prod_date >= DATE '{since}'"
-                f" AND plant_key IN ({_in_list(plants)});")):
-            f = (lambda v: float(v) if v not in (None, "") else None)
-            loss.setdefault(r["plant_key"], {})[r["d"]] = TC.PlantDay(
-                f(r["lost_kwh"]), f(r["tariff_mxn"]), f(r["unavailability_kwh"]) or 0.0,
-                f(r["overheating_kwh"]) or 0.0, f(r["underperformance_kwh"]) or 0.0)
-    except Exception:                                    # noqa: BLE001
-        return {}
-    inv_plants = {t.plant_key for t in tks if t.inverter_sn and wins.get(t.number)}
-    per_inv: Dict[tuple, tuple] = {}                     # (plant, sn, day) -> (rated_kw, kwh)
-    if inv_plants:
-        try:
-            for r in TK.rows_from_csv(rows_csv(
-                    "WITH inv AS (SELECT plant_key, inverter_sn, (ts_utc AT TIME ZONE 'America/Mexico_City')::date::text AS d,"
-                    " max(etoday_kwh) AS kwh FROM telemetry WHERE plant_key IN (" + _in_list(inv_plants) + ")"
-                    f" AND ts_utc >= (DATE '{since}' AT TIME ZONE 'America/Mexico_City') GROUP BY 1, 2, 3)"
-                    " SELECT inv.plant_key, inv.inverter_sn, inv.d, inv.kwh, i.rated_kw FROM inv"
-                    " JOIN inverter i ON i.plant_key = inv.plant_key AND i.inverter_sn = inv.inverter_sn WHERE i.active;")):
-                f = (lambda v: float(v) if v not in (None, "") else None)
-                per_inv[(r["plant_key"], r["inverter_sn"], r["d"])] = (f(r["rated_kw"]), f(r["kwh"]))
-        except Exception:                                # noqa: BLE001
-            per_inv = {}
-    out = {}
-    for t in tks:
-        days = wins.get(t.number) or []
-        inverter = None
-        if t.inverter_sn:
-            inverter = {}
-            for d in days:
-                ds = d.isoformat()
-                rated, kwh = per_inv.get((t.plant_key, t.inverter_sn, ds), (None, None))
-                peers = [k / r for (pk, sn, dd), (r, k) in per_inv.items()
-                         if pk == t.plant_key and dd == ds and sn != t.inverter_sn and r and k is not None]
-                inverter[ds] = (rated, kwh, peers)
-        out[t.number] = TC.ticket_days(days, loss.get(t.plant_key, {}), inverter)
-    return out
+    v271: the queries live in argia.maintenance.ticket_cost_pg, shared with
+    the phone app, so both show the same figure for the same ticket."""
+    return TCQ.costs_for(tks, rows_csv, today)
 
 
 def cost_text(days: Optional[List[TC.DayCost]]) -> str:

@@ -49,6 +49,9 @@ GLYPH_BOX = (678, 0, 22783, 23699)            # x0, y0, x1, y1
 ICON_BG, ICON_FG = 237, 20                    # the website icon: #ededed ground, #141414 letter
 ICON_SIZES = (180, 192, 512)                  # 180 = iPhone Home Screen; 192/512 = manifest (Android)
 THEME = "#ffffff"
+# v270 (Tomasz): 34px was 'way too big' on the phone. 24px keeps the tagline on a
+# retina screen (3 lines of ~6 CSS px = 18 device px each) and halves the header.
+LOGO_PX = 24
 
 
 def mark_svg(size=22, cls="mark"):
@@ -383,7 +386,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,
 a{color:inherit;text-decoration:none}
 header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
  border-bottom:1px solid var(--line);padding:calc(8px + env(safe-area-inset-top)) 16px 8px;display:flex;align-items:center;gap:10px}
-header .logo{height:34px;width:auto;display:block}   /* argia_logo: the tagline needs 34px to stay legible */
+header .logo{height:__LOGO_PX__px;width:auto;display:block}
 header .ttl{font-weight:700;letter-spacing:.14em;font-size:15px}
 header .age{margin-left:auto;font-size:12px;color:var(--muted)}
 header .age.old{color:var(--red);font-weight:600}
@@ -486,8 +489,8 @@ def render(plants, gen_mx: str, gen_epoch: int) -> str:
             '<link rel="apple-touch-icon" href="/apple-touch-icon.png">'
             '<link rel="icon" href="/favicon.png">'
             '<link rel="manifest" href="/app/manifest.webmanifest" crossorigin="use-credentials">'
-            f'<title>ARGIA</title><style>{CSS}</style></head><body>')
-    logo = (f'<img class="logo" src="{LOGO_URI}" alt="{esc(LOGO_ALT)}" height="34">' if LOGO_URI
+            f'<title>ARGIA</title><style>{CSS.replace("__LOGO_PX__", str(LOGO_PX))}</style></head><body>')
+    logo = (f'<img class="logo" src="{LOGO_URI}" alt="{esc(LOGO_ALT)}" height="{LOGO_PX}">' if LOGO_URI
             else '<span class="ttl">ARGIA</span>')
     top = (f'<header>{logo}<span class="age" id="age"></span>'
            f'<button type="button" onclick="location.reload()" aria-label="reload">{icon("refresh", 20)}</button></header>')

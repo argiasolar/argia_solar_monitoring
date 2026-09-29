@@ -122,7 +122,8 @@ class TestInstallable:
     def test_header_is_the_website_logo_not_the_letter(self, page):
         import argia_logo
         header = page[page.index("<header>"):page.index("</header>")]
-        assert f'src="{argia_logo.LOGO_URI}"' in header and 'height="34"' in header
+        assert f'src="{argia_logo.LOGO_URI}"' in header and 'height="24"' in header
+        assert "header .logo{height:24px" in page            # v270: 34px was 'way too big' on the phone
         assert "<polygon" not in header                      # the single letter is the Home Screen icon only
 
     def test_tab_bar_and_safe_area(self, page):

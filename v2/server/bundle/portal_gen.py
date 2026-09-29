@@ -514,7 +514,12 @@ def app_plants():
         if not meta:
             continue
         state, s_en, s_es = MG.semaphore(k)
-        power, etoday, live, total = MG.plant_now(k)
+        _power_all, etoday, live, total = MG.plant_now(k)
+        invs = app_inverters(k)
+        # v273: 'power now' counts only inverters heard from in the last STALE_MIN;
+        # with none fresh it is unknown (' - '), never an old reading shown as now
+        fresh_kw = [i['power_kw'] for i in invs if i['state'] in ('ok', 'fault') and i['power_kw'] is not None]
+        power = sum(fresh_kw) if fresh_kw else None
         alerts = [{'sev': a.get('sev'), 'since': a.get('since'),
                    'text': MG.alert_text(a.get('msg'), k, a.get('sn')) or MG.alert_phrase(a.get('metric')),
                    'inverter': MG.inverter_name(k, a['sn']) if a.get('sn') else ''}
@@ -546,7 +551,33 @@ def app_plants():
                     'portfolio': meta.get('portfolio') or '', 'kwp': meta.get('kwp'),
                     'state': state, 'state_en': s_en, 'state_es': s_es,
                     'power_kw': power, 'today_kwh': etoday, 'inv_live': live, 'inv_total': total,
-                    'alerts': alerts, 'days': days, 'loss30': loss})
+                    'alerts': alerts, 'days': days, 'loss30': loss, 'inverters': invs})
+    return out
+
+
+def app_inverters(k):
+    """v273: the inverter table of the live plant page, for the phone. Same
+    rules as monitoring_gen.plant_page: stale after STALE_MIN, fault = status
+    flag 3, day-peak temperature amber/red, kWh per rated kW vs the median of
+    the peers; configured inverters that never reported today are 'silent'."""
+    invs = MG.LATEST.get(MG.TODAY, {}).get(k, [])
+    peers = MG.peer_ratios({i['sn']: i['etoday'] for i in invs}, MG.RATED.get(k, {}))
+    out = []
+    for i in sorted(invs, key=lambda v: MG.inverter_sort(k, v['sn'])):
+        stale = i['age_min'] > MG.STALE_MIN
+        peak = MG.PEAK_T.get(MG.TODAY, {}).get(k, {}).get(i['sn'])
+        pr_ = peers.get(i['sn'])
+        out.append({'label': MG.NAMES.inverter_short(k, i['sn']) if MG.NAMES else (i.get('label') or i['sn']),
+                    'sn': i['sn'], 'state': 'stale' if stale else ('fault' if i['status'] == 3 else 'ok'),
+                    'power_kw': None if (stale or i['power_w'] is None) else i['power_w'] / 1000.0,
+                    'today_kwh': i['etoday'], 'temp': i['temp'], 'peak': peak, 'temp_cls': MG.temp_class(peak),
+                    'peer': pr_, 'peer_cls': MG.peer_class(pr_), 'last': i.get('last_mx') or '',
+                    'age_min': None if i['age_min'] >= 9e8 else i['age_min']})
+    seen = {i['sn'] for i in invs}
+    for sn, label, _rated in MG.CONFIG_INV.get(k, []):
+        if sn not in seen:
+            out.append({'label': label or sn, 'sn': sn, 'state': 'silent', 'power_kw': None, 'today_kwh': None,
+                        'temp': None, 'peak': None, 'temp_cls': '', 'peer': None, 'peer_cls': '', 'last': '', 'age_min': None})
     return out
 
 

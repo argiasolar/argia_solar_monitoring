@@ -195,24 +195,14 @@ def icon(name, size=22) -> str:
             f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{ICONS[name]}</svg>')
 
 
-# Pages the app may open (v272). Tomasz on his iPhone, 2026-09-29: target=_blank
-# did NOT open Safari - the page opened inside the Home Screen app anyway, and
-# the plant REPORT turned the app white until it was restarted. So: no
-# target=_blank at all, and the app links only to portal pages that work on a
-# phone and carry the "Back to the ARGIA app" bar (portal_chrome, v271): the
-# live plant page and the ticket pages. Reports, the losses table and the
-# portal front door are for the computer. test_app_view pins this list.
-LINK_OUT_OK = ("/monitoring/", "/maintenance/")
-
-
-def out(href, en, es, cls="btn") -> str:
-    """A link from the app to a full portal page, same window."""
-    assert href.startswith(LINK_OUT_OK), href
-    return f'<a class="{cls}" href="{esc(href)}">{t(en, es)}</a>'
-
-
-BACK_NOTE = ('<p class="note">' + t("Full pages open inside the app; the green bar at their top brings you back.",
-                                    "Las páginas completas abren dentro de la app; la barra verde arriba te regresa.") + '</p>')
+# v273: the app links to NO portal page. Tomasz on his iPhone, 2026-09-29:
+# target=_blank did not open Safari (v271), the plant report turned the Home
+# Screen app white (v272), and the full plant page is a desktop layout cut off
+# at the right. What the phone needs from those pages is on the app's own
+# screens instead (the inverter table on each plant screen). Tickets are read
+# here and changed on the computer. test_app_view pins "no link out".
+READ_ONLY_NOTE = ('<p class="note">' + t("To open, change or add a ticket, use the portal on a computer.",
+                                         "Para abrir, cambiar o crear un ticket, usa el portal en una computadora.") + '</p>')
 
 
 def sorted_plants(plants):
@@ -308,6 +298,40 @@ def days_card(p) -> str:
             f'<div class="card pad">{"".join(rows)}</div>')
 
 
+INV_STATE = {"ok": ("OK", "OK", "ok"), "fault": ("fault", "falla", "warn"),
+             "stale": ("no data > 30 min", "sin datos > 30 min", "crit"),
+             "silent": ("silent today", "sin datos hoy", "crit")}
+
+
+def inverters_card(p) -> str:
+    """v273: what the full plant page's inverter table told you, phone-sized:
+    each inverter's status, power now, kWh today, temperature now / day peak
+    and kWh per kW against its peers."""
+    rows = []
+    for i in p.get("inverters") or []:
+        en, es, cls = INV_STATE.get(i.get("state"), INV_STATE["ok"])
+        bits = []
+        if i.get("peak") is not None or i.get("temp") is not None:
+            tn = "-" if i.get("temp") is None else f'{i["temp"]:.0f}'
+            tp = "-" if i.get("peak") is None else f'{i["peak"]:.0f}'
+            tc = {"bad": "red", "warn": "amber"}.get(i.get("temp_cls"), "")
+            bits.append(f'<span class="{tc}">{tn} / {tp} °C</span>')
+        if i.get("peer") is not None:
+            pc = {"bad": "red", "warn": "amber"}.get(i.get("peer_cls"), "")
+            bits.append(f'<span class="{pc}">{100 * i["peer"]:.0f}% {t("of peers", "de pares")}</span>')
+        if i.get("state") == "stale" and i.get("last"):
+            bits.append(f'{t("last data", "último dato")} {esc(i["last"])}')
+        rows.append(f'<div class="row invr"><div class="grow"><b>{esc(i.get("label"))}</b>'
+                    f'<small class="inv">{esc(i.get("sn"))}</small>'
+                    f'<span class="pills">{t(en, es, cls="pill " + cls)}</span>'
+                    f'<small>{" · ".join(bits)}</small></div>'
+                    f'<div class="right"><b>{num(i.get("power_kw"), 1)} kW</b><small>{num(i.get("today_kwh"), 1)} kWh</small></div></div>')
+    if not rows:
+        return ""
+    return (f'<p class="sec">{t("Inverters", "Inversores")}</p><div class="card list">{"".join(rows)}</div>'
+            f'<p class="note">{t("°C = now / day peak (amber ≥ 65, red ≥ 75). % of peers = kWh per rated kW vs the other inverters (amber < 85%, red < 70%).", "°C = ahora / pico del día (ámbar ≥ 65, rojo ≥ 75). % de pares = kWh por kW nominal vs los demás inversores (ámbar < 85%, rojo < 70%).")}</p>')
+
+
 def plant_view(p) -> str:
     al = [alert_row(p, a, with_plant=False) for a in (p.get("alerts") or [])]
     alerts = (f'<p class="sec">{t("Open alerts", "Alertas abiertas")}</p><div class="card list">{"".join(al)}</div>' if al else "")
@@ -320,8 +344,7 @@ def plant_view(p) -> str:
             f'<div class="tiles three"><div class="tile"><b>{num(p.get("power_kw"))}</b>{t("kW now", "kW ahora")}</div>'
             f'<div class="tile"><b>{num(p.get("today_kwh"))}</b>{t("kWh today", "kWh hoy")}</div>'
             f'<div class="tile"><b>{num(p.get("inv_live"))}/{num(p.get("inv_total"))}</b>{t("inverters live", "inversores")}</div></div>'
-            f'{loss_card(p)}{days_card(p)}{alerts}'
-            f'<div class="btns">{out(f"/monitoring/{slug}/", "Full plant page", "Página completa")}</div>{BACK_NOTE}'
+            f'{loss_card(p)}{inverters_card(p)}{days_card(p)}{alerts}'
             f'</section>')
 
 
@@ -380,13 +403,13 @@ def ticket_row(k) -> str:
     sla = f' · {t("over SLA", "fuera de SLA", cls="red")}' if k.get("over_sla") else ""
     who = esc(k["assignee"]) if k.get("assignee") else t("unassigned", "sin asignar")
     inv = f'{esc(k["inverter"])} · ' if k.get("inverter") else ""
-    return (f'<a class="row tk" href="/maintenance/t/{esc(k["number"])}/">'
+    return (f'<div class="row tk">'
             f'<div class="grow"><span class="pills"><span class="pill {PRIO_CLS.get(k.get("priority"), "p3")}">{esc(k.get("priority"))}</span>'
             f'{t(k.get("status_en") or "", k.get("status_es"), cls="pill st")}</span>'
             f'<b>{esc(k["plant"])}</b><span class="what">{esc(k.get("title") or "")}</span>'
             f'<small>{inv}{t("opened", "abierto")} {day_label(k.get("opened") or "")} · {who}{sla}</small></div>'
             f'<div class="right"><b class="{"red" if (k.get("lost_mxn") or 0) >= 1 else ""}">{lost}</b>'
-            f'<small>{t("lost while open", "perdido abierto")}</small></div></a>')
+            f'<small>{t("lost while open", "perdido abierto")}</small></div></div>')
 
 
 def tickets_view(tickets, total_mxn=None, total_kwh=None) -> str:
@@ -402,8 +425,7 @@ def tickets_view(tickets, total_mxn=None, total_kwh=None) -> str:
             f'<div class="tiles"><div class="tile{" red" if over else ""}"><b>{over}</b>{t("over SLA", "fuera de SLA")}</div>'
             f'<div class="tile red"><b>{total}</b>{t("lost while open (each plant-day once)", "perdido mientras abiertos (cada planta-día una vez)")}</div></div>'
             f'<div class="card list">{rows}</div>'
-            f'<div class="btns">{out("/maintenance/new/", "New ticket", "Nuevo ticket")}</div>'
-            f'{BACK_NOTE}</section>')
+            f'{READ_ONLY_NOTE}</section>')
 
 
 def more_view(gen_mx) -> str:
@@ -477,6 +499,7 @@ h1{font-size:26px;margin:4px 0 2px}
 .seg button:last-child{border-radius:0 8px 8px 0}.seg button.on{background:var(--teal2);color:#fff;border-color:var(--teal2)}
 .empty{color:var(--muted);padding:14px;margin:0}
 .pills{display:flex;gap:6px;margin-bottom:3px}.pill.p3{background:#eceef0;color:var(--muted)}.pill.st{background:#e6f7f5;color:var(--teal2)}
+.amber{color:#b26a00}.pill.ok{background:#e6f7f5;color:var(--teal2)}.row.invr .pills{margin:3px 0 1px}
 .red{color:var(--red)}.tk .right b.red{color:var(--red)}
 .muted{color:var(--muted)}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:space-around;background:rgba(255,255,255,.96);

@@ -358,17 +358,41 @@ class TestPhoneAppTickets:
         assert want > 500 and f"${want:,.0f}" in tk                   # the SAG outage ticket, same figure as test_ticket_cost_e2e
         assert "Check datalogger connection" in tk and "INV-02 low output" in tk
 
-    def test_the_app_links_only_to_phone_safe_pages(self, site):
-        """v272: no target=_blank (iOS ignored it), no report / portal front door
-        (the report turned the Home Screen app white on Tomasz's iPhone)."""
+    def test_the_app_never_links_to_a_portal_page(self, site):
+        """v273: every link stays inside the app (iOS Home Screen apps have no
+        back button; the portal pages are desktop layouts)."""
         s = self.app_page(site)
         assert "target=" not in s
-        bad = [h for h in re.findall(r'<a\b[^>]*\bhref="(/[^"]*)"', s)
-               if not h.startswith(("/app/", "/monitoring/", "/maintenance/"))]
-        assert not bad, bad
+        hrefs = re.findall(r'<a\b[^>]*\bhref="([^"]*)"', s)
+        assert hrefs and all(h.startswith("#") for h in hrefs), [h for h in hrefs if not h.startswith("#")]
+
+    def test_each_plant_screen_lists_its_inverters(self, site, psql):
+        s = self.app_page(site)
+        sag = s[s.index('id="v-p-sag"'):]
+        sag = sag[:sag.index("</section>")]
+        (n,), = psql("SELECT count(*) FROM inverter WHERE plant_key = 'MEX1' AND active")
+        assert sag.count('class="row invr"') == int(n) > 0
 
     def test_every_portal_page_offers_the_way_back_to_the_app(self, site):
         _, _, files = site
         for rel in ("monitoring/index.html", "monitoring/sag/index.html"):
             s = files[rel].read_text(encoding="utf-8")
             assert "backapp" in s and "navigator.standalone" in s and "history.back()" in s, rel
+
+    def test_plant_power_now_is_the_sum_of_its_live_inverters(self, site):
+        """v273: SAG showed 402 kW 'now' with 0/3 inverters live. Power now counts
+        only inverters heard from in the last 30 min; none -> ' - '."""
+        s = site[2]["app/index.html"].read_text(encoding="utf-8")
+        checked = 0
+        for m in re.finditer(r'id="v-p-([a-z0-9-]+)"', s):
+            sec = s[m.start():]
+            sec = sec[:sec.index("</section>")]
+            tile = re.search(r'<div class="tile"><b>([^<]*)</b><span data-en="kW now"', sec).group(1)
+            rows = re.findall(r'class="row invr">.*?<div class="right"><b>([^<]*) kW</b>', sec)
+            live = [float(x.replace(",", "")) for x in rows if x != "-"]
+            if not live:
+                assert tile == "-", (m.group(1), tile)
+            else:
+                assert abs(float(tile.replace(",", "")) - sum(live)) <= 0.5 * len(live) + 0.5, (m.group(1), tile, live)
+            checked += 1
+        assert checked >= 2

@@ -47,7 +47,14 @@ def plant(**kw):
             "days": [{"date": "2026-09-27", "actual": 300.0, "expected": 1000.0, "lost_kwh": 700.0, "lost_mxn": 1680.0},
                      {"date": "2026-09-26", "actual": 990.0, "expected": 1000.0, "lost_kwh": 10.0, "lost_mxn": 24.0}],
             "loss30": {"days": 30, "kwh": 710.0, "mxn": 1704.0, "unavailability": 700.0, "overheating": 0.0,
-                       "underperformance": 10.0, "unavailability_mxn": 1680.0, "underperformance_mxn": 24.0}}
+                       "underperformance": 10.0, "unavailability_mxn": 1680.0, "underperformance_mxn": 24.0},
+            "inverters": [
+                {"label": "Inverter 1", "sn": "ES2470051825", "state": "ok", "power_kw": 64.04, "today_kwh": 196.7,
+                 "temp": 58.0, "peak": 77.0, "temp_cls": "bad", "peer": 1.02, "peer_cls": "", "last": "11:45", "age_min": 3},
+                {"label": "Inverter 2", "sn": "ES2470051826", "state": "stale", "power_kw": None, "today_kwh": 150.0,
+                 "temp": None, "peak": 66.0, "temp_cls": "warn", "peer": 0.66, "peer_cls": "bad", "last": "10:02", "age_min": 110},
+                {"label": "Inverter 3", "sn": "GR2489022511", "state": "silent", "power_kw": None, "today_kwh": None,
+                 "temp": None, "peak": None, "temp_cls": "", "peer": None, "peer_cls": "", "last": "", "age_min": None}]}
     base.update(kw)
     return base
 
@@ -138,17 +145,13 @@ class TestInstallable:
         assert page.count('class="tabbar"') == 1 and "env(safe-area-inset-bottom)" in page
         assert 'href="#tickets" data-tab="tickets"' in page          # v271: tickets live inside the app
 
-    def test_links_out_of_the_app_only_to_phone_safe_pages_and_never_target_blank(self, page):
-        """v272, Tomasz on his iPhone: target=_blank did not open Safari (the page
-        opened inside the app anyway) and the plant report turned the app white
-        until a restart. Links out: same window, only to pages that work on a phone
-        and carry the 'Back to the ARGIA app' bar."""
+    def test_the_app_never_links_to_a_portal_page(self, page):
+        """v273, Tomasz on his iPhone: target=_blank did not open Safari (v271),
+        the report turned the app white (v272), the full plant page is a desktop
+        layout cut off at the right (v273). Every link stays inside the app."""
         assert "target=" not in page
-        stay = ("/app/", "/apple-touch-icon.png", "/favicon.png")
-        bad = [h for h in re.findall(r'<a\b[^>]*\bhref="(/[^"]*)"', page)
-               if not h.startswith(stay) and not h.startswith(AV.LINK_OUT_OK)]
-        assert not bad, bad
-        assert 'href="/report/' not in page and 'href="/"' not in page
+        hrefs = re.findall(r'<a\b[^>]*\bhref="([^"]*)"', page)
+        assert hrefs and all(h.startswith("#") for h in hrefs), [h for h in hrefs if not h.startswith("#")]
         assert "/logout" not in page                                # signing out inside the app would strand it
 
 
@@ -225,11 +228,39 @@ class TestTickets:
         s = re.sub(r'href="[^"]*"', "", self.section(page))
         assert "TK-MEX1" not in s and "TK-MEX2" not in s
 
-    def test_a_ticket_opens_its_ticket_page(self, page):
+    def test_tickets_are_read_only_in_the_app(self, page):
         s = self.section(page)
-        assert 'href="/maintenance/t/TK-MEX1-0001/">' in s
-        assert 'href="/maintenance/new/">' in s
+        assert "<a " not in s and "/maintenance/" not in s
+        assert "use the portal on a computer" in s
 
     def test_no_tickets(self):
         s = AV.render(FLEET, "2026-09-29 10:10", 0)
         assert "No open tickets." in s and 'id="v-tickets"' in s
+
+
+class TestInverters:
+    """v273: the full plant page's inverter table, on the plant screen."""
+
+    def card(self, page):
+        s = page[page.index('id="v-p-sag"'):]
+        s = s[:s.index("</section>")]
+        return s[s.index(">Inverters<"):]
+
+    def test_every_inverter_with_status_power_and_energy(self, page):
+        c = self.card(page)
+        assert c.count('class="row invr"') == 3
+        assert "64.0 kW" in c and "196.7 kWh" in c
+        assert "no data &gt; 30 min" in c or "no data > 30 min" in c
+        assert "silent today" in c and "last data" in c and "10:02" in c
+
+    def test_a_stale_inverter_shows_no_power_now(self, page):
+        c = self.card(page)
+        row = c[c.index("ES2470051826"):]
+        row = row[:row.index('class="row invr"') if 'class="row invr"' in row else len(row)]
+        assert "- kW" in row and "150.0 kWh" in row
+
+    def test_heat_and_peer_colours(self, page):
+        c = self.card(page)
+        assert '<span class="red">58 / 77 °C</span>' in c
+        assert '<span class="amber">- / 66 °C</span>' in c
+        assert '<span class="red">66% ' in c

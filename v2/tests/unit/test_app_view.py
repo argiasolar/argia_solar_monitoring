@@ -138,20 +138,17 @@ class TestInstallable:
         assert page.count('class="tabbar"') == 1 and "env(safe-area-inset-bottom)" in page
         assert 'href="#tickets" data-tab="tickets"' in page          # v271: tickets live inside the app
 
-    def test_no_link_leaves_the_app_inside_it(self, page):
-        """v271: Tomasz tapped Tickets and landed in the desktop portal inside the
-        Home Screen app - no back button, no tab bar. Every link out of /app/ must
-        open outside the app (target=_blank); only #screens, /app/ files and the
-        icons stay."""
+    def test_links_out_of_the_app_only_to_phone_safe_pages_and_never_target_blank(self, page):
+        """v272, Tomasz on his iPhone: target=_blank did not open Safari (the page
+        opened inside the app anyway) and the plant report turned the app white
+        until a restart. Links out: same window, only to pages that work on a phone
+        and carry the 'Back to the ARGIA app' bar."""
+        assert "target=" not in page
         stay = ("/app/", "/apple-touch-icon.png", "/favicon.png")
-        bad = []
-        for m in re.finditer(r'<(a|link)\b[^>]*\bhref="(/[^"]*)"[^>]*>', page):
-            tag, href = m.group(1), m.group(2)
-            if tag == "link" or href.startswith(stay):
-                continue
-            if 'target="_blank"' not in m.group(0):
-                bad.append(href)
+        bad = [h for h in re.findall(r'<a\b[^>]*\bhref="(/[^"]*)"', page)
+               if not h.startswith(stay) and not h.startswith(AV.LINK_OUT_OK)]
         assert not bad, bad
+        assert 'href="/report/' not in page and 'href="/"' not in page
         assert "/logout" not in page                                # signing out inside the app would strand it
 
 
@@ -228,10 +225,10 @@ class TestTickets:
         s = re.sub(r'href="[^"]*"', "", self.section(page))
         assert "TK-MEX1" not in s and "TK-MEX2" not in s
 
-    def test_opening_a_ticket_goes_outside_the_app(self, page):
+    def test_a_ticket_opens_its_ticket_page(self, page):
         s = self.section(page)
-        assert 'href="/maintenance/t/TK-MEX1-0001/" target="_blank"' in s
-        assert 'href="/maintenance/new/" target="_blank"' in s
+        assert 'href="/maintenance/t/TK-MEX1-0001/">' in s
+        assert 'href="/maintenance/new/">' in s
 
     def test_no_tickets(self):
         s = AV.render(FLEET, "2026-09-29 10:10", 0)

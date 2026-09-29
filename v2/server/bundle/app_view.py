@@ -195,17 +195,24 @@ def icon(name, size=22) -> str:
             f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{ICONS[name]}</svg>')
 
 
-def ext(href, en, es, cls="btn") -> str:
-    """A link OUT of the app. v271 (Tomasz: 'when I click on tickets it
-    switched to strange web app mode'): a Home Screen app has no browser bar
-    and no back button, so a portal page opened inside it is a dead end. Every
-    link leaving /app/ opens in Safari instead (target=_blank does that on
-    iOS); the app stays where it was."""
-    return (f'<a class="{cls}" href="{esc(href)}" target="_blank" rel="noopener">{t(en, es)} ↗</a>')
+# Pages the app may open (v272). Tomasz on his iPhone, 2026-09-29: target=_blank
+# did NOT open Safari - the page opened inside the Home Screen app anyway, and
+# the plant REPORT turned the app white until it was restarted. So: no
+# target=_blank at all, and the app links only to portal pages that work on a
+# phone and carry the "Back to the ARGIA app" bar (portal_chrome, v271): the
+# live plant page and the ticket pages. Reports, the losses table and the
+# portal front door are for the computer. test_app_view pins this list.
+LINK_OUT_OK = ("/monitoring/", "/maintenance/")
 
 
-SAFARI_NOTE = ('<p class="note">' + t("↗ opens outside the app (Safari); the app stays where you left it.",
-                                      "↗ abre fuera de la app (Safari); la app se queda donde la dejaste.") + '</p>')
+def out(href, en, es, cls="btn") -> str:
+    """A link from the app to a full portal page, same window."""
+    assert href.startswith(LINK_OUT_OK), href
+    return f'<a class="{cls}" href="{esc(href)}">{t(en, es)}</a>'
+
+
+BACK_NOTE = ('<p class="note">' + t("Full pages open inside the app; the green bar at their top brings you back.",
+                                    "Las páginas completas abren dentro de la app; la barra verde arriba te regresa.") + '</p>')
 
 
 def sorted_plants(plants):
@@ -314,8 +321,7 @@ def plant_view(p) -> str:
             f'<div class="tile"><b>{num(p.get("today_kwh"))}</b>{t("kWh today", "kWh hoy")}</div>'
             f'<div class="tile"><b>{num(p.get("inv_live"))}/{num(p.get("inv_total"))}</b>{t("inverters live", "inversores")}</div></div>'
             f'{loss_card(p)}{days_card(p)}{alerts}'
-            f'<div class="btns">{ext(f"/monitoring/{slug}/", "Full plant page", "Página completa")}'
-            f'{ext(f"/report/{slug}/", "Report", "Reporte")}</div>{SAFARI_NOTE}'
+            f'<div class="btns">{out(f"/monitoring/{slug}/", "Full plant page", "Página completa")}</div>{BACK_NOTE}'
             f'</section>')
 
 
@@ -360,7 +366,6 @@ def losses_view(plants) -> str:
             f'<p class="sec">{t("By cause (MXN)", "Por causa (MXN)")}</p><div class="card pad">{bars}</div>'
             f'<p class="sec">{t("By plant", "Por planta")}</p>'
             f'<div class="card list">{"".join(rows) or t("No loss figures yet.", "Aún sin cifras.", tag="p", cls="empty")}</div>'
-            f'<div class="btns">{ext("/monitoring/losses/", "Full losses page", "Página completa de pérdidas")}</div>{SAFARI_NOTE}'
             f'</section>')
 
 
@@ -375,7 +380,7 @@ def ticket_row(k) -> str:
     sla = f' · {t("over SLA", "fuera de SLA", cls="red")}' if k.get("over_sla") else ""
     who = esc(k["assignee"]) if k.get("assignee") else t("unassigned", "sin asignar")
     inv = f'{esc(k["inverter"])} · ' if k.get("inverter") else ""
-    return (f'<a class="row tk" href="/maintenance/t/{esc(k["number"])}/" target="_blank" rel="noopener">'
+    return (f'<a class="row tk" href="/maintenance/t/{esc(k["number"])}/">'
             f'<div class="grow"><span class="pills"><span class="pill {PRIO_CLS.get(k.get("priority"), "p3")}">{esc(k.get("priority"))}</span>'
             f'{t(k.get("status_en") or "", k.get("status_es"), cls="pill st")}</span>'
             f'<b>{esc(k["plant"])}</b><span class="what">{esc(k.get("title") or "")}</span>'
@@ -397,8 +402,8 @@ def tickets_view(tickets, total_mxn=None, total_kwh=None) -> str:
             f'<div class="tiles"><div class="tile{" red" if over else ""}"><b>{over}</b>{t("over SLA", "fuera de SLA")}</div>'
             f'<div class="tile red"><b>{total}</b>{t("lost while open (each plant-day once)", "perdido mientras abiertos (cada planta-día una vez)")}</div></div>'
             f'<div class="card list">{rows}</div>'
-            f'<div class="btns">{ext("/maintenance/new/", "New ticket", "Nuevo ticket")}{ext("/maintenance/", "All tickets", "Todos los tickets")}</div>'
-            f'{SAFARI_NOTE}</section>')
+            f'<div class="btns">{out("/maintenance/new/", "New ticket", "Nuevo ticket")}</div>'
+            f'{BACK_NOTE}</section>')
 
 
 def more_view(gen_mx) -> str:
@@ -410,7 +415,6 @@ def more_view(gen_mx) -> str:
             f'<div class="row"><div class="grow"><b>{t("Test a notification", "Probar una notificación")}</b>'
             f'<small id="note-out">{t("Shows how a critical alert would arrive on this phone.", "Muestra cómo llegaría una alerta crítica a este teléfono.")}</small></div>'
             f'<button class="btn sm" onclick="testNote()">{t("Send", "Enviar")}</button></div>'
-            f'<a class="row" href="/" target="_blank" rel="noopener"><div class="grow"><b>{t("Full portal ↗", "Portal completo ↗")}</b><small>{t("opens outside the app", "abre fuera de la app")}</small></div></a>'
             f'</div><p class="note">{t("Data as of", "Datos al")} {esc(gen_mx)} MX · {t("refreshed every 5 minutes; tap the arrow at the top to reload.", "se actualiza cada 5 minutos; toca la flecha arriba para recargar.")}</p>'
             f'</section>')
 

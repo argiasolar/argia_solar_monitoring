@@ -358,13 +358,17 @@ class TestPhoneAppTickets:
         assert want > 500 and f"${want:,.0f}" in tk                   # the SAG outage ticket, same figure as test_ticket_cost_e2e
         assert "Check datalogger connection" in tk and "INV-02 low output" in tk
 
-    def test_nothing_in_the_app_opens_the_portal_inside_it(self, site):
+    def test_the_app_links_only_to_phone_safe_pages(self, site):
+        """v272: no target=_blank (iOS ignored it), no report / portal front door
+        (the report turned the Home Screen app white on Tomasz's iPhone)."""
         s = self.app_page(site)
-        bad = [m.group(0) for m in re.finditer(r'<a\b[^>]*\bhref="(/[^"]*)"[^>]*>', s)
-               if not m.group(1).startswith("/app/") and 'target="_blank"' not in m.group(0)]
+        assert "target=" not in s
+        bad = [h for h in re.findall(r'<a\b[^>]*\bhref="(/[^"]*)"', s)
+               if not h.startswith(("/app/", "/monitoring/", "/maintenance/"))]
         assert not bad, bad
 
     def test_every_portal_page_offers_the_way_back_to_the_app(self, site):
         _, _, files = site
-        s = files["monitoring/index.html"].read_text(encoding="utf-8")
-        assert "backapp" in s and "navigator.standalone" in s
+        for rel in ("monitoring/index.html", "monitoring/sag/index.html"):
+            s = files[rel].read_text(encoding="utf-8")
+            assert "backapp" in s and "navigator.standalone" in s and "history.back()" in s, rel

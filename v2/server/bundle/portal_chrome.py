@@ -472,7 +472,8 @@ window.addEventListener('DOMContentLoaded',()=>{
    reached inside it (sign-in, an old link) gets a way back to the app instead of a dead end. */
 (function(){try{var sa=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
  if(sa&&location.pathname.indexOf('/app/')!==0){var a=document.createElement('a');a.href='/app/';a.className='backapp';
-  a.textContent=(document.documentElement.lang==='es')?'‹ Volver a la app ARGIA':'‹ Back to the ARGIA app';document.body.insertBefore(a,document.body.firstChild);}}catch(e){}})();
+  a.textContent=(document.documentElement.lang==='es')?'‹ Volver a la app ARGIA':'‹ Back to the ARGIA app';
+  a.onclick=function(){if(document.referrer.indexOf('/app/')>=0&&history.length>1){history.back();return false;}return true;};   /* v272: back to the same app screen */document.body.insertBefore(a,document.body.firstChild);}}catch(e){}})();
 </script>'''
 
 

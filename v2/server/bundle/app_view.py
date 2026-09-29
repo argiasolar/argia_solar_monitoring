@@ -19,8 +19,10 @@ What makes it an app rather than a web page, on an iPhone:
   numbers as if they were current.
 
 The page is written by portal_gen every run (5 min), from the same data as
-the monitoring pages. Every plant, every open alert and the loss figures
-are real. No plant codes anywhere (customer names only); every string in
+the monitoring pages. PPA plants only (Tomasz, 2026-09-29: "only PPAs in the
+app, no need for CAPEX"); every plant, open alert and loss figure is real.
+The header carries the website's logo (argia_logo, v251) - the single-letter
+mark is the Home Screen icon only. No plant codes anywhere (customer names only); every string in
 both languages.
 
 Pure rendering: plain dicts in, text/bytes out - no database, no clock.
@@ -32,6 +34,11 @@ import html
 import json
 import struct
 import zlib
+
+try:
+    from argia_logo import LOGO_URI, LOGO_ALT     # the website's logo: ARGIA / Smart Energy Solutions
+except ImportError:                               # pragma: no cover - the bundle always has it
+    LOGO_URI, LOGO_ALT = '', 'ARGIA'
 
 # ------------------------------------------------------------------ the mark
 # The website's single-letter logo, from its safari-pinned-tab.svg
@@ -228,7 +235,7 @@ def fleet_view(plants, gen_hhmm) -> str:
             f'<small class="stt">{t(p.get("state_en") or "", p.get("state_es"))}</small></div>'
             f'<div class="right"><b>{num(p.get("power_kw"))} kW</b><small>{num(p.get("today_kwh"))} kWh</small></div></a>')
     return (f'<section class="v" id="v-fleet" data-tab="fleet">'
-            f'<p class="kick">{t("Fleet now", "Flota ahora")} · {esc(gen_hhmm)} MX</p>'
+            f'<p class="kick">{t("PPA fleet now", "Flota PPA ahora")} · {esc(gen_hhmm)} MX</p>'
             f'<p class="big">{num(power)} <span>kW</span></p>'
             f'<div class="tiles"><div class="tile"><b>{num(today)}</b>{t("kWh today", "kWh hoy")}</div>'
             f'<a class="tile{" red" if crit else ""}" href="#alerts"><b>{crit} {t("critical", "críticas")}</b>'
@@ -331,10 +338,10 @@ def losses_view(plants) -> str:
         rows.append(f'<a class="row" href="#p-{esc(p["slug"])}"><div class="grow"><b>{esc(p["name"])}</b>'
                     f'<small>{num(L.get("kwh"))} kWh {t("lost", "perdidos")}</small></div><div class="right"><b>{val}</b></div></a>')
     return (f'<section class="v" id="v-losses" data-tab="losses" hidden><h1>{t("Losses", "Pérdidas")}</h1>'
-            f'<p class="sub">{t(f"Last {days} days, all plants", f"Últimos {days} días, todas las plantas")}</p>'
-            f'<div class="tiles"><div class="tile red"><b>{money(tot_mxn)}</b>{t("MXN lost (PPA)", "MXN perdidos (PPA)")}</div>'
-            f'<div class="tile"><b>{num(tot_kwh)}</b>{t("kWh lost (all)", "kWh perdidos (todas)")}</div></div>'
-            f'<p class="sec">{t("By cause (PPA, MXN)", "Por causa (PPA, MXN)")}</p><div class="card pad">{bars}</div>'
+            f'<p class="sub">{t(f"Last {days} days, all PPA plants", f"Últimos {days} días, todas las plantas PPA")}</p>'
+            f'<div class="tiles"><div class="tile red"><b>{money(tot_mxn)}</b>{t("MXN lost", "MXN perdidos")}</div>'
+            f'<div class="tile"><b>{num(tot_kwh)}</b>{t("kWh lost", "kWh perdidos")}</div></div>'
+            f'<p class="sec">{t("By cause (MXN)", "Por causa (MXN)")}</p><div class="card pad">{bars}</div>'
             f'<p class="sec">{t("By plant", "Por planta")}</p>'
             f'<div class="card list">{"".join(rows) or t("No loss figures yet.", "Aún sin cifras.", tag="p", cls="empty")}</div>'
             f'<div class="btns"><a class="btn" href="/monitoring/losses/">{t("Full losses page", "Página completa de pérdidas")}</a></div>'
@@ -376,7 +383,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,
 a{color:inherit;text-decoration:none}
 header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
  border-bottom:1px solid var(--line);padding:calc(8px + env(safe-area-inset-top)) 16px 8px;display:flex;align-items:center;gap:10px}
-header .mark{color:#141414}
+header .logo{height:34px;width:auto;display:block}   /* argia_logo: the tagline needs 34px to stay legible */
 header .ttl{font-weight:700;letter-spacing:.14em;font-size:15px}
 header .age{margin-left:auto;font-size:12px;color:var(--muted)}
 header .age.old{color:var(--red);font-weight:600}
@@ -480,7 +487,9 @@ def render(plants, gen_mx: str, gen_epoch: int) -> str:
             '<link rel="icon" href="/favicon.png">'
             '<link rel="manifest" href="/app/manifest.webmanifest" crossorigin="use-credentials">'
             f'<title>ARGIA</title><style>{CSS}</style></head><body>')
-    top = (f'<header>{mark_svg(22)}<span class="ttl">ARGIA</span><span class="age" id="age"></span>'
+    logo = (f'<img class="logo" src="{LOGO_URI}" alt="{esc(LOGO_ALT)}" height="34">' if LOGO_URI
+            else '<span class="ttl">ARGIA</span>')
+    top = (f'<header>{logo}<span class="age" id="age"></span>'
            f'<button type="button" onclick="location.reload()" aria-label="reload">{icon("refresh", 20)}</button></header>')
     views = (fleet_view(plants, hhmm) + "".join(plant_view(p) for p in sorted_plants(plants))
              + alerts_view(plants) + losses_view(plants) + more_view(gen_mx))

@@ -292,14 +292,18 @@ class TestPhoneApp:
             assert rel in files, rel
         assert files["apple-touch-icon.png"].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
-    def test_every_active_plant_has_a_screen_under_its_customer_name(self, site, psql):
+    def test_ppa_plants_only_each_under_its_customer_name(self, site, psql):
+        """Tomasz, 2026-09-29: 'I want to have only PPAs in the app, no need for CAPEX'."""
         _, _, files = site
         s = files["app/index.html"].read_text(encoding="utf-8")
         import sys
         sys.path.insert(0, str(V2 / "server" / "bundle"))
         import portal_chrome as C                                     # noqa: E402
-        for (k,) in psql("SELECT plant_key FROM plant WHERE active ORDER BY 1"):
-            assert f'id="v-p-{C.slug(k)}"' in s, k
+        rows = psql("SELECT plant_key, portfolio FROM plant WHERE active ORDER BY 1")
+        assert {r[1] for r in rows} >= {"PPA", "CAPEX"}                  # the seed has both, so the filter is exercised
+        for k, portfolio in rows:
+            assert (f'id="v-p-{C.slug(k)}"' in s) == (portfolio == "PPA"), (k, portfolio)
+        assert "CAPEX" not in s
         shown = re.sub(r'<small class="inv">.*?</small>', "", s)      # the seed's serials embed codes; real ones do not
         assert not re.search(r"\b(SLP[12]|GTO[12]|NL[12]|MEX[123]|QRO1|TAM1)\b", shown)
 
@@ -313,8 +317,21 @@ class TestPhoneApp:
         assert f"${float(mxn):,.0f}" in sag                          # the outage day, priced
         assert "Unavailability" in sag
 
-    def test_the_open_critical_is_on_the_alerts_screen(self, site):
+    def test_the_alerts_screen_counts_exactly_the_open_ppa_alerts(self, site, psql):
         _, _, files = site
         s = files["app/index.html"].read_text(encoding="utf-8")
+        (n_ppa,), = psql("SELECT count(*) FROM alert_ledger a JOIN plant p USING (plant_key)"
+                         " WHERE a.state = 'OPEN' AND a.metric <> 'daily_digest' AND p.portfolio = 'PPA' AND p.active")
+        (n_capex,), = psql("SELECT count(*) FROM alert_ledger a JOIN plant p USING (plant_key)"
+                           " WHERE a.state = 'OPEN' AND a.metric <> 'daily_digest' AND p.portfolio = 'CAPEX'")
+        assert int(n_capex) > 0                                          # the seed's dark CAPEX plant: must be left out
         al = s[s.index('id="v-alerts"'):]
-        assert "Critical" in al[:al.index("</section>")]
+        al = al[:al.index("</section>")]
+        assert al.count('class="row al"') == int(n_ppa)
+        assert (f'<i class="badge">{n_ppa}</i>' in s) == (int(n_ppa) > 0)
+
+    def test_the_header_carries_the_website_logo(self, site):
+        _, _, files = site
+        s = files["app/index.html"].read_text(encoding="utf-8")
+        header = s[s.index("<header>"):s.index("</header>")]
+        assert 'class="logo" src="data:image/png;base64,' in header and 'alt="ARGIA - Smart Energy Solutions"' in header

@@ -503,12 +503,13 @@ def monitoring_overview(which=''):
 
 # ------------------------------------------------------------ v268 phone app
 def app_plants():
-    """Every active plant as app_view wants it - the same live figures as the
-    monitoring pages (MG), the loss figures from loss_daily (MG.LOSS)."""
+    """Every active PPA plant as app_view wants it - the same live figures as
+    the monitoring pages (MG), the loss figures from loss_daily (MG.LOSS).
+    PPA only (Tomasz, 2026-09-29): CAPEX plants are not in the app."""
     today = dt.date.fromisoformat(MG.TODAY)
     d30 = (today - dt.timedelta(days=30)).isoformat()
     out = []
-    for k in PPA + CAPEX:
+    for k in PPA:
         meta = MG.PLANTS.get(k)
         if not meta:
             continue

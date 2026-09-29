@@ -396,3 +396,18 @@ class TestPhoneAppTickets:
                 assert abs(float(tile.replace(",", "")) - sum(live)) <= 0.5 * len(live) + 0.5, (m.group(1), tile, live)
             checked += 1
         assert checked >= 2
+
+    def test_fleet_pr_and_availability_match_the_portals_ppa_tiles(self, site):
+        """v274: the app's fleet tiles are the PPA page's tiles, same weighting."""
+        s = site[2]["app/index.html"].read_text(encoding="utf-8")
+        ppa = site[2]["monitoring/ppa/index.html"].read_text(encoding="utf-8")
+        fleet = s[s.index('id="v-fleet"'):]
+        fleet = fleet[:fleet.index("</section>")]
+        app_pr = re.search(r'<div class="tile t-[a-z]*"><b>([^<]*)</b><span data-en="PR 30 days"', fleet).group(1)
+        app_av = re.search(r'<div class="tile t-[a-z]*"><b>([^<]*)</b><span data-en="availability 30 d"', fleet).group(1)
+        pr = re.search(r'Performance · PR 30 d</span>.*?<div class="tval">([^<]*)<', ppa, re.S)
+        av = re.search(r'Availability · 30 d</span>.*?<div class="tval">([^<]*)<', ppa, re.S)
+        assert pr and av, "portal PPA tiles not found - update this test with the tile markup"
+        want_pr = pr.group(1).strip()
+        assert app_pr == ("-" if want_pr == "-" else f"{float(want_pr):.2f}")
+        assert app_av == av.group(1).strip()

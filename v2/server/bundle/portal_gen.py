@@ -551,8 +551,21 @@ def app_plants():
                     'portfolio': meta.get('portfolio') or '', 'kwp': meta.get('kwp'),
                     'state': state, 'state_en': s_en, 'state_es': s_es,
                     'power_kw': power, 'today_kwh': etoday, 'inv_live': live, 'inv_total': total,
-                    'alerts': alerts, 'days': days, 'loss30': loss, 'inverters': invs})
+                    'alerts': alerts, 'days': days, 'loss30': loss, 'inverters': invs,
+                    **app_perf(k, meta)})
     return out
+
+
+def app_perf(k, meta):
+    """v274: PR and availability over 30 days (MG.PERF, the numbers of the
+    portal tiles) and today so far vs expected (app_view.today_vs_expected on
+    the intraday chart's hourly data)."""
+    pf = MG.PERF.get(k, {})
+    ratio, act, exp, hours = AV.today_vs_expected(MG.HOURLY.get(MG.TODAY, {}).get(k, {}),
+                                                  MG.IRR_H.get(MG.TODAY, {}).get(k, {}),
+                                                  meta.get('kwp'), meta.get('pr'), MG.NOW_MX.hour)
+    return {'pr30': pf.get('pr'), 'avail30': pf.get('avail'),
+            'today_pct': ratio, 'today_act': act, 'today_exp': exp, 'today_hours': hours}
 
 
 def app_inverters(k):

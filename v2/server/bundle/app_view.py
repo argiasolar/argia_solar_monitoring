@@ -205,6 +205,75 @@ READ_ONLY_NOTE = ('<p class="note">' + t("To open, change or add a ticket, use t
                                          "Para abrir, cambiar o crear un ticket, usa el portal en una computadora.") + '</p>')
 
 
+# ------------------------------------------------------ v274 performance
+# Tomasz, 2026-09-29: "add tile on main page showing availability and
+# performance ... on the plant level we should see the daily performance in %
+# so I know if it works properly or lags".
+PR_BANDS = (0.75, 0.65)          # PR 30 d: >= 0.75 green, >= 0.65 amber - the portal's bands
+AVAIL_BANDS = (0.98, 0.95)       # availability 30 d (IEC 63019) - the portal's bands
+TODAY_BANDS = (0.90, 0.70)       # today vs expected - the portal's month-to-date bands
+TODAY_MIN_IRR = 50.0             # W/m2: dawn / dusk hours are too small to judge
+DAY_HOURS = (6, 20)              # MX hours [from, to): monitoring_gen.WINDOW. pio06 2026-09-29: SLP2 had a
+                                 # 3 a.m. irradiance sample - a night value must not become expected energy
+TODAY_MIN_EXP_H = 0.10           # expected kWh per kWp (~ one weak morning hour) before a percentage means anything
+
+
+def band(v, bands):
+    if v is None:
+        return ""
+    return "good" if v >= bands[0] else ("warn" if v >= bands[1] else "bad")
+
+
+def today_vs_expected(hourly_by_sn, irr_by_hour, kwp, pr, now_hour):
+    """(ratio, actual kWh, expected kWh, hours) for today so far. Pure.
+
+    Expected per hour = measured irradiance (W/m2) / 1000 x kWp x the plant's
+    PR baseline - the dashed 'theoretical' line of the portal's intraday chart.
+    Only COMPLETE hours count (before ``now_hour``), only hours with at least
+    TODAY_MIN_IRR, and only up to the last hour any inverter reported: a data
+    gap at the end is 'no data yet' (the status says so), not lost energy.
+    Hours inside that span where an inverter sent nothing count as 0 for it -
+    an inverter that stopped IS the lag this number is for."""
+    reported = [h for by_h in (hourly_by_sn or {}).values() for h in by_h]
+    if not reported or not kwp or not pr:
+        return None, None, None, 0
+    last = min(max(reported), now_hour - 1)
+    hours = [h for h, irr in (irr_by_hour or {}).items()
+             if irr is not None and irr >= TODAY_MIN_IRR and h <= last and DAY_HOURS[0] <= h < DAY_HOURS[1]]
+    if not hours:
+        return None, None, None, 0
+    exp = sum(irr_by_hour[h] * kwp * pr / 1000.0 for h in hours)
+    act = sum((by_h.get(h) or 0.0) for by_h in hourly_by_sn.values() for h in hours)
+    if exp < TODAY_MIN_EXP_H * kwp:
+        return None, act, exp, len(hours)
+    return act / exp, act, exp, len(hours)
+
+
+def weighted(plants, key):
+    """kWp-weighted mean of a per-plant ratio (the portal's fleet tiles)."""
+    w = sum(p["kwp"] for p in plants if p.get(key) is not None and p.get("kwp"))
+    return (sum(p[key] * p["kwp"] for p in plants if p.get(key) is not None and p.get("kwp")) / w) if w else None
+
+
+def pct(v, d=0) -> str:
+    return "-" if v is None else f"{100 * v:,.{d}f}%"
+
+
+def perf_tiles(pr, av, today, today_note_en="", today_note_es="") -> str:
+    return (f'<div class="tiles three">'
+            f'<div class="tile t-{band(today, TODAY_BANDS)}"><b>{pct(today)}</b>{t("today vs expected", "hoy vs esperado")}</div>'
+            f'<div class="tile t-{band(pr, PR_BANDS)}"><b>{"-" if pr is None else f"{pr:.2f}"}</b>{t("PR 30 days", "PR 30 días")}</div>'
+            f'<div class="tile t-{band(av, AVAIL_BANDS)}"><b>{pct(av, 1)}</b>{t("availability 30 d", "disponibilidad 30 d")}</div>'
+            f'</div>')
+
+
+PERF_NOTE = ('<p class="note">' + t(
+    "Today vs expected = energy in the completed hours against irradiance x kWp x the plant's PR baseline "
+    "(green >= 90%, amber >= 70%). PR 30 days: green >= 0.75, amber >= 0.65. Availability: green >= 98%, amber >= 95%.",
+    "Hoy vs esperado = energía de las horas completas contra irradiancia x kWp x el PR base de la planta "
+    "(verde >= 90%, ámbar >= 70%). PR 30 días: verde >= 0.75, ámbar >= 0.65. Disponibilidad: verde >= 98%, ámbar >= 95%.") + '</p>')
+
+
 def sorted_plants(plants):
     return sorted(plants, key=lambda p: (STATE_ORDER.get(p.get("state"), 9), str(p.get("name", "")).lower()))
 
@@ -238,6 +307,9 @@ def fleet_view(plants, gen_hhmm) -> str:
     today = sum(p["today_kwh"] or 0.0 for p in plants if p.get("today_kwh") is not None)
     alerts = all_alerts(plants)
     crit = sum(1 for _, a in alerts if str(a.get("sev", "")).upper() == "CRITICAL")
+    act = sum(p["today_act"] for p in plants if p.get("today_pct") is not None)
+    exp = sum(p["today_exp"] for p in plants if p.get("today_pct") is not None)
+    fleet_today = (act / exp) if exp else None
     cards = []
     for p in sorted_plants(plants):
         cards.append(
@@ -246,15 +318,17 @@ def fleet_view(plants, gen_hhmm) -> str:
             f'<small>{esc(p.get("where") or "")}{" · " if p.get("where") else ""}{esc(p.get("portfolio") or "")}'
             f' · {num(p.get("kwp"))} kWp</small>'
             f'<small class="stt">{t(p.get("state_en") or "", p.get("state_es"))}</small></div>'
-            f'<div class="right"><b>{num(p.get("power_kw"))} kW</b><small>{num(p.get("today_kwh"))} kWh</small></div></a>')
+            f'<div class="right"><b>{num(p.get("power_kw"))} kW</b><small>{num(p.get("today_kwh"))} kWh</small>'
+            f'<small class="tp t-{band(p.get("today_pct"), TODAY_BANDS)}">{pct(p.get("today_pct"))} {t("today", "hoy")}</small></div></a>')
     return (f'<section class="v" id="v-fleet" data-tab="fleet">'
             f'<p class="kick">{t("PPA fleet now", "Flota PPA ahora")} · {esc(gen_hhmm)} MX</p>'
             f'<p class="big">{num(power)} <span>kW</span></p>'
             f'<div class="tiles"><div class="tile"><b>{num(today)}</b>{t("kWh today", "kWh hoy")}</div>'
             f'<a class="tile{" red" if crit else ""}" href="#alerts"><b>{crit} {t("critical", "críticas")}</b>'
             f'{len(alerts) - crit} {t("warnings", "avisos")}</a></div>'
+            f'{perf_tiles(weighted(plants, "pr30"), weighted(plants, "avail30"), fleet_today)}'
             f'<div class="card list">{"".join(cards) or t("No plants.", "Sin plantas.", tag="p", cls="empty")}</div>'
-            f'</section>')
+            f'{PERF_NOTE}</section>')
 
 
 def loss_card(p) -> str:
@@ -344,8 +418,18 @@ def plant_view(p) -> str:
             f'<div class="tiles three"><div class="tile"><b>{num(p.get("power_kw"))}</b>{t("kW now", "kW ahora")}</div>'
             f'<div class="tile"><b>{num(p.get("today_kwh"))}</b>{t("kWh today", "kWh hoy")}</div>'
             f'<div class="tile"><b>{num(p.get("inv_live"))}/{num(p.get("inv_total"))}</b>{t("inverters live", "inversores")}</div></div>'
-            f'{loss_card(p)}{inverters_card(p)}{days_card(p)}{alerts}'
+            f'{perf_tiles(p.get("pr30"), p.get("avail30"), p.get("today_pct"))}'
+            f'{today_line(p)}'
+            f'{loss_card(p)}{inverters_card(p)}{days_card(p)}{alerts}{PERF_NOTE}'
             f'</section>')
+
+
+def today_line(p) -> str:
+    if p.get("today_exp") is None:
+        return ""
+    return (f'<p class="note">{t("Today so far", "Hoy hasta ahora")}: {num(p.get("today_act"))} kWh '
+            f'{t("of", "de")} {num(p.get("today_exp"))} kWh {t("expected", "esperados")} '
+            f'({p.get("today_hours", 0)} {t("complete hours", "horas completas")})</p>')
 
 
 def alerts_view(plants) -> str:
@@ -474,6 +558,8 @@ h1{font-size:26px;margin:4px 0 2px}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.tiles.three{grid-template-columns:1fr 1fr 1fr}
 .tile{background:#fff;border-radius:14px;padding:12px;font-size:12px;color:var(--muted);display:block}
 .tile b{display:block;font-size:20px;color:var(--ink)}.tile.red b{color:var(--red)}
+.t-good b,.tp.t-good{color:var(--green)!important}.t-warn b,.tp.t-warn{color:#b26a00!important}.t-bad b,.tp.t-bad{color:var(--red)!important}
+.tp{font-weight:600}
 .card{background:#fff;border-radius:14px;margin-bottom:12px;overflow:hidden}.card.pad{padding:12px 14px}
 .row{display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}.row:first-child{border-top:0}
 .grow{flex:1;min-width:0}.grow b{display:block}.grow small,.right small{display:block;color:var(--muted);font-size:12px}

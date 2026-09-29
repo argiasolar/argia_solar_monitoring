@@ -264,3 +264,68 @@ class TestInverters:
         assert '<span class="red">58 / 77 °C</span>' in c
         assert '<span class="amber">- / 66 °C</span>' in c
         assert '<span class="red">66% ' in c
+
+
+class TestPerformance:
+    """v274: PR / availability tiles and today vs expected."""
+
+    IRR = {7: 40.0, 8: 200.0, 9: 500.0, 10: 800.0, 11: 900.0}      # W/m2 per hour
+
+    def test_today_counts_complete_hours_with_sun_only(self):
+        hourly = {"a": {7: 1.0, 8: 20.0, 9: 50.0, 10: 80.0, 11: 45.0}}
+        r, act, exp, n = AV.today_vs_expected(hourly, self.IRR, 100.0, 0.8, now_hour=11)
+        # hour 7 is below TODAY_MIN_IRR, hour 11 is not complete yet
+        assert n == 3 and act == pytest.approx(150.0)
+        assert exp == pytest.approx((200 + 500 + 800) * 100 * 0.8 / 1000)      # 120 kWh
+        assert r == pytest.approx(1.25)
+
+    def test_a_data_gap_at_the_end_is_not_lost_energy(self):
+        hourly = {"a": {8: 16.0, 9: 40.0}}                                   # nothing after 9:00 yet
+        r, _act, _exp, n = AV.today_vs_expected(hourly, self.IRR, 100.0, 0.8, now_hour=12)
+        assert n == 2 and r == pytest.approx(56.0 / 56.0)
+
+    def test_an_inverter_that_stopped_is_the_lag(self):
+        hourly = {"a": {8: 8.0, 9: 20.0, 10: 32.0}, "b": {8: 8.0, 9: 20.0}}  # b stopped after 9:00
+        r, act, exp, n = AV.today_vs_expected(hourly, self.IRR, 100.0, 0.8, now_hour=11)
+        assert n == 3 and act == pytest.approx(88.0) and r == pytest.approx(88.0 / 120.0)
+
+    def test_a_night_irradiance_sample_is_not_expected_energy(self):
+        """pio06, 2026-09-29: SLP2 carried a 3 a.m. irradiance value (16 kWh 'expected')."""
+        irr = {**self.IRR, 3: 300.0}
+        hourly = {"a": {3: 0.0, 8: 16.0, 9: 40.0, 10: 64.0}}
+        r, _a, exp, n = AV.today_vs_expected(hourly, irr, 100.0, 0.8, now_hour=11)
+        assert n == 3 and exp == pytest.approx(120.0) and r == pytest.approx(1.0)
+
+    def test_no_percentage_before_there_is_something_to_judge(self):
+        assert AV.today_vs_expected({}, self.IRR, 100.0, 0.8, 12)[0] is None
+        assert AV.today_vs_expected({"a": {6: 0.1}}, {6: 10.0}, 100.0, 0.8, 8)[0] is None
+        assert AV.today_vs_expected({"a": {8: 1.0}}, {8: 60.0}, 100.0, 0.8, 9)[0] is None   # 4.8 kWh < 0.10 kWh per kWp of 100 kWp
+        assert AV.today_vs_expected({"a": {8: 1.0}}, self.IRR, 0, 0.8, 12)[0] is None
+
+    @pytest.mark.parametrize("v,bands,want", [(0.80, AV.PR_BANDS, "good"), (0.70, AV.PR_BANDS, "warn"),
+                                              (0.60, AV.PR_BANDS, "bad"), (0.99, AV.AVAIL_BANDS, "good"),
+                                              (0.96, AV.AVAIL_BANDS, "warn"), (0.5, AV.TODAY_BANDS, "bad"),
+                                              (None, AV.TODAY_BANDS, "")])
+    def test_bands_match_the_portal(self, v, bands, want):
+        assert AV.band(v, bands) == want
+
+    def test_fleet_values_are_kwp_weighted(self):
+        ps = [{"kwp": 100, "pr30": 0.8}, {"kwp": 300, "pr30": 0.6}, {"kwp": 50, "pr30": None}]
+        assert AV.weighted(ps, "pr30") == pytest.approx(0.65)
+        assert AV.weighted([{"kwp": 1, "pr30": None}], "pr30") is None
+
+    def test_tiles_on_the_fleet_and_plant_screens(self):
+        ps = [plant(pr30=0.82, avail30=0.991, today_pct=0.93, today_act=930.0, today_exp=1000.0, today_hours=4),
+              plant(slug="vit", name="Vitalmex", pr30=0.60, avail30=0.94, today_pct=0.5, today_act=500.0,
+                    today_exp=1000.0, today_hours=4)]
+        s = AV.render(ps, "2026-09-29 12:10", 0)
+        fleet = s[s.index('id="v-fleet"'):]
+        fleet = fleet[:fleet.index("</section>")]
+        assert '<div class="tile t-warn"><b>72%</b>' in fleet            # (930 + 500) / 2000 today
+        assert '<div class="tile t-warn"><b>0.71</b>' in fleet           # (0.82 + 0.60) / 2, equal kWp
+        assert '<div class="tile t-bad"><b>96.5%</b>' not in fleet and "96.5%" in fleet
+        assert 'class="tp t-bad">50% ' in fleet                          # the lagging plant, on its card
+        sag = s[s.index('id="v-p-sag"'):]
+        sag = sag[:sag.index("</section>")]
+        assert '<div class="tile t-good"><b>93%</b>' in sag and '<div class="tile t-good"><b>0.82</b>' in sag
+        assert "930 kWh" in sag and "1,000 kWh" in sag and "4 " in sag

@@ -1,4 +1,10 @@
 ags/index.html
+app/icon-192.png
+app/icon-512.png
+app/index.html
+app/manifest.webmanifest
+app/sw.js
+apple-touch-icon.png
 engine/index.html
 index.html
 logged-out.html

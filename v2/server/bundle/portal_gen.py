@@ -34,6 +34,7 @@ from argia_client_logos import CLIENT_LOGOS        # noqa: E402
 import report_gen as RG                            # noqa: E402  (loads PG)
 import monitoring_gen as MG                        # noqa: E402  (loads PG)
 import losses_view as LV                           # noqa: E402  (v264)
+import app_view as AV                              # noqa: E402  (v268)
 
 t, ti, ico, tile, pill = C.t, C.ti, C.ico, C.tile, C.pill
 PPA, CAPEX = RG.PPA, RG.CAPEX
@@ -500,6 +501,73 @@ def monitoring_overview(which=''):
     return C.page('Monitoring', body, 'monitoring', which, refresh=300)
 
 
+# ------------------------------------------------------------ v268 phone app
+def app_plants():
+    """Every active plant as app_view wants it - the same live figures as the
+    monitoring pages (MG), the loss figures from loss_daily (MG.LOSS)."""
+    today = dt.date.fromisoformat(MG.TODAY)
+    d30 = (today - dt.timedelta(days=30)).isoformat()
+    out = []
+    for k in PPA + CAPEX:
+        meta = MG.PLANTS.get(k)
+        if not meta:
+            continue
+        state, s_en, s_es = MG.semaphore(k)
+        power, etoday, live, total = MG.plant_now(k)
+        alerts = [{'sev': a.get('sev'), 'since': a.get('since'),
+                   'text': MG.alert_text(a.get('msg'), k, a.get('sn')) or MG.alert_phrase(a.get('metric')),
+                   'inverter': MG.inverter_name(k, a['sn']) if a.get('sn') else ''}
+                  for a in MG.ALERTS_OPEN.get(k, [])]
+        days = []
+        for dd, e, x in reversed(MG.DAILY.get(k, [])):
+            if dd >= MG.TODAY:
+                continue
+            L = MG.LOSS.get((k, dd)) or {}
+            days.append({'date': dd, 'actual': e, 'expected': L.get('exp') or x,
+                         'lost_kwh': L.get('lost'), 'lost_mxn': L.get('mxn')})
+            if len(days) == 7:
+                break
+        loss = {'days': 0, 'kwh': 0.0, 'mxn': None}
+        for (pk, dd), L in MG.LOSS.items():
+            if pk != k or not (d30 <= dd < MG.TODAY) or L.get('lost') is None:
+                continue
+            lost = max(0.0, L['lost'] or 0.0)
+            loss['days'] += 1
+            loss['kwh'] += lost
+            for c, _en, _es in AV.CAUSES:
+                loss[c] = loss.get(c, 0.0) + (L.get(c) or 0.0)
+            if L.get('mxn') is not None:
+                loss['mxn'] = (loss['mxn'] or 0.0) + L['mxn']
+                if lost > 0:                         # the day's MXN split in the same shares as its kWh
+                    for c, _en, _es in AV.CAUSES:
+                        loss[c + '_mxn'] = loss.get(c + '_mxn', 0.0) + L['mxn'] * (L.get(c) or 0.0) / lost
+        out.append({'slug': C.slug(k), 'name': name(k), 'where': C.location_of(meta['customer']),
+                    'portfolio': meta.get('portfolio') or '', 'kwp': meta.get('kwp'),
+                    'state': state, 'state_en': s_en, 'state_es': s_es,
+                    'power_kw': power, 'today_kwh': etoday, 'inv_live': live, 'inv_total': total,
+                    'alerts': alerts, 'days': days, 'loss30': loss})
+    return out
+
+
+def write_bytes(rel, data):
+    p = os.path.join(OUTROOT, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, 'wb') as fh:
+        fh.write(data)
+    os.chmod(p, 0o644)
+
+
+def write_app():
+    """/app/ + the Home Screen icon. Returns the number of files written."""
+    write('app/index.html', AV.render(app_plants(), MG.NOW_MX.strftime('%Y-%m-%d %H:%M'), int(MG.NOW_MX.timestamp())))
+    write('app/manifest.webmanifest', AV.manifest())
+    write('app/sw.js', AV.SW_JS)
+    write_bytes('apple-touch-icon.png', AV.icon_png(180))
+    for s in (192, 512):
+        write_bytes(f'app/icon-{s}.png', AV.icon_png(s))
+    return 6
+
+
 # --------------------------------------------------------------------- io
 def write(rel, content):
     p = os.path.join(OUTROOT, rel)
@@ -542,6 +610,11 @@ def main():
                 write(f'monitoring/{C.slug(k)}/d/{d}.html', monitoring_plant(k, d)); n += 1
     write('engine/index.html', C.redirect_page(C.ENGINE_URL, 'Engine', 'Engine')); n += 1
     write('ags/index.html', C.redirect_page(C.AGS_URL, 'ARGIA Golden Standard', 'ARGIA Golden Standard')); n += 1
+    # v268: the phone app - a failure here must never cost the rest of the portal
+    try:
+        n += write_app()
+    except Exception as exc:                      # noqa: BLE001
+        print(f'portal_gen: app FAILED: {type(exc).__name__}: {exc}', file=sys.stderr)
     print(f'portal_gen: wrote {n} pages under {OUTROOT}')
 
 

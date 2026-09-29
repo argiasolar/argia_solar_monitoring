@@ -279,3 +279,42 @@ class TestLosses:
         table = s[s.index("Last 7 days - production"):]
         table = table[:table.index("</table>")]
         assert "Main cause" in table and "$" not in table
+
+
+class TestPhoneApp:
+    """v268: portal.argia.com.mx/app/ - the installable phone app, from the real pipeline."""
+
+    def test_the_app_and_its_icon_are_generated(self, site):
+        _, stdout, files = site
+        assert "app FAILED" not in stdout
+        for rel in ("app/index.html", "app/manifest.webmanifest", "app/sw.js", "apple-touch-icon.png",
+                    "app/icon-192.png", "app/icon-512.png"):
+            assert rel in files, rel
+        assert files["apple-touch-icon.png"].read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_every_active_plant_has_a_screen_under_its_customer_name(self, site, psql):
+        _, _, files = site
+        s = files["app/index.html"].read_text(encoding="utf-8")
+        import sys
+        sys.path.insert(0, str(V2 / "server" / "bundle"))
+        import portal_chrome as C                                     # noqa: E402
+        for (k,) in psql("SELECT plant_key FROM plant WHERE active ORDER BY 1"):
+            assert f'id="v-p-{C.slug(k)}"' in s, k
+        shown = re.sub(r'<small class="inv">.*?</small>', "", s)      # the seed's serials embed codes; real ones do not
+        assert not re.search(r"\b(SLP[12]|GTO[12]|NL[12]|MEX[123]|QRO1|TAM1)\b", shown)
+
+    def test_sag_screen_carries_its_loss_money(self, site, psql):
+        _, _, files = site
+        s = files["app/index.html"].read_text(encoding="utf-8")
+        sag = s[s.index('id="v-p-sag"'):]
+        sag = sag[:sag.index("</section>")]
+        day, mxn = psql("SELECT prod_date::text, lost_mxn FROM loss_daily WHERE plant_key = 'MEX1'"
+                        " AND prod_date = (now() AT TIME ZONE 'America/Mexico_City')::date - 2")[0]
+        assert f"${float(mxn):,.0f}" in sag                          # the outage day, priced
+        assert "Unavailability" in sag
+
+    def test_the_open_critical_is_on_the_alerts_screen(self, site):
+        _, _, files = site
+        s = files["app/index.html"].read_text(encoding="utf-8")
+        al = s[s.index('id="v-alerts"'):]
+        assert "Critical" in al[:al.index("</section>")]

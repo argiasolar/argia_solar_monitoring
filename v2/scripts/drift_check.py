@@ -69,6 +69,9 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("portal-login", "https://portal.argia.com.mx/login", (401,)),
     ("portal-root", "https://portal.argia.com.mx/", (302,)),
     ("portal-favicon", "https://portal.argia.com.mx/favicon.png", (200,)),
+    # v268: the phone's Home Screen icon (public) and the app itself (login wall)
+    ("portal-touch-icon", "https://portal.argia.com.mx/apple-touch-icon.png", (200,)),
+    ("portal-app-wall", "https://portal.argia.com.mx/app/", (302,)),
     ("portal-setup-wall", "https://portal.argia.com.mx/setup/", (302,)),
     ("portal-monitoring-wall", "https://portal.argia.com.mx/monitoring/", (302,)),
     ("portal-maintenance-wall", "https://portal.argia.com.mx/maintenance/", (302,)),

@@ -97,6 +97,10 @@ PREFIX_AREA.update({
     # v264: the loss page prices every PPA plant's lost energy in MXN -
     # financial-grade content, the same gate as the map and the report
     '/monitoring/losses/': 'financial',
+    # v268: the phone app shows the same MXN losses - same gate. Its Home
+    # Screen icon (/apple-touch-icon.png) is public above: the phone asks
+    # for it before anybody signs in.
+    '/app/': 'financial',
     '/report/capex/': 'capex', '/monitoring/capex/': 'capex',
 })
 for _code, _slug in _SLUGS.items():

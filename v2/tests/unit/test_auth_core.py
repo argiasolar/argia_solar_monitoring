@@ -54,6 +54,12 @@ class TestAreaForPath:
         ("/no-access.html", ac.PUBLIC),
         ("/login", ac.PUBLIC),
         ("/favicon.ico", ac.PUBLIC),
+        # v268: the phone app shows MXN losses (financial gate); its Home
+        # Screen icon is fetched before anyone signs in
+        ("/app/", "financial"),
+        ("/app/index.html", "financial"),
+        ("/app/sw.js", "financial"),
+        ("/apple-touch-icon.png", ac.PUBLIC),
     ])
     def test_map(self, uri, area):
         assert ac.area_for_path(uri) == area

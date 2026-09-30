@@ -75,6 +75,39 @@ def save_state(st):
     json.dump(st, open(STATE_FILE, "w"))
 
 
+def step(rec, val, now, today):
+    """One plant, one check. Pure: returns (new record, action, seconds frozen).
+
+    action: None (fine / still waiting), "frozen" (alert: NOT producing),
+    "recovered" (alert: producing again), "unknown" (alert: vendor did not
+    answer - that is NOT 'not producing').
+
+    v275 fixes (2026-09-29, six plants pushed as 'NOT producing ... frozen for
+    32910 min' - 23 days):
+    * the record belongs to ONE day: yesterday's (or a September outage's)
+      counter is never the baseline for today's - a new day starts a fresh one;
+    * no answer from the vendor (val None) is 'unknown', never 'frozen';
+    * frozen time is measured from the last time the counter moved TODAY."""
+    rec = dict(rec or {})
+    if rec.get("day") != today:
+        rec = {"day": today}
+    if val is None:
+        if now - rec.get("last_unknown", 0) >= REALERT_SEC:
+            rec["last_unknown"] = now
+            return rec, "unknown", 0.0
+        return rec, None, 0.0
+    prev = rec.get("etoday")
+    if prev is None or val > prev + 0.05:
+        action = "recovered" if rec.get("alerted") else None
+        rec.update(etoday=val, ts=now, alerted=False)
+        return rec, action, 0.0
+    stalled = now - rec.get("ts", now)
+    if stalled >= STALL_SEC and now - rec.get("last_alert", 0) >= REALERT_SEC:
+        rec.update(last_alert=now, alerted=True)
+        return rec, "frozen", stalled
+    return rec, None, stalled
+
+
 def fetch_etoday(plants):
     """{plant_key: today_kwh or None} straight from the vendor clouds."""
     out = {}
@@ -141,32 +174,24 @@ def main() -> int:
             if short_customer(p.customer) else p.plant_key for p in plants}
 
     now = time.time()
+    today = dt.date.today().isoformat()
     values = fetch_etoday(plants)
     st = load_state()
     for pk, val in sorted(values.items()):
-        rec = st.get(pk, {})
-        prev, prev_ts = rec.get("etoday"), rec.get("ts", now)
-        last_alert = rec.get("last_alert", 0)
-        moved = (val is not None and (prev is None or val > prev + 0.05))
-        if moved:
-            if rec.get("alerted"):
-                push("%s producing again" % name.get(pk, pk),
-                     "%s today-energy counter moves again (%.1f kWh)."
-                     % (name.get(pk, pk), val))
-            st[pk] = {"etoday": val, "ts": now}
-            log("%s OK etoday=%.1f" % (pk, val))
-            continue
-        stalled = now - prev_ts
-        log("%s STALLED %.0f min (etoday=%s)" % (pk, stalled / 60, val))
-        if stalled >= STALL_SEC and now - last_alert >= REALERT_SEC:
-            push("%s NOT producing" % name.get(pk, pk),
-                 "%s today-energy frozen for %.0f min during daylight "
-                 "(checked directly at the vendor - server outage mode)."
-                 % (name.get(pk, pk), stalled / 60))
-            rec.update(last_alert=now, alerted=True)
-        rec.setdefault("etoday", prev)
-        rec.setdefault("ts", prev_ts)
+        rec, action, stalled = step(st.get(pk, {}), val, now, today)
         st[pk] = rec
+        who = name.get(pk, pk)
+        if action == "recovered":
+            push("%s producing again" % who, "%s today-energy counter moves again (%.1f kWh)." % (who, val))
+        elif action == "frozen":
+            push("%s NOT producing" % who,
+                 "%s today-energy frozen for %.0f min during daylight "
+                 "(checked directly at the vendor - server outage mode)." % (who, stalled / 60))
+        elif action == "unknown":
+            push("%s: vendor not reachable" % who,
+                 "%s could not be checked at the vendor (no answer) - server outage mode. "
+                 "Not the same as 'not producing'." % who)
+        log("%s %s etoday=%s frozen=%.0f min" % (pk, action or "ok", val, stalled / 60))
     save_state(st)
     return 0
 

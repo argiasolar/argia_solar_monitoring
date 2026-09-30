@@ -312,8 +312,9 @@ class TestPiPush:
     def test_outage_watch_names_plants(self):
         pw = (V2 / "pi/report_watch/ppa_watch.py").read_text(encoding="utf-8")
         assert "from argia.alerts.naming import short_customer" in pw
-        assert 'push("%s NOT producing" % name.get(pk, pk)' in pw
-        assert 'push("%s producing again" % name.get(pk, pk)' in pw
+        assert "who = name.get(pk, pk)" in pw                         # v275: step() refactor
+        assert 'push("%s NOT producing" % who' in pw
+        assert 'push("%s producing again" % who' in pw
         assert '"PPA plant %s NOT producing" % pk' not in pw
 
 

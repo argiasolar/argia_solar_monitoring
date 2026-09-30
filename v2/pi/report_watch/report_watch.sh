@@ -21,11 +21,20 @@
 #     the server; absent = silently skipped)
 
 URL="https://portal.argia.com.mx/login"
+HOST="portal.argia.com.mx"
+# v275: the server's address, for the second probe when the Pi's own DNS
+# fails. 2026-09-29: 11 "portal DOWN" pushes in one afternoon were all
+# "curl rc=6 Could not resolve host" on the office Pi while Google and
+# Cloudflare DNS answered 37.235.105.173 and the portal served every page.
+# If the server ever moves, this probe simply fails and the old behaviour
+# (DOWN alert) returns - it can hide nothing.
+PORTAL_IP="37.235.105.173"
 MARKER="ARGIA"
 NTFY_TOPIC="argia-reportwatch-x9k24fq7"
 STATE_DIR="$HOME/report_watch"
 STATE="$STATE_DIR/state"
 REALERT_SEC=3600
+DNS_REALERT_SEC=21600        # the Pi's own DNS trouble: one low-priority note per 6 h
 mkdir -p "$STATE_DIR"
 
 now=$(date +%s)
@@ -46,11 +55,20 @@ if [ $rc -eq 0 ] && echo "$body" | grep -q "$MARKER"; then
 fi
 
 # ---- state ----
-fails=0; status=OK; last_alert=0
+fails=0; status=OK; last_alert=0; last_dns_note=0
 [ -f "$STATE" ] && . "$STATE"
 
-alert() {  # $1 = title, $2 = message
-  curl -sS -m 15 -H "Title: $1" -H "Priority: high" -H "Tags: warning" \
+# ---- v275: the Pi could not resolve the name - is the PORTAL down, or the Pi's DNS? ----
+dns_only=0
+if [ $ok -eq 0 ] && [ $rc -eq 6 ]; then
+  body2=$(curl -sS -m 20 --resolve "$HOST:443:$PORTAL_IP" "$URL" 2>/dev/null)
+  if [ $? -eq 0 ] && echo "$body2" | grep -q "$MARKER"; then
+    dns_only=1
+  fi
+fi
+
+alert() {  # $1 = title, $2 = message, $3 = ntfy priority (default high)
+  curl -sS -m 15 -H "Title: $1" -H "Priority: ${3:-high}" -H "Tags: warning" \
        -d "$2" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1 \
     && echo "$(stamp) alert sent (ntfy): $1" \
     || echo "$(stamp) alert FAILED to send (ntfy): $1"
@@ -61,13 +79,28 @@ alert() {  # $1 = title, $2 = message
   fi
 }
 
-if [ $ok -eq 1 ]; then
+save() { printf 'fails=%s\nstatus=%s\nlast_alert=%s\nlast_dns_note=%s\n' "$1" "$2" "$3" "$last_dns_note" > "$STATE"; }
+
+if [ $dns_only -eq 1 ]; then
+  # the portal is UP (it answered at its address); only the Pi cannot look names up
+  echo "$(stamp) OK via $PORTAL_IP - the Pi's DNS failed (curl rc=6), the portal did not"
+  if [ $((now - last_dns_note)) -ge $DNS_REALERT_SEC ]; then
+    alert "Office Pi: DNS lookups failing (portal is UP)" \
+          "The office Pi could not resolve $HOST at $(stamp), but the portal answered at $PORTAL_IP. Not a portal outage: the Pi's network / DNS server (office router or ISP) is failing. Its other jobs (nightly backup pull, CFE) may fail too." low
+    last_dns_note=$now
+  fi
+  if [ "$status" = DOWN ]; then
+    alert "portal.argia.com.mx is BACK UP" \
+          "portal.argia.com.mx answers (at $PORTAL_IP) at $(stamp) - probe from the office Pi."
+  fi
+  save 0 OK 0
+elif [ $ok -eq 1 ]; then
   if [ "$status" = DOWN ]; then
     alert "portal.argia.com.mx is BACK UP" \
           "portal.argia.com.mx answers again (HTTP ${http:-?}) at $(stamp) - probe from the office Pi."
   fi
   echo "$(stamp) OK (HTTP ${http:-?})"
-  printf 'fails=0\nstatus=OK\nlast_alert=0\n' > "$STATE"
+  save 0 OK 0
 else
   fails=$((fails + 1))
   err=$(head -c 160 /tmp/report_watch_err 2>/dev/null)
@@ -81,6 +114,5 @@ else
       last_alert=$now
     fi
   fi
-  printf 'fails=%s\nstatus=%s\nlast_alert=%s\n' \
-         "$fails" "$new_status" "$last_alert" > "$STATE"
+  save "$fails" "$new_status" "$last_alert"
 fi

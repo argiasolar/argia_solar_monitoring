@@ -246,3 +246,21 @@ class TestExplain:
     def test_no_em_dash_in_the_explanations(self):
         for txt in L.explain_day(self.ROW) + L.explain_period(5520, 2097, 29):
             assert chr(0x2014) not in txt
+
+
+class TestUnreliableModel:
+    """v277: GTO2 and NL2 (CAPEX) booked ~21,000 kWh each in Sep 2026 against the
+    raw weather model - a plant that never meets its model has a sensor or design
+    data problem, not a monthly loss of a third of its energy."""
+
+    def test_no_loss_is_booked_against_the_raw_model(self):
+        d = L.compute_day("GTO2", "2026-09-10", 500, 1800, 2500, {}, None, None, {}, {}, 2, 0.0, None)
+        assert d.expected_basis == "weather-model" and d.expected_kwh == 2500
+        assert d.lost_kwh is None and d.unavailability_kwh is None and d.underperformance_kwh is None
+        assert d.lost_mxn is None
+        en, _ = L.explain_day({"expected_kwh": 2500.0, "expected_basis": "weather-model", "lost_kwh": None})
+        assert "No loss is booked against it" in en
+
+    def test_a_calibrated_weather_basis_still_counts(self):
+        d = L.compute_day("GTO1", "2026-09-10", 500, 1800, 2500, {}, None, 1.0, {}, {}, 2, 0.0, 2.0)
+        assert d.expected_basis == "weather" and d.lost_kwh == pytest.approx(700)

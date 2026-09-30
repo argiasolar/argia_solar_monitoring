@@ -375,6 +375,11 @@ def compute_day(plant_key: str, day: str, kwp: float, actual: Optional[float],
     exp, basis = choose_expected(weather_expected, pe, weather_ratio)
     zero_w, silent, excused = slot_causes_detail(exp, actual, own_slots, peer_irradiance, n_inverters)
     s, tol = tolerate(split_loss(exp, actual, zero_w + silent, overheating, excused), exp, silent)
+    if basis == "weather-model":
+        # v277: the raw model with no plausible ratio for this plant (design data or
+        # sensor wrong) is not a basis for money or kWh 'lost' - GTO2 and NL2 booked
+        # ~21,000 kWh each in Sep 2026 against it. Shown, never counted.
+        s, tol = None, None
     r1 = (lambda v: None if v is None else round(v, 1))
     r3 = (lambda v: None if v is None else round(v, 3))
     return LossDay(
@@ -453,8 +458,11 @@ def explain_day(r: dict, name: Callable[[str], str] = lambda k: k) -> Tuple[str,
         es.append(f"Esperado {_k(exp)} kWh = modelo de clima {_k(r.get('expected_weather_kwh'))} kWh (irradiancia medida){extra_es}; "
                   "sin vecina sana ese día.")
     else:
-        en.append(f"Expected {_k(exp)} kWh = weather model only (the plant has no reliable ratio to it: check the sensor or design data).")
-        es.append(f"Esperado {_k(exp)} kWh = solo modelo de clima (la planta no tiene relación confiable con él: revisar sensor o datos de diseño).")
+        en.append(f"Expected {_k(exp)} kWh = weather model only: this plant has not met its model in 90 days, so the model "
+                  "is not reliable for it (check the irradiance sensor or the design data). No loss is booked against it.")
+        es.append(f"Esperado {_k(exp)} kWh = solo modelo de clima: la planta no ha alcanzado su modelo en 90 días, así que no es "
+                  "confiable para ella (revisar el sensor de irradiancia o los datos de diseño). No se registra pérdida contra él.")
+        return " ".join(en), " ".join(es)
     act, counter, catch = r.get("actual_kwh"), r.get("counter_kwh"), r.get("catchup_kwh") or 0.0
     if catch and counter is not None:
         en.append(f"Actual {_k(act)} kWh = vendor day counter {_k(counter)} + {_k(catch)} kWh proved by the next night's "

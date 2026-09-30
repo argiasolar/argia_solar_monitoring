@@ -1938,7 +1938,12 @@ CREATE TABLE public.loss_daily (
     excused_kwh numeric(12,1),
     tariff_mxn numeric(8,4),
     lost_mxn numeric(12,2),
-    computed_at timestamp with time zone DEFAULT now() NOT NULL
+    computed_at timestamp with time zone DEFAULT now() NOT NULL,
+    counter_kwh numeric(12,1),
+    catchup_kwh numeric(12,1),
+    peer_ratio numeric(6,3),
+    weather_ratio numeric(6,3),
+    tolerance_kwh numeric(12,1)
 );
 
 ALTER TABLE ONLY public.loss_daily

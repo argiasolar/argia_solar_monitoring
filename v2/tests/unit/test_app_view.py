@@ -261,9 +261,9 @@ class TestInverters:
 
     def test_heat_and_peer_colours(self, page):
         c = self.card(page)
-        assert '<span class="red">58 / 77 °C</span>' in c
-        assert '<span class="amber">- / 66 °C</span>' in c
-        assert '<span class="red">66% ' in c
+        assert re.search(r'<span class="tip red" title="[^"]*" data-tip-en="[^"]*" data-tip-es="[^"]*">58 / 77 °C</span>', c)
+        assert re.search(r'<span class="tip amber"[^>]*>- / 66 °C</span>', c)
+        assert re.search(r'<span class="tip red"[^>]*>66% ', c)
 
 
 class TestPerformance:
@@ -321,11 +321,52 @@ class TestPerformance:
         s = AV.render(ps, "2026-09-29 12:10", 0)
         fleet = s[s.index('id="v-fleet"'):]
         fleet = fleet[:fleet.index("</section>")]
-        assert '<div class="tile t-warn"><b>72%</b>' in fleet            # (930 + 500) / 2000 today
-        assert '<div class="tile t-warn"><b>0.71</b>' in fleet           # (0.82 + 0.60) / 2, equal kWp
-        assert '<div class="tile t-bad"><b>96.5%</b>' not in fleet and "96.5%" in fleet
-        assert 'class="tp t-bad">50% ' in fleet                          # the lagging plant, on its card
+        val = lambda tone, v: re.search(rf'<div class="tile t-{tone}"><b class="tip"[^>]*>{re.escape(v)}</b>', fleet)  # noqa: E731
+        assert val("warn", "72%")                                       # (930 + 500) / 2000 today
+        assert val("warn", "0.71")                                      # (0.82 + 0.60) / 2, equal kWp
+        assert not val("bad", "96.5%") and "96.5%" in fleet
+        assert re.search(r'class="tip tp t-bad"[^>]*>50% ', fleet)      # the lagging plant, on its card
+        assert "PPA fleet today so far: 1,430 of 2,000 kWh expected." in fleet
         sag = s[s.index('id="v-p-sag"'):]
         sag = sag[:sag.index("</section>")]
-        assert '<div class="tile t-good"><b>93%</b>' in sag and '<div class="tile t-good"><b>0.82</b>' in sag
+        assert re.search(r'<div class="tile t-good"><b class="tip"[^>]*>93%</b>', sag)
+        assert re.search(r'<div class="tile t-good"><b class="tip"[^>]*>0.82</b>', sag)
         assert "930 kWh" in sag and "1,000 kWh" in sag and "4 " in sag
+
+
+class TestTips:
+    """v276, Tomasz 2026-09-30: 'Add to all numbers that are not 100% a tool tip
+    or some mouse over explanation'. On the phone: tap -> the tip box."""
+
+    def test_every_percentage_that_is_not_100_explains_itself(self, page):
+        body = re.sub(r"<script>.*?</script>|<style>.*?</style>|<p class=\"note\">.*?</p>", "", page, flags=re.S)
+        body = re.sub(r'(title|data-tip-en|data-tip-es|data-en|data-es)="[^"]*"', "", body)
+        bad = []
+        for m in re.finditer(r">([^<>]*?\b\d[\d,.]*%)", body):
+            txt = m.group(1).strip()
+            if txt.startswith("100%") or " 100%" in txt:
+                continue
+            before = body[max(0, m.start() - 400):m.start() + 1]
+            opener = before[before.rfind("<"):]
+            if 'class="tip' not in opener:
+                bad.append(txt)
+        assert not bad, bad[:10]
+
+    def test_money_figures_explain_themselves(self, page):
+        for m in re.finditer(r"\$[\d,]+", re.sub(r'(title|data-tip-en|data-tip-es)="[^"]*"', "", page)):
+            pass
+        sag = page[page.index('id="v-p-sag"'):]
+        sag = sag[:sag.index("</section>")]
+        assert re.search(r'<span class="tip"[^>]*>\$1,704</span> <span>MXN</span>', sag)
+        assert "Not counted:" in sag and "lifetime counter proved" in sag
+
+    def test_the_tip_box_and_its_script(self, page):
+        assert '<div id="tipbox" role="status" hidden></div>' in page
+        assert "function tipShow" in page and "closest('.tip')" in page
+
+    def test_a_day_with_a_data_gap_is_marked_and_explained(self):
+        p = plant(days=[{"date": "2026-09-28", "actual": 2532.0, "expected": 2581.0, "lost_kwh": 0.0, "lost_mxn": 0.0,
+                         "catchup": True, "tip": ("Actual 2,532 kWh = vendor day counter 1,203 + 1,329 kWh proved", "ES")}])
+        s = AV.render([p], "2026-09-29 10:10", 0)
+        assert re.search(r'class="tip dv"[^>]*>98%\*</span>', s)
+        assert "vendor day counter 1,203 + 1,329 kWh proved" in s

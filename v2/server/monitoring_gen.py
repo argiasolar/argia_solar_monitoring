@@ -411,15 +411,48 @@ for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh"
 # availability (peers, else the weather model) and the cause. Missing table
 # (first deploy) = no loss columns, never a crash.
 LOSS = {}         # (plant, date) -> dict
+# v276: every column, so each figure can explain itself (argia.analytics.losses.explain_day);
+# before loss_daily has run once with v276 the new columns do not exist - the old query then
+_LOSS_COLS = ("expected_kwh", "expected_basis", "lost_kwh", "lost_mxn", "unavailability_kwh", "overheating_kwh",
+              "underperformance_kwh", "peers", "kwp_dc", "expected_weather_kwh", "expected_peers_kwh", "actual_kwh",
+              "excused_kwh", "tariff_mxn", "counter_kwh", "catchup_kwh", "peer_ratio", "weather_ratio", "tolerance_kwh")
+for _cols in (_LOSS_COLS, _LOSS_COLS[:7]):
+    try:
+        for r in q("SELECT plant_key, prod_date::text, " + ", ".join(_cols) + " FROM loss_daily"
+                   f" WHERE prod_date >= DATE '{TODAY}' - 31;"):
+            if len(r) >= 2 + len(_cols):
+                row = dict(zip(_cols, r[2:]))
+                for c in _cols:
+                    if c not in ("expected_basis", "peers"):
+                        row[c] = f(row[c]) if row[c] not in ("", None) else None
+                row.update({"exp": row["expected_kwh"], "basis": row["expected_basis"], "lost": row["lost_kwh"],
+                            "mxn": row["lost_mxn"], "unavailability": row["unavailability_kwh"],
+                            "overheating": row["overheating_kwh"], "underperformance": row["underperformance_kwh"],
+                            "act": row.get("actual_kwh")})
+                LOSS[(r[0], r[1])] = row
+        break
+    except Exception:
+        LOSS = {}
+
 try:
-    for r in q("SELECT plant_key, prod_date::text, expected_kwh, expected_basis, lost_kwh, lost_mxn,"
-               " unavailability_kwh, overheating_kwh, underperformance_kwh FROM loss_daily"
-               f" WHERE prod_date >= DATE '{TODAY}' - 31;"):
-        if len(r) >= 9:
-            LOSS[(r[0], r[1])] = {"exp": f(r[2]), "basis": r[3], "lost": f(r[4]), "mxn": f(r[5]),
-                                  "unavailability": f(r[6]), "overheating": f(r[7]), "underperformance": f(r[8])}
-except Exception:
-    LOSS = {}
+    from argia.analytics import losses as _losses       # v276: the explanations
+except Exception:                                     # noqa: BLE001
+    _losses = None
+
+
+def _tip(inner, en, es):
+    """A number with its explanation on mouse-over (title; ES via data-title-es)."""
+    return (f'<span class="tipn" title="{esc(en)}" data-title-es="{esc(es)}" '
+            f'style="border-bottom:1px dotted #9aa0a6;cursor:help">{inner}</span>')
+
+
+def loss_tip(pk, dd):
+    """(EN, ES) explanation of one plant-day's loss figures, or None."""
+    L = LOSS.get((pk, dd))
+    if not L or _losses is None:
+        return None
+    return _losses.explain_day(dict(L, kwp_dc=L.get("kwp_dc") or PLANTS.get(pk, {}).get("kwp")),
+                               lambda k: display_name(PLANTS[k]['customer']) if k in PLANTS else k)
 
 CAUSE_LABEL = {"unavailability": ("unavailability", "indisponibilidad"),
                "overheating": ("overheating", "sobrecalentamiento"),
@@ -429,10 +462,17 @@ CAUSE_LABEL = {"unavailability": ("unavailability", "indisponibilidad"),
 def loss_cells(pk, dd, e, xx):
     """(expected shown, the % cell, lost kWh / MXN / cause cells) for one day of
     the 'Last 7 days' table. Expected = the loss figure's 100%-available
-    expectation when loss_daily has the day, else the weather model."""
+    expectation when loss_daily has the day, else the weather model.
+    v276: the % is the RECONCILED actual (day counter + what the next night's
+    lifetime counter proved) vs expected, and every figure that is not 100%
+    carries its explanation on mouse-over."""
     L = LOSS.get((pk, dd))
     exp = L["exp"] if L and L["exp"] else xx
-    pct = " - " if not e or not exp else f"{100*e/exp:,.0f}%"
+    act = L["act"] if (L and L.get("act") is not None) else e
+    pct = " - " if not act or not exp else f"{100*act/exp:,.0f}%"
+    tip = loss_tip(pk, dd)
+    if tip and pct.strip() not in ("-", "100%"):
+        pct = _tip(pct, *tip)
     if not L or L["lost"] is None:
         return exp, pct, '<td> - </td><td> - </td><td> - </td>'
     lost = L["lost"] or 0.0
@@ -443,7 +483,10 @@ def loss_cells(pk, dd, e, xx):
     en, es = CAUSE_LABEL[main]
     cls = ' class="st-FAIL"' if exp and lost > 0.10 * exp else ''
     money = ' - ' if L["mxn"] is None else f'${L["mxn"]:,.0f}'
-    return exp, pct, (f'<td{cls}>{lost:,.0f}</td><td{cls}>{money}</td>'
+    lost_txt, money_txt = f'{lost:,.0f}', money
+    if tip:
+        lost_txt, money_txt = _tip(lost_txt, *tip), _tip(money, *tip)
+    return exp, pct, (f'<td{cls}>{lost_txt}</td><td{cls}>{money_txt}</td>'
                       f'<td data-en="{en} {share:.0f}%" data-es="{es} {share:.0f}%">{en} {share:.0f}%</td>')
 
 
@@ -1215,9 +1258,13 @@ def plant_page(pk, d, skin='old'):
     daily_rows = ''
     for dd, e, xx in reversed(DAILY.get(pk, [])[-7:]):
         exp, pct, lc = loss_cells(pk, dd, e, xx)
+        act_cell = fmt_kwh(e)
+        _L = LOSS.get((pk, dd)) or {}
+        if _L.get("catchup_kwh"):                    # v276: the day counter froze in a data gap
+            act_cell = _tip(f'{fmt_kwh(_L.get("act"))}*', *(loss_tip(pk, dd) or ("", "")))
         daily_rows += (
             f'<tr><td><a href="{BASE + "/" + pk.lower() + "/" if dd == TODAY else f"{BASE}/{pk.lower()}/d/{dd}.html"}">{esc(dd)}</a></td>'
-            f'<td>{fmt_kwh(e)}</td><td>{fmt_kwh(exp)}</td><td>{pct}</td>{lc}</tr>')
+            f'<td>{act_cell}</td><td>{fmt_kwh(exp)}</td><td>{pct}</td>{lc}</tr>')
 
     maint = MAINT_TODAY.get(pk, [])
     maint_html = ''.join(
@@ -1273,8 +1320,7 @@ def plant_page(pk, d, skin='old'):
 {alerts_card(pk) if live else ''}
 <div class="card"><h2 data-en="Last 7 days - production (click a date)" data-es="Últimos 7 días - producción (clic en la fecha)">Last 7 days - production (click a date)</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th>kWh</th><th data-en="Expected" data-es="Esperado">Expected</th><th>%</th><th data-en="Lost kWh" data-es="Perdido kWh">Lost kWh</th><th data-en="Lost MXN" data-es="Perdido MXN">Lost MXN</th><th data-en="Main cause" data-es="Causa principal">Main cause</th></tr>{daily_rows}</table>
-<p class="note" data-en="Expected = what the plant should have made with 100% availability: its healthy neighbours' production that day where they exist, else the weather model. Lost = expected minus actual; MXN at the PPA tariff (CAPEX: kWh only). Cause and the full split: Monitoring, Losses (MXN)."
- data-es="Esperado = lo que la planta debió producir con 100% de disponibilidad: la producción de sus vecinas sanas ese día donde existen, si no el modelo de clima. Perdido = esperado menos real; MXN a la tarifa PPA (CAPEX: solo kWh). Causa y desglose completo: Monitoreo, Pérdidas (MXN).">Expected = what the plant should have made with 100% availability (neighbours, else weather model). Lost = expected minus actual.</p></div>
+<p class="note" data-en="Expected = what the plant should have made with 100% availability: its healthy neighbours' production that day where they exist, else the weather model. Lost = expected minus actual, split into unavailability, overheating and underperformance; a shortfall under 10% that is not 0 W or heat is normal day-to-day variation and not counted. * = the vendor day counter froze while the data link was down; the actual includes the energy the next night's lifetime counter proved. Hover any figure for how it was calculated. MXN at the PPA tariff (CAPEX: kWh only)." data-es="Esperado = lo que la planta debió producir con 100% de disponibilidad: la producción de sus vecinas sanas ese día donde existen, si no el modelo de clima. Perdido = esperado menos real, en indisponibilidad, sobrecalentamiento y bajo desempeño; una diferencia menor al 10% que no es 0 W ni calor es variación normal y no se cuenta. * = el contador diario se congeló mientras la conexión estaba caída; el real incluye la energía que el contador total de la noche siguiente probó. Pase el cursor sobre cualquier cifra para ver el cálculo. MXN a la tarifa PPA (CAPEX: solo kWh).">Expected = with 100% availability (neighbours, else weather model). Lost = expected minus actual; under 10% not explained by 0 W or heat = normal variation, not counted. * = data gap, actual proved by the next night's lifetime counter. Hover any figure for the calculation.</p></div>
 <div class="card"><h2 data-en="Daily reconciliation - interval vs vendor counter" data-es="Conciliación diaria - intervalos vs contador">Daily reconciliation - interval vs vendor counter</h2>
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th data-en="Compl." data-es="Compl.">Compl.</th><th>Δ%</th><th>Status</th></tr>{recon_rows}</table>
 <p class="note" data-en="The vendor cumulative counter is the billing control; interval data is analytics. A gap in our collection can never shrink an invoice."

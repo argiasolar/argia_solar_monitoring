@@ -366,10 +366,13 @@ def monitoring_plant(k, d):
 
 
 # ------------------------------------------------------------ v264 losses
-try:
-    LOSS_ROWS = LV.normalise(MG.q(LV.SELECT_SQL))
-except Exception:                     # table not created yet (first deploy) - the page says so
-    LOSS_ROWS = []
+LOSS_ROWS = []
+for _sql in (LV.SELECT_SQL, LV.SELECT_SQL_V264):     # v276 columns first; the v264 shape until loss_daily has run
+    try:
+        LOSS_ROWS = LV.normalise(MG.q(_sql))
+        break
+    except Exception:                 # table not created yet (first deploy) - the page says so
+        LOSS_ROWS = []
 
 
 def monitoring_losses():
@@ -529,17 +532,21 @@ def app_plants():
             if dd >= MG.TODAY:
                 continue
             L = MG.LOSS.get((k, dd)) or {}
-            days.append({'date': dd, 'actual': e, 'expected': L.get('exp') or x,
-                         'lost_kwh': L.get('lost'), 'lost_mxn': L.get('mxn')})
+            # v276: the reconciled actual (day counter + what the next night's lifetime counter proved)
+            days.append({'date': dd, 'actual': L.get('act') if L.get('act') is not None else e,
+                         'expected': L.get('exp') or x, 'lost_kwh': L.get('lost'), 'lost_mxn': L.get('mxn'),
+                         'catchup': bool(L.get('catchup_kwh')), 'tip': MG.loss_tip(k, dd)})
             if len(days) == 7:
                 break
-        loss = {'days': 0, 'kwh': 0.0, 'mxn': None}
+        loss = {'days': 0, 'kwh': 0.0, 'mxn': None, 'catchup': 0.0, 'tolerance': 0.0}
         for (pk, dd), L in MG.LOSS.items():
             if pk != k or not (d30 <= dd < MG.TODAY) or L.get('lost') is None:
                 continue
             lost = max(0.0, L['lost'] or 0.0)
             loss['days'] += 1
             loss['kwh'] += lost
+            loss['catchup'] += L.get('catchup_kwh') or 0.0
+            loss['tolerance'] += L.get('tolerance_kwh') or 0.0
             for c, _en, _es in AV.CAUSES:
                 loss[c] = loss.get(c, 0.0) + (L.get(c) or 0.0)
             if L.get('mxn') is not None:

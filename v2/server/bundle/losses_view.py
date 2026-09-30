@@ -13,6 +13,11 @@ from typing import Callable, Dict, List, Optional
 
 from portal_chrome import t, tile
 
+try:
+    from argia.analytics.losses import explain_day, explain_period      # v276
+except ImportError:                                                    # pragma: no cover
+    explain_day = explain_period = None
+
 CAUSES = (("unavailability", "Unavailability", "Indisponibilidad"),
           ("overheating", "Overheating", "Sobrecalentamiento"),
           ("underperformance", "Underperformance", "Bajo desempeño"))
@@ -22,6 +27,8 @@ BASIS = {"peers": ("peers", "pares"), "weather": ("weather", "clima"),
          "weather-model": ("weather model only", "solo modelo de clima"), "none": ("no data", "sin datos")}
 NUM = ("expected_weather_kwh", "expected_peers_kwh", "expected_kwh", "actual_kwh", "lost_kwh",
        "unavailability_kwh", "overheating_kwh", "underperformance_kwh", "excused_kwh", "tariff_mxn", "lost_mxn")
+# v276: how each figure was made (NULL before loss_daily's first v276 run)
+NUM2 = ("kwp_dc", "counter_kwh", "catchup_kwh", "peer_ratio", "weather_ratio", "tolerance_kwh")
 
 
 def _f(v) -> Optional[float]:
@@ -35,15 +42,29 @@ def normalise(rows: List[List[str]]) -> List[dict]:
     """psql rows in the column order of ``SELECT_SQL`` -> dicts with floats."""
     out = []
     for r in rows:
-        d = dict(zip(("plant_key", "prod_date", "expected_basis", "peers") + NUM, r))
-        for k in NUM:
+        d = dict(zip(("plant_key", "prod_date", "expected_basis", "peers") + NUM + NUM2, r))
+        for k in NUM + NUM2:
             d[k] = _f(d.get(k))
         out.append(d)
     return out
 
 
-SELECT_SQL = ("SELECT plant_key, prod_date::text, expected_basis, peers, " + ", ".join(NUM)
+SELECT_SQL = ("SELECT plant_key, prod_date::text, expected_basis, peers, " + ", ".join(NUM + NUM2)
               + " FROM loss_daily WHERE prod_date >= current_date - 45 ORDER BY plant_key, prod_date;")
+SELECT_SQL_V264 = ("SELECT plant_key, prod_date::text, expected_basis, peers, " + ", ".join(NUM)
+                   + " FROM loss_daily WHERE prod_date >= current_date - 45 ORDER BY plant_key, prod_date;")
+
+
+def tipn(inner: str, en: str, es: str) -> str:
+    """v276: a figure with its explanation on mouse-over (ES via data-title-es)."""
+    return (f'<span class="tipn" title="{html.escape(en, quote=True)}" data-title-es="{html.escape(es, quote=True)}">'
+            f'{inner}</span>')
+
+
+def period_tip(s: Dict[str, float], days: int):
+    if explain_period is None:
+        return ("", "")
+    return explain_period(s.get("catchup", 0.0), s.get("tolerance", 0.0), days)
 
 
 def kwh(v: Optional[float]) -> str:
@@ -62,13 +83,15 @@ def period_rows(rows: List[dict], period: str, today: dt.date) -> List[dict]:
 
 
 def sums(rows: List[dict]) -> Dict[str, float]:
-    s = {k: 0.0 for k in ("expected", "actual", "lost", "lost_mxn") + tuple(c for c, _, _ in CAUSES)
+    s = {k: 0.0 for k in ("expected", "actual", "lost", "lost_mxn", "catchup", "tolerance") + tuple(c for c, _, _ in CAUSES)
          + tuple(c + "_mxn" for c, _, _ in CAUSES)}
     s["priced"] = 0.0
     for r in rows:
         s["expected"] += r["expected_kwh"] or 0
         s["actual"] += r["actual_kwh"] or 0
         s["lost"] += r["lost_kwh"] or 0
+        s["catchup"] += r.get("catchup_kwh") or 0
+        s["tolerance"] += r.get("tolerance_kwh") or 0
         tar = r["tariff_mxn"]
         for c, _, _ in CAUSES:
             s[c] += r[c + "_kwh"] or 0
@@ -111,12 +134,18 @@ def plant_table(rows: List[dict], plants: Dict[str, dict], name: Callable[[str],
             mx = (lambda v: money(v)) if priced else (lambda v: '<span class="muted">' + t("kWh only", "solo kWh") + "</span>")
             cls = ' class="st-FAIL"' if s["expected"] and s["lost"] > 0.10 * s["expected"] else (
                 ' class="st-REVIEW"' if s["expected"] and s["lost"] > 0.03 * s["expected"] else "")
+            ptip = period_tip(s, len(by_plant[k]))
             cause_cells = "".join(
-                f"<td>{mx(s[c + '_mxn']) if priced else kwh(s[c]) + ' kWh'}</td>" for c, _, _ in CAUSES)
+                f"<td>{tipn(mx(s[c + '_mxn']) if priced else kwh(s[c]) + ' kWh', *CAUSE_TIP[c])}</td>" for c, _, _ in CAUSES)
+            act_en = (f"Actual = vendor day counters; {s['catchup']:,.0f} kWh of it was proved by the next nights' lifetime "
+                      "counters after data gaps (the day counter had frozen).") if s["catchup"] >= 1 else "Actual = vendor day counters."
+            act_es = (f"Real = contadores diarios; {s['catchup']:,.0f} kWh probados por el contador total de las noches siguientes "
+                      "tras cortes de datos (el contador diario se congeló).") if s["catchup"] >= 1 else "Real = contadores diarios del fabricante."
             body.append(
                 f'<tr><td><a href="{link(k)}">{html.escape(name(k))}</a> <span class="tkey">{k}</span></td>'
-                f"<td>{kwh(s['expected'])}</td><td>{kwh(s['actual'])}</td><td{cls}>{kwh(s['lost'])}</td>"
-                f"<td{cls}><b>{mx(s['lost_mxn'])}</b></td>{cause_cells}<td>{_basis_cell(by_plant[k])}</td></tr>")
+                f"<td>{tipn(kwh(s['expected']), *EXPECTED_TIP)}</td><td>{tipn(kwh(s['actual']), act_en, act_es)}</td>"
+                f"<td{cls}>{tipn(kwh(s['lost']), *ptip)}</td>"
+                f"<td{cls}><b>{tipn(mx(s['lost_mxn']), *ptip)}</b></td>{cause_cells}<td>{_basis_cell(by_plant[k])}</td></tr>")
     tot = {k: sum(s[k] for s in fleet) for k in ("expected", "actual", "lost", "lost_mxn")
            + tuple(c + "_mxn" for c, _, _ in CAUSES)}
     body.append('<tr style="font-weight:700;background:#fafbfc">'
@@ -141,14 +170,17 @@ def daily_detail(k: str, rows: List[dict], name: Callable[[str], str]) -> str:
     trs = []
     for r in sorted(rows, key=lambda r: r["prod_date"], reverse=True):
         bad = r["expected_kwh"] and (r["lost_kwh"] or 0) > 0.10 * r["expected_kwh"]
+        en, es = explain_day(r, name) if explain_day else ("", "")
+        tp = (lambda v: tipn(v, en, es)) if en else (lambda v: v)
+        act = kwh(r["actual_kwh"]) + ("*" if (r.get("catchup_kwh") or 0) >= 1 else "")
         trs.append(
             f"<tr><td>{r['prod_date']}</td><td>{kwh(r['expected_weather_kwh'])}</td>"
             f"<td>{kwh(r['expected_peers_kwh'])}</td>"
-            f"<td title=\"{html.escape(r['expected_basis'] + (' ' + r['peers'] if r['peers'] else ''))}\">{kwh(r['expected_kwh'])}</td>"
-            f"<td>{kwh(r['actual_kwh'])}</td><td{' class=st-FAIL' if bad else ''}>{kwh(r['lost_kwh'])}</td>"
-            f"<td>{kwh(r['unavailability_kwh'])}</td><td>{kwh(r['overheating_kwh'])}</td>"
-            f"<td>{kwh(r['underperformance_kwh'])}</td><td>{kwh(r['excused_kwh'])}</td>"
-            f"<td>{money(r['lost_mxn']) if priced else '-'}</td></tr>")
+            f"<td>{tp(kwh(r['expected_kwh']))}</td>"
+            f"<td>{tp(act)}</td><td{' class=st-FAIL' if bad else ''}>{tp(kwh(r['lost_kwh']))}</td>"
+            f"<td>{tp(kwh(r['unavailability_kwh']))}</td><td>{tp(kwh(r['overheating_kwh']))}</td>"
+            f"<td>{tp(kwh(r['underperformance_kwh']))}</td><td>{kwh(r['excused_kwh'])}</td>"
+            f"<td>{tp(money(r['lost_mxn'])) if priced else '-'}</td></tr>")
     title = (f"{html.escape(name(k))} <span class=\"tkey\">{k}</span> - "
              + (t(f"lost {s['lost']:,.0f} kWh = {money(s['lost_mxn'])} MXN in 30 days",
                   f"perdido {s['lost']:,.0f} kWh = {money(s['lost_mxn'])} MXN en 30 días") if priced else
@@ -158,23 +190,54 @@ def daily_detail(k: str, rows: List[dict], name: Callable[[str], str]) -> str:
             f'<table style="margin-top:6px">{head}{"".join(trs)}</table></details>')
 
 
+CAUSE_TIP = {
+    "unavailability": ("Unavailability = energy lost while inverters were at 0 W in daylight (measured), or while the plant "
+                       "sent no data AND the vendor counters show it did not produce. A data gap where the counters prove "
+                       "production is not a loss.",
+                       "Indisponibilidad = energía perdida con inversores en 0 W con luz (medido), o sin datos Y los contadores "
+                       "muestran que no produjo. Un corte de datos donde los contadores prueban producción no es pérdida."),
+    "overheating": ("Overheating = derating measured by the thermal check: the inverter's output against cooler peer "
+                    "inverters in the same hours.",
+                    "Sobrecalentamiento = reducción medida por la revisión térmica: la producción del inversor contra "
+                    "inversores pares más frescos en las mismas horas."),
+    "underperformance": ("Underperformance = the plant ran but made less than expected, and 0 W or heat do not explain it "
+                         "(soiling, strings, clipping, a slow inverter). Counted only on days when the unexplained shortfall "
+                         "reaches 10% of expected: smaller differences are the normal scatter of the estimate (4.8% day to day).",
+                         "Bajo desempeño = la planta operó pero produjo menos de lo esperado, sin explicación por 0 W o calor "
+                         "(suciedad, strings, recorte, un inversor lento). Solo cuenta los días en que la diferencia sin "
+                         "explicación llega al 10% del esperado: diferencias menores son la variación normal de la estimación."),
+}
+EXPECTED_TIP = ("Expected = what the plant should have made with 100% availability: its healthy neighbours' kWh per kWp that "
+                "day x this plant's usual ratio to them (90 days), else the weather model x its usual actual/model ratio. "
+                "Open a plant's day-by-day table below and hover a day for the numbers.",
+                "Esperado = lo que la planta debió producir con 100% de disponibilidad: kWh por kWp de sus vecinas sanas ese "
+                "día x la relación habitual de esta planta con ellas (90 días), si no el modelo de clima x su relación "
+                "habitual real/modelo. Abra la tabla día por día de una planta y pase el cursor sobre un día.")
+
 METHOD_EN = ("Expected = what the plant should have made with 100% availability. First choice: its healthy "
              "neighbours within 60 km (kWh per kWp that day, times this plant's usual ratio to them over the last "
              "90 days). Otherwise: the weather model (measured irradiance) times the plant's usual actual/model "
              "ratio; 'weather model only' means the plant has not met its model in 90 days, so check the sensor "
-             "or the design data. Lost = expected minus actual (vendor counters), split in this order: "
+             "or the design data. Actual = the vendor's day counter; when that counter froze during a data gap and the next "
+             "night's lifetime counter proves the energy was produced, that energy is added back (marked *): lost "
+             "connection is not lost production. Lost = expected minus actual, split in this order: "
              "unavailability (inverters at 0 W in daylight, or silent while the daily counter shows they did not "
              "produce), overheating (derating measured by the thermal check), underperformance (the rest: ran but "
-             "made less). Approved customer maintenance is excused: it is billed as deemed energy. MXN = the PPA "
+             "made less). A shortfall not explained by 0 W or heat that stays under 10% of expected is the normal day-to-day "
+             "scatter of the estimate (4.8% measured) and is not counted. Hover any figure for its calculation. Approved customer maintenance is excused: it is billed as deemed energy. MXN = the PPA "
              "tariff of the month; CAPEX plants are shown in kWh because ARGIA does not bill them per kWh.")
 METHOD_ES = ("Esperado = lo que la planta debió producir con 100% de disponibilidad. Primero: sus vecinas sanas a "
              "menos de 60 km (kWh por kWp del día, por la relación habitual de esta planta con ellas en los últimos "
              "90 días). Si no hay: el modelo de clima (irradiancia medida) por la relación habitual real/modelo de la "
              "planta; 'solo modelo de clima' significa que la planta no ha alcanzado su modelo en 90 días: revisar el "
-             "sensor o los datos de diseño. Perdido = esperado menos real (contadores del fabricante), en este orden: "
+             "sensor o los datos de diseño. Real = contador diario del fabricante; cuando ese contador se congeló durante un "
+             "corte de datos y el contador total de la noche siguiente prueba que la energía se produjo, se suma (marcado *): "
+             "perder la conexión no es perder producción. Perdido = esperado menos real, en este orden: "
              "indisponibilidad (inversores en 0 W con luz, o sin datos mientras el contador diario muestra que no "
              "produjeron), sobrecalentamiento (reducción medida por la revisión térmica), bajo desempeño (el resto: "
-             "operó pero produjo menos). El mantenimiento aprobado del cliente se justifica: se factura como energía "
+             "operó pero produjo menos). Una diferencia sin explicación por 0 W o calor menor al 10% del esperado es la "
+             "variación normal de la estimación (4.8% medido) y no se cuenta. Pase el cursor sobre una cifra para ver su "
+             "cálculo. El mantenimiento aprobado del cliente se justifica: se factura como energía "
              "considerada. MXN = tarifa PPA del mes; las plantas CAPEX se muestran en kWh porque ARGIA no las factura por kWh.")
 
 
@@ -200,7 +263,8 @@ def render(rows: List[dict], plants: Dict[str, dict], today: dt.date, name: Call
         by_plant.setdefault(r["plant_key"], []).append(r)
     order = sorted(by_plant, key=lambda k: -(sums(by_plant[k])["lost_mxn"] or sums(by_plant[k])["lost"] / 1000))
     details = "".join(daily_detail(k, by_plant[k], name) for k in order)
-    css = "<style>.lossbtn.on{background:#053b38;color:#fff;border-color:#053b38}</style>"
+    css = ("<style>.lossbtn.on{background:#053b38;color:#fff;border-color:#053b38}"
+           ".tipn{border-bottom:1px dotted #9aa0a6;cursor:help}</style>")
     js = ("<script>function lossPeriod(p){document.querySelectorAll('.lossp').forEach(function(e){e.hidden=e.dataset.p!==p;});"
           "document.querySelectorAll('.lossbtn').forEach(function(b){b.classList.toggle('on',b.dataset.p===p);});}</script>")
     return (f'<div class="tiles" style="margin-bottom:12px">{"".join(tiles)}</div>'
@@ -232,4 +296,6 @@ def plant_card(k: str, rows: List[dict], today: dt.date, link: str) -> str:
                    f"(indisponibilidad {s['unavailability']:,.0f}, sobrecalentamiento {s['overheating']:,.0f}, "
                    f"bajo desempeño {s['underperformance']:,.0f}); CAPEX, no se factura por kWh.")
     more = f' <a href="{link}">{t("Day by day", "Día por día")}</a>' if link else ""
-    return f'<div class="card" style="padding:10px 14px">{t(line_en, line_es)}{more}</div>'
+    pen, pes = period_tip(s, len(r30))
+    return (f'<div class="card" style="padding:10px 14px">{tipn(t(line_en, line_es), pen, pes)}{more}'
+            '<style>.tipn{border-bottom:1px dotted #9aa0a6;cursor:help}</style></div>')

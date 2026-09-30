@@ -387,8 +387,8 @@ class TestPhoneAppTickets:
         for m in re.finditer(r'id="v-p-([a-z0-9-]+)"', s):
             sec = s[m.start():]
             sec = sec[:sec.index("</section>")]
-            tile = re.search(r'<div class="tile"><b>([^<]*)</b><span data-en="kW now"', sec).group(1)
-            rows = re.findall(r'class="row invr">.*?<div class="right"><b>([^<]*) kW</b>', sec)
+            tile = re.search(r'<div class="tile"><b[^>]*>([^<]*)</b><span data-en="kW now"', sec).group(1)
+            rows = re.findall(r'class="row invr">.*?<div class="right"><b[^>]*>([^<]*) kW</b>', sec)
             live = [float(x.replace(",", "")) for x in rows if x != "-"]
             if not live:
                 assert tile == "-", (m.group(1), tile)
@@ -403,11 +403,30 @@ class TestPhoneAppTickets:
         ppa = site[2]["monitoring/ppa/index.html"].read_text(encoding="utf-8")
         fleet = s[s.index('id="v-fleet"'):]
         fleet = fleet[:fleet.index("</section>")]
-        app_pr = re.search(r'<div class="tile t-[a-z]*"><b>([^<]*)</b><span data-en="PR 30 days"', fleet).group(1)
-        app_av = re.search(r'<div class="tile t-[a-z]*"><b>([^<]*)</b><span data-en="availability 30 d"', fleet).group(1)
+        app_pr = re.search(r'<div class="tile t-[a-z]*"><b[^>]*>([^<]*)</b><span data-en="PR 30 days"', fleet).group(1)
+        app_av = re.search(r'<div class="tile t-[a-z]*"><b[^>]*>([^<]*)</b><span data-en="availability 30 d"', fleet).group(1)
         pr = re.search(r'Performance · PR 30 d</span>.*?<div class="tval">([^<]*)<', ppa, re.S)
         av = re.search(r'Availability · 30 d</span>.*?<div class="tval">([^<]*)<', ppa, re.S)
         assert pr and av, "portal PPA tiles not found - update this test with the tile markup"
         want_pr = pr.group(1).strip()
         assert app_pr == ("-" if want_pr == "-" else f"{float(want_pr):.2f}")
         assert app_av == av.group(1).strip()
+
+
+class TestLossTips:
+    """v276: every loss figure on the portal explains itself on mouse-over."""
+
+    def test_losses_page_figures_carry_their_explanation(self, site):
+        s = site[2]["monitoring/losses/index.html"].read_text(encoding="utf-8")
+        assert s.count('class="tipn"') > 50
+        assert 'title="Expected ' in s and 'data-title-es="Esperado ' in s
+        assert "Underperformance = the plant ran but made less than expected" in s
+        assert "normal day-to-day scatter" in s
+
+    def test_the_7_day_table_explains_each_day_by_names_not_codes(self, site):
+        s = site[2]["monitoring/sag/index.html"].read_text(encoding="utf-8")
+        table = s[s.index("Last 7 days - production"):]
+        table = table[:table.index("</table>")]
+        tips = re.findall(r'class="tipn" title="([^"]*)"', table)
+        assert tips and all("Expected" in x for x in tips)
+        assert not any(re.search(r"\b(MEX[123]|GTO[12]|SLP[12]|NL[12]|QRO1|TAM1)\b", x) for x in tips)

@@ -218,6 +218,74 @@ DAY_HOURS = (6, 20)              # MX hours [from, to): monitoring_gen.WINDOW. p
 TODAY_MIN_EXP_H = 0.10           # expected kWh per kWp (~ one weak morning hour) before a percentage means anything
 
 
+def tip(inner, en, es, tag="span", cls="") -> str:
+    """v276: a figure with its explanation - tap on the phone (JS shows it in
+    the tip box), hover on a computer (title). Tomasz, 2026-09-30: 'Add to all
+    numbers that are not 100% a tool tip or some mouse over explanation'."""
+    c = f"tip {cls}".strip()
+    return (f'<{tag} class="{c}" title="{esc(en)}" data-tip-en="{esc(en)}" data-tip-es="{esc(es)}">{inner}</{tag}>')
+
+
+TIP_TODAY = ("Today vs expected = energy in today's completed daylight hours against measured irradiance x kWp x the "
+             "plant's PR baseline, up to the last hour with data (a data gap is not counted as a loss). "
+             "Green >= 90%, amber >= 70%.",
+             "Hoy vs esperado = energía de las horas completas de hoy contra irradiancia medida x kWp x el PR base de la "
+             "planta, hasta la última hora con datos (un corte de datos no cuenta como pérdida). Verde >= 90%, ámbar >= 70%.")
+TIP_PR = ("PR 30 days = performance ratio: energy produced / (irradiation x kWp) over the last 30 days, "
+          "kWp-weighted for the fleet. Green >= 0.75, amber >= 0.65.",
+          "PR 30 días = relación de desempeño: energía producida / (irradiación x kWp) en los últimos 30 días, "
+          "ponderado por kWp en la flota. Verde >= 0.75, ámbar >= 0.65.")
+TIP_AV = ("Availability 30 days = share of daylight time the inverters were producing (IEC 63019), last 30 days. "
+          "Green >= 98%, amber >= 95%.",
+          "Disponibilidad 30 días = parte del tiempo con luz en que los inversores produjeron (IEC 63019), últimos 30 días. "
+          "Verde >= 98%, ámbar >= 95%.")
+TIP_KW = ("Power now = sum of the inverters heard from in the last 30 minutes; '-' when none reported.",
+          "Potencia ahora = suma de los inversores que reportaron en los últimos 30 minutos; '-' si ninguno reportó.")
+TIP_KWH = ("kWh today = the inverters' own day counters, as last reported.",
+           "kWh hoy = los contadores diarios de los inversores, según el último reporte.")
+TIP_INV = ("Inverters live = inverters that reported in the last 30 minutes / inverters configured.",
+           "Inversores = inversores que reportaron en los últimos 30 minutos / inversores configurados.")
+TIP_TEMP = ("Temperature now / today's peak, inside the inverter. Amber >= 65 C, red >= 75 C.",
+            "Temperatura ahora / pico de hoy, dentro del inversor. Ámbar >= 65 C, rojo >= 75 C.")
+TIP_PEER = ("% of peers = this inverter's kWh per rated kW today vs the median of the plant's other inverters. "
+            "Amber < 85%, red < 70%.",
+            "% de pares = kWh por kW nominal de este inversor hoy vs la mediana de los demás inversores de la planta. "
+            "Ámbar < 85%, rojo < 70%.")
+TIP_CAUSE = {
+    "unavailability": ("Unavailability = inverters at 0 W in daylight (measured), or no data while the vendor counters show "
+                       "no production. A data gap where the counters prove production is not a loss.",
+                       "Indisponibilidad = inversores en 0 W con luz (medido), o sin datos mientras los contadores muestran "
+                       "que no hubo producción. Un corte de datos con producción probada no es pérdida."),
+    "overheating": ("Overheating = derating measured against cooler peer inverters in the same hours.",
+                    "Sobrecalentamiento = reducción medida contra inversores pares más frescos en las mismas horas."),
+    "underperformance": ("Underperformance = the plant ran but made less than expected, not explained by 0 W or heat "
+                         "(soiling, strings, clipping, a slow inverter). Counted only on days the shortfall reaches 10% of "
+                         "expected; smaller differences are the normal 4.8% day-to-day scatter of the estimate.",
+                         "Bajo desempeño = la planta operó pero produjo menos, sin explicación por 0 W o calor (suciedad, "
+                         "strings, recorte, inversor lento). Solo cuenta los días en que la diferencia llega al 10%; "
+                         "diferencias menores son la variación normal de 4.8% de la estimación."),
+}
+
+
+TIP_TICKET = ("Lost while open = the losses of each day since the ticket was opened (same method as Losses): a plant "
+              "ticket carries the plant's daily loss, an inverter ticket only that inverter's shortfall vs its peers. "
+              "Data gaps proved by the meter readings are not counted.",
+              "Perdido mientras abierto = las pérdidas de cada día desde que se abrió el ticket (mismo método que Pérdidas): "
+              "un ticket de planta lleva la pérdida diaria de la planta, uno de inversor solo el faltante de ese inversor "
+              "vs sus pares. Los cortes de datos probados por las lecturas no cuentan.")
+
+
+def loss_period_tip(L):
+    """(EN, ES) for a 30-day loss total: what it includes and what it does not."""
+    c, tl, n = L.get("catchup") or 0.0, L.get("tolerance") or 0.0, L.get("days") or 0
+    return (f"Sum of the daily losses over {n} days (unavailability + overheating + underperformance) at the PPA tariff. "
+            f"Not counted: {c:,.0f} kWh the vendor's lifetime counter proved were produced during data gaps, and "
+            f"{tl:,.0f} kWh of day-to-day scatter under 10%. Tap a day below for its calculation.",
+            f"Suma de las pérdidas diarias de {n} días (indisponibilidad + sobrecalentamiento + bajo desempeño) a la tarifa PPA. "
+            f"No se cuentan: {c:,.0f} kWh que el contador total probó producidos durante cortes de datos, ni "
+            f"{tl:,.0f} kWh de variación diaria menor al 10%. Toque un día abajo para ver su cálculo.")
+
+
 def band(v, bands):
     if v is None:
         return ""
@@ -260,10 +328,13 @@ def pct(v, d=0) -> str:
 
 
 def perf_tiles(pr, av, today, today_note_en="", today_note_es="") -> str:
+    ten, tes = TIP_TODAY
+    if today_note_en:
+        ten, tes = f"{today_note_en} {ten}", f"{today_note_es} {tes}"
     return (f'<div class="tiles three">'
-            f'<div class="tile t-{band(today, TODAY_BANDS)}"><b>{pct(today)}</b>{t("today vs expected", "hoy vs esperado")}</div>'
-            f'<div class="tile t-{band(pr, PR_BANDS)}"><b>{"-" if pr is None else f"{pr:.2f}"}</b>{t("PR 30 days", "PR 30 días")}</div>'
-            f'<div class="tile t-{band(av, AVAIL_BANDS)}"><b>{pct(av, 1)}</b>{t("availability 30 d", "disponibilidad 30 d")}</div>'
+            f'<div class="tile t-{band(today, TODAY_BANDS)}">{tip(pct(today), ten, tes, "b")}{t("today vs expected", "hoy vs esperado")}</div>'
+            f'<div class="tile t-{band(pr, PR_BANDS)}">{tip("-" if pr is None else f"{pr:.2f}", *TIP_PR, tag="b")}{t("PR 30 days", "PR 30 días")}</div>'
+            f'<div class="tile t-{band(av, AVAIL_BANDS)}">{tip(pct(av, 1), *TIP_AV, tag="b")}{t("availability 30 d", "disponibilidad 30 d")}</div>'
             f'</div>')
 
 
@@ -310,6 +381,8 @@ def fleet_view(plants, gen_hhmm) -> str:
     act = sum(p["today_act"] for p in plants if p.get("today_pct") is not None)
     exp = sum(p["today_exp"] for p in plants if p.get("today_pct") is not None)
     fleet_today = (act / exp) if exp else None
+    fleet_note = ((f"PPA fleet today so far: {act:,.0f} of {exp:,.0f} kWh expected.",
+                   f"Flota PPA hoy hasta ahora: {act:,.0f} de {exp:,.0f} kWh esperados.") if exp else ("", ""))
     cards = []
     for p in sorted_plants(plants):
         cards.append(
@@ -319,14 +392,15 @@ def fleet_view(plants, gen_hhmm) -> str:
             f' · {num(p.get("kwp"))} kWp</small>'
             f'<small class="stt">{t(p.get("state_en") or "", p.get("state_es"))}</small></div>'
             f'<div class="right"><b>{num(p.get("power_kw"))} kW</b><small>{num(p.get("today_kwh"))} kWh</small>'
-            f'<small class="tp t-{band(p.get("today_pct"), TODAY_BANDS)}">{pct(p.get("today_pct"))} {t("today", "hoy")}</small></div></a>')
+            + tip(f'{pct(p.get("today_pct"))} {t("today", "hoy")}', *today_tip(p), tag="small",
+                  cls=f'tp t-{band(p.get("today_pct"), TODAY_BANDS)}') + '</div></a>')
     return (f'<section class="v" id="v-fleet" data-tab="fleet">'
             f'<p class="kick">{t("PPA fleet now", "Flota PPA ahora")} · {esc(gen_hhmm)} MX</p>'
             f'<p class="big">{num(power)} <span>kW</span></p>'
-            f'<div class="tiles"><div class="tile"><b>{num(today)}</b>{t("kWh today", "kWh hoy")}</div>'
+            f'<div class="tiles"><div class="tile">{tip(num(today), *TIP_KWH, tag="b")}{t("kWh today", "kWh hoy")}</div>'
             f'<a class="tile{" red" if crit else ""}" href="#alerts"><b>{crit} {t("critical", "críticas")}</b>'
             f'{len(alerts) - crit} {t("warnings", "avisos")}</a></div>'
-            f'{perf_tiles(weighted(plants, "pr30"), weighted(plants, "avail30"), fleet_today)}'
+            f'{perf_tiles(weighted(plants, "pr30"), weighted(plants, "avail30"), fleet_today, *fleet_note)}'
             f'<div class="card list">{"".join(cards) or t("No plants.", "Sin plantas.", tag="p", cls="empty")}</div>'
             f'{PERF_NOTE}</section>')
 
@@ -336,13 +410,14 @@ def loss_card(p) -> str:
     if not L or not L.get("days"):
         return (f'<div class="card pad">{t("Lost production: no loss figures for this plant yet.", "Producción perdida: aún sin cifras para esta planta.", tag="p", cls="muted")}</div>')
     ppa = L.get("mxn") is not None
-    head = (f'<p class="loss">{money(L["mxn"])} <span>MXN</span></p>' if ppa
-            else f'<p class="loss">{num(L.get("kwh"))} <span>kWh</span></p>')
+    ptip = loss_period_tip(L)
+    head = (f'<p class="loss">{tip(money(L["mxn"]), *ptip)} <span>MXN</span></p>' if ppa
+            else f'<p class="loss">{tip(num(L.get("kwh")), *ptip)} <span>kWh</span></p>')
     parts = []
     for key, en, es in CAUSES:
         v = L.get(f"{key}_mxn") if ppa else L.get(key)
         if v and v >= (1 if ppa else 0.5):
-            parts.append(f'<li>{t(en, es)}<b>{money(v) if ppa else num(v) + " kWh"}</b></li>')
+            parts.append(f'<li>{t(en, es)}{tip(money(v) if ppa else num(v) + " kWh", *TIP_CAUSE[key], tag="b")}</li>')
     extra = "" if ppa else t(" (CAPEX plant: kWh, no tariff)", " (planta CAPEX: kWh, sin tarifa)")
     nd = L["days"]
     return (f'<div class="card pad lossc">{t(f"Lost in the last {nd} days", f"Perdido en los últimos {nd} días", tag="p", cls="kick")}'
@@ -363,13 +438,18 @@ def days_card(p) -> str:
             tail = f" · {money(lost)}"
         elif d.get("lost_mxn") is None and (d.get("lost_kwh") or 0) >= 1:
             tail = f" · {num(d['lost_kwh'])} kWh"
+        val = ("-" if pct is None else f"{pct:,.0f}%") + ("*" if d.get("catchup") else "") + tail
+        dtip = d.get("tip") or (f"Actual {num(e)} kWh of {num(x)} kWh expected for this day.",
+                                f"Real {num(e)} kWh de {num(x)} kWh esperados para este día.")
+        cell = tip(val, *dtip, cls="dv" + (" red" if bad else ""))
         rows.append(f'<div class="drow"><span class="dd">{day_label(d.get("date") or "")}</span>'
                     f'<span class="bar"><i class="{"bad" if bad else ""}" style="width:{w:.0f}%"></i></span>'
-                    f'<span class="dv{" red" if bad else ""}">{"-" if pct is None else f"{pct:,.0f}%"}{tail}</span></div>')
+                    f'{cell}</div>')
     if not rows:
         return ""
     return (f'<p class="sec">{t("Last 7 days - actual vs expected, and what it cost", "Últimos 7 días - real vs esperado, y lo que costó")}</p>'
-            f'<div class="card pad">{"".join(rows)}</div>')
+            f'<div class="card pad">{"".join(rows)}</div>'
+            f'<p class="note">{t("Tap a day for how it was calculated. * = the data link was down; the energy was proved by the next night meter reading.", "Toque un día para ver el cálculo. * = la conexión estaba caída; la energía se probó con la lectura de la noche siguiente.")}</p>')
 
 
 INV_STATE = {"ok": ("OK", "OK", "ok"), "fault": ("fault", "falla", "warn"),
@@ -389,17 +469,18 @@ def inverters_card(p) -> str:
             tn = "-" if i.get("temp") is None else f'{i["temp"]:.0f}'
             tp = "-" if i.get("peak") is None else f'{i["peak"]:.0f}'
             tc = {"bad": "red", "warn": "amber"}.get(i.get("temp_cls"), "")
-            bits.append(f'<span class="{tc}">{tn} / {tp} °C</span>')
+            bits.append(tip(f"{tn} / {tp} °C", *TIP_TEMP, cls=tc))
         if i.get("peer") is not None:
             pc = {"bad": "red", "warn": "amber"}.get(i.get("peer_cls"), "")
-            bits.append(f'<span class="{pc}">{100 * i["peer"]:.0f}% {t("of peers", "de pares")}</span>')
+            bits.append(tip(f'{100 * i["peer"]:.0f}% {t("of peers", "de pares")}', *TIP_PEER, cls=pc))
         if i.get("state") == "stale" and i.get("last"):
             bits.append(f'{t("last data", "último dato")} {esc(i["last"])}')
         rows.append(f'<div class="row invr"><div class="grow"><b>{esc(i.get("label"))}</b>'
                     f'<small class="inv">{esc(i.get("sn"))}</small>'
                     f'<span class="pills">{t(en, es, cls="pill " + cls)}</span>'
                     f'<small>{" · ".join(bits)}</small></div>'
-                    f'<div class="right"><b>{num(i.get("power_kw"), 1)} kW</b><small>{num(i.get("today_kwh"), 1)} kWh</small></div></div>')
+                    f'<div class="right">{tip(num(i.get("power_kw"), 1) + " kW", *TIP_KW, tag="b")}'
+                    f'{tip(num(i.get("today_kwh"), 1) + " kWh", *TIP_KWH, tag="small")}</div></div>')
     if not rows:
         return ""
     return (f'<p class="sec">{t("Inverters", "Inversores")}</p><div class="card list">{"".join(rows)}</div>'
@@ -410,18 +491,29 @@ def plant_view(p) -> str:
     al = [alert_row(p, a, with_plant=False) for a in (p.get("alerts") or [])]
     alerts = (f'<p class="sec">{t("Open alerts", "Alertas abiertas")}</p><div class="card list">{"".join(al)}</div>' if al else "")
     slug = esc(p["slug"])
+    live_txt = f"{num(p.get('inv_live'))}/{num(p.get('inv_total'))}"
     return (f'<section class="v" id="v-p-{slug}" data-tab="fleet" hidden>'
             f'<a class="back" href="#fleet" onclick="return goBack()">{icon("back", 18)}{t("Fleet", "Flota")}</a>'
             f'<h1>{esc(p["name"])}</h1>'
             f'<p class="sub st-{esc(p.get("state"))}"><span class="dot"></span>{t(p.get("state_en") or "", p.get("state_es"))}'
             f' · {esc(p.get("where") or "")} · {esc(p.get("portfolio") or "")} · {num(p.get("kwp"))} kWp</p>'
-            f'<div class="tiles three"><div class="tile"><b>{num(p.get("power_kw"))}</b>{t("kW now", "kW ahora")}</div>'
-            f'<div class="tile"><b>{num(p.get("today_kwh"))}</b>{t("kWh today", "kWh hoy")}</div>'
-            f'<div class="tile"><b>{num(p.get("inv_live"))}/{num(p.get("inv_total"))}</b>{t("inverters live", "inversores")}</div></div>'
-            f'{perf_tiles(p.get("pr30"), p.get("avail30"), p.get("today_pct"))}'
+            f'<div class="tiles three"><div class="tile">{tip(num(p.get("power_kw")), *TIP_KW, tag="b")}{t("kW now", "kW ahora")}</div>'
+            f'<div class="tile">{tip(num(p.get("today_kwh")), *TIP_KWH, tag="b")}{t("kWh today", "kWh hoy")}</div>'
+            f'<div class="tile">{tip(live_txt, *TIP_INV, tag="b")}{t("inverters live", "inversores")}</div></div>'
+            f'{perf_tiles(p.get("pr30"), p.get("avail30"), p.get("today_pct"), *today_tip(p))}'
             f'{today_line(p)}'
             f'{loss_card(p)}{inverters_card(p)}{days_card(p)}{alerts}{PERF_NOTE}'
             f'</section>')
+
+
+def today_tip(p):
+    """(EN, ES) 'Today so far: X of Y kWh expected (N complete hours).'"""
+    if p.get("today_exp") is None:
+        return ("Not enough daylight yet today to judge.", "Aún no hay suficiente luz hoy para juzgar.")
+    return (f"Today so far: {num(p.get('today_act'))} of {num(p.get('today_exp'))} kWh expected "
+            f"({p.get('today_hours', 0)} complete hours).",
+            f"Hoy hasta ahora: {num(p.get('today_act'))} de {num(p.get('today_exp'))} kWh esperados "
+            f"({p.get('today_hours', 0)} horas completas).")
 
 
 def today_line(p) -> str:
@@ -459,13 +551,13 @@ def losses_view(plants) -> str:
     ranked.sort(key=lambda p: (-(p["loss30"].get("mxn") or 0.0), -(p["loss30"].get("kwh") or 0.0)))
     top = max(cause_mxn.values()) or 1.0
     bars = "".join(f'<div class="drow"><span class="dd wide">{t(en, es)}</span><span class="bar"><i class="bad" style="width:{100*cause_mxn[k]/top:.0f}%"></i></span>'
-                   f'<span class="dv">{money(cause_mxn[k])}</span></div>' for k, en, es in CAUSES)
+                   f'{tip(money(cause_mxn[k]), *TIP_CAUSE[k], cls="dv")}</div>' for k, en, es in CAUSES)
     rows = []
     for p in ranked:
         L = p["loss30"]
         val = money(L["mxn"]) if L.get("mxn") is not None else f'{num(L.get("kwh"))} kWh'
         rows.append(f'<a class="row" href="#p-{esc(p["slug"])}"><div class="grow"><b>{esc(p["name"])}</b>'
-                    f'<small>{num(L.get("kwh"))} kWh {t("lost", "perdidos")}</small></div><div class="right"><b>{val}</b></div></a>')
+                    f'<small>{num(L.get("kwh"))} kWh {t("lost", "perdidos")}</small></div><div class="right">{tip(val, *loss_period_tip(L), tag="b")}</div></a>')
     return (f'<section class="v" id="v-losses" data-tab="losses" hidden><h1>{t("Losses", "Pérdidas")}</h1>'
             f'<p class="sub">{t(f"Last {days} days, all PPA plants", f"Últimos {days} días, todas las plantas PPA")}</p>'
             f'<div class="tiles"><div class="tile red"><b>{money(tot_mxn)}</b>{t("MXN lost", "MXN perdidos")}</div>'
@@ -492,7 +584,7 @@ def ticket_row(k) -> str:
             f'{t(k.get("status_en") or "", k.get("status_es"), cls="pill st")}</span>'
             f'<b>{esc(k["plant"])}</b><span class="what">{esc(k.get("title") or "")}</span>'
             f'<small>{inv}{t("opened", "abierto")} {day_label(k.get("opened") or "")} · {who}{sla}</small></div>'
-            f'<div class="right"><b class="{"red" if (k.get("lost_mxn") or 0) >= 1 else ""}">{lost}</b>'
+            f'<div class="right">{tip(lost, *TIP_TICKET, tag="b", cls="red" if (k.get("lost_mxn") or 0) >= 1 else "")}'
             f'<small>{t("lost while open", "perdido abierto")}</small></div></div>')
 
 
@@ -594,6 +686,9 @@ h1{font-size:26px;margin:4px 0 2px}
 .tabbar a.on{color:var(--teal2);font-weight:600}
 .badge{position:absolute;top:-4px;left:50%;margin-left:6px;background:var(--red);color:#fff;font:700 10px/16px sans-serif;min-width:16px;height:16px;border-radius:8px;text-align:center;padding:0 4px;font-style:normal}
 [hidden]{display:none!important}
+.tip{border-bottom:1px dotted #9aa0a6;cursor:help}
+#tipbox{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:20;background:#053b38;color:#fff;
+ border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:540px;margin:0 auto}
 """
 
 JS = """
@@ -625,6 +720,12 @@ async function testNote(){
    icon:'/apple-touch-icon.png',tag:'argia-test',data:{url:'/app/#alerts'}});
   say('Sent. Lock the phone or leave the app to see it arrive.','Enviada. Bloquea el teléfono o sal de la app para verla llegar.');
  }catch(e){say('Did not work: '+e,'No funcionó: '+e);}}
+function tipShow(el){var b=document.getElementById('tipbox');var es=(document.documentElement.lang==='es');
+ b.textContent=(es?el.dataset.tipEs:el.dataset.tipEn)||el.dataset.tipEn;b.hidden=false;}
+document.addEventListener('click',function(ev){var el=ev.target.closest?ev.target.closest('.tip'):null;var b=document.getElementById('tipbox');
+ if(el){ev.preventDefault();ev.stopPropagation();tipShow(el);return;}
+ if(b&&!b.hidden){b.hidden=true;}},true);
+window.addEventListener('hashchange',function(){var b=document.getElementById('tipbox');if(b)b.hidden=true;});
 window.addEventListener('hashchange',show);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'){if(Date.now()/1000-GEN>300){location.reload();}else{age();}}});
 setLang(L()||((navigator.language||'').slice(0,2)==='es'?'es':'en'));show();age();setInterval(age,30000);
@@ -659,5 +760,5 @@ def render(plants, gen_mx: str, gen_epoch: int, tickets=None, tickets_total=(Non
            f'<button type="button" onclick="location.reload()" aria-label="reload">{icon("refresh", 20)}</button></header>')
     views = (fleet_view(plants, hhmm) + "".join(plant_view(p) for p in sorted_plants(plants))
              + alerts_view(plants) + losses_view(plants) + tickets_view(tickets, *tickets_total) + more_view(gen_mx))
-    return (head + top + f'<main>{views}</main>' + tabbar(n_alerts)
+    return (head + top + f'<main>{views}</main>' + '<div id="tipbox" role="status" hidden></div>' + tabbar(n_alerts)
             + f'<script>{JS % {"gen": int(gen_epoch)}}</script></body></html>')

@@ -44,20 +44,48 @@ Pesos: the PPA tariff for the month (``contract_monthly.tariff_mxn``,
 else the plant's standing tariff). CAPEX plants have no per-kWh tariff:
 their loss is shown in kWh, never as an invented peso figure.
 
+v276 (2026-09-30, Tomasz: "numbers too big ... usually we are losing
+connections not the production"), checked against September's nightly
+counters on pio06 - PPA losses fell from $36,362 to $11,262 MXN:
+
+* **catch-up**: a vendor day counter that froze during a data gap is
+  corrected by the next night's LIFETIME counter step (``catch_up`` /
+  ``allocate_catch_up``): the energy it proves is added to the day before
+  judging it. SAG 19, 25, 28 Sep: 5,520 kWh that had been booked as lost;
+* **tolerance**: the ESTIMATED part of a gap (underperformance + silent
+  slots) counts only from 10% of expected (2 x the 4.8% day-to-day scatter
+  of 143 normal plant-days); 0 W and heat are measured and always count;
+* every row stores how it was made (counter, catch-up, ratios, tolerance)
+  and ``explain_day`` turns it into the text the pages show on hover / tap.
+
 Pure: no I/O, no database, no clock.
 """
 from __future__ import annotations
 
+import datetime as dt
 import math
 from dataclasses import dataclass
 from statistics import median
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 PEER_MAX_KM = 60.0
 HEALTHY_FRAC = 0.85          # a peer counts only if it made >= 85% of its own weather expectation
 MIN_CALIB_DAYS = 5           # fewer shared healthy days -> no peer figure for this plant
 CALIB_BOUNDS = (0.7, 1.3)    # a ratio outside this is a data problem, not a roof
 DARK_FRAC = 0.05             # output below 5% of expected = the plant was down all day
+# v276 (Tomasz, 2026-09-30: "numbers too big ... usually we are losing connections
+# not the production"). Two corrections, both from the September data:
+UNDERPERF_TOL = 0.10         # an ESTIMATED shortfall (underperformance, or silent slots
+                             # judged by the counter) below 10% of expected is the scatter
+                             # of the estimate itself, not a loss. Measured on pio06: 143
+                             # normal PPA plant-days of Sep 2026 scatter around their
+                             # expectation with a 4.8% standard deviation (p10 0.97,
+                             # p90 1.07); 10% = 2 sigma. Counting every low day but never
+                             # the high ones had booked 1-2% of every plant's month as
+                             # 'lost'. Inverters at 0 W and heat derating are MEASURED
+                             # and always count.
+CATCHUP_MIN_KWH = 20.0       # next-night lifetime step beyond the day counter: smaller
+                             # differences are counter rounding, not a data gap
 MIN_IRRADIANCE_WM2 = 20.0
 SLOT_MIN = 5.0
 
@@ -175,6 +203,39 @@ def slot_causes(expected: Optional[float], actual: Optional[float], own: Dict[st
     return zero + max(0.0, silent_expected - silent_made), excused
 
 
+def slot_causes_detail(expected: Optional[float], actual: Optional[float], own: Dict[str, Slot],
+                       peer_irradiance: Dict[str, float], n_inverters: int,
+                       minutes: float = SLOT_MIN) -> Tuple[float, float, float]:
+    """(0 W kWh - measured, silent-slot kWh - estimated from the counter,
+    excused kWh). The two parts of slot_causes' unavailability, kept apart
+    so only the estimated one is subject to UNDERPERF_TOL (v276)."""
+    total, excused = slot_causes(expected, actual, own, peer_irradiance, n_inverters, minutes)
+    if total <= 0:
+        return 0.0, 0.0, excused
+    zero_only = min(_zero_w_part(expected, own, peer_irradiance, n_inverters), total)
+    return zero_only, total - zero_only, excused
+
+
+def _zero_w_part(expected, own, peer_irradiance, n_inverters) -> float:
+    if not expected or expected <= 0:
+        return 0.0
+    daylight: Dict[str, float] = {}
+    for ts in set(own) | set(peer_irradiance):
+        o = own.get(ts)
+        irr = o.irradiance if (o and o.irradiance is not None) else peer_irradiance.get(ts)
+        if irr is not None and irr >= MIN_IRRADIANCE_WM2:
+            daylight[ts] = float(irr)
+    total_irr = sum(daylight.values())
+    if total_irr <= 0:
+        return 0.0
+    zero = 0.0
+    for ts, irr in daylight.items():
+        o = own.get(ts)
+        if o and not o.excused and o.reporting > 0 and n_inverters and o.down:
+            zero += float(expected) * irr / total_irr * min(o.down, n_inverters) / n_inverters
+    return zero
+
+
 @dataclass
 class Split:
     lost: float
@@ -202,6 +263,70 @@ def split_loss(expected: Optional[float], actual: Optional[float],
     return Split(lost, u, th, lost - u - th, exc)
 
 
+def tolerate(split: Optional[Split], expected: Optional[float], silent: float = 0.0) -> Tuple[Optional[Split], float]:
+    """(split, kWh ignored as normal variation). The ESTIMATED part of a day's
+    gap - underperformance plus the unavailability of silent slots (``silent``,
+    judged by the counter) - counts only when together it reaches UNDERPERF_TOL
+    of the day's expectation; below that it is the scatter of the estimate.
+    0 W slots and heat derating are measured and always kept."""
+    if split is None or not expected:
+        return split, 0.0
+    sil = min(max(float(silent or 0.0), 0.0), split.unavailability)
+    est = split.underperformance + sil
+    if est <= 0 or est >= UNDERPERF_TOL * float(expected):
+        return split, 0.0
+    return Split(split.lost - est, split.unavailability - sil, split.overheating, 0.0, split.excused), est
+
+
+def catch_up(counters: Sequence[Tuple[str, Optional[float], Optional[float]]]) -> Dict[str, float]:
+    """{night: kWh the lifetime counter gained beyond that night's day counter}.
+
+    ``counters``: [(YYYY-MM-DD, vendor day kWh, vendor lifetime kWh)] of one
+    plant, nightly snapshots. Pure.
+
+    When the vendor stops receiving data (datalogger / internet down) the DAY
+    counter freezes; the inverters keep producing and, once the link is back,
+    the LIFETIME counter jumps by everything made meanwhile. So on the night
+    after a gap: lifetime step > day counter, and the excess is energy that
+    belongs to the earlier day(s). SAG, September: 19, 25 and 28 Sep had the
+    day counter frozen at 427 / 264 / 1,203 kWh; the next nights' lifetime
+    steps carried +2,442 / +1,749 / +1,329 kWh. Only consecutive nights with
+    both counters are compared."""
+    rows = sorted((d, dk, lt) for d, dk, lt in counters)
+    out: Dict[str, float] = {}
+    for (d0, _k0, l0), (d1, k1, l1) in zip(rows, rows[1:]):
+        if l0 is None or l1 is None or k1 is None:
+            continue
+        if (dt.date.fromisoformat(d1) - dt.date.fromisoformat(d0)).days != 1:
+            continue
+        excess = (float(l1) - float(l0)) - float(k1)
+        if excess >= CATCHUP_MIN_KWH:
+            out[d1] = excess
+    return out
+
+
+def allocate_catch_up(excess: Dict[str, float], shortfall: Dict[str, float], back: int = 3) -> Dict[str, float]:
+    """{day: kWh credited back}. Each night's excess goes to the day before it,
+    then further back (up to ``back`` days) - each day credited at most its own
+    shortfall (expected - counted). Energy that fits no shortfall is left
+    uncredited: it can only make a day look better, never invent a loss. Pure."""
+    left = dict(shortfall)
+    out: Dict[str, float] = {}
+    for night, kwh in sorted(excess.items()):
+        n = dt.date.fromisoformat(night)
+        for k in range(1, back + 1):
+            if kwh <= 0:
+                break
+            d = (n - dt.timedelta(days=k)).isoformat()
+            room = max(0.0, left.get(d, 0.0))
+            give = min(room, kwh)
+            if give > 0:
+                out[d] = out.get(d, 0.0) + give
+                left[d] = room - give
+                kwh -= give
+    return out
+
+
 def mxn(kwh: Optional[float], tariff: Optional[float]) -> Optional[float]:
     if kwh is None or not tariff:
         return None
@@ -227,19 +352,31 @@ class LossDay:
     excused_kwh: Optional[float]
     tariff_mxn: Optional[float]
     lost_mxn: Optional[float]
+    # v276: how the numbers were made - every figure on the pages can say where it came from
+    counter_kwh: Optional[float] = None        # the vendor's day counter as read that night
+    catchup_kwh: Optional[float] = None        # energy the next night's lifetime counter proved (data gap)
+    peer_ratio: Optional[float] = None         # this plant's usual kWh/kWp vs its peers (90 days)
+    weather_ratio: Optional[float] = None      # this plant's usual actual / weather model (90 days)
+    tolerance_kwh: Optional[float] = None      # shortfall within normal variation, not counted
 
 
 def compute_day(plant_key: str, day: str, kwp: float, actual: Optional[float],
                 weather_expected: Optional[float], peer_yields: Dict[str, float],
                 peer_ratio: Optional[float], weather_ratio: Optional[float],
                 own_slots: Dict[str, Slot], peer_irradiance: Dict[str, float], n_inverters: int,
-                overheating: float, tariff: Optional[float]) -> LossDay:
-    """``peer_yields``: {peer: kWh/kWp that day} for the HEALTHY peers only."""
+                overheating: float, tariff: Optional[float], catchup: float = 0.0) -> LossDay:
+    """``peer_yields``: {peer: kWh/kWp that day} for the HEALTHY peers only.
+    ``actual`` is the day counter; ``catchup`` the energy a later night's
+    lifetime counter proved was made that day (v276) - added before judging."""
+    counter = actual
+    if actual is not None and catchup:
+        actual = float(actual) + float(catchup)
     pe = peer_expected(kwp, list(peer_yields.values()), peer_ratio)
     exp, basis = choose_expected(weather_expected, pe, weather_ratio)
-    unav, excused = slot_causes(exp, actual, own_slots, peer_irradiance, n_inverters)
-    s = split_loss(exp, actual, unav, overheating, excused)
+    zero_w, silent, excused = slot_causes_detail(exp, actual, own_slots, peer_irradiance, n_inverters)
+    s, tol = tolerate(split_loss(exp, actual, zero_w + silent, overheating, excused), exp, silent)
     r1 = (lambda v: None if v is None else round(v, 1))
+    r3 = (lambda v: None if v is None else round(v, 3))
     return LossDay(
         plant_key, day, kwp, r1(weather_expected), r1(pe), r1(exp), basis,
         ",".join(sorted(peer_yields)) if basis == "peers" else "",
@@ -247,7 +384,10 @@ def compute_day(plant_key: str, day: str, kwp: float, actual: Optional[float],
         r1(s.lost) if s else None, r1(s.unavailability) if s else None,
         r1(s.overheating) if s else None, r1(s.underperformance) if s else None,
         r1(s.excused) if s else None,
-        tariff, mxn(s.lost, tariff) if s else None)
+        tariff, mxn(s.lost, tariff) if s else None,
+        r1(counter), r1(catchup) if catchup else 0.0,
+        r3(peer_ratio) if basis == "peers" else None,
+        r3(weather_ratio) if basis == "weather" else None, r1(tol))
 
 
 def totals(days: Iterable[LossDay]) -> Dict[str, float]:
@@ -272,3 +412,88 @@ def totals(days: Iterable[LossDay]) -> Dict[str, float]:
             out["underperformance_mxn"] += mxn(d.underperformance_kwh or 0.0, d.tariff_mxn) or 0.0
     out["priced"] = 1.0 if priced else 0.0
     return out
+
+
+# ------------------------------------------------------------ v276 explanations
+# Tomasz, 2026-09-30: "if there is underperformance please specify how did you
+# estimate it. Add to all numbers that are not 100% a tool tip". One wording,
+# used by the portal (mouse-over) and the phone app (tap).
+def _k(v) -> str:
+    return "-" if v is None else f"{float(v):,.0f}"
+
+
+def explain_day(r: dict, name: Callable[[str], str] = lambda k: k) -> Tuple[str, str]:
+    """(EN, ES) plain-text explanation of one loss_daily row (a dict with the
+    table's column names; missing v276 columns are simply left out). Pure."""
+    en: List[str] = []
+    es: List[str] = []
+    exp, basis = r.get("expected_kwh"), r.get("expected_basis") or "none"
+    kwp = r.get("kwp_dc")
+    if exp is None:
+        return ("No expectation for this day: no healthy neighbour and no weather data.",
+                "Sin expectativa para este día: sin vecina sana ni datos de clima.")
+    if basis == "peers":
+        peers = ", ".join(name(p) for p in (r.get("peers") or "").split(",") if p)
+        ratio = r.get("peer_ratio")
+        if ratio and kwp:
+            y = float(r.get("expected_peers_kwh") or exp) / (float(kwp) * float(ratio))
+            en.append(f"Expected {_k(exp)} kWh = nearby healthy plants ({peers}) made {y:.2f} kWh per kWp that day "
+                      f"x this plant's usual ratio to them {float(ratio):.3f} (last 90 days) x {float(kwp):,.1f} kWp.")
+            es.append(f"Esperado {_k(exp)} kWh = plantas vecinas sanas ({peers}) produjeron {y:.2f} kWh por kWp ese día "
+                      f"x la relación habitual de esta planta con ellas {float(ratio):.3f} (últimos 90 días) x {float(kwp):,.1f} kWp.")
+        else:
+            en.append(f"Expected {_k(exp)} kWh from nearby healthy plants ({peers}) and this plant's usual ratio to them.")
+            es.append(f"Esperado {_k(exp)} kWh a partir de plantas vecinas sanas ({peers}) y la relación habitual con ellas.")
+    elif basis == "weather":
+        wr = r.get("weather_ratio")
+        extra = f" x this plant's usual actual/model ratio {float(wr):.3f} (last 90 days)" if wr else ""
+        extra_es = f" x la relación habitual real/modelo de esta planta {float(wr):.3f} (últimos 90 días)" if wr else ""
+        en.append(f"Expected {_k(exp)} kWh = weather model {_k(r.get('expected_weather_kwh'))} kWh (measured irradiance){extra}; "
+                  "no healthy neighbour that day.")
+        es.append(f"Esperado {_k(exp)} kWh = modelo de clima {_k(r.get('expected_weather_kwh'))} kWh (irradiancia medida){extra_es}; "
+                  "sin vecina sana ese día.")
+    else:
+        en.append(f"Expected {_k(exp)} kWh = weather model only (the plant has no reliable ratio to it: check the sensor or design data).")
+        es.append(f"Esperado {_k(exp)} kWh = solo modelo de clima (la planta no tiene relación confiable con él: revisar sensor o datos de diseño).")
+    act, counter, catch = r.get("actual_kwh"), r.get("counter_kwh"), r.get("catchup_kwh") or 0.0
+    if catch and counter is not None:
+        en.append(f"Actual {_k(act)} kWh = vendor day counter {_k(counter)} + {_k(catch)} kWh proved by the next night's "
+                  "lifetime counter: the data link was down, the plant kept producing - not a loss.")
+        es.append(f"Real {_k(act)} kWh = contador diario del fabricante {_k(counter)} + {_k(catch)} kWh probados por el contador "
+                  "total de la noche siguiente: se cayó la conexión, la planta siguió produciendo - no es pérdida.")
+    else:
+        en.append(f"Actual {_k(act)} kWh = vendor day counter.")
+        es.append(f"Real {_k(act)} kWh = contador diario del fabricante.")
+    lost = r.get("lost_kwh") or 0.0
+    un, oh, up = (r.get("unavailability_kwh") or 0.0), (r.get("overheating_kwh") or 0.0), (r.get("underperformance_kwh") or 0.0)
+    if lost > 0:
+        en.append(f"Lost {_k(lost)} kWh: unavailability {_k(un)} (inverters at 0 W in daylight, or silent while the counter shows "
+                  f"no production), overheating {_k(oh)} (derating measured against cooler peers), underperformance {_k(up)} "
+                  "(the rest: the plant ran but made less than expected, not explained by 0 W or heat).")
+        es.append(f"Perdido {_k(lost)} kWh: indisponibilidad {_k(un)} (inversores en 0 W con luz, o sin datos mientras el contador "
+                  f"muestra que no produjeron), sobrecalentamiento {_k(oh)} (reducción medida contra pares más frescos), "
+                  f"bajo desempeño {_k(up)} (el resto: operó pero produjo menos, sin explicación por 0 W o calor).")
+    else:
+        en.append("Nothing lost.")
+        es.append("Nada perdido.")
+    tol = r.get("tolerance_kwh") or 0.0
+    if tol >= 1:
+        en.append(f"{_k(tol)} kWh short of the estimate is within normal day-to-day variation (under 10%) and not counted.")
+        es.append(f"{_k(tol)} kWh debajo de la estimación están dentro de la variación normal diaria (menos de 10%) y no se cuentan.")
+    if r.get("excused_kwh"):
+        en.append(f"{_k(r['excused_kwh'])} kWh excused: approved customer maintenance, billed as deemed energy.")
+        es.append(f"{_k(r['excused_kwh'])} kWh justificados: mantenimiento aprobado del cliente, facturado como energía considerada.")
+    if r.get("lost_mxn") is not None and r.get("tariff_mxn"):
+        en.append(f"MXN = {_k(lost)} kWh x PPA tariff {float(r['tariff_mxn']):.4f}.")
+        es.append(f"MXN = {_k(lost)} kWh x tarifa PPA {float(r['tariff_mxn']):.4f}.")
+    return " ".join(en), " ".join(es)
+
+
+def explain_period(catchup_kwh: float, tolerance_kwh: float, days: int) -> Tuple[str, str]:
+    """(EN, ES) what a period total includes and what it deliberately does not."""
+    return (f"Sum of the daily losses over {days} day(s): unavailability + overheating + underperformance. "
+            f"Not counted: {catchup_kwh:,.0f} kWh the vendor's lifetime counter proved were produced during data gaps, "
+            f"and {tolerance_kwh:,.0f} kWh of day-to-day scatter below 10% of the estimate.",
+            f"Suma de las pérdidas diarias de {days} día(s): indisponibilidad + sobrecalentamiento + bajo desempeño. "
+            f"No se cuentan: {catchup_kwh:,.0f} kWh que el contador total del fabricante probó producidos durante cortes de datos, "
+            f"ni {tolerance_kwh:,.0f} kWh de variación diaria menor al 10% de la estimación.")

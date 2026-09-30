@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS loss_daily (
     computed_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT loss_daily_pkey PRIMARY KEY (plant_key, prod_date)
 );
+-- v276: where each figure came from (the pages explain every number)
+ALTER TABLE loss_daily ADD COLUMN IF NOT EXISTS counter_kwh numeric(12,1);
+ALTER TABLE loss_daily ADD COLUMN IF NOT EXISTS catchup_kwh numeric(12,1);
+ALTER TABLE loss_daily ADD COLUMN IF NOT EXISTS peer_ratio numeric(6,3);
+ALTER TABLE loss_daily ADD COLUMN IF NOT EXISTS weather_ratio numeric(6,3);
+ALTER TABLE loss_daily ADD COLUMN IF NOT EXISTS tolerance_kwh numeric(12,1);
 """
 
 
@@ -83,6 +89,16 @@ def tariffs(d0: dt.date, d1: dt.date) -> Dict[Tuple[str, str], float]:
     return {(r[0], f"{int(r[1]):04d}-{int(r[2]):02d}"): float(r[3]) for r in psql_rows(
         "SELECT plant_key, year, month, tariff_mxn FROM contract_monthly WHERE tariff_mxn > 0"
         f" AND make_date(year, month, 1) BETWEEN date_trunc('month', DATE '{d0}') AND DATE '{d1}';")}
+
+
+def counters(d0: dt.date, d1: dt.date) -> Dict[str, List[Tuple[str, Optional[float], Optional[float]]]]:
+    """plant -> [(night, vendor day kWh, vendor lifetime kWh)] - the nightly
+    snapshots recon_snapshot takes at 23:50 (v276: the catch-up evidence)."""
+    out: Dict[str, list] = defaultdict(list)
+    for r in psql_rows("SELECT plant_key, snap_date::text, daily_kwh, lifetime_kwh FROM vendor_counter_snapshot"
+                       f" WHERE snap_date BETWEEN DATE '{d0}' - 1 AND DATE '{d1}' + 4 ORDER BY 1, 2;"):
+        out[r[0]].append((r[1], _f(r[2]), _f(r[3])))
+    return out
 
 
 def thermal(d0: dt.date, d1: dt.date) -> Dict[Tuple[str, str], float]:
@@ -121,6 +137,7 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
     c0 = d0 - dt.timedelta(days=CALIB_WINDOW_DAYS)
     prod = production(c0, d1)
     tar, th, sl = tariffs(d0, d1), thermal(d0, d1), slots(d0, d1)
+    cnt = counters(d0, d1)
 
     def sy(k, day):
         e, _ = prod.get((k, day), (None, None))
@@ -154,20 +171,34 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
                 py = healthy_peer_yields(k, ds)
                 hist.append((ds, (e, x), (sy(k, ds), median(py.values())) if py else None))
             day += dt.timedelta(days=1)
+        def one(ds, catchup=0.0):
+            actual, weather = prod.get((k, ds), (None, None))
+            day = dt.date.fromisoformat(ds)
+            lo = (day - dt.timedelta(days=CALIB_WINDOW_DAYS)).isoformat()
+            window = [h for h in hist if lo <= h[0] < ds]
+            peer_ratio = L.calibration([h[2] for h in window if h[2]])
+            weather_ratio = L.calibration([h[1] for h in window])
+            tariff = (tar.get((k, ds[:7])) or meta["tariff"]) if meta["portfolio"] == "PPA" else None
+            return L.compute_day(
+                k, ds, meta["kwp"], actual, weather, healthy_peer_yields(k, ds), peer_ratio, weather_ratio,
+                sl.get((k, ds), {}), peer_irradiance(k, ds), meta["n_inv"], th.get((k, ds), 0.0), tariff, catchup)
+
+        mine = {}
         day = d0
         while day <= d1:
             ds = day.isoformat()
             actual, weather = prod.get((k, ds), (None, None))
             if actual is not None or weather is not None:
-                lo = (day - dt.timedelta(days=CALIB_WINDOW_DAYS)).isoformat()
-                window = [h for h in hist if lo <= h[0] < ds]
-                peer_ratio = L.calibration([h[2] for h in window if h[2]])
-                weather_ratio = L.calibration([h[1] for h in window])
-                tariff = (tar.get((k, ds[:7])) or meta["tariff"]) if meta["portfolio"] == "PPA" else None
-                out.append(L.compute_day(
-                    k, ds, meta["kwp"], actual, weather, healthy_peer_yields(k, ds), peer_ratio, weather_ratio,
-                    sl.get((k, ds), {}), peer_irradiance(k, ds), meta["n_inv"], th.get((k, ds), 0.0), tariff))
+                mine[ds] = one(ds)
             day += dt.timedelta(days=1)
+        # v276: a frozen day counter is a data gap, not lost energy, when a later
+        # night's lifetime counter proves the energy was made - credit it back
+        short = {ds: max(0.0, (x.expected_kwh or 0.0) - (x.actual_kwh or 0.0)) for ds, x in mine.items()}
+        credit = L.allocate_catch_up(L.catch_up(cnt.get(k, [])), short)
+        for ds, kwh in credit.items():
+            if ds in mine and kwh > 0:
+                mine[ds] = one(ds, kwh)
+        out.extend(mine[ds] for ds in sorted(mine))
     return out
 
 
@@ -182,7 +213,8 @@ def _sql(v) -> str:
 def upsert_sql(days: List[L.LossDay]) -> str:
     cols = ("plant_key", "prod_date", "kwp_dc", "expected_weather_kwh", "expected_peers_kwh", "expected_kwh",
             "expected_basis", "peers", "actual_kwh", "lost_kwh", "unavailability_kwh", "overheating_kwh",
-            "underperformance_kwh", "excused_kwh", "tariff_mxn", "lost_mxn")
+            "underperformance_kwh", "excused_kwh", "tariff_mxn", "lost_mxn",
+            "counter_kwh", "catchup_kwh", "peer_ratio", "weather_ratio", "tolerance_kwh")
     vals = ",\n".join("(" + ", ".join(_sql(getattr(d, c)) for c in cols) + ")" for d in days)
     upd = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols[2:])
     return (f"INSERT INTO loss_daily ({', '.join(cols)}) VALUES\n{vals}\n"

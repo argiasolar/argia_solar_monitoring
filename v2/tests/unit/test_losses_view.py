@@ -79,7 +79,8 @@ class TestPage:
         r = LV.normalise([["MEX1", "2026-09-27", "peers", "MEX2", "3000", "", "2900", "2600", "300",
                            "0", "0", "300", "0", "2.508", "752.4"]])[0]
         assert r["expected_peers_kwh"] is None and r["lost_kwh"] == 300.0 and r["tariff_mxn"] == 2.508
-        assert LV.SELECT_SQL.split(" FROM ")[0].count(",") == len(LV.NUM) + 3
+        assert LV.SELECT_SQL.split(" FROM ")[0].count(",") == len(LV.NUM) + len(LV.NUM2) + 3
+        assert LV.SELECT_SQL_V264.split(" FROM ")[0].count(",") == len(LV.NUM) + 3     # the pre-v276 table
 
 
 class TestPlantCard:

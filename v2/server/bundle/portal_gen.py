@@ -312,8 +312,15 @@ def invoices_page():
     a symlink to that folder (deploy step), so the links are absolute."""
     import invoice_publish as IP
     months = IP.scan_months(OLD_INVOICES_DIR)
-    body = IP.index_body(months, records=invoice_records(), zips=IP.month_zips(OLD_INVOICES_DIR),
-                         base='/invoices/')
+    try:                                              # v278: blocked plants are listed, not hidden
+        closes = {(r[0], r[1]): (r[2], r[3] == 't') for r in RG.q(
+            "SELECT plant_key, to_char(ref_month, 'YYYY-MM'), status, closed_at IS NOT NULL"
+            " FROM reconciliation_monthly;") if len(r) >= 4}
+        blocked = IP.blocked_reasons(months, closes)
+    except Exception:                                 # noqa: BLE001
+        blocked = {}
+    body = IP.index_body(months, blocked_now=blocked, records=invoice_records(),
+                         zips=IP.month_zips(OLD_INVOICES_DIR), base='/invoices/')
     head = f'''
 <div style="display:flex;flex-direction:column;gap:4px">
  <div class="kicker">{t("One annex per plant and closed month · the PDF is always in Spanish · new months appear on the 1st after the reconciliation close", "Un anexo por planta y mes cerrado · el PDF siempre en español · cada mes nuevo aparece el día 1 tras el cierre de conciliación")}</div>

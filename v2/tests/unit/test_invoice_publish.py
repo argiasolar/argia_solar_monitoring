@@ -240,3 +240,57 @@ class TestDownloadAllBundle:
                                zips={"2026-08": True})
         assert ('data-en="Download all (ZIP)"'
                 ' data-es="Descargar todo (ZIP)"') in page
+
+
+class TestAnnexFiguresFillTheIndex:
+    """v278, Tomasz 2026-10-01: September showed '5 annexes · 0 kWh · $0.00'
+    and '-' on every row - the finance 'what was invoiced' slice no longer
+    exists for a new month. The annex's own figures (what the customer gets)
+    go into the register instead, still checked against the closed month."""
+
+    @staticmethod
+    def html(days_kwh, tariff=2.462, ym="2026-09"):
+        import json
+        days = [f"{ym}-{i + 1:02d}" for i in range(len(days_kwh))]
+        atoms = [[k, None, None, 0, 0.1, 0.8, 1.0, 0] for k in days_kwh]
+        payload = {"days": days, "atoms": atoms, "tariff_by_month": {ym: tariff}, "co2_factor": 0.444, "history": {}}
+        return f"<html><script>\nconst D = {json.dumps(payload)};\nconst X=1;\n</script></html>"
+
+    def test_the_annex_month_is_read_like_the_page_computes_it(self):
+        kwh, mxn = ip.annex_month(self.html([1000.0, 1500.5]), "2026-09")
+        assert kwh == 2500.5 and mxn == round(2500.5 * 2.462, 2)
+
+    def test_no_payload_or_no_data_is_none(self):
+        assert ip.annex_month("<html></html>", "2026-09") is None
+        assert ip.annex_month(self.html([1000.0]), "2026-08") is None
+
+    def test_record_invoicing_uses_the_annex_when_finance_has_nothing(self, tmp_path):
+        (tmp_path / "factura_HOLIDAY_INN_202609.html").write_text(self.html([38140.2]), encoding="utf-8")
+        rows = ip.record_invoicing("2026-09", {"HOLIDAY_INN"}, {}, str(tmp_path))
+        kwh, mxn, status = rows["HOLIDAY_INN"]
+        assert kwh == 38140.2 and mxn == round(38140.2 * 2.462, 2)
+        assert status in ("NO_BASIS", "XLSX")                          # off-server: no close to compare with
+
+    def test_finance_figures_still_win_when_they_exist(self, tmp_path):
+        (tmp_path / "factura_HOLIDAY_INN_202609.html").write_text(self.html([1.0]), encoding="utf-8")
+        hist = {"SLP2": {"2026-09": {"kwh": 38000.0, "penalty": 0.0, "income": 93556.0}}}
+        rows = ip.record_invoicing("2026-09", {"HOLIDAY_INN"}, hist, str(tmp_path))
+        assert rows["HOLIDAY_INN"][0] == 38000.0
+
+
+class TestBlockedPlantsAreListed:
+    """v278, Tomasz: 'why it is not showing here?' - SAG simply was not there."""
+
+    MONTHS = {"2026-09": [(n, True, True) for n in ("TAIGENE", "VITALMEX", "PLASTIC_OMNIUM",
+                                                      "QUIMICA_COYOACAN", "HOLIDAY_INN")]}
+
+    def test_an_unclosed_plant_gets_a_row_with_the_reason(self):
+        closes = {("MEX1", "2026-09"): ("FAIL", False), ("GTO1", "2026-09"): ("PASS", True)}
+        b = ip.blocked_reasons(self.MONTHS, closes)
+        assert [n for n, _ in b["2026-09"]] == ["SAG"]
+        assert "FAIL and not closed" in b["2026-09"][0][1]
+        page = ip.render_index(self.MONTHS, blocked_now=b)
+        assert "SAG (CDMX)" in page and "approve the close first" in page
+
+    def test_a_closed_plant_without_a_file_is_not_called_blocked(self):
+        assert ip.blocked_reasons(self.MONTHS, {("MEX1", "2026-09"): ("FAIL", True)}) == {}

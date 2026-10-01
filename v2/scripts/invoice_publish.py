@@ -95,7 +95,7 @@ def register_upsert_sql(pk, ym, h, kwh, amount, tariff, billing, dk, dp,
         f" {dk if dk is not None else 'NULL'},"
         f" {dp if dp is not None else 'NULL'},"
         f" '{status}', {_n(produced)}, {_n(penalty)}, {_n(expected)},"
-        " 'invoice_publish') ON CONFLICT (plant_key, ref_month) DO UPDATE"
+        f" '{'annex' if h.get('source') == 'annex' else 'invoice_publish'}') ON CONFLICT (plant_key, ref_month) DO UPDATE"
         " SET billable_kwh = EXCLUDED.billable_kwh,"
         " tariff_mxn = EXCLUDED.tariff_mxn,"
         " amount_mxn = EXCLUDED.amount_mxn,"
@@ -110,7 +110,37 @@ def register_upsert_sql(pk, ym, h, kwh, amount, tariff, billing, dk, dp,
         " published_at = now();")
 
 
-def record_invoicing(ym, names, history):
+ANNEX_DATA = re.compile(r"const D = (\{.*?\});\s*\n", re.S)
+
+
+def annex_month(html_text: str, ym: str):
+    """(billable kWh, MXN) the annex itself shows for ``ym`` - read from the
+    payload it embeds (``const D = {...};``) with the same rollup the page's
+    JS uses. None when the file carries no such payload. PURE.
+
+    v278 (Tomasz, 2026-10-01: the index showed '0 kWh · $0.00' and '-' for
+    every September annex): with the ARGIA Solar workbook retired, nobody
+    writes the finance 'what was invoiced' slice for a new month, so the
+    register had nothing to show. The annex's own figures are what the
+    customer receives - they go into the register (source 'annex') and are
+    still checked against the closed month."""
+    import json as _json
+    m = ANNEX_DATA.search(html_text or "")
+    if not m:
+        return None
+    try:
+        payload = _json.loads(m.group(1))
+        from argia.finance.annex import rollup_month
+        r = rollup_month(payload, ym)
+    except Exception:                                  # noqa: BLE001
+        return None
+    if not r.get("has_data") or r.get("billable_kwh") is None:
+        return None
+    amt = r.get("amount_mxn")
+    return float(r["billable_kwh"]), (float(amt) if amt is not None else None)
+
+
+def record_invoicing(ym, names, history, out_dir=None):
     """Write the invoicing register rows for one month and return
     {factura_name: (kwh, mxn, status)} for the index.
 
@@ -146,6 +176,16 @@ def record_invoicing(ym, names, history):
     for name in sorted(names):
         pk = FACTURA_CLIENT.get(name, ("", ""))[0]
         h = (history.get(pk) or {}).get(ym) if pk else None
+        if (not h or h.get("kwh") is None) and out_dir and pk:
+            # v278: no finance slice for this month - the annex's own figures
+            path = os.path.join(out_dir, "factura_%s_%s.html" % (name, ym.replace("-", "")))
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    got = annex_month(fh.read(), ym)
+            except OSError:
+                got = None
+            if got:
+                h = {"kwh": got[0], "penalty": 0.0, "income": got[1], "source": "annex"}
         if not h or h.get("kwh") is None:
             continue
         kwh = float(h["kwh"]) + float(h.get("penalty") or 0.0)
@@ -165,6 +205,45 @@ def record_invoicing(ym, names, history):
         psql_exec(register_upsert_sql(pk, ym, h, kwh, amount, tariff,
                                       billing, dk, dp, status))
     return rows
+
+
+def blocked_reasons(months, closes):
+    """{ym: [(factura_name, why)]} - the PPA plants with no annex for a
+    published month, and why (the reconciliation is not closed). PURE.
+    ``closes``: {(plant_key, ym): (status, closed)}.
+
+    v278 (Tomasz, 2026-10-01: "why it is not showing here?" - SAG was simply
+    missing from September): a blocked plant is listed, never hidden."""
+    out = {}
+    for ym, rows in months.items():
+        have = {n for n, _h, _p in rows}
+        for name, (pk, _disp) in FACTURA_CLIENT.items():
+            if name in have:
+                continue
+            status, closed = closes.get((pk, ym), (None, False))
+            if closed:
+                continue
+            why_en = (f"Not invoiced: the {ym} reconciliation is {status} and not closed - "
+                      "approve the close first" if status else
+                      f"Not invoiced: no {ym} reconciliation yet")
+            out.setdefault(ym, []).append((name, why_en))
+    return out
+
+
+def blocked_now(months):
+    """blocked_reasons() with the closes read from PostgreSQL ({} off-server)."""
+    try:
+        from argia.store import pg_mirror
+        from argia.store.pgq import psql_rows
+        if not pg_mirror.enabled():
+            return {}
+        closes = {(r[0], r[1]): (r[2], r[3] == "t") for r in psql_rows(
+            "SELECT plant_key, to_char(ref_month, 'YYYY-MM'), status, closed_at IS NOT NULL"
+            " FROM reconciliation_monthly;") if len(r) >= 4}
+    except Exception as e:                             # noqa: BLE001
+        LOG.warning("closes unreadable for the index: %s", e)
+        return {}
+    return blocked_reasons(months, closes)
 
 
 def all_records():
@@ -498,10 +577,10 @@ def main(argv=None) -> int:
             history_by_year[year] = load_invoicing_overview(year)
         published = [n for n, _h, _p in
                      scan_months(args.out_root).get(ym, [])]
-        record_invoicing(ym, set(published), history_by_year[year])
+        record_invoicing(ym, set(published), history_by_year[year], out_dir)
 
     from argia.core.time_utils import now_mx as _now
-    idx = render_index(scan_months(args.out_root),
+    idx = render_index(scan_months(args.out_root), blocked_now=blocked_now(scan_months(args.out_root)),
                        records=all_records(),
                        zips=month_zips(args.out_root),
                        generated_at=_now().strftime("%Y-%m-%d %H:%M MX"))

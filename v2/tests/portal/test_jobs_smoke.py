@@ -13,6 +13,7 @@ either in JOBS below or in that list - a new job cannot be forgotten.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
 import pathlib
@@ -54,6 +55,9 @@ JOBS = [
     ("fin_savio_recon", [], r"SAVIO_ONLY|TRACKER_ONLY|MATCH|findings"),
 ]
 
+# jobs that only act in daylight (MX): run with the clock pinned to noon
+DAYLIGHT_ONLY = {"alerts_snapshot"}
+
 # job script -> why it cannot run in a test (it still gets the static checks
 # and whatever unit tests cover its pure parts)
 NOT_RUNNABLE_HERE = {
@@ -79,8 +83,18 @@ def _run(script, argv, env, monkeypatch, capsys, caplog):
         monkeypatch.setenv(k, v)
     caplog.set_level(logging.INFO)
     mod = importlib.import_module(script)
+    clock = contextlib.nullcontext()
+    if script in DAYLIGHT_ONLY:
+        # v281: these jobs are a no-op outside daylight MX, so the suite failed
+        # every evening (found running it at 20:02 MX). Freeze the clock at
+        # noon of the real MX day - the seed's dates are relative to that day.
+        from freezegun import freeze_time
+        from argia.core.time_utils import now_mx
+        noon = now_mx().replace(hour=12, minute=0, second=0, microsecond=0)
+        clock = freeze_time(noon)
     try:
-        rc = mod.main(argv)
+        with clock:
+            rc = mod.main(argv)
     except SystemExit as e:              # argparse / explicit exits
         rc = e.code
     out = capsys.readouterr()

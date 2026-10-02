@@ -193,6 +193,21 @@ class TestReports:
         for (k,) in psql("SELECT plant_key FROM plant WHERE portfolio = 'PPA'"):
             assert f'"{k}"' in s, k
 
+    def test_financial_opens_on_the_month_to_date_of_the_data_edge(self, site, psql):
+        # v281 (Tomasz, 2026-10-01): it always opened on 1 July 2026 (the v2
+        # billing start). Default = 1st of the month of the last measured day
+        # through that day - in the inputs AND in the script's default.
+        _, _, files = site
+        edge = psql("SELECT max(prod_date) FROM daily_production")[0][0]
+        d0 = edge[:8] + "01"
+        for page in ("report/financial/index.html",):
+            s = files[page].read_text(encoding="utf-8")
+            assert re.search(r'id="d0" class="btn" value="' + d0 + '"', s), page
+            assert re.search(r'id="d1" class="btn" value="' + edge + '"', s), page
+            assert "let w0='" + d0 + "', w1=ASOF" in s, page
+            assert 'const ASOF="' + edge + '"' in s, page
+            assert 'value="2026-07-01"' not in s or d0 == "2026-07-01", page
+
     def test_financial_range_accepts_only_iso_dates_in_the_url(self, site):
         _, _, files = site
         s = files["report/financial/index.html"].read_text(encoding="utf-8")

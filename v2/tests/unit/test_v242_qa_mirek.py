@@ -160,9 +160,11 @@ class TestOverviewRevenue:
 class TestDefaultWindowInHtml:
     def test_inputs_carry_values(self):
         assert RG.count('id="d0" class="btn" value="') == 2
-        assert 'id="d0" class="btn" value="{V2_START}"' in RG
-        assert "V2_START = '2026-07-01'" in RG and "let w0='{V2_START}'" in RG
-        assert "let w0='2026-07-01'" not in RG
+        # v281: the default opens on the month to date of the data edge
+        # (behaviour checked on the generated page in tests/portal)
+        assert 'id="d0" class="btn" value="{FIN_D0}"' in RG
+        assert "let w0='{FIN_D0}'" in RG
+        assert "V2_START" not in RG          # the fixed 1 July default is gone
 
 
 class TestCloseNote:

@@ -139,7 +139,17 @@ _cfgf = {r[0]: f(r[1]) for r in q(
 MIN_CAL_DAYS = 10
 MIN_PR_DAYS = 7      # a 30-day PR tile from fewer days than this is not a 30-day PR
 PR_MAX = 1.05        # v242: above this a day's PR is an input error (sun undercounted), never averaged
-V2_START = '2026-07-01'   # first v2 billing month - the financial report's default window opens here
+# v281 (Tomasz, 2026-10-01: the Financial tab always opened on 1 July): the
+# default window is the month to date of the data edge - the 1st of the month
+# that holds the last measured day, through that day. A day is measured at
+# 06:00 MX the next morning, so on the 1st (before that run) the page shows
+# the whole month just ended instead of an empty day of zeros.
+def month_start(day) -> str:
+    """'YYYY-MM-01' of the month holding ``day`` (date or ISO string). Pure."""
+    return str(day)[:8] + '01'
+
+
+FIN_D0 = month_start(asof)
 _medpr_raw = {r[0]: (f(r[1]), int(f(r[2]))) for r in q(
     f"SELECT plant_key, percentile_cont(0.5) WITHIN GROUP (ORDER BY pr), count(*)"
     f" FROM daily_production WHERE pr IS NOT NULL AND data_class = 'full'"
@@ -1601,7 +1611,7 @@ def financial_body():
     body.append(f'''
 <div class="controls rangebar noprint">
  <div class="rgroup">
-  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn" value="{V2_START}"></label>
+  <label class="sub">{t("From","Desde")} <input type="date" id="d0" class="btn" value="{FIN_D0}"></label>
   <label class="sub">{t("To","Hasta")} <input type="date" id="d1" class="btn" value="{asof}"></label>
  </div>
  <div class="rgroup seg">
@@ -1745,7 +1755,7 @@ function preset(w){{
 window.addEventListener('DOMContentLoaded',()=>{{
  // window override via #d0=YYYY-MM-DD&d1=YYYY-MM-DD (or ?d0=&d1=) -
  // the financial mailer prints a chosen period; humans get the default
- let w0='{V2_START}', w1=ASOF;   // v2 billing start -> data edge (Mirek: the HTML now carries the same default in the inputs)
+ let w0='{FIN_D0}', w1=ASOF;   // v281: month to date of the data edge (the HTML inputs carry the same default)
  try{{
   const raw=(location.hash||'').replace(/^#/,'')+'&'+(location.search||'').replace(/^\\?/,'');
   const p=new URLSearchParams(raw);

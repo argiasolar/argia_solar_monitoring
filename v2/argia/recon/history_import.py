@@ -106,28 +106,40 @@ class DayChange:
     action: str                 # NEW | UPDATE | SAME
 
 
-def targets_for_range(month_days: Dict[str, Sequence[float]],
+def targets_for_range(month_days: Dict[str, Sequence[Optional[float]]],
                       month_totals: Dict[str, float],
-                      d0: dt.date, d1: dt.date) -> Dict[str, float]:
-    """{day: kWh} for every day d0..d1 that the vendor has a month for.
+                      d0: dt.date, d1: dt.date,
+                      from_first_production: bool = True) -> Dict[str, float]:
+    """{day: kWh} for every day d0..d1 that the vendor has a value for.
 
-    A month is reconciled to its month total only when every day of it that
-    lies OUTSIDE the range is 0 in the vendor's chart (otherwise the total
-    would belong partly to days we are not writing)."""
+    * A day the vendor does not know (None - SolarEdge before its data period
+      or during a communication gap) gets NO row: an unknown day must never
+      be stored as a day without production (v288, QRO1 had whole months of
+      them).
+    * A month is reconciled to its month total only when every day of it
+      outside the range is 0 and none of its days is unknown (otherwise the
+      total would land on days it does not belong to).
+    * ``from_first_production``: days before the first day with energy are
+      dropped - a plant's history starts when it first produced (v288: NL2
+      and QRO1 have empty weeks before commissioning)."""
     out: Dict[str, float] = {}
     for ym in sorted(month_days):
         y, m = int(ym[:4]), int(ym[5:7])
         n = calendar.monthrange(y, m)[1]
-        days = list(month_days[ym])[:n]
-        days += [0.0] * (n - len(days))
+        raw = list(month_days[ym])[:n]
+        raw += [None] * (n - len(raw))
         inside = [d0 <= dt.date(y, m, i + 1) <= d1 for i in range(n)]
         if not any(inside):
             continue
-        outside_zero = all((days[i] or 0) == 0 for i in range(n) if not inside[i])
-        alloc = allocate_month(days, month_totals.get(ym) if outside_zero else None)
+        outside_zero = all((raw[i] or 0) == 0 for i in range(n) if not inside[i])
+        known = all(raw[i] is not None for i in range(n) if inside[i])
+        alloc = allocate_month(raw, month_totals.get(ym) if (outside_zero and known) else None)
         for i in range(n):
-            if inside[i]:
+            if inside[i] and raw[i] is not None:
                 out[dt.date(y, m, i + 1).isoformat()] = alloc[i]
+    if from_first_production:
+        first = min((d for d, v in out.items() if v > 0), default=None)
+        out = {d: v for d, v in out.items() if first is not None and d >= first}
     return out
 
 

@@ -80,14 +80,15 @@ SE_DAY_CHUNK = 365    # SolarEdge: timeUnit=DAY is limited to one year per reque
 def solaredge_capture(day_series: dict, month_series: dict, d0: dt.date, d1: dt.date) -> dict:
     """The Growatt-shaped capture from SolarEdge series (PURE, v288).
     ``day_series`` {'YYYY-MM-DD': kWh|None}, ``month_series`` {'YYYY-MM-01': kWh|None}.
-    A day the vendor does not know (None / absent) is 0 in the month list; the
-    month total is the vendor's month value restricted to d0..d1."""
+    A day the vendor does not know (None / absent) stays None (no row is
+    written for it); the month total is the vendor's month value."""
     import calendar
     cap: dict = {}
     for ym in months_between(d0, d1):
         y, m = int(ym[:4]), int(ym[5:7])
         n = calendar.monthrange(y, m)[1]
-        cap[ym] = [float(day_series.get(f"{ym}-{i:02d}") or 0.0) for i in range(1, n + 1)]
+        vals = [day_series.get(f"{ym}-{i:02d}") for i in range(1, n + 1)]
+        cap[ym] = [None if v is None else float(v) for v in vals]      # unknown stays unknown
     for y in range(d0.year, d1.year + 1):
         cap[f"year_{y}"] = [float(month_series.get(f"{y}-{m:02d}-01") or 0.0) for m in range(1, 13)]
     return cap
@@ -125,6 +126,7 @@ def split_capture(cap: dict):
             for i, val in enumerate(v):
                 month_totals[f"{y}-{i + 1:02d}"] = float(val or 0.0)
     day_sums = {k: round(sum(float(x or 0) for x in v), 3) for k, v in month_days.items()}
+    # (None = a day the vendor does not know; kept as None for targets_for_range)
     return month_days, month_totals, day_sums
 
 

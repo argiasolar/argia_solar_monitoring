@@ -162,12 +162,13 @@ class TestSolarEdge:
         cap = S.solaredge_capture({"2024-08-07": 1000.0, "2024-08-08": None, "2024-09-01": 900.0},
                                   {"2024-08-01": 1000.0, "2024-09-01": 900.0},
                                   dt.date(2024, 8, 7), dt.date(2024, 9, 1))
-        assert len(cap["2024-08"]) == 31 and cap["2024-08"][6] == 1000.0 and cap["2024-08"][7] == 0.0
+        assert len(cap["2024-08"]) == 31 and cap["2024-08"][6] == 1000.0 and cap["2024-08"][7] is None
         assert len(cap["2024-09"]) == 30 and cap["2024-09"][0] == 900.0
         assert cap["year_2024"][7] == 1000.0 and cap["year_2024"][8] == 900.0 and cap["year_2024"][0] == 0.0
         md, mt, _ = S.split_capture(cap)
         t = H.targets_for_range(md, mt, dt.date(2024, 8, 7), dt.date(2024, 9, 1))
-        assert t["2024-08-07"] == 1000.0 and t["2024-09-01"] == 900.0 and len(t) == 26
+        # only the days the vendor knows get a row
+        assert t == {"2024-08-07": 1000.0, "2024-09-01": 900.0}
 
     def test_day_requests_stay_within_one_year(self, monkeypatch):
         S = self._S()
@@ -192,3 +193,23 @@ class TestSolarEdge:
     def test_no_key_is_refused(self):
         with pytest.raises(RuntimeError):
             self._S().fetch_solaredge_capture("1", "", dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+
+
+class TestUnknownDaysAndFirstProduction:
+    """v288: QRO1 has whole months the vendor does not know, NL2 and QRO1 have
+    empty weeks before commissioning."""
+
+    def test_unknown_days_get_no_row_and_block_reconciliation(self):
+        md = {"2025-02": [None] * 10 + [800.0] * 18}
+        t = H.targets_for_range(md, {"2025-02": 99999.0}, dt.date(2025, 2, 1), dt.date(2025, 2, 28))
+        assert len(t) == 18 and all(v == 800.0 for v in t.values())     # total NOT forced onto known days
+
+    def test_history_starts_at_first_production(self):
+        md = {"2024-02": [0.0] * 21 + [0.0, 500.0, 600.0, 0.0, 700.0, 700.5, 650.0, 640.0]}
+        t = H.targets_for_range(md, {"2024-02": 3790.5}, dt.date(2024, 2, 6), dt.date(2024, 2, 29))
+        assert min(t) == "2024-02-23" and t["2024-02-25"] == 0.0        # a later zero day stays
+        assert sum(t.values()) == pytest.approx(3790.5, abs=0.002)
+
+    def test_nothing_produced_nothing_written(self):
+        assert H.targets_for_range({"2024-01": [0.0] * 31}, {"2024-01": 0.0},
+                                   dt.date(2024, 1, 1), dt.date(2024, 1, 31)) == {}

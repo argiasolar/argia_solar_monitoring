@@ -316,6 +316,28 @@ class TestArgiaSolar:
         assert '<span class="demotag hdr">DEMO</span>' in head
         assert "MX · DEMO</div>" in body
 
+    def test_every_page_offers_english_and_spanish(self, demo):
+        """v285 (Tomasz): EN / ES like the live portal - a switch in every
+        header, every page carries both texts, and switching never calls the
+        portal's session service (the demo has its own login)."""
+        out, _, _ = demo
+        for k, p in pages(out).items():
+            if not k.endswith(".html") or 'http-equiv="refresh" content="0' in p.read_text(encoding="utf-8"):
+                continue
+            m = markup(p)
+            assert m.count('class="lang-btn"') == 2, k
+            assert "setLang('en')" in m and "setLang('es')" in m, k
+            assert "setLang('en',true)" not in m and "setLang('es',true)" not in m, k
+            assert 'data-es="' in m, k
+
+    def test_the_spanish_texts_are_really_spanish(self, demo):
+        out, _, _ = demo
+        assert re.search(r'data-es="(lunes|martes|miércoles|jueves|viernes|sábado|domingo), \d\d de [a-z]+ de \d{4}"',
+                         text(out, "index.html"))
+        s = text(out, "monitoring/index.html")
+        for en, es in (("Overview", "Resumen"), ("Losses (MXN)", "Pérdidas (MXN)"), ("Reconciliation", "Conciliación")):
+            assert f'data-en="{en}" data-es="{es}"' in s, en
+
     def test_every_page_header_carries_the_demo_tag(self, demo):
         out, _, _ = demo
         for k in ("index.html", "report/index.html", "monitoring/losses/index.html", "map/index.html",

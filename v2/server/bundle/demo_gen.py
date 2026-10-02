@@ -137,6 +137,7 @@ DEMO_CSS = '''
 /* v281: the DEMO tag in every header (v284: the landing banner went - Tomasz) */
 .demotag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;background:#b45309;color:#fff;font-weight:800;font-size:13px;letter-spacing:.12em}
 .demotag.hdr{margin-left:12px;font-size:11px;padding:2px 8px}
+.demolang{align-self:center}.demolang button{padding:7px 12px}
 /* demo (v279): the one ARGIA SOLAR logo - grey at rest, black on mouse-over */
 .clogo{filter:grayscale(1)!important;opacity:.32;max-width:150px}
 .lcell .lbox{width:120px;flex:0 0 120px}.lcell .lbox .clogo{height:12px;max-width:112px}
@@ -413,7 +414,14 @@ def configure(PG):
     wm = re.compile(r'(<a class="wm" href="/"[^>]*>.*?</a>)', re.S)
     assert wm.search(sample), 'header changed: the wordmark link was not found'
     # v281: a DEMO tag right of the wordmark on every page
-    C.header = lambda *a, _h=hdr, **kw: wm.sub(r'\1<span class="demotag hdr">DEMO</span>', user_btn.sub('', ask_btn.sub('', _h(*a, **kw))), count=1)
+    # v285: the EN / ES switch (on the portal it sits in the user menu, which the
+    # demo has not): it switches the page at once and the choice is remembered
+    # in this browser (localStorage) for every demo page - no server call
+    lang = ('<span class="seg demolang" title="Language / Idioma">'
+            '<button class="lang-btn" data-l="en" onclick="setLang(\'en\')">EN</button>'
+            '<button class="lang-btn" data-l="es" onclick="setLang(\'es\')">ES</button></span>')
+    C.header = lambda *a, _h=hdr, **kw: wm.sub(r'\1<span class="demotag hdr">DEMO</span>',
+                                               user_btn.sub(lang, ask_btn.sub('', _h(*a, **kw)), count=1), count=1)
     ctrl_k = "location.href='/ask/';"
     assert ctrl_k in C.JS, 'chrome JS changed: the Ctrl-K jump to /ask/ was not found'
     C.JS = C.JS.replace(ctrl_k, '')
@@ -439,6 +447,8 @@ def landing(PG):
         ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers.',
          'La flota en un mapa, estado y cifras de hoy.'),
     ]
+    es_date = (f"{('lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo')[now.weekday()]}, "
+               f"{now.day:02d} de {('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre')[now.month - 1]} de {now.year}")
     cards = ''.join(f'''
    <a href="{path}" id="tile-{key}" class="card dest" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">
     <div style="display:flex;align-items:center;justify-content:space-between"><span style="width:44px;height:44px;border-radius:11px;background:#e6f7f5;display:flex;align-items:center;justify-content:center">{ico(key, 24, "#05847d", 1.9)}</span><span style="color:#b6bec8">{ico("arrow", 18)}</span></div>
@@ -447,7 +457,7 @@ def landing(PG):
    </a>''' for key, en, es, path, ben, bes in dests)
     body = f'''
 <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
- <div class="kicker">{now.strftime("%A, %d %B %Y")} · {now.strftime("%H:%M")} MX · DEMO</div>
+ <div class="kicker">{t(now.strftime("%A, %d %B %Y"), es_date)} · {now.strftime("%H:%M")} MX · DEMO</div>
  <h1 class="pt" style="font-size:34px">{t(g_en, g_es)}<span id="gname"></span>.</h1>
  <div class="muted" style="font-size:15px">{t("Where would you like to go?", "¿A dónde quieres ir?")}</div>
 </div>

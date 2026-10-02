@@ -93,7 +93,11 @@ def demo(pg_env, tmp_path_factory):
     _apply_demo_schema(pg_env)
     tmp = tmp_path_factory.mktemp("demo")
     out = tmp / "www"
-    rc, so, se = run_demo(pg_env, out, _portal_root(tmp))
+    swap = tmp / "demo_photos"                 # v280: demo-only photo replacement
+    swap.mkdir()
+    (swap / "gto1.jpg").write_bytes(b"\xff\xd8demo-swap")
+    (swap / "notes.txt").write_text("TAIGENE")    # not a photo name: ignored
+    rc, so, se = run_demo(pg_env, out, _portal_root(tmp), extra_env={"ARGIA_DEMO_PHOTOS": str(swap)})
     assert rc == 0, so + se
     return out, so, tmp
 
@@ -198,6 +202,15 @@ class TestProofAndInventory:
         # the seed has photos for one plant only; a missing photo renders as a placeholder on the portal too
         broken = {u: k for u, k in broken.items() if not re.match(r"^/(assets/photos|monitoring/assets)/[a-z0-9]+(_t)?\.jpg$", u)}
         assert not broken, broken
+
+    def test_a_demo_photo_replaces_the_portal_photo_in_the_demo_only(self, demo):
+        """v280 (Tomasz): the SAG photo shows the company sign - the demo gets
+        another photo; the portal keeps its own."""
+        out, _, tmp = demo
+        for rel in ("monitoring/assets/gto1.jpg", "assets/photos/gto1.jpg"):
+            assert (out / rel).read_bytes() == b"\xff\xd8demo-swap", rel
+        assert (tmp / "portal" / "monitoring" / "assets" / "gto1.jpg").read_bytes() == b"\xff\xd8jpg"
+        assert not (out / "assets" / "photos" / "notes.txt").exists()
 
     def test_only_whitelisted_assets_are_copied(self, demo):
         out, _, _ = demo

@@ -49,6 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEMO_HOST = 'demo.argia.com.mx'
 DEMO_ROOT = '/www/hosting/demo.argia.com.mx/www'
 PORTAL_ROOT = os.environ.get('ARGIA_PORTAL_ROOT', '/www/hosting/portal.argia.com.mx/www')
+DEMO_PHOTOS = os.environ.get('ARGIA_DEMO_PHOTOS', '/opt/argia/demo/photos')   # v280: demo-only photo swaps
 DB = os.environ.get('ARGIA_PG_DB', 'argia_mont')
 DEMO_RE = re.compile(r'^\s*(ARGIA SOLAR \S+)')          # "ARGIA SOLAR 3 (Leon, GTO)" -> "ARGIA SOLAR 3"
 LOGO_PATH = '/assets/demo/argia-solar.png'
@@ -284,6 +285,17 @@ def copy_assets(src_root, out):
                 os.makedirs(os.path.join(out, sub), exist_ok=True)
                 shutil.copy2(os.path.join(sdir, fn), os.path.join(out, sub, fn))
                 n += 1
+    # v280: demo-only photo replacements (e.g. a site photo that shows the
+    # customer's sign). Files named like the portal's (mex1.jpg, mex1_t.jpg)
+    # in DEMO_PHOTOS win over the copied ones, in both photo folders. They
+    # live on the server only, never in git, and never touch the portal.
+    if os.path.isdir(DEMO_PHOTOS):
+        for fn in sorted(os.listdir(DEMO_PHOTOS)):
+            if re.match(r'^[a-z0-9]+(_t)?\.jpg$', fn) and os.path.isfile(os.path.join(DEMO_PHOTOS, fn)):
+                for sub in ('assets/photos', 'monitoring/assets'):
+                    os.makedirs(os.path.join(out, sub), exist_ok=True)
+                    shutil.copy2(os.path.join(DEMO_PHOTOS, fn), os.path.join(out, sub, fn))
+                    n += 1
     import demo_brand
     os.makedirs(os.path.join(out, 'assets', 'demo'), exist_ok=True)
     with open(os.path.join(out, LOGO_PATH.lstrip('/')), 'wb') as fh:

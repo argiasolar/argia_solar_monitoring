@@ -61,6 +61,9 @@ from argia.prologis import totp as TOTP                   # noqa: E402
 DATA_DIR = os.environ.get("ARGIA_PL_DIR", "/opt/argia/prologis")
 FILES_DIR = os.environ.get("ARGIA_PL_FILES", os.path.join(DATA_DIR, "files"))
 BRAND_DIR = os.path.join(DATA_DIR, "brand")
+# v294: prologis_logo_white.png is the reversed logo (white wordmark, as on the
+# Prologis buildings) for the dark green header; the colour logo stays the fallback
+BRAND_FILES = ("prologis_logo.png", "prologis_logo_white.png", "prologis_mark.png")
 COOKIE = "pl_sid"
 SECURE_COOKIE = os.environ.get("ARGIA_PL_INSECURE_COOKIE", "") != "1"
 MAX_UPLOAD = 50 * 1024 * 1024
@@ -164,6 +167,12 @@ def need(perm: str) -> None:
         abort(403)
 
 
+def _logo() -> str:
+    """The Prologis logo for a dark background: the reversed file when the
+    server has it, else the colour logo on a white chip."""
+    return _brand_img("prologis_logo_white.png", "pl rev", "Prologis") or _brand_img("prologis_logo.png", "pl", "Prologis")
+
+
 def _brand_img(name: str, cls: str, alt: str) -> str:
     return (f'<img class="{cls}" src="/brand/{name}" alt="{UI.e(alt)}">'
             if os.path.exists(os.path.join(BRAND_DIR, name)) else "")
@@ -185,7 +194,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
            f' · <a href="/logout">{tt("Sign out", "Salir")}</a></div>')
     banner = (f'<div class="sample">{tt("SAMPLE DATA - simulated production until Prologis grants ARGIA access to the SolarEdge / Hark accounts. Sites, sizes and locations are real.", "DATOS DE MUESTRA - producción simulada hasta que Prologis otorgue a ARGIA acceso a SolarEdge / Hark. Sitios, tamaños y ubicaciones son reales.")}</div>'
               if sample else "")
-    pl = _brand_img("prologis_logo.png", "pl", "Prologis")
+    pl = _logo()
     html_ = f"""<!doctype html><html lang="{tt.lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>{UI.e(title)} - ARGIA for Prologis</title><style>{UI.CSS}</style></head><body>
@@ -212,7 +221,7 @@ def healthz():
 
 @app.get("/brand/<name>")
 def brand(name):
-    if name not in ("prologis_logo.png", "prologis_mark.png"):
+    if name not in BRAND_FILES:
         abort(404)
     p = os.path.join(BRAND_DIR, name)
     if not os.path.exists(p):
@@ -229,11 +238,12 @@ def lang(code):
 
 def _login_page(msg: str = "", status: int = 200) -> Response:
     tt = UI.T(request.cookies.get("pl_lang", "en"))
-    pl = _brand_img("prologis_logo.png", "pl", "Prologis")
+    pl = _logo()
     nxt = UI.e(request.args.get("next", "/"))
     html_ = f"""<!doctype html><html lang="{tt.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Sign in - ARGIA for Prologis</title><style>{UI.CSS}
 .login .art .brandrow{{display:flex;align-items:center;gap:14px}} .login .art img.pl{{height:34px;background:#fff;border-radius:8px;padding:4px 10px}}
+.login .art img.pl.rev{{height:38px;background:none;padding:0;border-radius:0}}
 </style></head><body><div class="login"><div class="art"><div class="brandrow">{pl or UI.stripe_svg(34)}<span style="opacity:.6">×</span>
 <img src="{argia_logo.MARK_URI}" alt="ARGIA" style="height:26px;filter:brightness(0) invert(1)"></div>
 <div><div class="kick" style="color:#9fe3dc">{tt("Solar O&M platform - Mexico", "Plataforma O&M solar - México")}</div>
@@ -438,9 +448,9 @@ def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", proje
     return f"""<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <div id="map" class="{h_cls}"></div><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>(function(){{var P={data};var m=L.map('map',{{scrollWheelZoom:false}});
-var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}}).addTo(m);
-var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}});
-L.control.layers({{'Satellite':sat,'Streets':st}}).addTo(m);var b=[];
+var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}}).addTo(m);
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}});
+L.control.layers({{'Streets':st,'Satellite':sat}}).addTo(m);var b=[];
 P.forEach(function(p){{var r=Math.max(7,Math.min(16,Math.sqrt(p.kwp||100)/2.2));
 var mk=L.circleMarker([p.lat,p.lon],{{radius:r,color:'#fff',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m);
 mk.bindPopup('<b>'+p.name+'</b><br>'+p.code+' · '+Math.round(p.kwp)+' kWp<br>'+(p.kw!=null?('Now: '+Math.round(p.kw)+' kW · today '+Math.round(p.kwh)+' kWh<br>'):'')+p.st.replace('_',' ')+(p.approx?'<br><i>approximate location</i>':'')+'<br><a href="'+p.url+'">Open</a>');if(p.st.indexOf('project:')!==0)b.push([p.lat,p.lon]);}});

@@ -52,6 +52,7 @@ a{color:var(--act2);text-decoration:none}a:hover{color:var(--deep)}
 .topin{max-width:1360px;margin:0 auto;display:flex;align-items:center;gap:18px;padding:10px 20px}
 .brand{display:flex;align-items:center;gap:12px;color:#fff;font-weight:800;letter-spacing:.02em;white-space:nowrap}
 .brand img.pl{height:30px;background:#fff;border-radius:6px;padding:3px 8px}
+.brand img.pl.rev{height:32px;background:none;border-radius:0;padding:0}
 .brand .x{opacity:.6;font-weight:400}
 .brand img.ar{height:22px;filter:brightness(0) invert(1)}
 .brand .tag{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;opacity:.75;border-left:1px solid rgba(255,255,255,.3);padding-left:12px}
@@ -111,7 +112,7 @@ label{font-size:12px;font-weight:700;color:var(--ink2);display:block;margin:10px
 .mini-map{height:330px!important}
 @media(max-width:700px){.brand .tag{display:none}.kpis{grid-template-columns:1fr 1fr}.hero .glow{display:none}.hero h1{font-size:24px}
 main{padding:14px 12px 40px}.hero{padding:20px 18px}.kpi .v{font-size:21px}table.t{font-size:12.5px}.pstep{display:none}.topin{padding:8px 12px;gap:10px}
-.brand img.pl{height:24px}.brand img.ar{height:18px}nav.main a{padding:6px 9px;font-size:12.5px}.row{grid-template-columns:1fr}}
+.brand img.pl{height:24px}.brand img.pl.rev{height:26px}.brand img.ar{height:18px}nav.main a{padding:6px 9px;font-size:12.5px}.row{grid-template-columns:1fr}}
 td.nw,th.nw{white-space:nowrap}
 .shophero{background:radial-gradient(900px 260px at 90% -30%,rgba(113,190,69,.35),transparent 60%),linear-gradient(120deg,var(--deep2),var(--deep) 60%,#20605b);color:#fff;border-radius:20px;padding:24px 28px;display:flex;gap:16px;align-items:end;flex-wrap:wrap}
 .shophero h1{font-size:26px;line-height:1.15;margin:4px 0 6px;font-weight:800}.shophero .sub{color:#cfe6e3;font-size:13.5px;max-width:760px}

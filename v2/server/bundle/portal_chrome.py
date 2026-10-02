@@ -317,7 +317,16 @@ details.cols{margin:0 16px 12px;font-size:12.5px;color:var(--ink2)}details.cols 
 .printbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.printbtn:hover{border-color:var(--teal)}
 @media print{.dtbar,.printbtn,.tabs,details.cols,.noprint{display:none!important}.flipin{transform:none!important}.tile.flip .face.back{display:none!important}body.wide .wrap{padding:0}.card{break-inside:auto;box-shadow:none;border:1px solid #ccc}
  table.dt tr.dthide{display:none}div[style*="overflow-x"]{overflow:visible!important}table{font-size:10.5px}th,td{padding:4px 5px}
- .tiles{grid-template-columns:repeat(4,1fr)}.tile{break-inside:avoid}h1.pt{font-size:22px}@page{size:A4 landscape;margin:12mm}}
+ .tile{break-inside:avoid}h1.pt{font-size:22px}@page{size:A4 landscape;margin:12mm}
+ /* v281 (Tomasz: the printed plant report split its first chart - the title on page 1, the chart on page 2):
+    a card holding a chart moves to the next page whole; a heading never ends a page; a table row never splits */
+ .card:has(svg),.card:has(canvas){break-inside:avoid}svg,canvas{break-inside:avoid}h2,.chead,.ct{break-after:avoid}tr{break-inside:avoid}
+ /* and the first page holds the header, the KPI tiles AND the first chart: the paper is narrower than the
+    screen breakpoint, so the grids keep their desktop columns, tiles get compact and charts a fixed height */
+ .g5{grid-template-columns:repeat(5,minmax(0,1fr))!important}.g4{grid-template-columns:repeat(4,minmax(0,1fr))!important}.g3{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+ .tiles{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:6px!important;margin:8px 0!important}.tile{padding:8px 10px!important}.grid{gap:8px!important}
+ .tile .tlabel,.tile .tsub,.tile .sub{font-size:10px!important}.tile .tval,.tile .thero{font-size:18px!important}
+ .card svg[viewBox]{max-height:52mm}}
 
 '''
 

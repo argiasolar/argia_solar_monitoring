@@ -98,6 +98,35 @@ class TestScrub:
         assert hits and hits[0][0] == "TAIGENE" and "Taigene is dark" in hits[0][1]
 
 
+class TestNoPpa:
+    def test_the_tag_and_the_column_cell_go(self):
+        src = '<h1 class="pt">ARGIA SOLAR 1</h1><span class="pill ok">PPA</span><td><span class="pill ok">PPA</span></td>'
+        assert DG.demo_text(src) == '<h1 class="pt">ARGIA SOLAR 1</h1>'
+
+    def test_words_are_rephrased_in_both_languages(self):
+        assert DG.demo_text("MXN = 3 kWh x PPA tariff 2.3") == "MXN = 3 kWh x tariff 2.3"
+        assert DG.demo_text("MXN = 3 kWh x tarifa PPA 2.3") == "MXN = 3 kWh x tarifa 2.3"
+        assert DG.demo_text('<span data-en="9/11 PPA plants online">') == '<span data-en="9/11 plants online">'
+
+    def test_the_total_row_loses_the_portfolio_cell(self):
+        src = '<tr class="total"><td><b><span data-en="TOTAL" data-es="TOTAL">TOTAL</span></b></td><td></td><td class="muted">'
+        assert DG.demo_text(src).count("<td") == 2
+
+
+class TestDemoTitle:
+    @pytest.mark.parametrize("rel,want", [
+        ("index.html", "DEMO - ARGIA"),
+        ("report/index.html", "DEMO - Report - ARGIA"),
+        ("report/plants/index.html", "DEMO - Report - ARGIA"),
+        ("report/argia-solar-3/index.html", "DEMO - Report - ARGIA SOLAR 3"),
+        ("monitoring/losses/index.html", "DEMO - Monitoring - ARGIA"),
+        ("monitoring/argia-solar-11/d/2026-09-30.html", "DEMO - Monitoring - ARGIA SOLAR 11"),
+        ("map/index.html", "DEMO - Map - ARGIA"),
+    ])
+    def test_every_tab_starts_with_demo(self, rel, want):
+        assert DG.demo_title(rel, "<html><title>Report - ARGIA</title>") == f"<html><title>{want}</title>"
+
+
 class TestUnlinkAbsent:
     def test_a_ticket_link_becomes_text(self):
         out, n = DG.unlink_absent('<td><a class="tk" href="/maintenance/t/T-0002/" target="_blank">T-0002</a></td>')

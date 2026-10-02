@@ -69,15 +69,76 @@ STOP_WORDS = {'grupo', 'mexico', 'méxico', 'service', 'management', 'solutions'
               'inn', 'holiday', 'the', 'roof', 'land', 'ppa', 'capex', 'argia', 'solar',
               'modelo', 'model', 'tetra', 'plastic'}   # 'modelo de clima' is Spanish for 'weather model'
 
-# portal wording that only makes sense with CAPEX plants (cosmetic: the
-# demo has none). A fix that stops matching is caught by test_demo_site.
-TEXT_FIXES = [
-    (' · 0 CAPEX', ''),
-    (' · blue = PPA, teal = CAPEX', ''),
-    (' · azul = PPA, verde = CAPEX', ''),
+# v281 (Tomasz): no PPA anywhere - no PPA tab, tag, column, section or word
+# (every demo plant is the same kind, so the label says nothing). Applied in
+# order to every page; test_demo_site checks no visible PPA/CAPEX is left.
+DEMO_FIXES = [
+    # wording that only made sense next to CAPEX plants
+    (r' · 0 CAPEX', ''),
+    (r' · blue = PPA, teal = CAPEX', ''), (r' · azul = PPA, verde = CAPEX', ''),
+    # tables: the Portfolio column (header, cells, the empty cell in the total row)
+    (r'<th><span data-en="Portfolio" data-es="Portafolio">Portfolio</span></th>', ''),
+    (r'<td><span class="pill [a-z]+">PPA</span></td>', ''),
+    (r'(<tr class="total"><td><b><span data-en="TOTAL" data-es="TOTAL">TOTAL</span></b></td>)<td></td>', r'\1'),
+    # the PPA tag next to a plant name
+    (r'<span class="pill [a-z]+">PPA</span>', ''),
+    # group rows / headings / kickers
+    (r'<tr><td colspan="\d+" style="[^"]*">PPA</td></tr>', ''),
+    (r'<div class="kicker">PPA <span data-en="plants" data-es="plantas">plants</span></div>',
+     '<div class="kicker"><span data-en="Plants" data-es="Plantas">Plants</span></div>'),
+    (r' · PPA</div>', '</div>'),
+    # the map: group checkbox, tile label, hover card
+    (r'<div><h2 [^>]*><label class="lrow"[^>]*><input type="checkbox" class="gtog" data-g="ppa" checked> '
+     r'<span data-en="PPA plants" data-es="Plantas PPA">PPA plants</span></label></h2>',
+     '<div><h2 style="font-size:13px;margin:0 0 6px;color:#2563eb"><span data-en="Plants" data-es="Plantas">Plants</span></h2>'),
+    (r"\+\(p\.ppa\?'PPA':'CAPEX'\)\+' · '", ''),
+    # words
+    (r'PPA revenue today', 'Revenue today'), (r'Ingreso PPA hoy', 'Ingreso hoy'),
+    (r'(\d+/\d+) PPA plants online', r'\1 plants online'), (r'(\d+/\d+) plantas PPA en línea', r'\1 plantas en línea'),
+    (r', PPA plants', ''), (r', plantas PPA', ''),
+    (r'"(\d+) PPA"', r'"\1 plants"'), (r'>(\d+) PPA<', r'>\1 plants<'),
+    (r'"PPA · accrued"', '"accrued"'), (r'"PPA · devengado"', '"devengado"'), (r'>PPA · accrued<', '>accrued<'),
+    (r'FLEET TOTAL \(MXN: PPA only\)', 'FLEET TOTAL'), (r'TOTAL FLOTA \(MXN: solo PPA\)', 'TOTAL FLOTA'),
+    (r' \(CAPEX: kWh only\)', ''), (r' \(CAPEX: solo kWh\)', ''),
+    (r' \(0 for CAPEX\)', ''), (r' \(0 en CAPEX\)', ''),
+    (r'; CAPEX plants are [^."]*', ''), (r'; las plantas CAPEX se [^."]*', ''),
+    (r'\bthe PPA tariff\b', 'the tariff'), (r'\bPPA tariff\b', 'tariff'), (r'\btarifa PPA\b', 'tarifa'),
+    (r'Energy × the plant tariff, plus LaaS fees, accrued by day\.[^"<]*', 'Energy × the plant tariff, accrued by day.'),
+    (r'Energía × tarifa de la planta, más cuotas LaaS, devengado por día\.[^"<]*', 'Energía × tarifa de la planta, devengado por día.'),
+    (r'The map opens with the PPA plants;', 'The map opens with all plants;'),
+    (r'El mapa abre con las plantas PPA;', 'El mapa abre con todas las plantas;'),
+    (r'Overview = PPA \+ LaaS; the PPA page shows the PPA share alone; CAPEX plants are client-owned and earn ARGIA no revenue\.', ''),
+    (r'Resumen = PPA \+ LaaS; la página PPA muestra sólo la parte PPA; las plantas CAPEX son del cliente y no generan ingreso a ARGIA\.', ''),
 ]
+DEMO_FIXES = [(re.compile(a), b) for a, b in DEMO_FIXES]
+
+
+def demo_text(text):
+    """The DEMO_FIXES on one page. Pure."""
+    for rx, b in DEMO_FIXES:
+        text = rx.sub(b, text)
+    return text
+
+
+def demo_title(rel, text):
+    """v281: every tab says DEMO first - 'DEMO - Report - ARGIA',
+    'DEMO - Monitoring - ARGIA SOLAR 3', 'DEMO - Map - ARGIA'. Pure."""
+    sec = rel.split('/')[0]
+    label = {'report': 'Report', 'monitoring': 'Monitoring', 'map': 'Map'}.get(sec)
+    if not label:
+        title = 'DEMO - ARGIA'
+    else:
+        m = re.match(r'^(?:report|monitoring)/argia-solar-(\d+)/', rel)
+        title = f'DEMO - {label} - ARGIA SOLAR {m.group(1)}' if m else f'DEMO - {label} - ARGIA'
+    return re.sub(r'<title>.*?</title>', f'<title>{title}</title>', text, count=1, flags=re.S)
+
 
 DEMO_CSS = '''
+/* v281: DEMO everywhere it matters */
+.demotag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;background:#b45309;color:#fff;font-weight:800;font-size:13px;letter-spacing:.12em}
+.demotag.hdr{margin-left:12px;font-size:11px;padding:2px 8px}
+.demobar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px;padding:12px 16px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;font-size:14px;font-weight:600}
+.demobar .demotag{font-size:16px;padding:4px 12px}
 /* demo (v279): the one ARGIA SOLAR logo - grey at rest, black on mouse-over */
 .clogo{filter:grayscale(1)!important;opacity:.32;max-width:150px}
 .lcell .lbox{width:120px;flex:0 0 120px}.lcell .lbox .clogo{height:12px;max-width:112px}
@@ -336,9 +397,10 @@ def configure(PG):
     # chrome: host, sub-tabs, no Ask / account / app
     C.PORTAL_HOST = DEMO_HOST
     C.SECTIONS = {
-        'report': ('Report', 'Reporte', [('', 'Overview', 'Resumen'), ('ppa', 'PPA', 'PPA'),
+        'report': ('Report', 'Reporte', [('', 'Overview', 'Resumen'),
                                           ('plants', 'Plant performance', 'Desempeño por planta')]),
-        'monitoring': ('Monitoring', 'Monitoreo', [s for s in C.SECTIONS['monitoring'][2] if s[0] != 'capex']),
+        # v281: no PPA tab - it showed the same as the overview
+        'monitoring': ('Monitoring', 'Monitoreo', [s for s in C.SECTIONS['monitoring'][2] if s[0] not in ('capex', 'ppa')]),
         'map': ('Map', 'Mapa', []),
     }
     # the header: no Ask ARGIA button, no user menu (the demo has its own
@@ -350,7 +412,10 @@ def configure(PG):
     assert ask_btn.search(sample), 'header changed: the Ask ARGIA button was not found'
     assert user_btn.search(sample), 'header changed: the user button was not found'
     C.user_menu = lambda: ''
-    C.header = lambda *a, _h=hdr, **kw: user_btn.sub('', ask_btn.sub('', _h(*a, **kw)))
+    wm = re.compile(r'(<a class="wm" href="/"[^>]*>.*?</a>)', re.S)
+    assert wm.search(sample), 'header changed: the wordmark link was not found'
+    # v281: a DEMO tag right of the wordmark on every page
+    C.header = lambda *a, _h=hdr, **kw: wm.sub(r'\1<span class="demotag hdr">DEMO</span>', user_btn.sub('', ask_btn.sub('', _h(*a, **kw))), count=1)
     ctrl_k = "location.href='/ask/';"
     assert ctrl_k in C.JS, 'chrome JS changed: the Ctrl-K jump to /ask/ was not found'
     C.JS = C.JS.replace(ctrl_k, '')
@@ -369,8 +434,8 @@ def landing(PG):
     g_en, g_es = (('Good morning', 'Buenos días') if h < 12 else
                   ('Good afternoon', 'Buenas tardes') if h < 19 else ('Good evening', 'Buenas noches'))
     dests = [
-        ('report', 'Report', 'Reporte', '/report/', 'Fleet overview, PPA, plant performance.',
-         'Resumen de flota, PPA, desempeño por planta.'),
+        ('report', 'Report', 'Reporte', '/report/', 'Fleet overview and plant performance.',
+         'Resumen de flota y desempeño por planta.'),
         ('monitor', 'Monitoring', 'Monitoreo', '/monitoring/', 'Live inverters, alerts, temperatures, peers.',
          'Inversores en vivo, alertas, temperaturas, pares.'),
         ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers.',
@@ -383,6 +448,7 @@ def landing(PG):
     <div class="tblurb" style="font-size:13.5px;color:var(--ink2)" data-en="{html.escape(ben, quote=True)}" data-es="{html.escape(bes, quote=True)}">{html.escape(ben)}</div>
    </a>''' for key, en, es, path, ben, bes in dests)
     body = f'''
+<div class="demobar" role="note"><span class="demotag">DEMO</span><span>{t("Demonstration portal - plant names are anonymised. This is not the live ARGIA portal.", "Portal de demostración - los nombres de las plantas son anónimos. No es el portal ARGIA en vivo.")}</span></div>
 <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
  <div class="kicker">{now.strftime("%A, %d %B %Y")} · {now.strftime("%H:%M")} MX · DEMO</div>
  <h1 class="pt" style="font-size:34px">{t(g_en, g_es)}<span id="gname"></span>.</h1>
@@ -399,10 +465,8 @@ def write_pages(PG, keys):
     pages = [
         ('index.html', landing(PG)),
         ('report/index.html', PG.report_overview()),
-        ('report/ppa/index.html', PG.report_overview(PG.PPA, 'ppa', 'PPA plants', 'Plantas PPA')),
         ('report/plants/index.html', PG.plant_cards()),
         ('monitoring/index.html', PG.monitoring_overview()),
-        ('monitoring/ppa/index.html', PG.monitoring_overview('ppa')),
         ('monitoring/performance/index.html', PG.monitoring_performance()),
         ('monitoring/recon/index.html', PG.monitoring_recon()),
         ('monitoring/losses/index.html', PG.monitoring_losses()),
@@ -478,8 +542,7 @@ def main(argv=None):
         p = os.path.join(stage, rel)
         with open(p, encoding='utf-8') as fh:
             text = fh.read()
-        for a, b in TEXT_FIXES:
-            text = text.replace(a, b)
+        text = demo_title(rel, demo_text(text))
         text, _ = unlink_absent(text)
         text, n = scrub(text, rules, demo_names)
         scrubbed += n

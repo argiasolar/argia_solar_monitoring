@@ -250,7 +250,7 @@ class TestArgiaSolar:
             for sec in ("report", "monitoring"):
                 s = text(out, f"{sec}/argia-solar-{n}/index.html")
                 assert f"ARGIA SOLAR {n}" in s, (sec, k)
-                assert f"<title>ARGIA SOLAR {n} - ARGIA</title>" in s or sec == "monitoring"
+                assert f"<title>DEMO - {sec.title()} - ARGIA SOLAR {n}</title>" in s, (sec, k)
 
     def test_the_name_is_never_title_cased(self, demo):
         out, _, _ = demo
@@ -262,14 +262,69 @@ class TestArgiaSolar:
         s = text(out, "monitoring/argia-solar-2/index.html")
         assert 'href="/report/argia-solar-2/"' in s and "Open report" in s
 
-    def test_every_plant_is_ppa(self, demo):
+    def test_no_ppa_or_capex_anywhere_a_reader_can_see(self, demo):
+        """v281 (Tomasz): no PPA tab, tag, column or word - every plant is the
+        same kind. Scripts and styles are code, not text; the map hover card
+        (built in a script) is checked separately below."""
         out, _, _ = demo
+        bad = []
         for k, p in pages(out).items():
-            s = p.read_text(encoding="utf-8")
-            assert 'class="pill off">CAPEX' not in s, k
-            assert 'kicker">CAPEX <span' not in s, k            # no CAPEX section on the overviews
-            assert 'data-g="capex"' not in s, k                 # no CAPEX group on the map
-            assert "0 CAPEX" not in s and "teal = CAPEX" not in s, k
+            if not k.endswith(".html"):
+                continue
+            s = re.sub(r"<style\b.*?</style>", "", markup(p), flags=re.S)
+            for m in re.finditer(r"\b(PPA|CAPEX)\b", s):
+                bad.append(f"{k}: ...{s[max(0, m.start() - 50):m.end() + 30]}...")
+        assert not bad, "\n".join(bad[:15])
+
+    def test_the_map_hover_card_has_no_portfolio(self, demo):
+        out, _, _ = demo
+        assert "p.ppa?'PPA':'CAPEX'" not in text(out, "map/index.html")
+
+    def test_no_ppa_tab_and_no_ppa_page(self, demo):
+        out, _, _ = demo
+        files = all_files(out)
+        assert "report/ppa/index.html" not in files and "monitoring/ppa/index.html" not in files
+        for k in ("report/index.html", "monitoring/index.html"):
+            assert "/ppa/" not in markup(out / k), k
+
+    def test_the_plant_table_has_no_portfolio_column_and_stays_aligned(self, demo):
+        out, _, _ = demo
+        s = text(out, "report/index.html")
+        assert "Portfolio" not in markup(out / "report/index.html")
+        table = s[s.index("<thead><tr><th>"):]
+        table = table[:table.index("</table>")]
+        n_head = len(re.findall(r"<th[\s>]", table.split("</thead>")[0]))
+        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table.split("<tbody>")[1], re.S):
+            assert row.count("<td") == n_head, row[:120]
+
+    def test_every_tab_title_starts_with_demo(self, demo):
+        out, _, _ = demo
+        want = {"report": "DEMO - Report - ARGIA", "monitoring": "DEMO - Monitoring - ARGIA", "map": "DEMO - Map - ARGIA"}
+        for k, p in pages(out).items():
+            if not k.endswith(".html"):
+                continue
+            t = re.search(r"<title>(.*?)</title>", p.read_text(encoding="utf-8")).group(1)
+            assert t.startswith(want.get(k.split("/")[0], "DEMO - ARGIA")), (k, t)
+
+    def test_the_landing_page_says_demo_first(self, demo):
+        out, _, _ = demo
+        s = markup(out / "index.html")
+        body = s[s.index("</header>"):]
+        assert body.index('class="demobar"') < body.index('id="tile-report"')
+        assert '<span class="demotag">DEMO</span>' in body and "not the live ARGIA portal" in body
+
+    def test_every_page_header_carries_the_demo_tag(self, demo):
+        out, _, _ = demo
+        for k in ("index.html", "report/index.html", "monitoring/losses/index.html", "map/index.html",
+                  "report/argia-solar-1/index.html"):
+            assert '<span class="demotag hdr">DEMO</span>' in text(out, k), k
+
+    def test_print_keeps_a_chart_with_its_title(self, demo):
+        """v281 (Tomasz): printing split the first chart - title on page 1,
+        chart on page 2. The page's print rules keep a chart card whole."""
+        out, _, _ = demo
+        s = text(out, "report/argia-solar-1/index.html")
+        assert ".card:has(svg)" in s and "break-inside:avoid" in s and "h2,.chead,.ct{break-after:avoid}" in s
 
     def test_every_logo_is_the_argia_solar_logo(self, demo):
         out, _, _ = demo

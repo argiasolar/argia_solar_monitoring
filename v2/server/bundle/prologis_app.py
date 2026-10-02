@@ -431,33 +431,93 @@ def mx_time(ts_utc: str) -> str:
     return (dt.datetime.fromisoformat(ts_utc) + M.MX_OFFSET).strftime("%d %b %Y %H:%M")
 
 
-def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", projects: bool = True) -> str:
+MAP_COL = {"producing": UI.LIME, "night": "#7f8c8a", "inverter_fault": UI.RED, "comm_loss": UI.AMBER, "pre_pto": UI.SKY}
+
+
+def _map_points(rg: R.Registry, lv: Dict[str, M.LiveState], projects: bool) -> List[Dict]:
     pts = []
-    col = {"producing": UI.LIME, "night": "#7f8c8a", "inverter_fault": UI.RED, "comm_loss": UI.AMBER, "pre_pto": UI.SKY}
     for s in rg.sites:
         st = lv[s.code]
-        pts.append({"lat": s.lat, "lon": s.lon, "c": col.get(st.status, "#999"), "code": s.code, "name": s.name,
+        pts.append({"lat": s.lat, "lon": s.lon, "c": MAP_COL.get(st.status, "#999"), "code": s.code, "name": s.name,
                     "kwp": s.kwp, "kw": st.kw_now, "kwh": st.kwh_today, "st": st.status, "approx": s.geo_approx,
-                    "url": f"/sites/{s.code}/"})
+                    "url": f"/sites/{s.code}/", "g": "op" if s.operating else "pre", "sub": s.city})
     if projects:
         for p in rg.projects:
             if p.lat is not None and not rg.site(p.site_code):
                 pts.append({"lat": p.lat, "lon": p.lon, "c": UI.DEEP, "code": p.id, "name": p.name, "kwp": p.kwp or 0,
-                            "kw": None, "kwh": 0, "st": "project:" + p.stage, "approx": True, "url": "/projects/"})
-    data = json.dumps(pts)
+                            "kw": None, "kwh": 0, "st": "project:" + p.stage, "approx": True, "url": "/projects/",
+                            "g": "epc", "sub": p.kind})
+    return pts
+
+
+def _legend_groups(tt) -> List[tuple]:
+    return [("op", tt("Operating sites", "Sitios en operación"), UI.TEAL), ("pre", tt("Before PTO", "Antes de PTO"), UI.SKY),
+            ("epc", tt("EPC projects", "Proyectos EPC"), UI.DEEP)]
+
+
+def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", projects: bool = True, mode: str = "list") -> str:
+    """The Leaflet map with a legend of every plant, name and size.
+    mode "list": the legend only names them (overview). mode "select": each
+    plant and each group has a tick box; unticked plants leave the map and
+    the tiles (see map_page) total what stays ticked. The choice is kept in
+    this browser (localStorage, per-viewer convenience only)."""
+    tt = t()
+    pts = _map_points(rg, lv, projects)
+    sel = mode == "select"
+    groups = ""
+    for g_key, g_name, g_col in _legend_groups(tt):
+        rows = [p for p in pts if p["g"] == g_key]
+        if not rows:
+            continue
+        g_kwp = sum(p["kwp"] for p in rows)
+        items = ""
+        for p in sorted(rows, key=lambda x: x["name"]):
+            box = f'<input type="checkbox" class="ptog" data-k="{UI.e(p["code"])}" checked>' if sel else ""
+            size = f'{UI.num(p["kwp"], 0)} kWp' if p["kwp"] else tt("size to confirm", "tamaño por confirmar")
+            sub = " · ".join(x for x in (p["code"], p["sub"], size) if x)
+            items += (f'<label class="lrow">{box}<span class="ldot" style="background:{p["c"]}"></span>'
+                      f'<span><a href="{p["url"]}"><b>{UI.e(p["name"])}</b></a><span class="lsub">{UI.e(sub)}</span></span></label>')
+        gbox = f'<input type="checkbox" class="gtog" data-g="{g_key}" checked> ' if sel else ""
+        groups += (f'<div><div class="lgh" style="color:{g_col}"><label class="lrow" style="padding:0">{gbox}{UI.e(g_name)}</label>'
+                   f'<span class="muted small">{len(rows)} · {UI.num(g_kwp, 0)} kWp</span></div><div class="lgrid">{items}</div></div>')
+    note = (f'<p class="muted small" style="margin:8px 0 0">{tt("Tick or untick sites or a whole group - the tiles above total the selection, and the choice is remembered in this browser.", "Marque o desmarque sitios o un grupo completo - los mosaicos de arriba suman la selección, y la elección se recuerda en este navegador.")}</p>'
+            if sel else "")
+    legend = f'<div class="plegend{" sel" if sel else ""}">{groups}</div>{note}'
+    status = (f'<div class="legend small" style="margin-top:8px"><span><i style="background:{UI.LIME}"></i>{tt("Producing", "Produciendo")}</span>'
+              f'<span><i style="background:{UI.RED}"></i>{tt("Inverter fault", "Falla de inversor")}</span><span><i style="background:{UI.AMBER}"></i>{tt("Communication loss", "Sin comunicación")}</span>'
+              f'<span><i style="background:#7f8c8a"></i>{tt("Night", "Noche")}</span><span><i style="background:{UI.SKY}"></i>{tt("Before PTO", "Antes de PTO")}</span>'
+              + (f'<span><i style="background:{UI.DEEP}"></i>{tt("EPC project", "Proyecto EPC")}</span>' if projects else "") + "</div>")
+    js_sel = ""
+    if sel:
+        js_sel = """var KEY='pl_map_hide_v1',HID={};try{var s=localStorage.getItem(KEY);HID=s?JSON.parse(s)||{}:{};}catch(e){HID={};}
+function fit(){var b=[];P.forEach(function(p){if(!HID[p.code]&&p.g!=='epc')b.push([p.lat,p.lon]);});
+if(!b.length)P.forEach(function(p){if(!HID[p.code])b.push([p.lat,p.lon]);});if(b.length)m.fitBounds(b,{padding:[30,30],maxZoom:13});}
+function apply(k,hide){var cb=document.querySelector('.ptog[data-k="'+k+'"]');if(cb)cb.checked=!hide;
+if(MK[k]){if(hide)m.removeLayer(MK[k]);else MK[k].addTo(m);}if(hide)HID[k]=1;else delete HID[k];}
+function refresh(){try{localStorage.setItem(KEY,JSON.stringify(HID));}catch(e){}
+document.querySelectorAll('.gtog').forEach(function(g){var grp=P.filter(function(p){return p.g===g.dataset.g;});
+var on=grp.filter(function(p){return !HID[p.code];}).length;g.checked=on===grp.length&&on>0;g.indeterminate=on>0&&on<grp.length;});
+if(window.plTiles)window.plTiles(HID);fit();}
+P.forEach(function(p){if(HID[p.code])apply(p.code,true);});
+document.querySelectorAll('.ptog').forEach(function(cb){cb.addEventListener('change',function(){apply(cb.dataset.k,!cb.checked);refresh();});});
+document.querySelectorAll('.gtog').forEach(function(g){g.addEventListener('change',function(){
+P.forEach(function(p){if(p.g===g.dataset.g)apply(p.code,!g.checked);});refresh();});});refresh();"""
+    else:
+        js_sel = "fitAll();"
     return f"""<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <div id="map" class="{h_cls}"></div><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>(function(){{var P={data};var m=L.map('map',{{scrollWheelZoom:false}});
+{status}{legend}
+<script>(function(){{var P={json.dumps(pts)};var m=L.map('map',{{scrollWheelZoom:false}});var MK={{}};
 var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}}).addTo(m);
 var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}});
-L.control.layers({{'Streets':st,'Satellite':sat}}).addTo(m);var b=[];
+L.control.layers({{'Streets':st,'Satellite':sat}}).addTo(m);
 P.forEach(function(p){{var r=Math.max(7,Math.min(16,Math.sqrt(p.kwp||100)/2.2));
-var mk=L.circleMarker([p.lat,p.lon],{{radius:r,color:'#fff',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m);
-mk.bindPopup('<b>'+p.name+'</b><br>'+p.code+' · '+Math.round(p.kwp)+' kWp<br>'+(p.kw!=null?('Now: '+Math.round(p.kw)+' kW · today '+Math.round(p.kwh)+' kWh<br>'):'')+p.st.replace('_',' ')+(p.approx?'<br><i>approximate location</i>':'')+'<br><a href="'+p.url+'">Open</a>');if(p.st.indexOf('project:')!==0)b.push([p.lat,p.lon]);}});
-if(!b.length)P.forEach(function(p){{b.push([p.lat,p.lon]);}});
-if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:13}});}})();</script>
-<div class="legend small" style="margin-top:8px"><span><i style="background:{UI.LIME}"></i>Producing</span><span><i style="background:{UI.RED}"></i>Inverter fault</span>
-<span><i style="background:{UI.AMBER}"></i>Communication loss</span><span><i style="background:#7f8c8a"></i>Night</span><span><i style="background:{UI.SKY}"></i>Before PTO</span><span><i style="background:{UI.DEEP}"></i>EPC project</span></div>"""
+var mk=L.circleMarker([p.lat,p.lon],{{radius:r,color:'#fff',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m);MK[p.code]=mk;
+mk.bindPopup('<b>'+p.name+'</b><br>'+p.code+' · '+Math.round(p.kwp)+' kWp<br>'+(p.kw!=null?('Now: '+Math.round(p.kw)+' kW · today '+Math.round(p.kwh)+' kWh<br>'):'')+p.st.replace('_',' ')+(p.approx?'<br><i>approximate location</i>':'')+'<br><a href="'+p.url+'">Open</a>');}});
+function fitAll(){{var b=[];P.forEach(function(p){{if(p.g!=='epc')b.push([p.lat,p.lon]);}});if(!b.length)P.forEach(function(p){{b.push([p.lat,p.lon]);}});
+if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:13}});}}
+{js_sel}}})();</script>"""
+
 
 
 # ------------------------------------------------------------------ pages
@@ -519,14 +579,53 @@ def home():
     return page(tt("Overview", "Resumen"), body, "home", sample=True)
 
 
+def _sel_tile(tid: str, label: str, value: str, unit: str, sub: str) -> str:
+    return (f'<div class="kpi"><div class="l">{label}</div><div class="v"><span id="{tid}">{value}</span><small>{unit}</small></div>'
+            f'<div class="d" id="{tid}_d">{sub}</div></div>')
+
+
 @app.get("/map/")
 def map_page():
     tt = t()
     rg = reg()
-    lv = live_all(rg, now_mx())
+    now = now_mx()
+    lv = live_all(rg, now)
+    rows = M.site_stats(rg.sites, now)
+    tk = {}
+    for x in open_tickets(db()):
+        tk[x["site_code"]] = tk.get(x["site_code"], 0) + 1
+    for r in rows:
+        r["tk"] = tk.get(r["code"], 0)
+    k = M.selection_kpis(rows)
+    n_tk = sum(r["tk"] for r in rows)
+    of, op_txt, sites_txt, avoided, alerts_txt = (tt("of", "de"), tt("operating", "en operación"), tt("of", "de"),
+                                                   tt("avoided", "evitadas"), tt("live alerts", "alertas en vivo"))
+    tiles = ('<div class="hero tiles"><div class="kpis">'
+             + _sel_tile("st_n", tt("Selected sites", "Sitios seleccionados"), str(k["sites"]), "",
+                         f'{sites_txt} {len(rg.sites)} · {UI.num(k["kwp"] / 1000, 2)} MWp')
+             + _sel_tile("st_kw", tt("Power now", "Potencia ahora"), UI.num(k["kw_now"] / 1000, 2), "MW",
+                         f'{of} {UI.num(k["kwp_operating"] / 1000, 2)} MWp {op_txt}')
+             + _sel_tile("st_kwh", tt("Energy today", "Energía hoy"), UI.num(k["kwh_today"] / 1000, 2), "MWh", tt("so far", "hasta ahora"))
+             + _sel_tile("st_e30", tt("Last 30 days", "Últimos 30 días"), UI.num(k["mwh_30d"], 0), "MWh", f'{UI.num(k["co2_t_30d"], 0)} t CO₂ {avoided}')
+             + _sel_tile("st_av", tt("Availability 30 d", "Disponibilidad 30 d"), f'{k["availability_30d"] * 100:.2f}', "%", tt("kWp-weighted", "ponderada por kWp"))
+             + _sel_tile("st_pr", tt("Performance ratio", "Performance ratio"), f'{k["pr_30d"] * 100:.1f}', "%", tt("30-day, weighted", "30 días, ponderado"))
+             + _sel_tile("st_tk", tt("Open tickets", "Tickets abiertos"), str(n_tk), "", f'{k["alerts"]} {alerts_txt}')
+             + "</div></div>")
+    labels = json.dumps({"of": sites_txt, "total": len(rg.sites), "op": f"MWp {op_txt}", "co2": f"t CO₂ {avoided}", "alerts": alerts_txt})
+    script = f"""<script>{M.SELECTION_JS}
+(function(){{var R={json.dumps(rows)},LB={labels};
+function f(v,d){{return v.toLocaleString('en-US',{{minimumFractionDigits:d,maximumFractionDigits:d}});}}
+function set(id,v){{var e=document.getElementById(id);if(e)e.textContent=v;}}
+window.plTiles=function(H){{var S=R.filter(function(r){{return !H[r.code];}}),k=plSel(S);
+var tkn=S.reduce(function(a,r){{return a+r.tk;}},0);
+set('st_n',k.sites);set('st_n_d',LB.of+' '+LB.total+' · '+f(k.kwp/1000,2)+' MWp');
+set('st_kw',f(k.kw_now/1000,2));set('st_kw_d',LB.of+' '+f(k.kwp_operating/1000,2)+' '+LB.op);
+set('st_kwh',f(k.kwh_today/1000,2));set('st_e30',f(k.mwh_30d,0));set('st_e30_d',f(k.co2_t_30d,0)+' '+LB.co2);
+set('st_av',k.operating?f(k.availability_30d*100,2):'-');set('st_pr',k.operating?f(k.pr_30d*100,1):'-');
+set('st_tk',tkn);set('st_tk_d',k.alerts+' '+LB.alerts);}};}})();</script>"""
     body = (f'<div class="kick">{tt("Portfolio map", "Mapa del portafolio")}</div><h1 class="pt">{len(rg.sites)} {tt("rooftops", "techos")} · {UI.num(rg.kwp_total / 1000, 2)} MWp</h1>'
             f'<p class="muted small">{tt("Locations are approximate (industrial park level) until exact coordinates are captured at onboarding.", "Ubicaciones aproximadas (a nivel parque industrial) hasta registrar coordenadas exactas en el onboarding.")}</p>'
-            + map_block(rg, lv))
+            + tiles + script + '<div style="margin-top:14px">' + map_block(rg, lv, mode="select") + "</div>")
     return page(tt("Map", "Mapa"), body, "map", sample=True)
 
 

@@ -222,3 +222,54 @@ def portfolio_kpis(sites: Sequence, now_local: dt.datetime, days: int = 30) -> D
 def source_for(site) -> str:
     """'sample' until the site's SolarEdge data is collected (v292: always)."""
     return SAMPLE
+
+
+# ------------------------------------------------------------- selection totals (v295)
+# The map page lets the viewer tick a part of the portfolio; its tiles total
+# the ticked sites. site_stats() gives each site's numbers once (server side),
+# selection_kpis() totals any subset. SELECTION_JS is the same arithmetic for
+# the browser; tests run both on the same rows and require the same answer,
+# and selection_kpis() of every site must equal portfolio_kpis().
+def site_stats(sites: Sequence, now_local: dt.datetime, days: int = 30) -> List[Dict]:
+    op = [s for s in sites if s.operating]
+    n = len(op)
+    yday = now_local.date() - dt.timedelta(days=1)
+    out = []
+    for s in sites:
+        row = {"code": s.code, "kwp": s.kwp, "op": bool(s.operating), "kw": 0.0, "kwh": 0.0,
+               "e30": 0.0, "irr_kwp": 0.0, "av": 0.0, "alert": False}
+        if s.operating:
+            i = op.index(s)
+            x = live(s, now_local, i, n)
+            h = history(s, yday, days, i, n)
+            row.update(kw=x.kw_now or 0.0, kwh=x.kwh_today, e30=sum(d.kwh for d in h),
+                       irr_kwp=sum(d.irr_kwh_m2 for d in h) * s.kwp,
+                       av=sum(d.availability for d in h) / len(h),
+                       alert=x.status in ("inverter_fault", "comm_loss"))
+        out.append(row)
+    return out
+
+
+def selection_kpis(rows: Sequence[Dict]) -> Dict[str, float]:
+    op = [r for r in rows if r["op"]]
+    kwp_op = sum(r["kwp"] for r in op)
+    e30 = sum(r["e30"] for r in op)
+    irr = sum(r["irr_kwp"] for r in op)
+    return {
+        "sites": len(rows), "operating": len(op),
+        "kwp": round(sum(r["kwp"] for r in rows), 1), "kwp_operating": round(kwp_op, 1),
+        "kw_now": round(sum(r["kw"] for r in op), 1), "kwh_today": round(sum(r["kwh"] for r in op), 1),
+        "mwh_30d": round(e30 / 1000, 2), "pr_30d": round(e30 / irr, 3) if irr else 0.0,
+        "availability_30d": round(sum(r["av"] * r["kwp"] for r in op) / kwp_op, 4) if kwp_op else 0.0,
+        "co2_t_30d": round(e30 * CO2_KG_PER_KWH / 1000, 1),
+        "alerts": sum(1 for r in op if r["alert"]),
+    }
+
+
+SELECTION_JS = """function plSel(R){var op=R.filter(function(r){return r.op;});
+var s=function(a,f){return a.reduce(function(t,r){return t+(f(r)||0);},0);};
+var kop=s(op,function(r){return r.kwp;}),e=s(op,function(r){return r.e30;}),irr=s(op,function(r){return r.irr_kwp;});
+return {sites:R.length,operating:op.length,kwp:s(R,function(r){return r.kwp;}),kwp_operating:kop,
+kw_now:s(op,function(r){return r.kw;}),kwh_today:s(op,function(r){return r.kwh;}),mwh_30d:e/1000,
+pr_30d:irr?e/irr:0,availability_30d:kop?s(op,function(r){return r.av*r.kwp;})/kop:0,
+co2_t_30d:e*%s/1000,alerts:op.filter(function(r){return r.alert;}).length};}""" % CO2_KG_PER_KWH

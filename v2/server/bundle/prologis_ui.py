@@ -141,6 +141,14 @@ form.qf{display:flex;gap:6px;justify-content:flex-end}form.qf input{width:110px;
 .facts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 th.grp{background:#f1f6f5;color:var(--deep)!important;font-size:12px!important;letter-spacing:.12em!important;text-transform:uppercase}
 .foot{max-width:1360px;margin:0 auto;padding:0 20px 30px;color:var(--muted);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap}
+.plegend{margin-top:12px;border-top:1px solid var(--line);padding-top:6px}
+.plegend .lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0 22px}
+.plegend .lgh{display:flex;align-items:baseline;gap:10px;font-weight:800;font-size:12.5px;margin:10px 0 2px;letter-spacing:.02em;border-bottom:1px dashed var(--line);padding-bottom:3px}
+.plegend .lrow{display:flex;align-items:flex-start;gap:8px;margin:0;padding:4px 0;font-weight:400;font-size:13px;color:var(--ink);cursor:default}
+.plegend.sel .lrow{cursor:pointer}.plegend .lrow input{width:auto;margin:3px 0 0}
+.plegend .ldot{flex:none;width:12px;height:12px;border-radius:50%;margin-top:4px;box-shadow:0 0 0 2px #fff,0 0 0 3px var(--line)}
+.plegend .lsub{display:block;font-size:11.5px;color:var(--muted)}.plegend a{color:var(--ink)}.plegend a:hover{color:var(--act2)}
+.hero.tiles{padding:6px 18px 18px}
 .legend span{display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:12px}.legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
 .login{min-height:100vh;display:grid;grid-template-columns:1.1fr 1fr}
 .login .art{background:radial-gradient(800px 400px at 20% 120%,rgba(113,190,69,.35),transparent 60%),radial-gradient(700px 400px at 100% -10%,rgba(44,181,229,.35),transparent 60%),linear-gradient(140deg,#0f2f2d,var(--deep));color:#fff;padding:48px;display:flex;flex-direction:column;justify-content:space-between}

@@ -694,3 +694,16 @@ def parse_list_device(fixture_or_response: Any) -> List[Device]:
             if d is not None:
                 devices.append(d)
     return devices
+
+
+# =====================================================================
+# getMAXMonthChart / getMAXYearChart  (plant energy per day / per month)
+# =====================================================================
+
+def parse_energy_series(fixture_or_response: Any) -> Optional[List[float]]:
+    """``obj.energy`` of a month or year chart as floats (None -> 0.0).
+    Returns ``None`` when result != 1 or the series is missing (v285)."""
+    obj = extract_obj(fixture_or_response)
+    if not isinstance(obj, dict) or not isinstance(obj.get("energy"), list):
+        return None
+    return [safe_float(v) or 0.0 for v in obj["energy"]]

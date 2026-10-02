@@ -307,6 +307,19 @@ class GrowattWebClient:
         """POST /panel/max/getMAXTotalData?plantId=… - plant aggregate."""
         return self._post(f"/panel/max/getMAXTotalData?plantId={plant_id}")
 
+    def get_max_month_chart(self, plant_id: str, year_month: str) -> Dict[str, Any]:
+        """POST /panel/max/getMAXMonthChart - one energy value per day of
+        ``year_month`` ('YYYY-MM') for the whole plant (v285, read-only)."""
+        return self._post("/panel/max/getMAXMonthChart",
+                          {"plantId": plant_id, "maxSn": "", "date": year_month})
+
+    def get_max_year_chart(self, plant_id: str, year: int) -> Dict[str, Any]:
+        """POST /panel/max/getMAXYearChart - one energy value per month of
+        ``year`` for the whole plant (v285, read-only; the body key is
+        'year' - 'date' answers HTTP 500)."""
+        return self._post("/panel/max/getMAXYearChart",
+                          {"plantId": plant_id, "maxSn": "", "year": str(year)})
+
     def get_plant_data(self, plant_id: str) -> Dict[str, Any]:
         """POST /panel/getPlantData?plantId=… - plant metadata (note: POST)."""
         return self._post(f"/panel/getPlantData?plantId={plant_id}")

@@ -5,7 +5,9 @@ currently in Growatt". The monitoring knows SMS only from 10 Jul 2026; Growatt
 has it from 5 Apr 2025. This writes the vendor's days into daily_production so
 every month equals the vendor's month total (method: argia.recon.history_import).
 
-Growatt only for now (the web panel's month and year charts).
+Growatt (the web panel's month and year charts) and, since v288, SolarEdge
+(site energy per DAY in one-year requests and per MONTH; key from the plant's
+secret_api_name).
 
   dry run (default - prints the plan, writes nothing):
     scripts/vendor_history_import.py --plant-key MEX3 --from 2025-04-05 --to 2026-09-30
@@ -72,6 +74,47 @@ def fetch_growatt_capture(site_id: str, d0: dt.date, d1: dt.date) -> dict:
     return cap
 
 
+SE_DAY_CHUNK = 365    # SolarEdge: timeUnit=DAY is limited to one year per request
+
+
+def solaredge_capture(day_series: dict, month_series: dict, d0: dt.date, d1: dt.date) -> dict:
+    """The Growatt-shaped capture from SolarEdge series (PURE, v288).
+    ``day_series`` {'YYYY-MM-DD': kWh|None}, ``month_series`` {'YYYY-MM-01': kWh|None}.
+    A day the vendor does not know (None / absent) is 0 in the month list; the
+    month total is the vendor's month value restricted to d0..d1."""
+    import calendar
+    cap: dict = {}
+    for ym in months_between(d0, d1):
+        y, m = int(ym[:4]), int(ym[5:7])
+        n = calendar.monthrange(y, m)[1]
+        cap[ym] = [float(day_series.get(f"{ym}-{i:02d}") or 0.0) for i in range(1, n + 1)]
+    for y in range(d0.year, d1.year + 1):
+        cap[f"year_{y}"] = [float(month_series.get(f"{y}-{m:02d}-01") or 0.0) for m in range(1, 13)]
+    return cap
+
+
+def fetch_solaredge_capture(site_id: str, api_key: str, d0: dt.date, d1: dt.date) -> dict:
+    from argia.recon.counters import solaredge_daily_series
+    from argia.vendors.solaredge import SolarEdgeClient
+    if not api_key:
+        raise RuntimeError("SolarEdge API key not set for this plant")
+    c = SolarEdgeClient(api_key=api_key)
+    days: dict = {}
+    a = d0
+    while a <= d1:
+        b = min(a + dt.timedelta(days=SE_DAY_CHUNK - 1), d1)
+        days.update(solaredge_daily_series(c._get_json(
+            f"/site/{site_id}/energy", {"timeUnit": "DAY", "startDate": a.isoformat(), "endDate": b.isoformat()})))
+        a = b + dt.timedelta(days=1)
+        time.sleep(DELAY_SEC)
+    months = solaredge_daily_series(c._get_json(
+        f"/site/{site_id}/energy", {"timeUnit": "MONTH", "startDate": d0.replace(day=1).isoformat(),
+                                    "endDate": d1.isoformat()}))
+    cap = solaredge_capture(days, months, d0, d1)
+    cap["captured_utc"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return cap
+
+
 def split_capture(cap: dict):
     """(month_days, month_totals, day_sums) from a capture."""
     month_days = {k: v for k, v in cap.items() if len(k) == 7 and k[4] == "-"}
@@ -113,27 +156,33 @@ def main(argv=None) -> int:
     if d1 < d0:
         LOG.error("--to before --from")
         return 2
-    rows = psql_rows(f"SELECT brand, site_id FROM plant WHERE plant_key = '{pk}';")
+    rows = psql_rows(f"SELECT brand, site_id, coalesce(secret_api_name, '') FROM plant WHERE plant_key = '{pk}';")
     if not rows:
         LOG.error("unknown plant %s", pk)
         return 2
     brand, site_id = rows[0][0].upper(), rows[0][1]
+    key_env = rows[0][2] if len(rows[0]) > 2 else ""
+    vendor = brand.title()
     if args.capture:
         with open(args.capture, encoding="utf-8") as fh:
             cap = json.load(fh)
         src = f"capture {os.path.basename(args.capture)} {cap.get('captured_utc', '')}".strip()
     else:
-        if brand != "GROWATT":
-            LOG.error("%s is %s - only Growatt history is supported", pk, brand)
+        if brand == "GROWATT":
+            cap = fetch_growatt_capture(site_id, d0, d1)
+        elif brand == "SOLAREDGE":
+            cap = fetch_solaredge_capture(site_id, os.environ.get(key_env, "").strip(), d0, d1)
+        else:
+            LOG.error("%s is %s - only Growatt and SolarEdge history are supported", pk, brand)
             return 2
-        cap = fetch_growatt_capture(site_id, d0, d1)
-        src = f"Growatt live {cap['captured_utc']} UTC"
+        src = f"{vendor} live {cap['captured_utc']} UTC"
         if args.save:
             with open(args.save, "w", encoding="utf-8") as fh:
                 json.dump(cap, fh)
     month_days, month_totals, day_sums = split_capture(cap)
-    tag = (f"Growatt history import {dt.date.today()}: day value from the month chart,"
-           f" month reconciled to the year chart; {src}")
+    how = ("day value from the month chart, month reconciled to the year chart" if brand == "GROWATT"
+           else "day value from the site energy per day, month reconciled to the site energy per month")
+    tag = f"{vendor} history import {dt.date.today()}: {how}; {src}"
 
     targets = H.targets_for_range(month_days, month_totals, d0, d1)
     stored = stored_days(pk, d0, d1)

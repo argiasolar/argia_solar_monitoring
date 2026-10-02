@@ -144,3 +144,51 @@ class TestScriptHelpers:
         md, mt, ds = S.split_capture({"2025-04": [1.0, 2.0], "year_2025": [0, 0, 0, 3.5] + [0] * 8, "captured_utc": "x"})
         assert md == {"2025-04": [1.0, 2.0]} and mt["2025-04"] == 3.5 and ds == {"2025-04": 3.0}
         assert list(S.months_between(dt.date(2025, 11, 5), dt.date(2026, 2, 1))) == ["2025-11", "2025-12", "2026-01", "2026-02"]
+
+
+class TestSolarEdge:
+    """v288: the same import for SolarEdge plants (synthetic numbers)."""
+
+    @staticmethod
+    def _S():
+        import importlib
+        import sys
+        import pathlib
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
+        return importlib.import_module("vendor_history_import")
+
+    def test_capture_shape(self):
+        S = self._S()
+        cap = S.solaredge_capture({"2024-08-07": 1000.0, "2024-08-08": None, "2024-09-01": 900.0},
+                                  {"2024-08-01": 1000.0, "2024-09-01": 900.0},
+                                  dt.date(2024, 8, 7), dt.date(2024, 9, 1))
+        assert len(cap["2024-08"]) == 31 and cap["2024-08"][6] == 1000.0 and cap["2024-08"][7] == 0.0
+        assert len(cap["2024-09"]) == 30 and cap["2024-09"][0] == 900.0
+        assert cap["year_2024"][7] == 1000.0 and cap["year_2024"][8] == 900.0 and cap["year_2024"][0] == 0.0
+        md, mt, _ = S.split_capture(cap)
+        t = H.targets_for_range(md, mt, dt.date(2024, 8, 7), dt.date(2024, 9, 1))
+        assert t["2024-08-07"] == 1000.0 and t["2024-09-01"] == 900.0 and len(t) == 26
+
+    def test_day_requests_stay_within_one_year(self, monkeypatch):
+        S = self._S()
+        from argia.vendors import solaredge
+        calls = []
+
+        def fake(self, path, params):
+            calls.append(params)
+            return {"energy": {"unit": "Wh", "values": [{"date": params["startDate"] + " 00:00:00", "value": 5000.0}]}}
+        monkeypatch.setattr(solaredge.SolarEdgeClient, "_get_json", fake)
+        monkeypatch.setattr(S, "DELAY_SEC", 0)
+        cap = S.fetch_solaredge_capture("1", "k", dt.date(2024, 2, 6), dt.date(2026, 7, 28))
+        day_calls = [c for c in calls if c["timeUnit"] == "DAY"]
+        assert len(day_calls) == 3
+        for c in day_calls:
+            span = (dt.date.fromisoformat(c["endDate"]) - dt.date.fromisoformat(c["startDate"])).days + 1
+            assert span <= 365
+        assert day_calls[0]["startDate"] == "2024-02-06" and day_calls[-1]["endDate"] == "2026-07-28"
+        assert [c for c in calls if c["timeUnit"] == "MONTH"][0]["startDate"] == "2024-02-01"
+        assert cap["2024-02"][5] == 5.0                     # Wh -> kWh
+
+    def test_no_key_is_refused(self):
+        with pytest.raises(RuntimeError):
+            self._S().fetch_solaredge_capture("1", "", dt.date(2024, 1, 1), dt.date(2024, 1, 2))

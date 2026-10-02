@@ -32,7 +32,8 @@ HERE = pathlib.Path(__file__).parent
 APPS = ("ask_app", "auth_app", "fin_app", "maint_app", "setup_app")
 LONG_RUNNING = {"ask_app.py", "auth_app.py", "fin_app.py", "maint_app.py", "setup_app.py", "savio_mock.py"}
 # jobs exercised end to end by a dedicated test module rather than the smoke list
-RUN_ELSEWHERE = {"portal_gen.py": "tests/portal/test_portal_site.py"}
+RUN_ELSEWHERE = {"portal_gen.py": "tests/portal/test_portal_site.py",
+                 "demo_gen.py": "tests/portal/test_demo_site.py"}          # v279
 UPDATE = os.environ.get("ARGIA_UPDATE_CONTRACTS") == "1"
 
 
@@ -152,3 +153,20 @@ def test_the_fleet_is_the_same_in_every_hardcoded_list():
     slugs = set(literal("server/bundle/portal_chrome.py", "SLUGS"))
     assert report == setup, f"report_gen vs setup_app: {sorted(report ^ setup)}"
     assert report <= slugs, f"no customer URL slug for: {sorted(report - slugs)}"
+
+
+def test_every_plant_has_a_demo_number():
+    """v279: a plant missing from demo_schema.sql's name_map would be shown
+    on demo.argia.com.mx as 'ARGIA SOLAR <code>' - add it with the next number."""
+    sql = (V2 / "server" / "bundle" / "demo_schema.sql").read_text(encoding="utf-8")
+    block = sql[sql.index("CREATE VIEW demo.name_map"):sql.index("CREATE VIEW demo.ppa_tariff_month")]
+    pairs = re.findall(r"\('([A-Z0-9]+)',\s*(\d+)\)", block)
+    keys, nums = [k for k, _ in pairs], [int(n) for _, n in pairs]
+    tree = ast.parse((BUNDLE / "report_gen.py").read_text(encoding="utf-8"))
+    fleet = set()
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) in ("PPA", "CAPEX"):
+            fleet |= set(ast.literal_eval(n.value))
+    assert fleet <= set(keys), f"no demo number for: {sorted(fleet - set(keys))}"
+    assert len(set(nums)) == len(nums), "two plants share a demo number"
+    assert len(set(keys)) == len(keys), "a plant is numbered twice"

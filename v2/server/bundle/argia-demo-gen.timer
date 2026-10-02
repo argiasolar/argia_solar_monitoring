@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA demo regeneration every 5 minutes, 2 minutes after the portal (v279)
+[Timer]
+OnCalendar=*:2/5
+RandomizedDelaySec=20
+Persistent=true
+[Install]
+WantedBy=timers.target

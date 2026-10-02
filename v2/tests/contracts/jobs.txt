@@ -11,6 +11,7 @@ argia-client-pages  |  *-*-* 07..20:15:00 America/Mexico_City  |  client_reports
 argia-dailyperf  |  *-*-* 19:00:00 America/Mexico_City  |  daily_perf_mail.py
 argia-dash-update  |  *-*-* 06..20:02/10:00 America/Mexico_City  |  dashboard_update.py dashboard_html_publish.py
 argia-dbdump  |  *-*-* 03:30:00  |  db_backup.sh
+argia-demo-gen  |  *:2/5  |  demo_gen.py
 argia-drift  |  *-*-* 06:30:00 America/Mexico_City  |  drift_check.py
 argia-fin-drive  |  *-*-* 12:20:00  |  fin_drive_ingest.py
 argia-fin-savio  |  *-*-* 12:40:00  |  fin_savio_recon.py

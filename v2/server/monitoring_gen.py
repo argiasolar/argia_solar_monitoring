@@ -1921,12 +1921,14 @@ def portfolio_page(skin='old'):
 
     ppa_rows = [r for r in rows if r['ppa']]
     cap_rows = [r for r in rows if not r['ppa']]
+    # v279: no CAPEX group when there is no CAPEX plant (the demo)
+    cap_legend = (f"""<div><h2 style="font-size:13px;margin:0 0 6px;color:#0d9488"><label class="lrow" style="padding:0"><input type="checkbox" class="gtog" data-g="capex" checked> <span data-en="CAPEX plants" data-es="Plantas CAPEX">CAPEX plants</span></label></h2>
+{_leg_rows(cap_rows)}</div>""" if cap_rows else '')
     legend_card = f"""<div class="card" style="margin-top:10px;padding:14px 18px">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px 26px">
 <div><h2 style="font-size:13px;margin:0 0 6px;color:#2563eb"><label class="lrow" style="padding:0"><input type="checkbox" class="gtog" data-g="ppa" checked> <span data-en="PPA plants" data-es="Plantas PPA">PPA plants</span></label></h2>
 {_leg_rows(ppa_rows)}</div>
-<div><h2 style="font-size:13px;margin:0 0 6px;color:#0d9488"><label class="lrow" style="padding:0"><input type="checkbox" class="gtog" data-g="capex" checked> <span data-en="CAPEX plants" data-es="Plantas CAPEX">CAPEX plants</span></label></h2>
-{_leg_rows(cap_rows)}</div>
+{cap_legend}
 </div>
 <p class="note" style="margin:8px 0 0" data-en="The map opens with the PPA plants; tick or untick plants or a whole group - the tiles above total the selection, and the choice is remembered in this browser."
  data-es="El mapa abre con las plantas PPA; marque o desmarque plantas o un grupo completo - los mosaicos de arriba suman la selección y se recuerda en este navegador.">

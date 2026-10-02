@@ -494,6 +494,7 @@ def kpi_row(keys, label_en, label_es):
 
 def monitoring_overview(which=''):
     groups = [('PPA', PPA), ('CAPEX', CAPEX)] if not which else [(which.upper(), PPA if which == 'ppa' else CAPEX)]
+    groups = [(g, ks) for g, ks in groups if ks]      # v279: no empty section (the demo has no CAPEX plant)
     power, energy, online = fleet_now(PPA + CAPEX)
     crit, warn = open_alerts()
     secs = ''.join(f'''

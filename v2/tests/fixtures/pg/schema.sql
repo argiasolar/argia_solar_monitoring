@@ -1948,3 +1948,200 @@ CREATE TABLE public.loss_daily (
 
 ALTER TABLE ONLY public.loss_daily
     ADD CONSTRAINT loss_daily_pkey PRIMARY KEY (plant_key, prod_date);
+
+--
+-- v279: demo.argia.com.mx - the demo schema (server/bundle/demo_schema.sql), as pg_dump prints it
+--
+
+--
+-- Name: demo; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA demo;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+
+--
+-- Name: name_map; Type: VIEW; Schema: demo; Owner: -
+--
+
+CREATE VIEW demo.name_map AS
+ SELECT plant_key,
+    n
+   FROM ( VALUES ('GTO1'::text,1), ('GTO2'::text,2), ('MEX1'::text,3), ('MEX2'::text,4), ('MEX3'::text,5), ('NL1'::text,6), ('NL2'::text,7), ('QRO1'::text,8), ('SLP1'::text,9), ('SLP2'::text,10), ('TAM1'::text,11)) v(plant_key, n);
+
+
+--
+-- Name: ppa_tariff_month; Type: VIEW; Schema: demo; Owner: -
+--
+
+CREATE VIEW demo.ppa_tariff_month AS
+ WITH t AS (
+         SELECT c.plant_key,
+            c.year,
+            c.month,
+            c.tariff_mxn,
+            c.contract_kwh,
+            c.design_kwh,
+            p.kwp_dc
+           FROM (public.contract_monthly c
+             JOIN public.plant p ON ((p.plant_key = c.plant_key)))
+          WHERE ((p.portfolio = 'PPA'::text) AND (COALESCE(c.tariff_mxn, (0)::numeric) > (0)::numeric))
+        ), e AS (
+         SELECT daily_production.plant_key,
+            (EXTRACT(year FROM daily_production.prod_date))::integer AS y,
+            (EXTRACT(month FROM daily_production.prod_date))::integer AS m,
+            sum(daily_production.energy_kwh) AS kwh
+           FROM public.daily_production
+          GROUP BY daily_production.plant_key, ((EXTRACT(year FROM daily_production.prod_date))::integer), ((EXTRACT(month FROM daily_production.prod_date))::integer)
+        )
+ SELECT t.year,
+    t.month,
+    round(COALESCE((sum((t.tariff_mxn * e.kwh)) / NULLIF(sum(e.kwh) FILTER (WHERE (e.kwh > (0)::numeric)), (0)::numeric)), avg(t.tariff_mxn)), 4) AS tariff_mxn,
+    (sum(t.contract_kwh) / NULLIF(sum(t.kwp_dc) FILTER (WHERE (t.contract_kwh IS NOT NULL)), (0)::numeric)) AS contract_kwh_per_kwp,
+    (sum(t.design_kwh) / NULLIF(sum(t.kwp_dc) FILTER (WHERE (t.design_kwh IS NOT NULL)), (0)::numeric)) AS design_kwh_per_kwp
+   FROM (t
+     LEFT JOIN e ON (((e.plant_key = t.plant_key) AND (e.y = t.year) AND (e.m = t.month) AND (e.kwh > (0)::numeric))))
+  GROUP BY t.year, t.month;
+
+
+--
+-- Name: plant; Type: VIEW; Schema: demo; Owner: -
+--
+
+CREATE VIEW demo.plant AS
+ WITH ppa AS (
+         SELECT round((sum((plant.tariff_mxn_per_kwh * plant.kwp_dc)) / NULLIF(sum(plant.kwp_dc), (0)::numeric)), 4) AS tariff,
+            avg(plant.sla_target) AS sla
+           FROM public.plant
+          WHERE ((plant.portfolio = 'PPA'::text) AND (COALESCE(plant.tariff_mxn_per_kwh, (0)::numeric) > (0)::numeric))
+        )
+ SELECT p.plant_key,
+    (('ARGIA SOLAR '::text || COALESCE((nm.n)::text, p.plant_key)) || COALESCE(((' ('::text || "substring"(p.customer, '\(([^)]*)\)\s*$'::text)) || ')'::text), ''::text)) AS customer,
+    p.brand,
+    p.site_id,
+    p.kwp_dc,
+    p.kwp_ac,
+    p.lat,
+    p.lon,
+    'PPA'::text AS portfolio,
+        CASE
+            WHEN (p.portfolio = 'PPA'::text) THEN p.tariff_mxn_per_kwh
+            ELSE ppa.tariff
+        END AS tariff_mxn_per_kwh,
+    p.pr_baseline,
+    p.contracted_kwh,
+    p.active,
+    p.om_cost_monthly_mxn,
+    p.investment_mxn,
+        CASE
+            WHEN (p.portfolio = 'PPA'::text) THEN p.sla_target
+            ELSE COALESCE(p.sla_target, ppa.sla)
+        END AS sla_target,
+    p.expected_factor,
+    p.pr_target,
+    p.installation_date,
+    NULL::text AS secret_api_name,
+    NULL::text AS secret_user_name,
+    NULL::text AS secret_pass_name,
+    p.weather_plant_id,
+    p.datalogger_sn,
+    p.datalogger_addr,
+    p.module_count,
+    p.module_wp,
+    p.string_count,
+    p.tilt_deg,
+    p.azimuth_deg,
+    NULL::text AS notes,
+    p.kwp_dc_override,
+    p.kwp_dc_check,
+    p.pr_stc_model,
+    p.gamma_pmax,
+    p.monitoring_class,
+    p.p90_annual_kwh,
+    p.date_interconnection,
+        CASE
+            WHEN (p.portfolio = 'PPA'::text) THEN p.billing_scheme
+            ELSE COALESCE(p.billing_scheme, 'measured'::text)
+        END AS billing_scheme,
+    p.module_model,
+    p.show_dashboard,
+    p.show_daily_report,
+    true AS show_financial,
+    NULL::text AS client_channel
+   FROM ((public.plant p
+     LEFT JOIN demo.name_map nm ON ((nm.plant_key = p.plant_key)))
+     CROSS JOIN ppa);
+
+
+--
+-- Name: contract_monthly; Type: VIEW; Schema: demo; Owner: -
+--
+
+CREATE VIEW demo.contract_monthly AS
+ SELECT c.plant_key,
+    c.year,
+    c.month,
+    c.design_kwh,
+    c.contract_kwh,
+    c.tariff_mxn,
+    c.fixed_income_ccy,
+    c.ccy
+   FROM (public.contract_monthly c
+     JOIN public.plant p ON ((p.plant_key = c.plant_key)))
+  WHERE (p.portfolio = 'PPA'::text)
+UNION ALL
+ SELECT p.plant_key,
+    m.year,
+    m.month,
+    COALESCE(c.design_kwh, round((p.kwp_dc * m.design_kwh_per_kwp), 3)) AS design_kwh,
+    COALESCE(c.contract_kwh, round((p.kwp_dc * m.contract_kwh_per_kwp), 3)) AS contract_kwh,
+    m.tariff_mxn,
+    NULL::numeric(12,2) AS fixed_income_ccy,
+    'MXN'::text AS ccy
+   FROM ((public.plant p
+     CROSS JOIN demo.ppa_tariff_month m)
+     LEFT JOIN public.contract_monthly c ON (((c.plant_key = p.plant_key) AND (c.year = m.year) AND (c.month = m.month))))
+  WHERE (COALESCE(p.portfolio, ''::text) <> 'PPA'::text);
+
+
+--
+-- Name: loss_daily; Type: VIEW; Schema: demo; Owner: -
+--
+
+CREATE VIEW demo.loss_daily AS
+ SELECT l.plant_key,
+    l.prod_date,
+    l.kwp_dc,
+    l.expected_weather_kwh,
+    l.expected_peers_kwh,
+    l.expected_kwh,
+    l.expected_basis,
+    l.peers,
+    l.actual_kwh,
+    l.lost_kwh,
+    l.unavailability_kwh,
+    l.overheating_kwh,
+    l.underperformance_kwh,
+    l.excused_kwh,
+        CASE
+            WHEN (p.portfolio = 'PPA'::text) THEN l.tariff_mxn
+            ELSE m.tariff_mxn
+        END AS tariff_mxn,
+        CASE
+            WHEN (p.portfolio = 'PPA'::text) THEN l.lost_mxn
+            ELSE round((l.lost_kwh * m.tariff_mxn), 2)
+        END AS lost_mxn,
+    l.computed_at,
+    l.counter_kwh,
+    l.catchup_kwh,
+    l.peer_ratio,
+    l.weather_ratio,
+    l.tolerance_kwh
+   FROM ((public.loss_daily l
+     JOIN public.plant p ON ((p.plant_key = l.plant_key)))
+     LEFT JOIN demo.ppa_tariff_month m ON (((m.year = (EXTRACT(year FROM l.prod_date))::integer) AND (m.month = (EXTRACT(month FROM l.prod_date))::integer))));

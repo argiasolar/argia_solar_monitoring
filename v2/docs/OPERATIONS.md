@@ -34,6 +34,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-client-pages | :15 07–20 MX | client report pages |
 | argia-dash-update | :02/10 06–20 MX | dashboard tabs + HTML |
 | argia-portal-gen | every 5 min | portal pages (`/www/hosting/portal.argia.com.mx/www`) |
+| argia-demo-gen | every 5 min (:02, :07, ...) | demo.argia.com.mx pages (`/www/hosting/demo.argia.com.mx/www`), read-only through the `demo` schema views; exits 1 and publishes nothing if a real customer name is left (v279) |
 | argia-invoice | 1st 07:30 MX | monthly invoices for PPA plants |
 | argia-cfe-ingest / argia-cfe-push | 09:15 MX / 15:45 UTC | CFE tariff CSV from the Pi → `cfe_tariff`; push to the ARGIA Engine |
 | argia-dailyperf | 19:00 MX | daily PPA performance mail |
@@ -111,3 +112,12 @@ Severity rule (Tomasz, 2026-09-07): **CRITICAL = energy is being lost or a plant
 
 ## 8. Where the numbers are explained
 Portal "How the numbers are calculated" (report pages), `docs/AGS_701_VS_MONITORING_2026-09.md` (standard vs implementation), `docs/INVERTER_THERMAL_HEALTH_V216.md`, Ask ARGIA (`/ask/`, read-only SQL + Golden Standard search).
+
+
+## demo.argia.com.mx (v279)
+
+- **What:** the portal's Report, Monitoring and Map with the same live data; every plant is "ARGIA SOLAR <n>" (numbers fixed in `demo_schema.sql` name_map), every plant PPA (CAPEX plants priced at the month's kWh-weighted PPA tariff), one ARGIA SOLAR logo. No financial report, invoices, app, Ask, setup or account.
+- **Data:** `demo` schema = read-only views over `public` (`demo.plant`, `demo.contract_monthly`, `demo.loss_daily`, helpers `demo.name_map`, `demo.ppa_tariff_month`). `demo_gen.py` runs psql with `PGOPTIONS='-c search_path=demo,public -c default_transaction_read_only=on'`. Re-apply after any change: `runuser -u postgres -- psql -d argia_mont -v ON_ERROR_STOP=1 -f /opt/argia/bundle/demo_schema.sql`.
+- **Leak gate:** every generated file is scanned for every real customer name (public.plant, the logo table, the slug table). A hit = `demo_gen: REFUSED ...` in the journal, exit 1, the previous demo stays online. Check: `journalctl -u argia-demo-gen -n 20 --no-pager`.
+- **Login:** a separate site with its OWN login: nginx HTTP Basic, one shared account `demo`, file `/opt/argia/demo/demo.htpasswd` (hash only, never in git). Nothing of the portal login is used (no auth_app, no users.db); portal users cannot sign in there and `demo` does not exist on the portal. Change the password: `printf 'demo:%s\n' "$(openssl passwd -apr1)" > /opt/argia/demo/demo.htpasswd` (asks twice; no reload needed).
+- **New plant:** add it to `demo.name_map` with the next number (the contract test `test_every_plant_has_a_demo_number` fails until you do).

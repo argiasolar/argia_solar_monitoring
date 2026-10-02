@@ -55,12 +55,15 @@ EXPLICIT: List[Tuple[str, str]] = [
     ("v2/server/bundle/portal.argia.com.mx.conf", "/etc/nginx/sites-enabled/portal.argia.com.mx.conf"),
     ("v2/server/bundle/report.argia.com.mx.conf", "/etc/nginx/sites-enabled/report.argia.com.mx.conf"),
     ("v2/server/bundle/portfolio.argia.com.mx.conf", "/etc/nginx/sites-enabled/portfolio.argia.com.mx.conf"),
+    # v279: demo.argia.com.mx
+    ("v2/server/bundle/demo.argia.com.mx.conf", "/etc/nginx/sites-enabled/demo.argia.com.mx.conf"),
 ]
 # bundle files that are deliberately NOT deployed anywhere
 NOT_DEPLOYED = {
     "README.md",
     "nginx-argia_auth.conf",            # the pre-session (basic auth) snippet, kept as documented rollback
     "portal.argia.com.mx.http.conf",    # bootstrap vhost used once before the certificate existed
+    "demo.argia.com.mx.http.conf",      # v279: the same, for demo.argia.com.mx
 }
 BUNDLE_EXTS = (".py", ".sh", ".sql")
 
@@ -75,6 +78,8 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("portal-setup-wall", "https://portal.argia.com.mx/setup/", (302,)),
     ("portal-monitoring-wall", "https://portal.argia.com.mx/monitoring/", (302,)),
     ("portal-maintenance-wall", "https://portal.argia.com.mx/maintenance/", (302,)),
+    ("demo-root", "https://demo.argia.com.mx/", (401,)),           # v279: its own sign-in, not the portal's
+    ("demo-favicon", "https://demo.argia.com.mx/favicon.png", (200,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),
     ("old-monitoring", "https://monitoring.argia.com.mx/", (301,)),
     # portfolio.argia.com.mx has no DNS record (checked 2026-09-06) - its

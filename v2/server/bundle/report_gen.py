@@ -62,7 +62,10 @@ asof = q("SELECT max(prod_date) FROM daily_production;")[0][0]
 first = q("SELECT min(prod_date) FROM daily_production;")[0][0]
 gen_at = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
 
-q("ALTER TABLE plant ADD COLUMN IF NOT EXISTS sla_target numeric(5,4);")
+try:
+    q("ALTER TABLE plant ADD COLUMN IF NOT EXISTS sla_target numeric(5,4);")
+except RuntimeError:        # v279: a read-only session (demo_gen) - the column exists since it was added
+    pass
 plants = {r[0]: {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]), 'portfolio': r[4],
                  'tariff': f(r[5]), 'om': f(r[6]), 'prb': f(r[7]), 'inv': f(r[8]),
                  'sla': f(r[9]) if len(r) > 9 else 0.0}

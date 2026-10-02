@@ -34,7 +34,9 @@ from typing import Dict, List, Optional, Sequence, Set
 
 EQUAL_TOL_KWH = 0.15        # consecutive days within 0.15 kWh of each other ...
 MIN_FILL_RUN = 3            # ... three or more in a row = a gap fill
-SAME_TOL_KWH = 0.05         # a stored day this close to the target is left alone
+SAME_TOL_KWH = 0.0005       # a stored day equal to the target (to 0.001 kWh) is left alone;
+                            # v286: 0.05 left 33 SMS days 0.001-0.05 off and September missed
+                            # the vendor month by 0.043 kWh (the script's VERIFY caught it)
 NOTE_MARK = "energy from vendor daily counter"   # protected by kpi_mirror (VENDOR_NOTE_MARK)
 
 

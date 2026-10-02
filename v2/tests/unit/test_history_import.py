@@ -81,8 +81,14 @@ class TestTargets:
 class TestPlanAndSql:
     def test_actions(self):
         ch = H.plan_changes({"2026-07-01": 10.0, "2026-07-02": 20.0, "2026-07-03": 30.0, "2026-07-04": 5.0},
-                            {"2026-07-02": 20.04, "2026-07-03": 0.0, "2026-07-04": None})
+                            {"2026-07-02": 20.0004, "2026-07-03": 0.0, "2026-07-04": None})
         assert [c.action for c in ch] == ["NEW", "SAME", "UPDATE", "UPDATE"]
+
+    def test_a_day_a_few_wh_off_is_rewritten_so_the_month_adds_up(self):
+        # v286: with 0.05 kWh slack 33 SMS days stayed a little off and September
+        # missed Growatt's month by 0.043 kWh
+        ch = H.plan_changes({"2026-09-01": 656.478}, {"2026-09-01": 656.44})
+        assert ch[0].action == "UPDATE"
 
     def test_sql_inserts_updates_and_skips(self):
         ch = H.plan_changes({"2026-07-01": 10.0, "2026-07-02": 20.0, "2026-07-03": 30.0, "2026-07-05": 8.0},

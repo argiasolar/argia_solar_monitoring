@@ -14,7 +14,7 @@ Growatt only for now (the web panel's month and year charts).
   write it:
     ... --apply
 
-Days already stored within 0.05 kWh are left alone; NEW days are inserted
+Days already stored at the target (to 0.001 kWh) are left alone; NEW days are inserted
 (source v2), others updated with the energy-proportional columns rescaled.
 Every written row carries the vendor-counter note, so the morning KPI run
 never overwrites it. Re-running is a no-op.

@@ -114,3 +114,17 @@ def test_unknown_plant_and_bad_range_are_refused(fresh_db, month_case):
                 "--capture", month_case["cap"])[0] == 2
     assert _run(fresh_db, "--plant-key", PK, "--from", "2025-02-01", "--to", "2025-01-31",
                 "--capture", month_case["cap"])[0] == 2
+
+
+def test_days_a_few_wh_off_are_rewritten_so_the_month_is_exact(fresh_db, psql, month_case):
+    """v286: SMS September missed Growatt's month by 0.043 kWh because days
+    within 0.05 kWh were left alone. Now the month must be exact."""
+    c = month_case
+    for i in (0, 4, 6):
+        d = c["first"] + dt.timedelta(days=i)
+        psql(f"UPDATE daily_production SET energy_kwh = energy_kwh + 0.02 WHERE plant_key='{PK}' AND prod_date = DATE '{d}'")
+    rc, out = _run(fresh_db, *_args(c, "--apply"))
+    assert rc == 0 and "VERIFY OK" in out, out
+    got = float(psql(f"SELECT sum(energy_kwh) FROM daily_production WHERE plant_key='{PK}'"
+                     f" AND prod_date BETWEEN DATE '{c['first']}' AND DATE '{c['last']}'")[0][0])
+    assert got == pytest.approx(c["total"], abs=0.0005)

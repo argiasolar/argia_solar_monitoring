@@ -134,11 +134,9 @@ def demo_title(rel, text):
 
 
 DEMO_CSS = '''
-/* v281: DEMO everywhere it matters */
+/* v281: the DEMO tag in every header (v284: the landing banner went - Tomasz) */
 .demotag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;background:#b45309;color:#fff;font-weight:800;font-size:13px;letter-spacing:.12em}
 .demotag.hdr{margin-left:12px;font-size:11px;padding:2px 8px}
-.demobar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px;padding:12px 16px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;font-size:14px;font-weight:600}
-.demobar .demotag{font-size:16px;padding:4px 12px}
 /* demo (v279): the one ARGIA SOLAR logo - grey at rest, black on mouse-over */
 .clogo{filter:grayscale(1)!important;opacity:.32;max-width:150px}
 .lcell .lbox{width:120px;flex:0 0 120px}.lcell .lbox .clogo{height:12px;max-width:112px}
@@ -448,7 +446,6 @@ def landing(PG):
     <div class="tblurb" style="font-size:13.5px;color:var(--ink2)" data-en="{html.escape(ben, quote=True)}" data-es="{html.escape(bes, quote=True)}">{html.escape(ben)}</div>
    </a>''' for key, en, es, path, ben, bes in dests)
     body = f'''
-<div class="demobar" role="note"><span class="demotag">DEMO</span><span>{t("Demonstration portal - plant names are anonymised. This is not the live ARGIA portal.", "Portal de demostración - los nombres de las plantas son anónimos. No es el portal ARGIA en vivo.")}</span></div>
 <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
  <div class="kicker">{now.strftime("%A, %d %B %Y")} · {now.strftime("%H:%M")} MX · DEMO</div>
  <h1 class="pt" style="font-size:34px">{t(g_en, g_es)}<span id="gname"></span>.</h1>
@@ -501,6 +498,16 @@ def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     out = os.path.abspath(argv[1] if len(argv) > 1 else DEMO_ROOT)
     stage = out + '.staging'
+    # v282: one run at a time - a manual run during the 5-minute timer run
+    # used to share the staging folder and crash one of them (seen 2026-10-01)
+    import fcntl
+    os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+    lock = open(out + '.lock', 'w')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print('demo_gen: another run is in progress - skipped (nothing changed)')
+        return 0
     # 1) every psql of the generators reads the demo views first
     # and can never write: the session itself is read-only
     os.environ['PGOPTIONS'] = DEMO_OPTS

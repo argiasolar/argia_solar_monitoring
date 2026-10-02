@@ -306,12 +306,15 @@ class TestArgiaSolar:
             t = re.search(r"<title>(.*?)</title>", p.read_text(encoding="utf-8")).group(1)
             assert t.startswith(want.get(k.split("/")[0], "DEMO - ARGIA")), (k, t)
 
-    def test_the_landing_page_says_demo_first(self, demo):
+    def test_the_landing_page_says_demo_at_the_top_without_a_banner(self, demo):
+        """v284 (Tomasz): the DEMO banner on the landing page went; the DEMO
+        tag beside the logo and the DEMO kicker stay."""
         out, _, _ = demo
         s = markup(out / "index.html")
-        body = s[s.index("</header>"):]
-        assert body.index('class="demobar"') < body.index('id="tile-report"')
-        assert '<span class="demotag">DEMO</span>' in body and "not the live ARGIA portal" in body
+        assert "demobar" not in s and "not the live ARGIA portal" not in s
+        head, body = s.split("</header>", 1)
+        assert '<span class="demotag hdr">DEMO</span>' in head
+        assert "MX · DEMO</div>" in body
 
     def test_every_page_header_carries_the_demo_tag(self, demo):
         out, _, _ = demo
@@ -431,6 +434,19 @@ class TestSafety:
         before = {k: p.read_bytes() for k, p in all_files(out).items()}
         rc, so, se = run_demo(pg_env, out, tmp / "portal", patch=lambda m: setattr(m, "scrub", lambda t, r, n: (t, 0)))
         assert rc == 1 and "REFUSED" in se and "demo_gen: LEAK" in se
+        assert {k: p.read_bytes() for k, p in all_files(out).items()} == before
+        assert not (out.parent / "www.staging").exists()
+
+    def test_a_second_run_waits_its_turn(self, demo, pg_env):
+        """v282: a run that starts while another holds the lock skips cleanly -
+        exit 0, nothing touched (a manual run met the timer run on 2026-10-01)."""
+        import fcntl
+        out, _, tmp = demo
+        before = {k: p.read_bytes() for k, p in all_files(out).items()}
+        with open(str(out) + ".lock", "w") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            rc, so, se = run_demo(pg_env, out, tmp / "portal")
+        assert rc == 0 and "another run is in progress - skipped" in so
         assert {k: p.read_bytes() for k, p in all_files(out).items()} == before
         assert not (out.parent / "www.staging").exists()
 

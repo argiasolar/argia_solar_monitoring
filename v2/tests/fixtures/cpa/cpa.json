@@ -1,0 +1,8 @@
+{
+ "partner": "CPA",
+ "sites": [
+  {"key": "MEX1", "name": "Northwind Foods", "city": "Tlalnepantla, Edo. Mex.", "logo": false},
+  {"key": "GTO1", "name": "Altamira Labs", "city": "Leon, Gto.", "logo": false},
+  {"key": "MEX3", "name": "Sierra Plastics", "city": "Mexico City", "logo": false, "approx": true}
+ ]
+}

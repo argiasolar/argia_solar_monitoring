@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA cpa.argia.com.mx regeneration (read-only PG -> static pages + clean energy report, v296)
+After=argia-portal-gen.service
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 /opt/argia/bundle/cpa_gen.py /www/hosting/cpa.argia.com.mx/www

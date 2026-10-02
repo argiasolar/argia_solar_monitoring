@@ -8,6 +8,7 @@ argia-auth  |  (service)  |  auth_app.py
 argia-cfe-ingest  |  *-*-* 09:15:00 America/Mexico_City  |  cfe_ingest.py
 argia-cfe-push  |  *-*-* 15:45:00 UTC  |  cfe_engine_push.py
 argia-client-pages  |  *-*-* 07..20:15:00 America/Mexico_City  |  client_reports_publish.py
+argia-cpa-gen  |  *:4/5  |  cpa_gen.py
 argia-dailyperf  |  *-*-* 19:00:00 America/Mexico_City  |  daily_perf_mail.py
 argia-dash-update  |  *-*-* 06..20:02/10:00 America/Mexico_City  |  dashboard_update.py dashboard_html_publish.py
 argia-dbdump  |  *-*-* 03:30:00  |  db_backup.sh

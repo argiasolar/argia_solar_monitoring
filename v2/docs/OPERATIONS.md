@@ -36,6 +36,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-portal-gen | every 5 min | portal pages (`/www/hosting/portal.argia.com.mx/www`) |
 | argia-demo-gen | every 5 min (:02, :07, ...) | demo.argia.com.mx pages (`/www/hosting/demo.argia.com.mx/www`), read-only through the `demo` schema views; exits 1 and publishes nothing if a real customer name is left (v279) |
 | argia-demo-annexes | 07:40 MX daily | demo example PDFs (daily morning + evening, financial weekly + monthly, invoice annex per plant) from the demo views into `/opt/argia/demo/annexes` (server only); scrubbed + leak gate incl. customer logo images; demo_gen lists them in Reports > Annexes (v288) |
+| argia-cpa-gen | every 5 min (:04, :09, ...) | cpa.argia.com.mx pages (`/www/hosting/cpa.argia.com.mx/www`) for the partner CPA: read-only PG (daily_production + today's telemetry), clean energy report PDF EN/ES printed once a day (cache `/opt/argia/cpa/reports`), CSV; exits 1 and publishes nothing if a page has a plant code, an em dash, None/nan or a broken link (v296) |
 | argia-invoice | 1st 07:30 MX | monthly invoices for PPA plants |
 | argia-cfe-ingest / argia-cfe-push | 09:15 MX / 15:45 UTC | CFE tariff CSV from the Pi → `cfe_tariff`; push to the ARGIA Engine |
 | argia-dailyperf | 19:00 MX | daily PPA performance mail |
@@ -124,3 +125,13 @@ Portal "How the numbers are calculated" (report pages), `docs/AGS_701_VS_MONITOR
 - **Demo-only photos (v280):** a `<code>.jpg` / `<code>_t.jpg` in `/opt/argia/demo/photos/` (server only, not in git) replaces that plant's photo on the demo, never on the portal. In use: `mex1` (the portal photo shows the customer's sign). Takes effect at the next 5-minute run.
 - **Annexes (v288):** `argia-demo-annexes` (venv python, chromium print) writes the example PDFs + `manifest.json`; a leak or a failed print = exit 1, the last good set stays. Re-make now: `systemctl start argia-demo-annexes.service`.
 - **New plant:** add it to `demo.name_map` with the next number (the contract test `test_every_plant_has_a_demo_number` fails until you do).
+
+
+## cpa.argia.com.mx (v296)
+
+- **What:** ARGIA for CPA - the partner (industrial real estate) whose tenants get ARGIA solar and LED. Overview (live power, energy, CO2e avoided, equivalences, map, ESG framing), one page per site, the clean energy report (year to date of closed months + since the start; PDF EN/ES + CSV) and the LED savings estimator. Static pages, built every 5 minutes by `cpa_gen.py`.
+- **Which plants and names:** server only, `/opt/argia/cpa/cpa.json` (`{"partner": "CPA", "sites": [{"key", "name", "city", "logo": true|false, "approx": true|false}]}`); the CPA logo in `/opt/argia/cpa/brand/` (`cpa_logo_white.png`, `cpa_mark.png` = favicon). Never in git (public repo). A new site: add it to `cpa.json`; the next run shows it.
+- **Numbers:** energy = `daily_production` (closed days) + today's inverter counters; CO2e = `argia.core.co2` (SEMARNAT/CRE factor per year, or the customer's contracted factor) month by month - the same as every ARGIA report. Equivalences: US EPA factors, labelled illustrative.
+- **Login:** its OWN nginx HTTP Basic file `/opt/argia/cpa/cpa.htpasswd` (hash only). Set or change: `printf 'demo:%s\n' "$(openssl passwd -apr1)" > /opt/argia/cpa/cpa.htpasswd` (asks twice, no reload). Without the file nginx answers 500: closed, never open.
+- **Check:** `journalctl -u argia-cpa-gen -n 20 --no-pager` (proof line `cpa_gen: 3 sites, ... MWh to date ...`); re-print the PDFs now: `rm /opt/argia/cpa/reports/*; systemctl start argia-cpa-gen.service`.
+

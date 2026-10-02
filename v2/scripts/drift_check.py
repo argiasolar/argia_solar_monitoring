@@ -59,6 +59,8 @@ EXPLICIT: List[Tuple[str, str]] = [
     ("v2/server/bundle/demo.argia.com.mx.conf", "/etc/nginx/sites-enabled/demo.argia.com.mx.conf"),
     # v292: prologis.argia.com.mx (ARGIA for Prologis)
     ("v2/server/bundle/prologis.argia.com.mx.conf", "/etc/nginx/sites-enabled/prologis.argia.com.mx.conf"),
+    # v296: cpa.argia.com.mx (ARGIA for CPA)
+    ("v2/server/bundle/cpa.argia.com.mx.conf", "/etc/nginx/sites-enabled/cpa.argia.com.mx.conf"),
 ]
 # bundle files that are deliberately NOT deployed anywhere
 NOT_DEPLOYED = {
@@ -67,6 +69,7 @@ NOT_DEPLOYED = {
     "portal.argia.com.mx.http.conf",    # bootstrap vhost used once before the certificate existed
     "demo.argia.com.mx.http.conf",      # v279: the same, for demo.argia.com.mx
     "prologis.argia.com.mx.http.conf",  # v292: the same, for prologis.argia.com.mx
+    "cpa.argia.com.mx.http.conf",       # v296: the same, for cpa.argia.com.mx
 }
 BUNDLE_EXTS = (".py", ".sh", ".sql")
 
@@ -85,6 +88,8 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("demo-favicon", "https://demo.argia.com.mx/favicon.png", (200,)),
     ("prologis-login", "https://prologis.argia.com.mx/login", (200,)),    # v292: its own sign-in page
     ("prologis-wall", "https://prologis.argia.com.mx/", (302,)),
+    ("cpa-root", "https://cpa.argia.com.mx/", (401,)),             # v296: its own sign-in (HTTP Basic)
+    ("cpa-favicon", "https://cpa.argia.com.mx/favicon.png", (200,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),
     ("old-monitoring", "https://monitoring.argia.com.mx/", (301,)),
     # portfolio.argia.com.mx has no DNS record (checked 2026-09-06) - its

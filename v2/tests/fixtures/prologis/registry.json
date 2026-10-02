@@ -1,0 +1,162 @@
+{
+ "portfolio": {
+  "name": "Test portfolio",
+  "market": "Test market"
+ },
+ "sites": [
+  {
+   "code": "TST001",
+   "name": "Parque Norte Bldg 1",
+   "park": "Parque Norte",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 1",
+   "kwp": 619.4,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.66,
+   "lon": -99.21,
+   "geo_approx": true
+  },
+  {
+   "code": "TST002",
+   "name": "Parque Lago Bldg 2",
+   "park": "Parque Lago",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 2",
+   "kwp": 316.4,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.624000000000002,
+   "lon": -99.183,
+   "geo_approx": true
+  },
+  {
+   "code": "TST003",
+   "name": "Parque Sierra Bldg 3",
+   "park": "Parque Sierra",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 3",
+   "kwp": 517.0,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.407999999999998,
+   "lon": -99.506,
+   "geo_approx": true
+  },
+  {
+   "code": "TST004",
+   "name": "Parque Norte Bldg 4",
+   "park": "Parque Norte",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 4",
+   "kwp": 631.8,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.672,
+   "lon": -99.219,
+   "geo_approx": true
+  },
+  {
+   "code": "TST005",
+   "name": "Parque Lago Bldg 5",
+   "park": "Parque Lago",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 5",
+   "kwp": 234.0,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.636,
+   "lon": -99.19200000000001,
+   "geo_approx": true
+  },
+  {
+   "code": "TST006",
+   "name": "Parque Sierra Bldg 6",
+   "park": "Parque Sierra",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 6",
+   "kwp": 600.0,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.419999999999998,
+   "lon": -99.515,
+   "geo_approx": true
+  },
+  {
+   "code": "TST007",
+   "name": "Parque Norte Bldg 7",
+   "park": "Parque Norte",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 7",
+   "kwp": 580.0,
+   "pto": "Q1 2025",
+   "status": "operating",
+   "lat": 19.684,
+   "lon": -99.228,
+   "geo_approx": true
+  },
+  {
+   "code": "TST008",
+   "name": "Parque Lago Bldg 8",
+   "park": "Parque Lago",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 8",
+   "kwp": 410.0,
+   "pto": "Q1 2025",
+   "status": "pre_pto",
+   "lat": 19.648,
+   "lon": -99.20100000000001,
+   "geo_approx": true
+  },
+  {
+   "code": "TST009",
+   "name": "Parque Sierra Bldg 9",
+   "park": "Parque Sierra",
+   "city": "Cuautitlan Izcalli",
+   "state": "Estado de Mexico",
+   "address": "Calle Ficticia 9",
+   "kwp": 700.0,
+   "pto": "Q1 2025",
+   "status": "pre_pto",
+   "lat": 19.432,
+   "lon": -99.524,
+   "geo_approx": true
+  }
+ ],
+ "projects": [
+  {
+   "id": "EPC-TST-1",
+   "name": "Parque Lago Bldg 20",
+   "kind": "EPC",
+   "site_code": "",
+   "city": "Tultitlan",
+   "kwp": 900,
+   "stage": "Design",
+   "next": "Design freeze",
+   "next_date": "2026-11-15",
+   "notes": "synthetic",
+   "lat": 19.6,
+   "lon": -99.17
+  },
+  {
+   "id": "OM-TST008",
+   "name": "Parque Sierra Bldg 8",
+   "kind": "O&M onboarding",
+   "site_code": "TST008",
+   "city": "Lerma",
+   "kwp": 410,
+   "stage": "Construction",
+   "next": "PTO",
+   "next_date": "Q4 2026",
+   "notes": ""
+  }
+ ]
+}

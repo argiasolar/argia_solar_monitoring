@@ -29,8 +29,8 @@ import pytest
 V2 = pathlib.Path(__file__).resolve().parents[2]
 BUNDLE = V2 / "server" / "bundle"
 HERE = pathlib.Path(__file__).parent
-APPS = ("ask_app", "auth_app", "fin_app", "maint_app", "setup_app")
-LONG_RUNNING = {"ask_app.py", "auth_app.py", "fin_app.py", "maint_app.py", "setup_app.py", "savio_mock.py"}
+APPS = ("ask_app", "auth_app", "fin_app", "maint_app", "prologis_app", "setup_app")
+LONG_RUNNING = {"ask_app.py", "auth_app.py", "fin_app.py", "maint_app.py", "prologis_app.py", "setup_app.py", "savio_mock.py"}
 # jobs exercised end to end by a dedicated test module rather than the smoke list
 RUN_ELSEWHERE = {"portal_gen.py": "tests/portal/test_portal_site.py",
                  "demo_gen.py": "tests/portal/test_demo_site.py",          # v279

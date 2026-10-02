@@ -58,6 +58,23 @@ sftp -q -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
 get portfolio_latest.json $HOME/report_watch/portfolio.json
 EOF
 
+# v292: ARGIA for Prologis archive (db + documents; best-effort, own retention)
+mkdir -p "$BASE/prologis"
+if sftp -q -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
+     -o ConnectTimeout=25 "$SRV" >/dev/null 2>&1 <<EOF
+get prologis_latest.tar.gz $BASE/prologis/.prologis_$stamp.tmp
+EOF
+then
+  if tar -tzf "$BASE/prologis/.prologis_$stamp.tmp" ./prologis.db >/dev/null 2>&1 \
+     || tar -tzf "$BASE/prologis/.prologis_$stamp.tmp" prologis.db >/dev/null 2>&1; then
+    mv "$BASE/prologis/.prologis_$stamp.tmp" "$BASE/prologis/prologis_$stamp.tar.gz"
+  else
+    alert "Prologis backup INVALID $stamp - archive without prologis.db"
+    rm -f "$BASE/prologis/.prologis_$stamp.tmp"
+  fi
+fi
+ls -1t "$BASE"/prologis/prologis_*.tar.gz 2>/dev/null | tail -n +15 | xargs -r rm -f
+
 # financial report PDFs (small; best-effort)
 sftp -q -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
   -o ConnectTimeout=25 "$SRV" >/dev/null 2>&1 <<EOF || true

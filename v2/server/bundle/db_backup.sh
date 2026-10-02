@@ -4,6 +4,7 @@
 # Writes to /root/argia_backups/:
 #   argia_mont_YYYYMMDD.dump   pg_dump -Fc of the monitoring DB
 #   users_YYYYMMDD.db          sqlite online-backup of the auth DB
+#   prologis_YYYYMMDD.tar.gz   v292: ARGIA for Prologis db + files (when present)
 #   *_latest.*                 stable names the Pi pulls by
 # Keeps the newest 3 dated copies locally - the real retention lives
 # on the Pi (14 daily + 8 weekly), pulled via a read-only SFTP key, so
@@ -29,6 +30,31 @@ src.backup(dst)
 dst.close(); src.close()
 EOF
 cp -f "$OUT/users_$stamp.db" "$OUT/users_latest.db"
+
+# v292: ARGIA for Prologis - its own database (sqlite online backup) plus
+# registry, uploaded files and brand, as one archive. Best-effort only when
+# the platform exists; a failure here must not lose the main backup.
+if [ -f /opt/argia/prologis/prologis.db ]; then
+  ptmp="$(mktemp -d)"
+  if python3 - "$ptmp/prologis.db" <<'EOF2'
+import sqlite3, sys
+src = sqlite3.connect("file:/opt/argia/prologis/prologis.db?mode=ro", uri=True)
+dst = sqlite3.connect(sys.argv[1])
+src.backup(dst)
+dst.close(); src.close()
+EOF2
+  then
+    tar -czf "$OUT/.prologis_$stamp.tmp" -C "$ptmp" prologis.db -C /opt/argia/prologis \
+        --exclude=prologis.db --exclude='prologis.db-*' --exclude=secret.key . \
+      && mv "$OUT/.prologis_$stamp.tmp" "$OUT/prologis_$stamp.tar.gz" \
+      && cp -f "$OUT/prologis_$stamp.tar.gz" "$OUT/prologis_latest.tar.gz" \
+      || echo "$(date -Is) prologis archive FAILED (main backup unaffected)"
+  else
+    echo "$(date -Is) prologis db backup FAILED (main backup unaffected)"
+  fi
+  rm -rf "$ptmp"
+  ls -1t "$OUT"/prologis_2*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+fi
 
 # portfolio snapshot for the Pi's outage watch (v214) - best-effort
 /root/argia_v2/v2/pi/run_job.sh portfolio-export portfolio_export.py --out "$OUT/portfolio_latest.json" || echo "$(date -Is) portfolio export FAILED (backup unaffected)"

@@ -1,0 +1,27 @@
+[Unit]
+# v292: ARGIA for Prologis - the customer platform at prologis.argia.com.mx.
+# Its OWN login (users, MFA, sessions, audit in /opt/argia/prologis/prologis.db),
+# separate from the portal's auth. Registry, files, brand and secret key live
+# only under /opt/argia/prologis (root-only, never in git).
+Description=ARGIA for Prologis (prologis.argia.com.mx)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_PL_DIR=/opt/argia/prologis
+Environment=ARGIA_PL_DB=/opt/argia/prologis/prologis.db
+Environment=ARGIA_PL_FILES=/opt/argia/prologis/files
+Environment=ARGIA_PL_REGISTRY=/opt/argia/prologis/registry.json
+Environment=ARGIA_PL_PORT=8520
+ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

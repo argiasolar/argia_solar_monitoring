@@ -9,7 +9,9 @@ log of every login, change, upload and download, and a data export.
     /                 overview: live portfolio, map, alerts, tickets, projects
     /map/             every site on a satellite map
     /sites/           all sites, live; /sites/<code>/ one site
-    /tickets/         O&M tickets on the MSA response-time classes
+    /tickets/         O&M tickets on the MSA response-time classes, and service orders
+    /shop/            service shop: order cleaning, thermography, repairs... (v293)
+    /admin/services/  services and prices, published or draft (admin)
     /projects/        constructions and onboarding pipeline
     /docs/            documentation library per site and folder
     /security/        how the platform protects Prologis data
@@ -23,6 +25,7 @@ logo) lives only under /opt/argia/prologis on the server.
     python3 prologis_app.py                     serve
     python3 prologis_app.py --create-admin USER "Full name" EMAIL
     python3 prologis_app.py --seed-sample-tickets
+    python3 prologis_app.py --seed-catalog FILE  add missing services from a JSON list (never overwrites)
 """
 from __future__ import annotations
 
@@ -48,6 +51,7 @@ sys.path.insert(0, os.environ.get("ARGIA_V2_DIR", "/root/argia_v2/v2"))
 import argia_logo                                         # noqa: E402
 import prologis_ui as UI                                  # noqa: E402
 from plain_text import plain                              # noqa: E402
+from argia.prologis import catalog as CAT                 # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
@@ -170,12 +174,13 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
     u = g.user or {}
     nav = [("/", tt("Overview", "Resumen"), "home"), ("/map/", tt("Map", "Mapa"), "map"),
            ("/sites/", tt("Sites", "Sitios"), "sites"), ("/tickets/", tt("Tickets", "Tickets"), "tickets"),
+           ("/shop/", tt("Services", "Servicios"), "shop"),
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
-    if S.can(u.get("role", ""), "users"):
-        nav.append(("/admin/users/", tt("Users", "Usuarios"), "users"))
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
-    who = (f'<div class="who">{UI.e(u.get("name") or u.get("username", ""))} · '
+    users_link = (f'<a href="/admin/users/" class="{"on" if on == "users" else ""}">{tt("Users", "Usuarios")}</a> · '
+                  if S.can(u.get("role", ""), "users") else "")
+    who = (f'<div class="who">{UI.e(u.get("name") or u.get("username", ""))} · {users_link}'
            f'<a href="/lang/{other}">{other.upper()}</a> · <a href="/security/">{tt("Security", "Seguridad")}</a>'
            f' · <a href="/logout">{tt("Sign out", "Salir")}</a></div>')
     banner = (f'<div class="sample">{tt("SAMPLE DATA - simulated production until Prologis grants ARGIA access to the SolarEdge / Hark accounts. Sites, sizes and locations are real.", "DATOS DE MUESTRA - producción simulada hasta que Prologis otorgue a ARGIA acceso a SolarEdge / Hark. Sitios, tamaños y ubicaciones son reales.")}</div>'
@@ -376,7 +381,7 @@ def live_all(rg: R.Registry, now: dt.datetime) -> Dict[str, M.LiveState]:
 
 def open_tickets(c) -> List:
     q = ",".join("?" * len(S.OPEN))
-    return c.execute(f"SELECT * FROM tickets WHERE status IN ({q}) ORDER BY id DESC", S.OPEN).fetchall()
+    return c.execute(f"SELECT * FROM tickets WHERE kind='incident' AND status IN ({q}) ORDER BY id DESC", S.OPEN).fetchall()
 
 
 def sla_of(c, tk, now_utc: dt.datetime) -> tuple:
@@ -494,7 +499,7 @@ def home():
 <div class="kpi"><div class="l">{tt("Last 30 days", "Últimos 30 días")}</div><div class="v">{UI.num(k["mwh_30d"], 0)}<small>MWh</small></div><div class="d">{UI.num(k["co2_t_30d"], 0)} t CO₂ {tt("avoided", "evitadas")}</div></div>
 <div class="kpi"><div class="l">{tt("Availability 30 d", "Disponibilidad 30 d")}</div><div class="v">{k["availability_30d"] * 100:.2f}<small>%</small></div><div class="d">{tt("MSA method, >150 W/m²", "Método MSA, >150 W/m²")}</div></div>
 <div class="kpi"><div class="l">{tt("Performance ratio", "Performance ratio")}</div><div class="v">{k["pr_30d"] * 100:.1f}<small>%</small></div><div class="d">{tt("30-day, weighted", "30 días, ponderado")}</div></div>
-<div class="kpi"><div class="l">{tt("Open tickets", "Tickets abiertos")}</div><div class="v">{len(tks)}</div><div class="d">{k["alerts"]} {tt("live alerts", "alertas en vivo")}</div></div></div></div>
+<div class="kpi"><div class="l">{tt("Open tickets", "Tickets abiertos")}</div><div class="v">{len(tks)}</div><div class="d">{k["alerts"]} {tt("live alerts", "alertas en vivo")} · {len(S.open_orders(c))} {tt("service orders", "órdenes de servicio")}</div></div></div></div>
 <div class="grid g2"><div class="card"><h2>{tt("Portfolio power today", "Potencia del portafolio hoy")}<span class="r muted">{tt("dashed: clear-sky expectation", "punteado: esperado cielo despejado")}</span></h2>{curve}</div>
 <div class="card"><h2>{tt("Live alerts", "Alertas en vivo")}<span class="r"><a href="/sites/">{tt("All sites", "Todos los sitios")} ›</a></span></h2><table class="t">{al}</table></div></div>
 <div class="grid g2"><div class="card"><h2>{tt("Where your energy is made", "Dónde se produce su energía")}<span class="r"><a href="/map/">{tt("Full map", "Mapa completo")} ›</a></span></h2>{map_block(rg, lv, "mini-map", projects=False)}</div>
@@ -555,7 +560,8 @@ def site_page(code):
     i = op.index(s) if s in op else 0
     x = M.live(s, now, i, len(op))
     c = db()
-    tks = c.execute("SELECT * FROM tickets WHERE site_code=? ORDER BY id DESC LIMIT 8", (s.code,)).fetchall()
+    tks = c.execute("SELECT * FROM tickets WHERE site_code=? OR id IN (SELECT ticket_id FROM order_lines WHERE site_code=?) "
+                    "ORDER BY id DESC LIMIT 8", (s.code, s.code)).fetchall()
     docs = c.execute("SELECT * FROM documents WHERE site_code=? AND deleted=0 ORDER BY id DESC LIMIT 8", (s.code,)).fetchall()
     if s.operating:
         r = M.day_result(s.code, s.lat, s.lon, s.kwp, now.date(), upto=now.time(), index=i, n_sites=len(op))
@@ -573,14 +579,15 @@ def site_page(code):
 <div class="card" style="margin-top:16px"><h2>{tt("Last 30 days", "Últimos 30 días")}<span class="r muted">{tt("bar: actual · line: expected (weather-adjusted) · amber: below 85%", "barra: real · línea: esperado (ajustado por clima) · ámbar: bajo 85%")}</span></h2>{bars}</div>"""
     else:
         live_cards = f'<div class="card" style="margin-top:16px"><h2>{tt("Not yet in operation", "Aún no en operación")}</h2><p>{tt("Permission to Operate planned", "Permiso de operación planeado")}: <b>{UI.e(s.pto)}</b>. {tt("Monitoring starts at the ARGIA onboarding inspection.", "El monitoreo inicia con la inspección de onboarding de ARGIA.")}</p></div>'
-    trs = "".join(f'<tr><td><a href="/tickets/{tk["number"]}/">{tk["number"]}</a></td><td>{UI.e(tk["title"])}</td><td>{UI.e(dict((k, en) for k, en, _ in S.TICKET_STATUSES).get(tk["status"], tk["status"]))}</td></tr>' for tk in tks) \
+    st_lbl = dict((k, tt(en, es)) for k, en, es in S.TICKET_STATUSES + CAT.ORDER_STATUSES)
+    trs = "".join(f'<tr><td><a href="/tickets/{tk["number"]}/">{tk["number"]}</a></td><td>{UI.e(tk["title"])}</td><td>{UI.e(st_lbl.get(tk["status"], tk["status"]))}</td></tr>' for tk in tks) \
         or f'<tr><td class="muted">{tt("No tickets.", "Sin tickets.")}</td></tr>'
     drs = "".join(f'<tr><td><a href="/docs/{d["id"]}/download">{UI.e(d["name"])}</a></td><td class="small muted">{UI.e(d["folder"])}</td></tr>' for d in docs) \
         or f'<tr><td class="muted">{tt("No documents yet.", "Sin documentos aún.")}</td></tr>'
     body = f"""<div class="kick">{UI.e(s.park)} · {UI.e(s.city)}</div><h1 class="pt">{UI.e(s.name)}</h1>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px"><span class="chip">{s.code}</span><span class="chip">{UI.num(s.kwp, 1)} kWp</span><span class="chip">PTO {UI.e(s.pto)}</span>
 <span class="chip">{UI.e(s.monitoring)}</span><span class="chip">{UI.e(s.address)}</span></div>{live_cards}
-<div class="grid g2e"><div class="card"><h2>{tt("Tickets", "Tickets")}<span class="r"><a class="btn sm" href="/tickets/new?site={s.code}">{tt("New", "Nuevo")}</a></span></h2><table class="t">{trs}</table></div>
+<div class="grid g2e"><div class="card"><h2>{tt("Tickets", "Tickets")}<span class="r"><a class="btn sm ghost" href="/shop/">{tt("Order a service", "Pedir servicio")}</a> <a class="btn sm" href="/tickets/new?site={s.code}">{tt("New", "Nuevo")}</a></span></h2><table class="t">{trs}</table></div>
 <div class="card"><h2>{tt("Documents", "Documentos")}<span class="r"><a href="/docs/?site={s.code}">{tt("Folder", "Carpeta")} ›</a></span></h2><table class="t">{drs}</table></div></div>"""
     return page(s.name, body, "sites", sample=s.operating)
 
@@ -592,32 +599,58 @@ def tickets():
     rg = reg()
     c = db()
     show = request.args.get("show", "open")
-    rows_db = open_tickets(c) if show == "open" else c.execute("SELECT * FROM tickets ORDER BY id DESC").fetchall()
+    kind = "order" if request.args.get("kind") == "order" else "incident"
     nowu = utc_now()
-    rows, results = "", []
-    for tk in c.execute("SELECT * FROM tickets").fetchall():
-        results.append(sla_of(c, tk, nowu)[2])
+    results = [sla_of(c, tk, nowu)[2] for tk in c.execute("SELECT * FROM tickets WHERE kind='incident'").fetchall()]
     comp = SLA.compliance(results)
-    for tk in rows_db:
-        cls, used, st = sla_of(c, tk, nowu)
-        s = rg.site(tk["site_code"])
-        stl = dict((k, tt(en, es)) for k, en, es in S.TICKET_STATUSES)[tk["status"]]
-        appr = {"pending": f'<span class="pill s-warn">{tt("Approval pending", "Aprobación pendiente")}</span>',
-                "approved": f'<span class="pill s-ok">{tt("Approved", "Aprobado")}</span>',
-                "rejected": f'<span class="pill s-bad">{tt("Rejected", "Rechazado")}</span>'}.get(tk["approval"], "")
-        rows += (f'<tr><td class="nw"><a href="/tickets/{tk["number"]}/"><b>{tk["number"]}</b></a>{SAMPLE_PILL if tk["sample"] else ""}</td>'
-                 f'<td>{UI.e(tk["title"])}<div class="small muted">{UI.e(s.name if s else tk["site_code"])}</div></td>'
-                 f'<td><span class="pill s-off">{cls.priority}</span> <span class="small">{UI.e(tt(cls.en, cls.es))}</span></td>'
-                 f'<td>{stl} {appr}</td><td>{sla_pill(cls, used, st, tt)}</td><td class="small muted">{mx_time(tk["detected_utc"])}</td></tr>')
-    rows = rows or f'<tr><td class="muted">{tt("No tickets.", "Sin tickets.")}</td></tr>'
+    n_open, n_orders = len(open_tickets(c)), len(S.open_orders(c))
+    rows = ""
+    if kind == "incident":
+        rows_db = open_tickets(c) if show == "open" else c.execute("SELECT * FROM tickets WHERE kind='incident' ORDER BY id DESC").fetchall()
+        for tk in rows_db:
+            cls, used, st = sla_of(c, tk, nowu)
+            s = rg.site(tk["site_code"])
+            stl = dict((k, tt(en, es)) for k, en, es in S.TICKET_STATUSES).get(tk["status"], tk["status"])
+            appr = {"pending": f'<span class="pill s-warn">{tt("Approval pending", "Aprobación pendiente")}</span>',
+                    "approved": f'<span class="pill s-ok">{tt("Approved", "Aprobado")}</span>',
+                    "rejected": f'<span class="pill s-bad">{tt("Rejected", "Rechazado")}</span>'}.get(tk["approval"], "")
+            rows += (f'<tr><td class="nw"><a href="/tickets/{tk["number"]}/"><b>{tk["number"]}</b></a>{SAMPLE_PILL if tk["sample"] else ""}</td>'
+                     f'<td>{UI.e(tk["title"])}<div class="small muted">{UI.e(s.name if s else tk["site_code"])}</div></td>'
+                     f'<td><span class="pill s-off">{cls.priority}</span> <span class="small">{UI.e(tt(cls.en, cls.es))}</span></td>'
+                     f'<td>{stl} {appr}</td><td>{sla_pill(cls, used, st, tt)}</td><td class="small muted">{mx_time(tk["detected_utc"])}</td></tr>')
+        head = (f'<tr><th>#</th><th>{tt("Issue", "Asunto")}</th><th>{tt("MSA class", "Clase MSA")}</th><th>{tt("Status", "Estado")}</th>'
+                f'<th>{tt("Response clock", "Reloj de respuesta")}</th><th>{tt("Detected", "Detectado")}</th></tr>')
+    else:
+        rows_db = S.open_orders(c) if show == "open" else c.execute("SELECT * FROM tickets WHERE kind='order' ORDER BY id DESC").fetchall()
+        for tk in rows_db:
+            lines = S.as_lines(S.order_lines(c, tk["id"]))
+            tot = CAT.totals(lines)
+            sites = sorted({ln.site_code for ln in lines if ln.site_code})
+            where = (rg.site(sites[0]).name if len(sites) == 1 and rg.site(sites[0]) else
+                     (f'{len(sites)} {tt("sites", "sitios")}' if sites else tt("Portfolio", "Portafolio")))
+            when = tk["scheduled_date"] or tk["target_date"] or "-"
+            when_note = "" if tk["scheduled_date"] else ' <span class="small muted">' + tt("earliest", "más temprana") + "</span>"
+            rows += (f'<tr><td class="nw"><a href="/tickets/{tk["number"]}/"><b>{tk["number"]}</b></a></td>'
+                     f'<td>{UI.e(tk["title"])}<div class="small muted">{UI.e(where)} · {tot["lines"]} {tt("lines", "líneas")}{" · PO " + UI.e(tk["po_number"]) if tk["po_number"] else ""}</div></td>'
+                     f'<td>{order_pill(tk, tt)}</td><td class="n nw">{_mxn(tot["total"])}{"*" if tot["on_quote"] else ""}</td>'
+                     f'<td class="nw">{UI.e(when)}{when_note}</td>'
+                     f'<td class="small muted">{mx_time(tk["created_utc"])}</td></tr>')
+        head = (f'<tr><th>#</th><th>{tt("Order", "Pedido")}</th><th>{tt("Status", "Estado")}</th><th class="n">{tt("Total incl. IVA", "Total con IVA")}</th>'
+                f'<th>{tt("Date", "Fecha")}</th><th>{tt("Ordered", "Pedido")}</th></tr>')
+    rows = rows or f'<tr><td class="muted" colspan="6">{tt("Nothing here.", "Nada aquí.")}</td></tr>'
     new = f'<a class="btn" href="/tickets/new">{tt("New ticket", "Nuevo ticket")}</a>' if S.can(g.user["role"], "ticket_new") else ""
+    shop_btn = f'<a class="btn ghost" href="/shop/">{tt("Order a service", "Pedir un servicio")}</a>'
+    other = "all" if show == "open" else "open"
+    toggle = tt("Show all" if show == "open" else "Open only", "Ver todos" if show == "open" else "Solo abiertos")
+    tabs = (f'<div class="tabs"><a class="tab{" on" if kind == "incident" else ""}" href="/tickets/">{tt("Incidents", "Incidencias")} <b>{n_open}</b></a>'
+            f'<a class="tab{" on" if kind == "order" else ""}" href="/tickets/?kind=order">{tt("Service orders", "Órdenes de servicio")} <b>{n_orders}</b></a></div>')
     body = f"""<div style="display:flex;align-items:end;gap:12px;flex-wrap:wrap"><div><div class="kick">{tt("Operation & maintenance", "Operación y mantenimiento")}</div>
-<h1 class="pt">{tt("Tickets", "Tickets")}</h1></div><div style="margin-left:auto;display:flex;gap:8px">{new}
-<a class="btn ghost" href="?show={"all" if show == "open" else "open"}">{tt("Show all" if show == "open" else "Open only", "Ver todos" if show == "open" else "Solo abiertos")}</a></div></div>
+<h1 class="pt">{tt("Tickets", "Tickets")}</h1></div><div style="margin-left:auto;display:flex;gap:8px">{new}{shop_btn}
+<a class="btn ghost" href="?show={other}{"&kind=order" if kind == "order" else ""}">{toggle}</a></div></div>
 <div class="grid g3"><div class="card"><h2>{tt("Response-time compliance", "Cumplimiento de tiempo de respuesta")}</h2><div style="font-size:30px;font-weight:800;color:var(--deep)">{"-" if comp is None else f"{comp * 100:.0f}%"}</div><div class="small muted">{tt("closed clocks that met the MSA deadline", "relojes cerrados dentro del plazo del MSA")}</div></div>
-<div class="card"><h2>{tt("Open", "Abiertos")}</h2><div style="font-size:30px;font-weight:800;color:var(--deep)">{len(open_tickets(c))}</div><div class="small muted">{tt("new, responded, in progress or waiting", "nuevos, atendidos, en curso o en espera")}</div></div>
+<div class="card"><h2>{tt("Open", "Abiertos")}</h2><div style="font-size:30px;font-weight:800;color:var(--deep)">{n_open} <small style="font-size:14px;color:var(--muted)">+ {n_orders} {tt("orders", "pedidos")}</small></div><div class="small muted">{tt("incidents: new, responded, in progress or waiting", "incidencias: nuevas, atendidas, en curso o en espera")}</div></div>
 <div class="card"><h2>{tt("How the clock works", "Cómo corre el reloj")}</h2><div class="small">{tt("Classes and deadlines are the MSA's (Schedule A). The clock starts at detection, or at Prologis's dispatch approval where the MSA requires it, and stops while waiting on Prologis or site access.", "Clases y plazos del MSA (Anexo A). El reloj inicia en la detección, o en la aprobación de despacho de Prologis cuando el MSA lo exige, y se detiene mientras se espera a Prologis o al acceso.")}</div></div></div>
-<div class="card" style="margin-top:16px;overflow-x:auto"><table class="t"><tr><th>#</th><th>{tt("Issue", "Asunto")}</th><th>{tt("MSA class", "Clase MSA")}</th><th>{tt("Status", "Estado")}</th><th>{tt("Response clock", "Reloj de respuesta")}</th><th>{tt("Detected", "Detectado")}</th></tr>{rows}</table></div>"""
+{tabs}<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t">{head}{rows}</table></div>"""
     return page(tt("Tickets", "Tickets"), body, "tickets")
 
 
@@ -679,9 +712,11 @@ def _ticket(number: str):
 
 @app.get("/tickets/<number>/")
 def ticket_page(number):
+    tk = _ticket(number)
+    if tk["kind"] == "order":
+        return order_page(tk)
     tt = t()
     c = db()
-    tk = _ticket(number)
     rg = reg()
     s = rg.site(tk["site_code"])
     cls, used, st = sla_of(c, tk, utc_now())
@@ -726,8 +761,18 @@ def ticket_page(number):
 
 @app.post("/tickets/<number>/status")
 def ticket_status(number):
-    need("ticket_work")
     tk = _ticket(number)
+    if tk["kind"] == "order":
+        need("order")
+        try:
+            S.set_order_status(db(), tk, request.form.get("to", ""), g.user["username"], g.user["role"],
+                               request.form.get("note", ""), (request.form.get("scheduled") or "").strip(), ip())
+        except PermissionError:
+            abort(403)
+        except ValueError:
+            abort(400)
+        return redirect(f"/tickets/{number}/")
+    need("ticket_work")
     try:
         S.set_status(db(), tk, request.form.get("to", ""), g.user["username"], request.form.get("note", ""), ip())
     except ValueError:
@@ -772,6 +817,419 @@ def ticket_comment(number):
     if did:
         S.add_event(c, tk["id"], g.user["username"], "file", "", {"doc": did})
     return redirect(f"/tickets/{number}/")
+
+
+# ------------------------------------------------------------------ service shop (v293)
+def order_label(st: str, tt) -> str:
+    return dict((k, tt(en, es)) for k, en, es in CAT.ORDER_STATUSES).get(st, st)
+
+
+def order_pill(tk, tt) -> str:
+    st = tk["status"]
+    cls = {"ORDERED": "s-info", "CONFIRMED": "s-lime", "SCHEDULED": "s-lime", "IN_PROGRESS": "s-warn",
+           "COMPLETED": "s-ok", "INVOICED": "s-ok", "CANCELLED": "s-off"}.get(st, "s-off")
+    out = f'<span class="pill {cls}">{UI.e(order_label(st, tt))}</span>'
+    if st == "ORDERED":
+        out += {"quote_needed": f' <span class="pill s-warn">{tt("ARGIA preparing quote", "ARGIA cotizando")}</span>',
+                "pending": f' <span class="pill s-warn">{tt("Quote awaiting Prologis", "Cotización por aceptar")}</span>',
+                "rejected": f' <span class="pill s-bad">{tt("Quote declined", "Cotización rechazada")}</span>'}.get(tk["approval"], "")
+    return out
+
+
+def _mxn(v) -> str:
+    return "-" if v is None else "MXN " + UI.num(v, 2)
+
+
+def _item_name(it, tt) -> str:
+    return tt(it.name_en, it.name_es or it.name_en)
+
+
+def _cart_count() -> int:
+    return len(S.cart(db(), g.user["username"])) if g.get("user") else 0
+
+
+def _shop_head(tt, sub: str) -> str:
+    n = _cart_count()
+    cart_btn = (f'<a class="btn" href="/shop/cart">{tt("Cart", "Carrito")} <span class="cartn">{n}</span></a>'
+                if S.can(g.user["role"], "order") else "")
+    admin_btn = (f'<a class="btn ghost" href="/admin/services/">{tt("Manage services & prices", "Gestionar servicios y precios")}</a>'
+                 if S.can(g.user["role"], "catalog_edit") else "")
+    return (f'<div class="shophero"><div><div class="kick" style="color:#9fe3dc">{tt("Service shop", "Tienda de servicios")}</div>'
+            f'<h1>{tt("Order O&M services for your rooftops", "Pida servicios O&M para sus techos")}</h1><div class="sub">{sub}</div></div>'
+            f'<div class="acts">{admin_btn}{cart_btn}</div></div>')
+
+
+@app.get("/shop/")
+def shop():
+    tt = t()
+    c = db()
+    items = S.catalog(c)
+    cat = request.args.get("cat", "")
+    tabs = [("", tt("All services", "Todos"))] + [(k, tt(en, es)) for k, en, es in CAT.CATEGORIES
+                                                 if k != "rates" and any(i.category == k and i.orderable for i in items)]
+    chips = "".join(f'<a class="tab{" on" if k == cat else ""}" href="/shop/{"?cat=" + k if k else ""}">{UI.e(lbl)}</a>' for k, lbl in tabs)
+    cards = ""
+    for k, en, es in CAT.CATEGORIES:
+        if k == "rates" or (cat and k != cat):
+            continue
+        grp = [i for i in items if i.category == k and i.orderable]
+        if not grp:
+            continue
+        cards += f'<h2 class="cath">{UI.e(tt(en, es))}</h2><div class="shopgrid">'
+        for it in grp:
+            inc = tt(it.includes_en, it.includes_es or it.includes_en)
+            inc_html = "".join(f"<li>{UI.e(x.strip())}</li>" for x in inc.split(";") if x.strip())[:2000]
+            basis = (f'<span class="pill s-ok">{tt("Contract price", "Precio de contrato")}</span>' if it.basis == "contract"
+                     else (f'<span class="pill s-info">{tt("Quoted per job", "Cotizado por trabajo")}</span>' if it.on_quote else ""))
+            cards += (f'<a class="svc" href="/shop/{it.code}"><div class="cat">{UI.e(tt(en, es))}</div><h3>{UI.e(_item_name(it, tt))}</h3>'
+                      f'<p>{UI.e(tt(it.desc_en, it.desc_es or it.desc_en))}</p>{"<ul>" + inc_html + "</ul>" if inc_html else ""}'
+                      f'<div class="foot2"><div class="price">{UI.e(CAT.price_text(it, tt))}</div><div class="small muted">{tt("Lead time", "Plazo")} {it.lead_days} {tt("days", "días")}</div>{basis}</div></a>')
+        cards += "</div>"
+    rates = [i for i in items if not i.orderable]
+    rate_rows = "".join(f'<tr><td><b>{UI.e(_item_name(i, tt))}</b><div class="small muted">{UI.e(tt(i.desc_en, i.desc_es or i.desc_en))}</div></td>'
+                        f'<td class="n nw">{UI.e(CAT.price_text(i, tt))}</td></tr>' for i in rates)
+    rate_card = (f'<div class="card" style="margin-top:22px"><h2>{UI.stripe_svg(16)} {tt("Rate card & additional costs", "Tarifas y costos adicionales")}'
+                 f'<span class="r muted">{tt("prices in MXN before IVA", "precios en MXN antes de IVA")}</span></h2><table class="t">{rate_rows}</table></div>') if rates and not cat else ""
+    empty = "" if cards else f'<div class="card" style="margin-top:16px">{tt("No services published yet.", "Aún no hay servicios publicados.")}</div>'
+    sub = tt("Fixed contract prices where the MSA sets them, a quote within 2 business days for the rest. Every order becomes a tracked service order.",
+             "Precios fijos de contrato donde el MSA los define y cotización en 2 días hábiles para lo demás. Cada pedido se vuelve una orden de servicio con seguimiento.")
+    body = _shop_head(tt, sub) + f'<div class="tabs">{chips}</div>' + cards + empty + rate_card
+    return page(tt("Service shop", "Tienda de servicios"), body, "shop")
+
+
+@app.get("/shop/<code>")
+def shop_item(code, msg: str = ""):
+    tt = t()
+    c = db()
+    it = S.catalog_item(c, code)
+    if not it or not it.published or not it.active or not it.orderable:
+        abort(404)
+    rg = reg()
+    can_order = S.can(g.user["role"], "order")
+    inc = tt(it.includes_en, it.includes_es or it.includes_en)
+    inc_html = "".join(f"<li>{UI.e(x.strip())}</li>" for x in inc.split(";") if x.strip())
+    auto = it.unit in CAT.AUTO_QTY
+    unit_en, unit_es = CAT.UNITS[it.unit]
+    boxes = ""
+    for s in sorted(rg.sites, key=lambda x: (not x.operating, x.name)):
+        boxes += (f'<label class="site"><input type="checkbox" name="site" value="{s.code}" data-kwp="{s.kwp}"{"" if s.operating else " data-pre=1"}> '
+                  f'<span><b>{UI.e(s.name)}</b><span class="small muted"> · {UI.num(s.kwp, 0)} kWp{"" if s.operating else " · PTO " + UI.e(s.pto)}</span></span></label>')
+    qty_html = "" if auto else (f'<label>{tt("Quantity", "Cantidad")} ({UI.e(tt(unit_en, unit_es))}) {tt("for each selected site", "por cada sitio")}</label>'
+                                f'<input name="qty" id="qty" inputmode="decimal" value="1" required>')
+    price_js = "null" if it.price_mxn is None else repr(float(it.price_mxn))
+    form = ""
+    if can_order:
+        form = f"""<form method="post" action="/shop/add" id="of">{csrf_field()}<input type="hidden" name="item" value="{it.code}">
+<label>{tt("Sites", "Sitios")} <a href="#" id="allop" class="small" style="margin-left:8px">{tt("select all operating", "todos los operando")}</a> <a href="#" id="none" class="small" style="margin-left:6px">{tt("clear", "limpiar")}</a></label>
+<div class="sitebox">{boxes}</div>{qty_html}
+<label>{tt("Note for the crew (optional)", "Nota para la cuadrilla (opcional)")}</label><input name="note" maxlength="300">
+<div class="est"><div><div class="small muted">{tt("Estimate before IVA", "Estimado antes de IVA")}</div><div class="big" id="est">-</div><div class="small muted" id="estd"></div></div>
+<button class="btn">{tt("Add to cart", "Agregar al carrito")}</button></div></form>
+<script>(function(){{var P={price_js},U='{it.unit}',f=document.getElementById('of');function upd(){{var b=f.querySelectorAll('input[name=site]:checked'),n=b.length,k=0;b.forEach(function(x){{k+=parseFloat(x.dataset.kwp)}});
+var q=document.getElementById('qty');q=q?parseFloat(q.value.replace(',',''))||0:0;var e=document.getElementById('est'),d=document.getElementById('estd');
+if(P===null){{e.textContent='{tt("On quote", "Bajo cotización")}';d.textContent=n+' {tt("site(s)", "sitio(s)")}';return}}
+var v=U==='kwp'?P*k:(U==='site'?P*n:P*q*Math.max(1,n));e.textContent='MXN '+v.toLocaleString('en-US',{{maximumFractionDigits:0}});
+d.textContent=n+' {tt("site(s)", "sitio(s)")}'+(U==='kwp'?' · '+k.toLocaleString('en-US',{{maximumFractionDigits:0}})+' kWp':'')}}
+f.addEventListener('change',upd);f.addEventListener('input',upd);
+document.getElementById('allop').onclick=function(ev){{ev.preventDefault();f.querySelectorAll('input[name=site]').forEach(function(x){{x.checked=!x.dataset.pre}});upd()}};
+document.getElementById('none').onclick=function(ev){{ev.preventDefault();f.querySelectorAll('input[name=site]').forEach(function(x){{x.checked=false}});upd()}};upd()}})();</script>"""
+    else:
+        form = f'<p class="muted">{tt("Your role can browse the shop; a Prologis manager places orders.", "Su rol puede consultar la tienda; un gerente de Prologis realiza pedidos.")}</p>'
+    cat_lbl = dict((k, tt(en, es)) for k, en, es in CAT.CATEGORIES).get(it.category, it.category)
+    basis = (tt("Contract price (MSA Billing Map).", "Precio de contrato (Billing Map del MSA).") if it.basis == "contract"
+             else (tt("Priced per job: ARGIA sends the quote within 2 business days; nothing starts before Prologis accepts it.",
+                      "Se cotiza por trabajo: ARGIA envía la cotización en 2 días hábiles; nada inicia antes de que Prologis la acepte.") if it.on_quote
+                   else tt("Catalogue price.", "Precio de catálogo.")))
+    body = f"""<div class="kick"><a href="/shop/">{tt("Service shop", "Tienda de servicios")}</a> · {UI.e(cat_lbl)}</div><h1 class="pt">{UI.e(_item_name(it, tt))}</h1>{flash(msg, True)}
+<div class="grid g2"><div class="card"><h2>{tt("Order", "Pedido")}</h2>{form}</div>
+<div class="card"><div class="price" style="font-size:24px">{UI.e(CAT.price_text(it, tt))}</div><div class="small muted">{UI.e(basis)}</div>
+<p>{UI.e(tt(it.desc_en, it.desc_es or it.desc_en))}</p>{"<h2 style='margin-top:14px'>" + tt("Included", "Incluye") + "</h2><ul class='inc'>" + inc_html + "</ul>" if inc_html else ""}
+<div class="chip">{tt("Lead time", "Plazo")}: {it.lead_days} {tt("days", "días")}</div> <div class="chip">{it.code}</div></div></div>"""
+    return page(_item_name(it, tt), body, "shop")
+
+
+@app.post("/shop/add")
+def shop_add():
+    need("order")
+    c = db()
+    it = S.catalog_item(c, request.form.get("item", ""))
+    if not it or not it.published or not it.active or not it.orderable:
+        abort(404)
+    rg = reg()
+    sites = [rg.site(x) for x in request.form.getlist("site")]
+    if any(s is None for s in sites):
+        abort(400)
+    try:
+        lines = CAT.build_lines(it, sites, _float(request.form.get("qty")))
+    except ValueError as ex:
+        return shop_item(it.code, str(ex))
+    S.cart_add(c, g.user["username"], lines, request.form.get("note", ""))
+    return redirect("/shop/cart")
+
+
+@app.get("/shop/cart")
+def shop_cart(msg: str = ""):
+    need("order")
+    tt = t()
+    c = db()
+    rg = reg()
+    rows, lines = "", []
+    for r, ln in S._cart_pairs(c, g.user["username"]):
+        lines.append(ln)
+        it = S.catalog_item(c, ln.item_code)
+        s = rg.site(ln.site_code)
+        site_txt = UI.e(s.name) if s else tt("Portfolio", "Portafolio")
+        unit_en, unit_es = CAT.UNITS[ln.unit]
+        note = f'<div class="small muted">{UI.e(r["note"])}</div>' if r["note"] else ""
+        rows += (f'<tr><td><b>{UI.e(_item_name(it, tt))}</b>{note}</td><td>{site_txt}</td><td class="n">{UI.num(ln.qty, 2 if ln.qty % 1 else 0)} <span class="small muted">{UI.e(tt(unit_en, unit_es).replace("per ", "").replace("por ", ""))}</span></td>'
+                 f'<td class="n">{_mxn(ln.unit_price) if ln.unit_price is not None else tt("On quote", "Bajo cotización")}</td><td class="n"><b>{_mxn(ln.total) if ln.total is not None else "-"}</b></td>'
+                 f'<td><form method="post" action="/shop/cart/remove">{csrf_field()}<button class="btn sm ghost" name="id" value="{r["id"]}">{tt("Remove", "Quitar")}</button></form></td></tr>')
+    if not lines:
+        body = (_shop_head(tt, tt("Your cart is empty.", "Su carrito está vacío.")) + flash(msg, True) +
+                f'<div class="card" style="margin-top:16px"><a class="btn" href="/shop/">{tt("Browse services", "Ver servicios")}</a></div>')
+        return page(tt("Cart", "Carrito"), body, "shop")
+    tot = CAT.totals(lines)
+    target = CAT.target_date(now_mx().date(), lines)
+    quote_note = (f'<div class="flash" style="margin-top:12px">{tot["on_quote"]} {tt("line(s) on quote: ARGIA prices them within 2 business days and the order waits for your acceptance.", "línea(s) bajo cotización: ARGIA las cotiza en 2 días hábiles y el pedido espera su aceptación.")}</div>'
+                  if tot["on_quote"] else "")
+    body = _shop_head(tt, tt("Review and place the order. It becomes a service order you can follow in Tickets.", "Revise y confirme. Se convierte en una orden de servicio que puede seguir en Tickets.")) + f"""{flash(msg, True)}
+<div class="grid g2"><div class="card" style="overflow-x:auto"><h2>{tt("Cart", "Carrito")}</h2><table class="t"><tr><th>{tt("Service", "Servicio")}</th><th>{tt("Site", "Sitio")}</th><th class="n">{tt("Qty", "Cant.")}</th><th class="n">{tt("Unit price", "Precio unitario")}</th><th class="n">{tt("Amount", "Importe")}</th><th></th></tr>{rows}</table>
+<table class="t tot"><tr><td>{tt("Subtotal", "Subtotal")}</td><td class="n">{_mxn(tot["subtotal"])}</td></tr><tr><td>IVA 16%</td><td class="n">{_mxn(tot["iva"])}</td></tr>
+<tr><td><b>{tt("Total", "Total")}</b></td><td class="n"><b>{_mxn(tot["total"])}</b></td></tr></table>{quote_note}</div>
+<div class="card"><h2>{tt("Place order", "Confirmar pedido")}</h2><form method="post" action="/shop/checkout">{csrf_field()}
+<label>{tt("Order title", "Título del pedido")}</label><input name="title" maxlength="160" value="{tt("Service order", "Orden de servicio")} {now_mx():%d %b %Y}">
+<div class="row"><div><label>{tt("Prologis PO number", "Número de OC Prologis")}</label><input name="po" maxlength="60"></div>
+<div><label>{tt("Preferred date", "Fecha preferida")}</label><input type="date" name="preferred" min="{target.isoformat()}"></div></div>
+<div class="small muted" style="margin-top:6px">{tt("Earliest date with the services' lead time", "Fecha más temprana según plazos")}: <b>{target:%d %b %Y}</b></div>
+<label>{tt("Site access, contacts, notes", "Acceso, contactos, notas")}</label><textarea name="notes"></textarea>
+<div style="margin-top:14px"><button class="btn">{tt("Place order", "Confirmar pedido")}</button></div></form></div></div>"""
+    return page(tt("Cart", "Carrito"), body, "shop")
+
+
+@app.post("/shop/cart/remove")
+def shop_cart_remove():
+    need("order")
+    try:
+        S.cart_remove(db(), g.user["username"], int(request.form.get("id", "0")))
+    except ValueError:
+        abort(400)
+    return redirect("/shop/cart")
+
+
+@app.post("/shop/checkout")
+def shop_checkout():
+    need("order")
+    pref = (request.form.get("preferred") or "").strip()
+    try:
+        dt.date.fromisoformat(pref) if pref else None
+    except ValueError:
+        return shop_cart("Preferred date must be a date (YYYY-MM-DD). / La fecha preferida debe ser una fecha (AAAA-MM-DD).")
+    try:
+        tk = S.place_order(db(), g.user["username"], request.form.get("title", ""), request.form.get("po", ""), pref,
+                           request.form.get("notes", ""), ip(), today=now_mx().date(), role=g.user["role"])
+    except ValueError as ex:
+        return shop_cart(str(ex))
+    return redirect(f"/tickets/{tk['number']}/")
+
+
+def order_page(tk):
+    tt = t()
+    c = db()
+    rg = reg()
+    number = tk["number"]
+    role = g.user["role"]
+    rows_db = S.order_lines(c, tk["id"])
+    lines = S.as_lines(rows_db)
+    tot = CAT.totals(lines)
+    may_quote = S.can(role, "order_work") and tk["status"] == "ORDERED"
+    rows = ""
+    for r in rows_db:
+        s = rg.site(r["site_code"])
+        unit_en, unit_es = CAT.UNITS.get(r["unit"], (r["unit"], r["unit"]))
+        price = _mxn(r["unit_price"]) if r["unit_price"] is not None else f'<span class="pill s-warn">{tt("On quote", "Bajo cotización")}</span>'
+        cat_it = S.catalog_item(c, r["item_code"])
+        if may_quote and (cat_it is None or cat_it.on_quote):
+            val = "" if r["unit_price"] is None else f'{r["unit_price"]:.2f}'
+            price = (f'<form method="post" action="/tickets/{number}/quote" class="qf">{csrf_field()}<input type="hidden" name="line" value="{r["id"]}">'
+                     f'<input name="price" value="{val}" inputmode="decimal" placeholder="MXN" required><button class="btn sm">{tt("Set", "Fijar")}</button></form>')
+        amount = "-" if r["unit_price"] is None else _mxn(round(r["unit_price"] * r["qty"], 2))
+        note = f'<div class="small muted">{UI.e(r["note"])}</div>' if r["note"] else ""
+        rows += (f'<tr><td><b>{UI.e(r["name"])}</b>{note}</td><td>{UI.e(s.name) if s else tt("Portfolio", "Portafolio")}</td>'
+                 f'<td class="n">{UI.num(r["qty"], 2 if r["qty"] % 1 else 0)} <span class="small muted">{UI.e(tt(unit_en, unit_es).replace("per ", "").replace("por ", ""))}</span></td>'
+                 f'<td class="n">{price}</td><td class="n"><b>{amount}</b></td></tr>')
+    steps = [k for k, _, _ in CAT.ORDER_STATUSES if k != "CANCELLED"]
+    cur = steps.index(tk["status"]) if tk["status"] in steps else -1
+    stepper = "".join(f'<div class="st{" done" if i < cur else (" now" if i == cur else "")}"><i></i>{UI.e(order_label(k, tt))}</div>' for i, k in enumerate(steps))
+    if tk["status"] == "CANCELLED":
+        stepper = f'<div class="pill s-off">{tt("Cancelled", "Cancelado")}</div>'
+    acts = ""
+    allowed = [n for n in CAT.ORDER_TRANSITIONS.get(tk["status"], ())
+               if (S.can(role, "order_work") or (S.can(role, "order") and n in CAT.CUSTOMER_MAY))
+               and not (n == "CONFIRMED" and tk["approval"] not in ("not_required", "approved"))]
+    verbs = {"CONFIRMED": tt("Confirm order", "Confirmar pedido"), "SCHEDULED": tt("Schedule", "Programar"),
+             "IN_PROGRESS": tt("Start work", "Iniciar trabajo"), "COMPLETED": tt("Mark completed", "Marcar completado"),
+             "INVOICED": tt("Mark invoiced", "Marcar facturado"), "CANCELLED": tt("Cancel order", "Cancelar pedido")}
+    if allowed:
+        btns = "".join(f'<button class="btn sm {"danger" if n == "CANCELLED" else ""}" name="to" value="{n}">{UI.e(verbs[n])}</button> ' for n in allowed)
+        sched = (f'<label>{tt("Scheduled date (for Scheduled)", "Fecha programada (para Programado)")}</label><input type="date" name="scheduled" value="{UI.e(tk["scheduled_date"])}">'
+                 if "SCHEDULED" in allowed else "")
+        acts += (f'<form method="post" action="/tickets/{number}/status">{csrf_field()}<label>{tt("Move order to", "Mover pedido a")}</label>'
+                 f'<input name="note" placeholder="{tt("note (optional)", "nota (opcional)")}">{sched}<div style="margin-top:8px">{btns}</div></form>')
+    if tk["approval"] == "pending" and S.can(role, "ticket_approve"):
+        acts += (f'<form method="post" action="/tickets/{number}/approve" style="margin-top:12px">{csrf_field()}<label>{tt("Accept the quote", "Aceptar la cotización")} - {_mxn(tot["total"])} {tt("incl. IVA", "con IVA")}</label>'
+                 f'<input name="note" placeholder="PO / {tt("comment", "comentario")}"><div style="margin-top:8px"><button class="btn sm" name="ok" value="1">{tt("Accept", "Aceptar")}</button> '
+                 f'<button class="btn sm danger" name="ok" value="0">{tt("Decline", "Rechazar")}</button></div></form>')
+    acts += (f'<form method="post" action="/tickets/{number}/comment" enctype="multipart/form-data" style="margin-top:12px">{csrf_field()}<label>{tt("Comment", "Comentario")}</label>'
+             f'<textarea name="body"></textarea><input type="file" name="file" style="margin-top:6px"><div style="margin-top:8px"><button class="btn sm">{tt("Add", "Agregar")}</button></div></form>')
+    files = {d["id"]: d for d in c.execute("SELECT * FROM documents WHERE ticket_id=? AND deleted=0", (tk["id"],))}
+    tl = ""
+    for ev in S.ticket_events(c, tk["id"]):
+        m = json.loads(ev["meta"] or "{}")
+        what = {"created": tt("placed the order", "realizó el pedido"), "comment": tt("commented", "comentó"),
+                "status": f'{tt("moved it to", "lo pasó a")} <b>{UI.e(order_label(m.get("to", ""), tt))}</b>' + (f' ({UI.e(m["scheduled"])})' if m.get("scheduled") else ""),
+                "approval": tt("accepted the quote" if m.get("approved") else "declined the quote", "aceptó la cotización" if m.get("approved") else "rechazó la cotización"),
+                "quote": tt("priced a line", "cotizó una línea"), "file": tt("attached a file", "adjuntó un archivo")}.get(ev["kind"], ev["kind"])
+        att = ""
+        if ev["kind"] == "file" and m.get("doc") in files:
+            d = files[m["doc"]]
+            att = f'<div><a class="chip" href="/docs/{d["id"]}/download">{UI.e(d["name"])}</a></div>'
+        body_html = ("<div>" + UI.e(ev["body"]) + "</div>") if ev["body"] else ""
+        tl += f'<div class="ev"><div class="small muted">{mx_time(ev["ts_utc"])} · <b>{UI.e(ev["username"])}</b> {what}</div>{body_html}{att}</div>'
+    dates = [(tt("Ordered", "Pedido"), mx_time(tk["created_utc"])), (tt("PO", "OC"), tk["po_number"] or "-"),
+             (tt("Preferred", "Preferida"), tk["preferred_date"] or "-"), (tt("Earliest", "Más temprana"), tk["target_date"] or "-"),
+             (tt("Scheduled", "Programada"), tk["scheduled_date"] or "-"), (tt("Completed", "Completado"), mx_time(tk["resolved_utc"]))]
+    facts = "".join(f'<div><div class="small muted">{UI.e(a)}</div><b>{UI.e(b)}</b></div>' for a, b in dates)
+    quote_txt = (f'<div class="small muted" style="margin-top:6px">{tot["on_quote"]} {tt("line(s) waiting for the ARGIA quote", "línea(s) esperando cotización de ARGIA")}</div>' if tot["on_quote"] else "")
+    body = f"""<div class="kick"><a href="/tickets/?kind=order">{tt("Service orders", "Órdenes de servicio")}</a> · {number}</div><h1 class="pt">{UI.e(tk["title"])}</h1>
+<div style="margin:8px 0">{order_pill(tk, tt)}</div><div class="stepper">{stepper}</div>
+<div class="grid g2"><div><div class="card" style="overflow-x:auto"><h2>{tt("Order lines", "Líneas del pedido")}</h2><table class="t"><tr><th>{tt("Service", "Servicio")}</th><th>{tt("Site", "Sitio")}</th><th class="n">{tt("Qty", "Cant.")}</th><th class="n">{tt("Unit price", "Precio unitario")}</th><th class="n">{tt("Amount", "Importe")}</th></tr>{rows}</table>
+<table class="t tot"><tr><td>{tt("Subtotal", "Subtotal")}</td><td class="n">{_mxn(tot["subtotal"])}</td></tr><tr><td>IVA 16%</td><td class="n">{_mxn(tot["iva"])}</td></tr><tr><td><b>{tt("Total", "Total")}</b></td><td class="n"><b>{_mxn(tot["total"])}</b></td></tr></table>{quote_txt}</div>
+<div class="card" style="margin-top:16px"><h2>{tt("Timeline", "Historial")}</h2><div class="tl">{tl}</div></div></div>
+<div class="card"><h2>{tt("Order details", "Detalles")}</h2><div class="facts">{facts}</div>{"<p class='small'>" + UI.e(tk["description"]) + "</p>" if tk["description"] else ""}<h2 style="margin-top:16px">{tt("Actions", "Acciones")}</h2>{acts}</div></div>"""
+    return page(number, body, "tickets")
+
+
+@app.post("/tickets/<number>/quote")
+def ticket_quote(number):
+    need("order_work")
+    tk = _ticket(number)
+    price = _float(request.form.get("price"))
+    try:
+        if tk["kind"] != "order" or price is None:
+            raise ValueError("bad quote")
+        S.price_quote_line(db(), tk, int(request.form.get("line", "0")), price, g.user["username"], ip())
+    except ValueError:
+        abort(400)
+    return redirect(f"/tickets/{number}/")
+
+
+# ------------------------------------------------------------------ catalogue admin (v293)
+@app.get("/admin/services/")
+def services_admin():
+    need("catalog_edit")
+    tt = t()
+    saved = request.args.get("saved", "")
+    msg = f"{saved} saved. / {saved} guardado." if saved else ""
+    items = S.catalog(db(), include_drafts=True, include_removed=True)
+    rows = ""
+    for k, en, es in CAT.CATEGORIES:
+        grp = [i for i in items if i.category == k]
+        if not grp:
+            continue
+        rows += f'<tr><th colspan="7" class="grp">{UI.e(tt(en, es))}</th></tr>'
+        for i in grp:
+            state = (f'<span class="pill s-off">{tt("Removed", "Retirado")}</span>' if not i.active else
+                     (f'<span class="pill s-ok">{tt("Published", "Publicado")}</span>' if i.published else f'<span class="pill s-warn">{tt("Draft", "Borrador")}</span>'))
+            kind = tt("Orderable", "Pedible") if i.orderable else tt("Rate card", "Tarifa")
+            rows += (f'<tr><td class="nw"><a href="/admin/services/{i.code}"><b>{i.code}</b></a></td><td>{UI.e(i.name_en)}<div class="small muted">{UI.e(i.name_es)}</div></td>'
+                     f'<td class="n nw">{UI.e(CAT.price_text(i))}</td><td>{UI.e(i.basis)}</td><td>{kind}</td><td class="n">{i.lead_days} d</td><td>{state}</td></tr>')
+    pub = sum(1 for i in items if i.published and i.active)
+    drafts = sum(1 for i in items if not i.published and i.active)
+    body = f"""<div style="display:flex;align-items:end;gap:12px;flex-wrap:wrap"><div><div class="kick">{tt("Administration", "Administración")}</div>
+<h1 class="pt">{tt("Services & prices", "Servicios y precios")}</h1><div class="small muted">{pub} {tt("published", "publicados")} · {drafts} {tt("drafts (only admins see them)", "borradores (solo administradores)")} · {tt("every change is in the audit log", "cada cambio queda en la bitácora")}</div></div>
+<div style="margin-left:auto;display:flex;gap:8px"><a class="btn ghost" href="/shop/">{tt("Open the shop", "Ver la tienda")}</a><a class="btn" href="/admin/services/new">{tt("Add service", "Agregar servicio")}</a></div></div>{flash(msg)}
+<div class="card" style="margin-top:16px;overflow-x:auto"><table class="t"><tr><th>{tt("Code", "Código")}</th><th>{tt("Service", "Servicio")}</th><th class="n">{tt("Price (MXN, before IVA)", "Precio (MXN, sin IVA)")}</th><th>{tt("Basis", "Base")}</th><th>{tt("Type", "Tipo")}</th><th class="n">{tt("Lead", "Plazo")}</th><th>{tt("State", "Estado")}</th></tr>{rows}</table></div>"""
+    return page(tt("Services & prices", "Servicios y precios"), body, "users")
+
+
+@app.get("/admin/services/<code>")
+def service_edit(code, msg: str = "", draft: Optional[CAT.Item] = None):
+    need("catalog_edit")
+    tt = t()
+    new = code == "new"
+    it = draft or (CAT.Item("", "cleaning", "", "", "site", basis="quote") if new else S.catalog_item(db(), code))
+    if it is None:
+        abort(404)
+    copts = "".join(f'<option value="{k}"{" selected" if k == it.category else ""}>{UI.e(tt(en, es))}</option>' for k, en, es in CAT.CATEGORIES)
+    uopts = "".join(f'<option value="{k}"{" selected" if k == it.unit else ""}>{UI.e(tt(en, es))}</option>' for k, (en, es) in CAT.UNITS.items())
+    bopts = "".join(f'<option value="{k}"{" selected" if k == it.basis else ""}>{lbl}</option>' for k, lbl in
+                    (("contract", tt("Contract price (MSA)", "Precio de contrato (MSA)")), ("catalog", tt("ARGIA list price", "Precio de lista ARGIA")), ("quote", tt("Quote per job (no price)", "Cotización por trabajo (sin precio)"))))
+
+    def chk(name, on, label):
+        return f'<label class="ck"><input type="checkbox" name="{name}" value="1"{" checked" if on else ""}> {label}</label>'
+
+    price = "" if it.price_mxn is None else f"{it.price_mxn:g}"
+    code_in = (f'<input name="code" value="{UI.e(it.code)}" required maxlength="30" pattern="[A-Za-z0-9_-]+">' if new
+               else f'<input value="{UI.e(it.code)}" disabled><input type="hidden" name="code" value="{UI.e(it.code)}">')
+    remove = ("" if new or not it.active else
+              f'<form method="post" action="/admin/services/{UI.e(it.code)}/remove" style="margin-top:14px">{csrf_field()}<button class="btn sm danger">{tt("Remove from shop", "Retirar de la tienda")}</button>'
+              f' <span class="small muted">{tt("past orders keep their lines", "los pedidos anteriores conservan sus líneas")}</span></form>')
+    body = f"""<div class="card form" style="max-width:860px"><div class="kick"><a href="/admin/services/">{tt("Services & prices", "Servicios y precios")}</a></div>
+<h1 class="pt">{tt("New service", "Nuevo servicio") if new else UI.e(it.name_en)}</h1>{flash(msg, True)}
+<form method="post" action="/admin/services/save">{csrf_field()}<input type="hidden" name="is_new" value="{"1" if new else ""}">
+<div class="row"><div><label>{tt("Code", "Código")}</label>{code_in}</div><div><label>{tt("Category", "Categoría")}</label><select name="category">{copts}</select></div></div>
+<div class="row"><div><label>{tt("Name (English)", "Nombre (inglés)")}</label><input name="name_en" value="{UI.e(it.name_en)}" required maxlength="120"></div>
+<div><label>{tt("Name (Spanish)", "Nombre (español)")}</label><input name="name_es" value="{UI.e(it.name_es)}" maxlength="120"></div></div>
+<div class="row"><div><label>{tt("Price MXN before IVA (empty = on quote; % for a mark-up)", "Precio MXN sin IVA (vacío = cotización; % para margen)")}</label><input name="price_mxn" value="{price}" inputmode="decimal"></div>
+<div><label>{tt("Unit", "Unidad")}</label><select name="unit">{uopts}</select></div></div>
+<div class="row"><div><label>{tt("Lead time (days)", "Plazo (días)")}</label><input name="lead_days" value="{it.lead_days}" inputmode="numeric"></div>
+<div><label>{tt("Price basis", "Base del precio")}</label><select name="basis">{bopts}</select></div></div>
+<div class="row"><div><label>{tt("Description (English)", "Descripción (inglés)")}</label><textarea name="desc_en">{UI.e(it.desc_en)}</textarea></div>
+<div><label>{tt("Description (Spanish)", "Descripción (español)")}</label><textarea name="desc_es">{UI.e(it.desc_es)}</textarea></div></div>
+<div class="row"><div><label>{tt("Included, separated by ; (English)", "Incluye, separado por ; (inglés)")}</label><textarea name="includes_en">{UI.e(it.includes_en)}</textarea></div>
+<div><label>{tt("Included, separated by ; (Spanish)", "Incluye, separado por ; (español)")}</label><textarea name="includes_es">{UI.e(it.includes_es)}</textarea></div></div>
+<div class="row"><div><label>{tt("Sort order", "Orden")}</label><input name="sort" value="{it.sort}" inputmode="numeric"></div><div style="padding-top:22px">
+{chk("orderable", it.orderable, tt("Orderable in the shop (off = rate card line)", "Pedible en la tienda (no = línea de tarifas)"))}
+{chk("published", it.published, tt("Published (Prologis sees it)", "Publicado (Prologis lo ve)"))}
+{chk("active", it.active, tt("Active", "Activo"))}</div></div>
+<div style="margin-top:14px"><button class="btn">{tt("Save", "Guardar")}</button> <a class="btn ghost" href="/admin/services/">{tt("Back", "Volver")}</a></div></form>{remove}</div>"""
+    return page(tt("Services & prices", "Servicios y precios"), body, "users")
+
+
+@app.post("/admin/services/save")
+def service_save():
+    need("catalog_edit")
+    f = request.form
+    d = {k: f.get(k, "") for k in ("code", "category", "name_en", "name_es", "unit", "desc_en", "desc_es", "includes_en", "includes_es", "basis")}
+    d["name_es"] = d["name_es"] or d["name_en"]
+    d.update(orderable=bool(f.get("orderable")), published=bool(f.get("published")), active=bool(f.get("active")))
+    p, lead, srt = _float(f.get("price_mxn")), (f.get("lead_days") or "10").strip(), (f.get("sort") or "100").strip()
+    if (f.get("price_mxn") or "").strip() and p is None:
+        return service_edit("new" if f.get("is_new") else d["code"], "Price must be a number. / El precio debe ser un número.")
+    if not lead.isdigit() or not srt.lstrip("-").isdigit():
+        return service_edit("new" if f.get("is_new") else d["code"], "Lead time and sort must be whole numbers. / Plazo y orden deben ser enteros.")
+    d.update(price_mxn=p, lead_days=int(lead), sort=int(srt))
+    if not d["code"].strip():
+        return service_edit("new", "Code is required. / El código es obligatorio.")
+    it = CAT.from_dict(d)
+    c = db()
+    if f.get("is_new") and S.catalog_item(c, it.code):
+        return service_edit("new", f"{it.code} already exists. / {it.code} ya existe.", it)
+    try:
+        S.save_item(c, it, g.user["username"], ip())
+    except ValueError as ex:
+        return service_edit("new" if f.get("is_new") else it.code, str(ex), it)
+    return redirect(f"/admin/services/?saved={it.code}")
+
+
+@app.post("/admin/services/<code>/remove")
+def service_remove(code):
+    need("catalog_edit")
+    c = db()
+    if not S.catalog_item(c, code):
+        abort(404)
+    S.remove_item(c, code, g.user["username"], ip())
+    return redirect("/admin/services/")
 
 
 # ------------------------------------------------------------------ projects
@@ -996,6 +1454,8 @@ def export_zip():
         put("daily_energy_90d.csv", ["site", "date", "kwh", "expected_kwh", "irradiation_kwh_m2", "pr", "availability", "source"], daily)
         for name, q in (("tickets.csv", "SELECT * FROM tickets"), ("ticket_events.csv", "SELECT * FROM ticket_events"),
                         ("documents.csv", "SELECT id,site_code,folder,name,size,sha256,mime,ticket_id,uploaded_by,uploaded_utc FROM documents WHERE deleted=0"),
+                        ("order_lines.csv", "SELECT * FROM order_lines"),
+                        ("catalog.csv", "SELECT * FROM catalog WHERE published=1"),
                         ("audit.csv", "SELECT * FROM audit"), ("users.csv", "SELECT username,name,email,org,role,disabled,created_utc,last_login_utc FROM users")):
             cur = c.execute(q)
             put(name, [d[0] for d in cur.description], [list(r) for r in cur.fetchall()])
@@ -1065,6 +1525,13 @@ def main(argv: List[str]) -> int:
         c = S.connect()
         pw = S.create_user(c, argv[2], argv[3], argv[4], "ARGIA", "admin", "cli")
         print(f"admin {argv[2]} created. One-time password (change at first sign-in, then enrol MFA): {pw}")
+        return 0
+    if len(argv) >= 3 and argv[1] == "--seed-catalog":
+        with open(argv[2], encoding="utf-8") as fh:
+            items = json.load(fh)
+        c = S.connect()
+        n = S.seed_catalog(c, items, "seed")
+        print(f"catalogue: {n} added, {len(items) - n} already present (never overwritten)")
         return 0
     if len(argv) >= 2 and argv[1] == "--seed-sample-tickets":
         _seed_sample_tickets()

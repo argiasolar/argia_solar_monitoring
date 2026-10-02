@@ -34,6 +34,9 @@ PERMS = {
     "export": {"manager", "admin"},
     "audit": {"manager", "admin"},
     "users": {"admin"},
+    "order": {"manager", "operator", "admin"},           # v293: place service orders
+    "order_work": {"operator", "admin"},                 # confirm, schedule, price quotes, complete
+    "catalog_edit": {"admin"},                           # services and prices
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -72,6 +75,20 @@ CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT, site_code TEXT NOT NULL DEFAULT '', folder TEXT NOT NULL,
   name TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, mime TEXT NOT NULL DEFAULT '',
   ticket_id INTEGER, uploaded_by TEXT NOT NULL, uploaded_utc TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS catalog (
+  code TEXT PRIMARY KEY, category TEXT NOT NULL, name_en TEXT NOT NULL, name_es TEXT NOT NULL DEFAULT '',
+  unit TEXT NOT NULL, price_mxn REAL, desc_en TEXT NOT NULL DEFAULT '', desc_es TEXT NOT NULL DEFAULT '',
+  includes_en TEXT NOT NULL DEFAULT '', includes_es TEXT NOT NULL DEFAULT '', lead_days INTEGER NOT NULL DEFAULT 10,
+  orderable INTEGER NOT NULL DEFAULT 1, published INTEGER NOT NULL DEFAULT 0, basis TEXT NOT NULL DEFAULT 'catalog',
+  sort INTEGER NOT NULL DEFAULT 100, active INTEGER NOT NULL DEFAULT 1,
+  updated_by TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS cart (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, item_code TEXT NOT NULL,
+  site_code TEXT NOT NULL DEFAULT '', qty REAL NOT NULL, note TEXT NOT NULL DEFAULT '', added_utc TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS order_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, item_code TEXT NOT NULL, name TEXT NOT NULL,
+  unit TEXT NOT NULL, site_code TEXT NOT NULL DEFAULT '', qty REAL NOT NULL, unit_price REAL, lead_days INTEGER NOT NULL DEFAULT 10,
+  note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS project_state (
   project_id TEXT PRIMARY KEY, stage TEXT, next TEXT, next_date TEXT, notes TEXT,
   updated_by TEXT NOT NULL, updated_utc TEXT NOT NULL);
@@ -98,7 +115,22 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     c.execute("PRAGMA foreign_keys=ON")
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
+    _migrate(c)
     return c
+
+
+# v293: columns added after v292 (SQLite has no ADD COLUMN IF NOT EXISTS)
+_TICKET_COLS = {"kind": "TEXT NOT NULL DEFAULT 'incident'", "po_number": "TEXT NOT NULL DEFAULT ''",
+                "preferred_date": "TEXT NOT NULL DEFAULT ''", "scheduled_date": "TEXT NOT NULL DEFAULT ''",
+                "target_date": "TEXT NOT NULL DEFAULT ''"}
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    have = {r[1] for r in c.execute("PRAGMA table_info(tickets)")}
+    for col, ddl in _TICKET_COLS.items():
+        if col not in have:
+            c.execute(f"ALTER TABLE tickets ADD COLUMN {col} {ddl}")
+    c.commit()
 
 
 def can(role: str, perm: str) -> bool:
@@ -272,9 +304,16 @@ def end_session(c, sid: str) -> None:
 
 
 # ------------------------------------------------------------- tickets
+def _next(c, prefix: str) -> str:
+    """Next number in one series (PL- incidents, SO- service orders); the
+    series do not share a counter, so neither has gaps from the other."""
+    r = c.execute("SELECT max(CAST(substr(number, ?) AS INTEGER)) FROM tickets WHERE number LIKE ?",
+                  (len(prefix) + 1, prefix + "%")).fetchone()
+    return f"{prefix}{(r[0] or 0) + 1:04d}"
+
+
 def next_number(c) -> str:
-    r = c.execute("SELECT max(id) AS m FROM tickets").fetchone()
-    return f"PL-{(r['m'] or 0) + 1:04d}"
+    return _next(c, "PL-")
 
 
 def create_ticket(c, site_code: str, title: str, description: str, sla_class: str, by: str,
@@ -396,3 +435,212 @@ def save_project(c, pid: str, stage: str, nxt: str, next_date: str, notes: str, 
               (pid, stage, nxt[:200], next_date[:20], notes[:2000], by, now_utc()))
     c.commit()
     audit(c, by, ip, "project_update", pid, f"stage={stage} next={nxt} {next_date}")
+
+
+# ------------------------------------------------------------- catalogue (v293)
+from argia.prologis import catalog as CAT    # noqa: E402  (pure, no cycle)
+
+CAT_FIELDS = ("code", "category", "name_en", "name_es", "unit", "price_mxn", "desc_en", "desc_es",
+              "includes_en", "includes_es", "lead_days", "orderable", "published", "basis", "sort", "active")
+
+
+def _item(r) -> CAT.Item:
+    return CAT.Item(code=r["code"], category=r["category"], name_en=r["name_en"], name_es=r["name_es"] or r["name_en"],
+                    unit=r["unit"], price_mxn=r["price_mxn"], desc_en=r["desc_en"], desc_es=r["desc_es"],
+                    includes_en=r["includes_en"], includes_es=r["includes_es"], lead_days=r["lead_days"],
+                    orderable=bool(r["orderable"]), published=bool(r["published"]), basis=r["basis"],
+                    sort=r["sort"], active=bool(r["active"]))
+
+
+def catalog(c, include_drafts: bool = False, include_removed: bool = False) -> List[CAT.Item]:
+    q = "SELECT * FROM catalog WHERE 1=1"
+    if not include_drafts:
+        q += " AND published=1"
+    if not include_removed:
+        q += " AND active=1"
+    return [_item(r) for r in c.execute(q + " ORDER BY sort, code")]
+
+
+def catalog_item(c, code: str) -> Optional[CAT.Item]:
+    r = c.execute("SELECT * FROM catalog WHERE code=?", ((code or "").upper(),)).fetchone()
+    return _item(r) if r else None
+
+
+def save_item(c, it: CAT.Item, by: str, ip: str = "") -> None:
+    errs = CAT.validate(it)
+    if errs:
+        raise ValueError("; ".join(errs))
+    old = catalog_item(c, it.code)
+    vals = [getattr(it, f) for f in CAT_FIELDS]
+    vals = [int(v) if isinstance(v, bool) else v for v in vals]
+    c.execute(f"INSERT OR REPLACE INTO catalog ({', '.join(CAT_FIELDS)}, updated_by, updated_utc)"
+              f" VALUES ({', '.join('?' * len(CAT_FIELDS))}, ?, ?)", (*vals, by, now_utc()))
+    c.commit()
+    if old is None:
+        audit(c, by, ip, "catalog_add", it.code, f"{it.name_en} price={it.price_mxn} unit={it.unit} published={it.published}")
+    else:
+        diff = [f"{f}: {getattr(old, f)!r} -> {getattr(it, f)!r}" for f in CAT_FIELDS if getattr(old, f) != getattr(it, f)]
+        audit(c, by, ip, "catalog_edit", it.code, "; ".join(diff)[:1000] or "no change")
+
+
+def remove_item(c, code: str, by: str, ip: str = "") -> None:
+    """Soft removal: the item leaves the shop; past orders keep their lines."""
+    c.execute("UPDATE catalog SET active=0, published=0, updated_by=?, updated_utc=? WHERE code=?", (by, now_utc(), code))
+    c.commit()
+    audit(c, by, ip, "catalog_remove", code)
+
+
+def seed_catalog(c, items: Sequence[dict], by: str = "seed") -> int:
+    """Insert items that do not exist yet (never overwrites a price someone set)."""
+    n = 0
+    for d in items:
+        it = CAT.from_dict(d)
+        if catalog_item(c, it.code) is None:
+            save_item(c, it, by)
+            n += 1
+    return n
+
+
+# ------------------------------------------------------------- cart and orders (v293)
+def cart(c, username: str) -> List[sqlite3.Row]:
+    return c.execute("SELECT * FROM cart WHERE username=? ORDER BY id", (username,)).fetchall()
+
+
+def cart_add(c, username: str, lines: Sequence[CAT.Line], note: str = "") -> int:
+    """Add lines; the same service for the same site is merged, not doubled:
+    a per-site or per-kWp line is already there (skipped), a typed quantity
+    is added to the existing line. Returns how many new rows went in."""
+    n = 0
+    for ln in lines:
+        old = c.execute("SELECT id, qty FROM cart WHERE username=? AND item_code=? AND site_code=?",
+                        (username, ln.item_code, ln.site_code)).fetchone()
+        if old:
+            if ln.unit not in CAT.AUTO_QTY:
+                c.execute("UPDATE cart SET qty=? WHERE id=?", (min(old["qty"] + ln.qty, 100000), old["id"]))
+            continue
+        n += 1
+        c.execute("INSERT INTO cart (username,item_code,site_code,qty,note,added_utc) VALUES (?,?,?,?,?,?)",
+                  (username, ln.item_code, ln.site_code, ln.qty, note[:300], now_utc()))
+    c.commit()
+    return n
+
+
+def cart_remove(c, username: str, row_id: int) -> None:
+    c.execute("DELETE FROM cart WHERE id=? AND username=?", (row_id, username))
+    c.commit()
+
+
+def _cart_pairs(c, username: str) -> List[Tuple[sqlite3.Row, CAT.Line]]:
+    out = []
+    for r in cart(c, username):
+        it = catalog_item(c, r["item_code"])
+        if it and it.active and it.orderable and it.published:
+            out.append((r, CAT.Line(it.code, it.name_en, it.unit, r["site_code"], r["qty"], it.price_mxn, it.lead_days)))
+    return out
+
+
+def cart_lines(c, username: str) -> List[CAT.Line]:
+    """The cart priced at today's catalogue (removed or unpublished items drop out)."""
+    return [ln for _, ln in _cart_pairs(c, username)]
+
+
+def place_order(c, username: str, title: str, po: str = "", preferred: str = "", notes: str = "",
+                ip: str = "", today: Optional[dt.date] = None, role: str = "manager") -> sqlite3.Row:
+    """Turn the user's cart into one service order (a ticket of kind
+    'order', number SO-NNNN) with its priced lines; empties the cart.
+
+    Approval: a Prologis manager placing an order with every line priced
+    has approved it by ordering (not_required). An order with a line on
+    quote waits for ARGIA's price (quote_needed) and then for Prologis to
+    accept it (pending). An order ARGIA's operator places for Prologis
+    always waits for Prologis to accept it (pending)."""
+    pairs = _cart_pairs(c, username)
+    lines = [ln for _, ln in pairs]
+    if not lines:
+        raise ValueError("the cart is empty")
+    today = today or dt.datetime.now(dt.timezone.utc).date()
+    pref = dt.date.fromisoformat(preferred) if preferred else None
+    target = CAT.target_date(today, lines, pref)
+    num = _next(c, "SO-")
+    tot = CAT.totals(lines)
+    sites = sorted({ln.site_code for ln in lines if ln.site_code})
+    approval = "quote_needed" if tot["on_quote"] else ("not_required" if role in PERMS["ticket_approve"] else "pending")
+    c.execute("INSERT INTO tickets (number,site_code,title,description,sla_class,status,estimate_mxn,approval,detected_utc,"
+              "created_by,created_utc,kind,po_number,preferred_date,target_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (num, sites[0] if len(sites) == 1 else ("PORTFOLIO" if not sites else "MULTI"), title.strip()[:160] or "Service order",
+               notes.strip()[:5000], "OTHER", "ORDERED", tot["subtotal"], approval, now_utc(), username, now_utc(),
+               "order", po.strip()[:60], preferred, target.isoformat()))
+    tid = c.execute("SELECT id FROM tickets WHERE number=?", (num,)).fetchone()[0]
+    for r, ln in pairs:
+        c.execute("INSERT INTO order_lines (ticket_id,item_code,name,unit,site_code,qty,unit_price,lead_days,note) VALUES (?,?,?,?,?,?,?,?,?)",
+                  (tid, ln.item_code, ln.name, ln.unit, ln.site_code, ln.qty, ln.unit_price, ln.lead_days, r["note"]))
+    c.execute("DELETE FROM cart WHERE username=?", (username,))
+    c.commit()
+    add_event(c, tid, username, "created", notes[:500], {"order": True, "lines": len(lines), "subtotal": tot["subtotal"],
+                                                         "po": po, "sites": sites})
+    audit(c, username, ip, "order_place", num, f"{len(lines)} lines subtotal={tot['subtotal']} on_quote={tot['on_quote']} po={po}")
+    return c.execute("SELECT * FROM tickets WHERE id=?", (tid,)).fetchone()
+
+
+def open_orders(c) -> List[sqlite3.Row]:
+    q = ",".join("?" * len(CAT.ORDER_OPEN))
+    return c.execute(f"SELECT * FROM tickets WHERE kind='order' AND status IN ({q}) ORDER BY id DESC", CAT.ORDER_OPEN).fetchall()
+
+
+def order_lines(c, ticket_id: int) -> List[sqlite3.Row]:
+    return c.execute("SELECT * FROM order_lines WHERE ticket_id=? ORDER BY id", (ticket_id,)).fetchall()
+
+
+def as_lines(rows: Sequence[sqlite3.Row]) -> List[CAT.Line]:
+    return [CAT.Line(r["item_code"], r["name"], r["unit"], r["site_code"], r["qty"], r["unit_price"], r["lead_days"]) for r in rows]
+
+
+def price_quote_line(c, t: sqlite3.Row, line_id: int, price: float, who: str, ip: str = "") -> None:
+    """ARGIA prices an on-quote line; when no line is left unpriced the
+    order waits for Prologis to accept the quote."""
+    if price < 0 or price > 50_000_000:
+        raise ValueError("price out of range")
+    if t["status"] != "ORDERED":
+        raise ValueError("prices are fixed once the order is confirmed")
+    r = c.execute("SELECT * FROM order_lines WHERE id=? AND ticket_id=?", (line_id, t["id"])).fetchone()
+    if not r:
+        raise ValueError("no such line")
+    it = catalog_item(c, r["item_code"])
+    if it is not None and not it.on_quote:
+        raise ValueError("a catalogue-priced line keeps its list price")
+    c.execute("UPDATE order_lines SET unit_price=? WHERE id=?", (price, line_id))
+    lines = as_lines(order_lines(c, t["id"]))
+    tot = CAT.totals(lines)
+    new_appr = "pending" if not tot["on_quote"] else "quote_needed"
+    c.execute("UPDATE tickets SET estimate_mxn=?, approval=? WHERE id=?", (tot["subtotal"], new_appr, t["id"]))
+    c.commit()
+    add_event(c, t["id"], who, "quote", f"{r['name']}: MXN {price:,.2f}", {"line": line_id, "price": price})
+    audit(c, who, ip, "order_quote", t["number"], f"line {line_id} price={price}")
+
+
+def set_order_status(c, t: sqlite3.Row, new: str, who: str, role: str, note: str = "",
+                     scheduled: str = "", ip: str = "", ts: Optional[str] = None) -> None:
+    if new not in CAT.ORDER_TRANSITIONS.get(t["status"], ()):
+        raise ValueError(f"{t['status']} -> {new} not allowed")
+    if role not in PERMS["order_work"] and new not in CAT.CUSTOMER_MAY:
+        raise PermissionError("only ARGIA moves an order forward")
+    if new == "CONFIRMED" and t["approval"] not in ("not_required", "approved"):
+        raise ValueError("the quote must be accepted before the order is confirmed")
+    if new == "SCHEDULED" and not scheduled:
+        raise ValueError("a scheduled date is required")
+    ts = ts or now_utc()
+    sets, vals = ["status=?"], [new]
+    if scheduled:
+        dt.date.fromisoformat(scheduled)
+        sets.append("scheduled_date=?")
+        vals.append(scheduled)
+    if new in ("CONFIRMED",) and not t["responded_utc"]:
+        sets.append("responded_utc=?")
+        vals.append(ts)
+    if new == "COMPLETED":
+        sets.append("resolved_utc=?")
+        vals.append(ts)
+    c.execute(f"UPDATE tickets SET {', '.join(sets)} WHERE id=?", (*vals, t["id"]))
+    c.commit()
+    add_event(c, t["id"], who, "status", note, {"from": t["status"], "to": new, "scheduled": scheduled}, ts=ts)
+    audit(c, who, ip, "order_status", t["number"], f"{t['status']}->{new} {scheduled}")

@@ -1,0 +1,8 @@
+[
+ {"code": "T-CLEAN", "category": "cleaning", "unit": "kwp", "name_en": "Test cleaning", "name_es": "Limpieza de prueba", "desc_en": "Synthetic item.", "includes_en": "one; two", "price_mxn": 100, "basis": "contract", "lead_days": 10, "published": true, "sort": 10},
+ {"code": "T-THERMO", "category": "inspection", "unit": "site", "name_en": "Test thermography", "name_es": "Termografía de prueba", "price_mxn": 1000, "basis": "contract", "lead_days": 15, "published": true, "sort": 20},
+ {"code": "T-IV", "category": "inspection", "unit": "string", "name_en": "Test IV curve", "name_es": "Curva IV de prueba", "price_mxn": null, "basis": "quote", "lead_days": 5, "published": true, "sort": 30},
+ {"code": "T-RATE", "category": "rates", "unit": "hour", "name_en": "Test labour rate", "name_es": "Tarifa de prueba", "price_mxn": 50, "basis": "contract", "lead_days": 0, "orderable": false, "published": true, "sort": 40},
+ {"code": "T-MARKUP", "category": "rates", "unit": "percent", "name_en": "Test mark-up", "name_es": "Margen de prueba", "price_mxn": 10, "basis": "contract", "lead_days": 0, "orderable": false, "published": true, "sort": 50},
+ {"code": "T-DRAFT", "category": "corrective", "unit": "unit", "name_en": "Test draft item", "name_es": "Borrador de prueba", "price_mxn": 77, "basis": "catalog", "lead_days": 3, "published": false, "sort": 60}
+]

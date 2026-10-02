@@ -74,6 +74,16 @@ plants = {r[0]: {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]), 'portfolio': r
                      "coalesce(pr_baseline,0), coalesce(investment_mxn,0), "
                      "coalesce(sla_target,0) FROM plant;")}
 
+# v288: demo.argia.com.mx (demo_gen / demo_annexes set ARGIA_INSTANCE=demo)
+# reads the demo views, where every plant is PPA: the fleet lists follow the
+# data there, so every plant earns revenue on every page, and the LaaS
+# lighting contracts (not plants) stay out of the demo. Production keeps the
+# literal lists above.
+if os.environ.get('ARGIA_INSTANCE') == 'demo':
+    PPA[:] = sorted(k for k, v in plants.items() if v['portfolio'] == 'PPA')
+    CAPEX[:] = [k for k in CAPEX if k in plants and plants[k]['portfolio'] != 'PPA']
+    LAAS[:] = []
+
 SLA_TARGET = 0.98   # fallback when no per-contract SLA is configured in /setup/
 
 loans = {}

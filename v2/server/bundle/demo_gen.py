@@ -50,6 +50,19 @@ DEMO_HOST = 'demo.argia.com.mx'
 DEMO_ROOT = '/www/hosting/demo.argia.com.mx/www'
 PORTAL_ROOT = os.environ.get('ARGIA_PORTAL_ROOT', '/www/hosting/portal.argia.com.mx/www')
 DEMO_PHOTOS = os.environ.get('ARGIA_DEMO_PHOTOS', '/opt/argia/demo/photos')   # v280: demo-only photo swaps
+DEMO_ANNEXES = os.environ.get('ARGIA_DEMO_ANNEXES', '/opt/argia/demo/annexes')  # v288: demo_annexes.py output
+ANNEX_FILE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*\.pdf$')
+ANNEX_GROUPS = [
+    ('daily', 'Daily performance report', 'Reporte diario de desempeño',
+     'The whole fleet: energy, expected, PR, availability, alerts. Mailed in two editions - the morning one (yesterday, KPI-exact) and the evening one (today so far).',
+     'Toda la flota: energía, esperado, PR, disponibilidad, alertas. Se envía en dos ediciones - la de la mañana (ayer, KPI exacto) y la de la tarde (hoy hasta ahora).'),
+    ('financial', 'Financial report', 'Reporte financiero',
+     'Revenue, contracts and debt service for the portfolio. Mailed every Friday (month to date) and on the 1st (the month just closed).',
+     'Ingreso, contratos y servicio de deuda del portafolio. Se envía cada viernes (mes a la fecha) y el día 1 (el mes recién cerrado).'),
+    ('invoice', 'Monthly invoice annexes', 'Anexos mensuales de facturación',
+     'One per plant and closed month: the energy behind the invoice, day by day, with performance and availability. Always in Spanish - it is the customer document.',
+     'Uno por planta y mes cerrado: la energía detrás de la factura, día por día, con desempeño y disponibilidad. Siempre en español - es el documento del cliente.'),
+]
 DB = os.environ.get('ARGIA_PG_DB', 'argia_mont')
 DEMO_RE = re.compile(r'^\s*(ARGIA SOLAR \S+)')          # "ARGIA SOLAR 3 (Leon, GTO)" -> "ARGIA SOLAR 3"
 LOGO_PATH = '/assets/demo/argia-solar.png'
@@ -73,6 +86,13 @@ STOP_WORDS = {'grupo', 'mexico', 'méxico', 'service', 'management', 'solutions'
 # (every demo plant is the same kind, so the label says nothing). Applied in
 # order to every page; test_demo_site checks no visible PPA/CAPEX is left.
 DEMO_FIXES = [
+    # v288: the financial report and the invoice annex (the Annexes PDFs)
+    (r'<div class="kicker">PPA \+ LaaS · ', '<div class="kicker">'),
+    (r' \(LaaS USD fees at the loan FX\)', ''), (r' \(cuotas LaaS en USD al tipo de cambio del crédito\)', ''),
+    (r'<th data-en="Type" data-es="Tipo">Type</th>', ''),
+    (r'\s*<td><span class="badge \$\{m\.type===\'LaaS\'\?\'laas\':\'\'\}">\$\{m\.type\}</span></td>', ''),
+    (r'(<tr><td><b>PORTFOLIO</b></td>)<td></td>', r'\1'),
+    (r'energía PPA · ', 'energía · '),
     # wording that only made sense next to CAPEX plants
     (r' · 0 CAPEX', ''),
     (r' · blue = PPA, teal = CAPEX', ''), (r' · azul = PPA, verde = CAPEX', ''),
@@ -121,10 +141,10 @@ def demo_text(text):
 
 
 def demo_title(rel, text):
-    """v281: every tab says DEMO first - 'DEMO - Report - ARGIA',
-    'DEMO - Monitoring - ARGIA SOLAR 3', 'DEMO - Map - ARGIA'. Pure."""
+    """v281: every tab says DEMO first - 'DEMO - Reports - ARGIA',
+    'DEMO - Live Monitoring - ARGIA SOLAR 3', 'DEMO - Map - ARGIA' (v288 names). Pure."""
     sec = rel.split('/')[0]
-    label = {'report': 'Report', 'monitoring': 'Monitoring', 'map': 'Map'}.get(sec)
+    label = {'report': 'Reports', 'monitoring': 'Live Monitoring', 'map': 'Map'}.get(sec)
     if not label:
         title = 'DEMO - ARGIA'
     else:
@@ -275,6 +295,22 @@ def unlink_absent(text):
     return _ANCHOR.sub(sub, text), n
 
 
+def client_logo_uris():
+    """{data URI: customer} of every real customer logo (argia_client_logos).
+    The name scan skips data URIs (they are random letters), so a real logo
+    embedded as an image is caught here instead (v288)."""
+    try:
+        from argia_client_logos import CLIENT_LOGOS
+    except ImportError:
+        return {}
+    return {v[1]: v[0] for v in CLIENT_LOGOS.values() if v and len(v) > 1 and v[1]}
+
+
+def logo_leaks(text, uris):
+    """[customer] whose real logo is embedded in the text. Pure."""
+    return sorted({name for uri, name in uris.items() if uri in text})
+
+
 def demo_number(customer):
     m = re.match(r'^\s*ARGIA SOLAR (\d+)', str(customer or ''))
     return int(m.group(1)) if m else 10 ** 6
@@ -334,6 +370,53 @@ def real_names():
 
 
 # ------------------------------------------------------------------ build
+def copy_annexes(src, out):
+    """v288: the example PDFs demo_annexes.py made (already through the leak
+    gate there) -> report/annexes/files/. -> (items, generated) from its
+    manifest; ([], '') when there is none yet."""
+    import json
+    try:
+        with open(os.path.join(src, 'manifest.json'), encoding='utf-8') as fh:
+            man = json.load(fh)
+    except (OSError, ValueError):
+        return [], ''
+    items = []
+    for it in man.get('items', []):
+        fn = str(it.get('file', ''))
+        sp = os.path.join(src, fn)
+        if not ANNEX_FILE_RE.match(fn) or not os.path.isfile(sp):
+            continue
+        os.makedirs(os.path.join(out, 'report', 'annexes', 'files'), exist_ok=True)
+        shutil.copy2(sp, os.path.join(out, 'report', 'annexes', 'files', fn))
+        items.append(dict(it, size=os.path.getsize(sp)))
+    return items, str(man.get('generated', ''))
+
+
+def annexes_page(PG, items, generated):
+    """/report/annexes/ - the PDF reports ARGIA e-mails, as examples (v288)."""
+    C, t = PG.C, PG.t
+    blocks = ''
+    for key, en, es, den, des in ANNEX_GROUPS:
+        rows = ''.join(
+            f'<tr><td><b>{t(it.get("title_en", it["file"]), it.get("title_es", it.get("title_en", it["file"])))}</b></td>'
+            f'<td class="muted">{html.escape(str(it.get("period", "")))}</td>'
+            f'<td class="r muted">{it["size"] / 1024:,.0f} KB</td>'
+            f'<td class="r"><a class="btn2" href="/report/annexes/files/{html.escape(it["file"])}" target="_blank" rel="noopener">'
+            f'{t("Open PDF", "Abrir PDF")}</a></td></tr>'
+            for it in items if it.get('group') == key)
+        if not rows:
+            rows = f'<tr><td colspan="4" class="muted">{t("Being prepared - check again tomorrow.", "En preparación - vuelva mañana.")}</td></tr>'
+        blocks += f'''
+<div class="card" style="margin-top:16px;overflow:hidden">
+ <div class="chead" style="padding:16px 20px 6px"><h2 class="ct">{t(en, es)}</h2></div>
+ <div class="muted" style="padding:0 20px 10px;font-size:13px">{t(den, des)}</div>
+ <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><colgroup><col style="width:52%"><col style="width:22%"><col style="width:10%"><col style="width:16%"></colgroup><thead><tr><th>{t("Report", "Reporte")}</th><th>{t("Period", "Periodo")}</th><th class="r">{t("Size", "Tamaño")}</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
+</div>'''
+    gen = f' · {t("generated", "generado")} {html.escape(generated)}' if generated else ''
+    body = f'''<div style="display:flex;flex-direction:column;gap:4px"><div class="kicker">{t("The PDF reports ARGIA e-mails, as examples", "Los reportes PDF que ARGIA envía por correo, como ejemplo")}{gen}</div><h1 class="pt">{t("Annexes", "Anexos")}</h1></div>{blocks}'''
+    return C.page('Annexes', body, 'report', 'annexes')
+
+
 def copy_assets(src_root, out):
     n = 0
     for sub, rx in ASSET_GLOBS:
@@ -396,10 +479,13 @@ def configure(PG):
     # chrome: host, sub-tabs, no Ask / account / app
     C.PORTAL_HOST = DEMO_HOST
     C.SECTIONS = {
-        'report': ('Report', 'Reporte', [('', 'Overview', 'Resumen'),
-                                          ('plants', 'Plant performance', 'Desempeño por planta')]),
+        # v288 (Tomasz): "Reports" with an Annexes tab, "Live Monitoring"
+        'report': ('Reports', 'Reportes', [('', 'Overview', 'Resumen'),
+                                           ('plants', 'Plant performance', 'Desempeño por planta'),
+                                           ('annexes', 'Annexes', 'Anexos')]),
         # v281: no PPA tab - it showed the same as the overview
-        'monitoring': ('Monitoring', 'Monitoreo', [s for s in C.SECTIONS['monitoring'][2] if s[0] not in ('capex', 'ppa')]),
+        'monitoring': ('Live Monitoring', 'Monitoreo en vivo',
+                       [s for s in C.SECTIONS['monitoring'][2] if s[0] not in ('capex', 'ppa')]),
         'map': ('Map', 'Mapa', []),
     }
     # the header: no Ask ARGIA button, no user menu (the demo has its own
@@ -440,9 +526,9 @@ def landing(PG):
     g_en, g_es = (('Good morning', 'Buenos días') if h < 12 else
                   ('Good afternoon', 'Buenas tardes') if h < 19 else ('Good evening', 'Buenas noches'))
     dests = [
-        ('report', 'Report', 'Reporte', '/report/', 'Fleet overview and plant performance.',
-         'Resumen de flota y desempeño por planta.'),
-        ('monitor', 'Monitoring', 'Monitoreo', '/monitoring/', 'Live inverters, alerts, temperatures, peers.',
+        ('report', 'Reports', 'Reportes', '/report/', 'Fleet overview, plant performance and the PDF reports.',
+         'Resumen de flota, desempeño por planta y los reportes PDF.'),
+        ('monitor', 'Live Monitoring', 'Monitoreo en vivo', '/monitoring/', 'Live inverters, alerts, temperatures, peers.',
          'Inversores en vivo, alertas, temperaturas, pares.'),
         ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers.',
          'La flota en un mapa, estado y cifras de hoy.'),
@@ -473,6 +559,7 @@ def write_pages(PG, keys):
         ('index.html', landing(PG)),
         ('report/index.html', PG.report_overview()),
         ('report/plants/index.html', PG.plant_cards()),
+        ('report/annexes/index.html', annexes_page(PG, *copy_annexes(DEMO_ANNEXES, PG.OUTROOT))),
         ('monitoring/index.html', PG.monitoring_overview()),
         ('monitoring/performance/index.html', PG.monitoring_performance()),
         ('monitoring/recon/index.html', PG.monitoring_recon()),
@@ -504,6 +591,42 @@ def publish(stage, out):
     shutil.rmtree(old, ignore_errors=True)
 
 
+def setup_paths():
+    """The same import paths portal_gen / monitoring_gen use (bundle, repo checkout)."""
+    for cand in (os.path.dirname(HERE), HERE):
+        if cand not in sys.path:
+            sys.path.insert(0, cand)
+    for cand in ('/root/argia_v2/v2', os.path.dirname(os.path.dirname(HERE)),
+                 '/root/argia_v2/v2/scripts', os.path.join(os.path.dirname(os.path.dirname(HERE)), 'scripts')):
+        if os.path.isdir(cand) and cand not in sys.path:
+            sys.path.insert(0, cand)
+
+
+def load_portal(outroot):
+    """Import portal_gen (and with it report_gen / monitoring_gen) through
+    the demo views, writing into ``outroot``, and point it at the demo.
+    The caller has set PGOPTIONS (demo_schema_ok). -> (PG, keys, demo_names)"""
+    os.environ['ARGIA_INSTANCE'] = 'demo'           # v288: report_gen's fleet lists follow the demo data
+    try:
+        from argia.alerts import naming as _naming
+        if not getattr(_naming.short_customer, '_demo', False):
+            _orig_short = _naming.short_customer
+            _naming.short_customer = lambda nm, _o=_orig_short: demo_display(nm, _o)
+            _naming.short_customer._demo = True
+    except ImportError:
+        pass
+    saved = sys.argv
+    sys.argv = [os.path.join(HERE, 'portal_gen.py'), outroot]
+    try:
+        for m in ('portal_gen', 'report_gen', 'monitoring_gen', 'portal_chrome'):
+            sys.modules.pop(m, None)
+        import portal_gen as PG                        # noqa: E402  (loads PG through the demo views)
+    finally:
+        sys.argv = saved
+    keys, demo_names = configure(PG)
+    return PG, keys, demo_names
+
+
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     out = os.path.abspath(argv[1] if len(argv) > 1 else DEMO_ROOT)
@@ -525,33 +648,15 @@ def main(argv=None):
         print('demo_gen: REFUSED - demo views missing or search_path/read-only not in effect '
               '(apply demo_schema.sql); nothing published', file=sys.stderr)
         return 2
-    # the same import paths portal_gen / monitoring_gen use (bundle, repo checkout)
-    sys.path[:0] = [HERE, os.path.dirname(HERE)]
-    for cand in ('/root/argia_v2/v2', os.path.dirname(os.path.dirname(HERE)),
-                 '/root/argia_v2/v2/scripts', os.path.join(os.path.dirname(os.path.dirname(HERE)), 'scripts')):
-        if os.path.isdir(cand) and cand not in sys.path:
-            sys.path.insert(0, cand)
+    setup_paths()
     shutil.rmtree(stage, ignore_errors=True)
     os.makedirs(stage)
     n_assets = copy_assets(PORTAL_ROOT, stage)
-    # 2) the portal generator, unchanged, writing into the staging folder
+    # 2) the portal generator, unchanged, writing into the staging folder;
     # the real names are read BEFORE configure() replaces the slug table
     rules = build_rules(real_names())
-    try:
-        from argia.alerts import naming as _naming
-        _orig_short = _naming.short_customer
-        _naming.short_customer = lambda nm, _o=_orig_short: demo_display(nm, _o)
-    except ImportError:
-        pass
-    saved = sys.argv
-    sys.argv = [os.path.join(HERE, 'portal_gen.py'), stage]
-    try:
-        for m in ('portal_gen', 'report_gen', 'monitoring_gen'):
-            sys.modules.pop(m, None)
-        import portal_gen as PG                        # noqa: E402  (loads PG through the demo views)
-    finally:
-        sys.argv = saved
-    keys, demo_names = configure(PG)
+    uris = client_logo_uris()
+    PG, keys, demo_names = load_portal(stage)
     rels = write_pages(PG, keys)
     # 3) scrub + the leak gate
     scrubbed, found = 0, []
@@ -563,7 +668,7 @@ def main(argv=None):
         text, _ = unlink_absent(text)
         text, n = scrub(text, rules, demo_names)
         scrubbed += n
-        hits = leaks(text, rules)
+        hits = leaks(text, rules) + [(nm, 'its logo image') for nm in logo_leaks(text, uris)]
         if hits:
             found += [(rel, tok, ctx) for tok, ctx in hits]
         with open(p, 'w', encoding='utf-8') as fh:

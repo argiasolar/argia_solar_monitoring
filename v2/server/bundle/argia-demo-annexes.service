@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA demo.argia.com.mx example PDFs (daily, financial, invoice annexes; demo views, read-only, v288)
+After=argia-report-am.service
+[Service]
+Type=oneshot
+Environment=HOME=/root
+Environment=PYTHONPATH=/root/argia_v2/v2
+ExecStart=/root/argia_v2/v2/.venv/bin/python /opt/argia/bundle/demo_annexes.py /opt/argia/demo/annexes

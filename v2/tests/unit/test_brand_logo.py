@@ -103,7 +103,7 @@ class TestNoSolarBrandingLeft:
                     # names of real things - they are data, not our branding
                     # v279: demo.argia.com.mx names its plants ARGIA SOLAR 1..n and shows
                     # the ARGIA SOLAR logo on purpose (Tomasz, 2026-10-01) - demo files only
-                    if path.name in ("demo_gen.py", "demo_brand.py"):
+                    if path.name in ("demo_gen.py", "demo_brand.py", "demo_annexes.py"):
                         continue
                     if "workbook" in line or "Invoicing_Overview" in line or "costcenter" in path.name or "old ARGIA SOLAR wordmark" in line:
                         continue

@@ -19,6 +19,7 @@ happen:
 from __future__ import annotations
 
 import contextlib
+import json
 import datetime as dt
 import io
 import os
@@ -93,11 +94,24 @@ def demo(pg_env, tmp_path_factory):
     _apply_demo_schema(pg_env)
     tmp = tmp_path_factory.mktemp("demo")
     out = tmp / "www"
+    ann = tmp / "demo_annexes"                 # v288: what demo_annexes.py leaves for demo_gen
+    ann.mkdir()
+    (ann / "ARGIA_SOLAR_Daily_morning_2026-09-30.pdf").write_bytes(b"%PDF-1.4 daily")
+    (ann / "Factura_ARGIA_SOLAR_1_202609.pdf").write_bytes(b"%PDF-1.4 annex")
+    (ann / "secret.html").write_text("TAIGENE")
+    (ann / "manifest.json").write_text(json.dumps({"generated": "2026-10-02 07:40 MX", "items": [
+        {"group": "daily", "file": "ARGIA_SOLAR_Daily_morning_2026-09-30.pdf", "title_en": "Daily report - morning edition",
+         "title_es": "Reporte diario - edición de la mañana", "period": "2026-09-30"},
+        {"group": "invoice", "file": "Factura_ARGIA_SOLAR_1_202609.pdf", "title_en": "ARGIA SOLAR 1 - invoice annex September 2026",
+         "title_es": "ARGIA SOLAR 1 - anexo de factura septiembre 2026", "period": "2026-09"},
+        {"group": "daily", "file": "../../etc/passwd.pdf", "title_en": "x"},
+        {"group": "daily", "file": "secret.html", "title_en": "x"}]}), encoding="utf-8")
     swap = tmp / "demo_photos"                 # v280: demo-only photo replacement
     swap.mkdir()
     (swap / "gto1.jpg").write_bytes(b"\xff\xd8demo-swap")
     (swap / "notes.txt").write_text("TAIGENE")    # not a photo name: ignored
-    rc, so, se = run_demo(pg_env, out, _portal_root(tmp), extra_env={"ARGIA_DEMO_PHOTOS": str(swap)})
+    rc, so, se = run_demo(pg_env, out, _portal_root(tmp), extra_env={"ARGIA_DEMO_PHOTOS": str(swap),
+                                                                     "ARGIA_DEMO_ANNEXES": str(ann)})
     assert rc == 0, so + se
     return out, so, tmp
 
@@ -216,7 +230,7 @@ class TestProofAndInventory:
         out, _, _ = demo
         files = all_files(out)
         assert "secret.html" not in files
-        assert not [k for k in files if k.endswith(".pdf")]
+        assert not [k for k in files if k.endswith(".pdf") and not k.startswith("report/annexes/files/")]
         assert "monitoring/assets/gto1.jpg" in files and "assets/photos/gto1_t.jpg" in files
 
 
@@ -250,7 +264,8 @@ class TestArgiaSolar:
             for sec in ("report", "monitoring"):
                 s = text(out, f"{sec}/argia-solar-{n}/index.html")
                 assert f"ARGIA SOLAR {n}" in s, (sec, k)
-                assert f"<title>DEMO - {sec.title()} - ARGIA SOLAR {n}</title>" in s, (sec, k)
+                label = {"report": "Reports", "monitoring": "Live Monitoring"}[sec]
+                assert f"<title>DEMO - {label} - ARGIA SOLAR {n}</title>" in s, (sec, k)
 
     def test_the_name_is_never_title_cased(self, demo):
         out, _, _ = demo
@@ -299,7 +314,7 @@ class TestArgiaSolar:
 
     def test_every_tab_title_starts_with_demo(self, demo):
         out, _, _ = demo
-        want = {"report": "DEMO - Report - ARGIA", "monitoring": "DEMO - Monitoring - ARGIA", "map": "DEMO - Map - ARGIA"}
+        want = {"report": "DEMO - Reports - ARGIA", "monitoring": "DEMO - Live Monitoring - ARGIA", "map": "DEMO - Map - ARGIA"}
         for k, p in pages(out).items():
             if not k.endswith(".html"):
                 continue
@@ -315,6 +330,29 @@ class TestArgiaSolar:
         head, body = s.split("</header>", 1)
         assert '<span class="demotag hdr">DEMO</span>' in head
         assert "MX · DEMO</div>" in body
+
+    def test_reports_and_live_monitoring_are_the_section_names(self, demo):
+        """v288 (Tomasz): Report -> Reports, Monitoring -> Live Monitoring."""
+        out, _, _ = demo
+        assert '<span data-en="Reports" data-es="Reportes">Reports</span>' in text(out, "report/index.html")
+        assert '<span data-en="Live Monitoring" data-es="Monitoreo en vivo">Live Monitoring</span>' in text(out, "monitoring/index.html")
+        land = markup(out / "index.html")
+        assert ">Reports<" in land and ">Live Monitoring<" in land
+
+    def test_the_annexes_tab_lists_the_pdfs(self, demo):
+        """v288: Reports > Annexes - the example PDFs, copied next to the page;
+        a manifest entry that is not a plain .pdf name is ignored."""
+        out, _, _ = demo
+        assert 'href="/report/annexes/"' in markup(out / "report/index.html")
+        s = markup(out / "report/annexes/index.html")
+        for fn in ("ARGIA_SOLAR_Daily_morning_2026-09-30.pdf", "Factura_ARGIA_SOLAR_1_202609.pdf"):
+            assert f'href="/report/annexes/files/{fn}"' in s
+            assert (out / "report/annexes/files" / fn).read_bytes().startswith(b"%PDF")
+        files = all_files(out)
+        assert not [k for k in files if "passwd" in k or k.endswith("secret.html")]
+        assert "Being prepared" in s                      # the financial group has no file in this fixture
+        for g in ("Daily performance report", "Financial report", "Monthly invoice annexes"):
+            assert g in s, g
 
     def test_every_page_offers_english_and_spanish(self, demo):
         """v285 (Tomasz): EN / ES like the live portal - a switch in every

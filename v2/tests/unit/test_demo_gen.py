@@ -116,11 +116,11 @@ class TestNoPpa:
 class TestDemoTitle:
     @pytest.mark.parametrize("rel,want", [
         ("index.html", "DEMO - ARGIA"),
-        ("report/index.html", "DEMO - Report - ARGIA"),
-        ("report/plants/index.html", "DEMO - Report - ARGIA"),
-        ("report/argia-solar-3/index.html", "DEMO - Report - ARGIA SOLAR 3"),
-        ("monitoring/losses/index.html", "DEMO - Monitoring - ARGIA"),
-        ("monitoring/argia-solar-11/d/2026-09-30.html", "DEMO - Monitoring - ARGIA SOLAR 11"),
+        ("report/index.html", "DEMO - Reports - ARGIA"),
+        ("report/plants/index.html", "DEMO - Reports - ARGIA"),
+        ("report/argia-solar-3/index.html", "DEMO - Reports - ARGIA SOLAR 3"),
+        ("monitoring/losses/index.html", "DEMO - Live Monitoring - ARGIA"),
+        ("monitoring/argia-solar-11/d/2026-09-30.html", "DEMO - Live Monitoring - ARGIA SOLAR 11"),
         ("map/index.html", "DEMO - Map - ARGIA"),
     ])
     def test_every_tab_starts_with_demo(self, rel, want):
@@ -201,3 +201,58 @@ class TestStaticGuarantees:
         for f in BUNDLE.glob("demo*"):
             t = f.read_text(encoding="utf-8", errors="ignore")
             assert not re.search(r"\$apr1\$|\$2[aby]\$|Welcome", t), f.name
+
+
+class TestAnnexesPure:
+    """v288: demo_annexes - the example PDFs (Reports > Annexes)."""
+
+    @pytest.fixture(scope="class")
+    def A(self):
+        import demo_annexes
+        return demo_annexes
+
+    def test_the_month_just_closed(self, A):
+        import datetime as dt
+        assert A.previous_month(dt.date(2026, 10, 2)) == "2026-09"
+        assert A.previous_month(dt.date(2027, 1, 1)) == "2026-12"
+
+    @pytest.mark.parametrize("asof,want", [
+        ("2026-10-01", "2026-09-25"),     # early in a month -> the last real-looking Friday mail
+        ("2026-09-30", "2026-09-25"),
+        ("2026-09-11", "2026-09-11"),     # a Friday, 11 days in
+        ("2026-09-05", "2026-08-28"),     # Friday the 4th is too early
+    ])
+    def test_the_weekly_example_is_a_friday_mail_a_week_into_its_month(self, A, asof, want):
+        import datetime as dt
+        d = A.last_friday_mail(dt.date.fromisoformat(asof))
+        assert d.isoformat() == want and d.weekday() == 4 and d.day >= 7
+
+    def test_the_windows(self, A):
+        import datetime as dt
+        w = A.windows(dt.date(2026, 10, 1), dt.date(2026, 10, 2))
+        assert w == {"weekly": ("2026-09-01", "2026-09-25"), "monthly": ("2026-09-01", "2026-09-30")}
+        assert A.windows(dt.date(2027, 1, 20), dt.date(2027, 1, 21))["monthly"] == ("2026-12-01", "2026-12-31")
+
+    def test_file_names_from_demo_names(self, A):
+        assert A.slug_name("ARGIA SOLAR 10") == "ARGIA_SOLAR_10"
+
+    def test_a_real_logo_image_is_a_leak(self, A):
+        uris = {"data:image/png;base64,AAAA": "TAIGENE"}
+        assert DG.logo_leaks('<img src="data:image/png;base64,AAAA">', uris) == ["TAIGENE"]
+        assert A.gate('<img src="data:image/png;base64,AAAA">', [], uris) == [("TAIGENE", "its logo image")]
+        assert DG.logo_leaks('<img src="/assets/demo/argia-solar.png">', uris) == []
+
+    def test_no_outbound_channel_and_no_secret_kept(self, A):
+        src = (BUNDLE / "demo_annexes.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        mods = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                mods |= {a.name.split(".")[0] for a in n.names}
+            elif isinstance(n, ast.ImportFrom) and n.module:
+                mods.add(n.module)
+        assert not mods & {"smtplib", "requests", "urllib", "http", "socket", "httpx", "anthropic", "googleapiclient", "email"}
+        assert not [m for m in mods if m in ("argia.core.drive", "argia.report.report_mail", "argia.report.output")]
+        for k in ("GOOGLE_SHEET_ID_V2", "GOOGLE_CREDENTIALS", "GOOGLE_ARCHIVE_FOLDER_ID"):
+            assert k in A.NO_SECRETS
+        assert A.SERVER_ENV["ARGIA_SHEET_OUTBOX"] == "0"

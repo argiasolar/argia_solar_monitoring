@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA demo example PDFs once a day, after the morning report (v288)
+[Timer]
+OnCalendar=*-*-* 07:40:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

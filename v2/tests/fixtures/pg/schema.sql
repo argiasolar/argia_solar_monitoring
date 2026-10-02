@@ -2069,8 +2069,8 @@ CREATE VIEW demo.plant AS
             ELSE COALESCE(p.billing_scheme, 'measured'::text)
         END AS billing_scheme,
     p.module_model,
-    p.show_dashboard,
-    p.show_daily_report,
+    true AS show_dashboard,
+    true AS show_daily_report,
     true AS show_financial,
     NULL::text AS client_channel
    FROM ((public.plant p

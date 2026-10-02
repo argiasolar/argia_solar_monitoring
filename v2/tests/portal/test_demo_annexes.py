@@ -99,6 +99,28 @@ class TestWhatIsMade:
         assert len(frags) == 2 and all(re.match(r"d0=\d{4}-\d\d-01&d1=\d{4}-\d\d-\d\d$", f) for f in frags)
 
 
+    def test_the_daily_report_covers_the_whole_portfolio(self, annexes, psql):
+        """v291: every plant is in the daily report (the portal's own report
+        covers only plants with show_daily_report - in the demo that is all)."""
+        _, _, printed, _ = annexes
+        nums = [r[0] for r in psql("SELECT n FROM demo.name_map m JOIN plant p USING (plant_key) WHERE p.active")]
+        for f, (html, _) in printed.items():
+            if "Daily_" in f:
+                missing = [n for n in nums if not re.search(rf"ARGIA SOLAR {n}(?!\d)", html)]
+                assert not missing, (f, missing)
+
+
+    def test_the_demo_views_put_every_plant_in_the_daily_report(self, annexes, psql):
+        """Production keeps CAPEX plants out of the internal daily report
+        (show_daily_report false); the demo view turns every plant on."""
+        psql("UPDATE public.plant SET show_daily_report = false, show_dashboard = false WHERE portfolio = 'CAPEX';")
+        try:
+            rows = psql("SELECT bool_and(show_daily_report), bool_and(show_dashboard) FROM demo.plant")
+            assert rows == [["t", "t"]]
+        finally:
+            psql("UPDATE public.plant SET show_daily_report = true, show_dashboard = true WHERE portfolio = 'CAPEX';")
+
+
 class TestNoRealCustomer:
     def test_no_real_name_in_anything_printed(self, annexes, psql):
         _, _, printed, _ = annexes

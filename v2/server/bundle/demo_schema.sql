@@ -76,7 +76,8 @@ SELECT p.plant_key,
        p.kwp_dc_override, p.kwp_dc_check, p.pr_stc_model, p.gamma_pmax, p.monitoring_class,
        p.p90_annual_kwh, p.date_interconnection,
        CASE WHEN p.portfolio = 'PPA' THEN p.billing_scheme ELSE coalesce(p.billing_scheme, 'measured') END AS billing_scheme,
-       p.module_model, p.show_dashboard, p.show_daily_report,
+       p.module_model,
+       true AS show_dashboard, true AS show_daily_report,   -- v291: every plant in the daily report (whole portfolio)
        true AS show_financial,
        NULL::text AS client_channel
 FROM public.plant p

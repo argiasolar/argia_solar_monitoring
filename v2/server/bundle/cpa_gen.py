@@ -419,7 +419,7 @@ def site_page(ctx: Ctx, s: RP.Site, cs: dict) -> str:
     sy = RP.specific_yield(s, ctx.mon, ctx.last_closed)
     f_now = co2reg.factor(ctx.today.year, s.key)
     started = ctx.started.get(s.key)
-    ph = f"background-image:linear-gradient(180deg,rgba(20,18,58,.15),rgba(20,18,58,.75)),url(../../assets/photos/{s.slug}.jpg)" \
+    ph = f"background-image:linear-gradient(180deg,rgba(20,18,58,.78),rgba(20,18,58,.92)),url(../../assets/photos/{s.slug}.jpg)" \
         if ctx.brand.get("photos", {}).get(s.slug) else ""
     body = f"""<div class="hero" style="{ph};background-size:cover;background-position:center"><div class="k">{L("Site", "Sitio")} · {esc(s.city)}</div>
 <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><div class="card" style="padding:10px 14px;display:flex;align-items:center;height:62px">{logo_html(s, cs).replace('<img ', '<img style="max-height:40px;max-width:150px" ')}</div>

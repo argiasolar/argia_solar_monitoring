@@ -150,7 +150,7 @@ CSS = """
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 'DM Sans',Segoe UI,Roboto,Arial,sans-serif}
 html:not(.es) [lang=es],html.es [lang=en]{display:none}html:not(.es) .t-es,html.es .t-en{display:none}
 h1,h2,h3,.num{font-family:Poppins,'DM Sans',Segoe UI,sans-serif}a{color:var(--blue2);text-decoration:none}a:hover{color:var(--blue)}
-.top{position:sticky;top:0;z-index:50;background:var(--navy);color:#fff;box-shadow:0 2px 18px rgba(20,18,58,.35)}
+.top{position:sticky;top:0;z-index:1100;background:var(--navy);color:#fff;box-shadow:0 2px 18px rgba(20,18,58,.35)}
 .topin{max-width:1280px;margin:0 auto;display:flex;align-items:center;gap:18px;padding:12px 22px}
 .brand{display:flex;align-items:center;gap:12px;color:#fff;font-weight:700}.brand img.cpa{height:30px}.brand .x{opacity:.55}
 .brand img.ar{height:20px;filter:brightness(0) invert(1)}.brand .word{font-family:Poppins;font-weight:800;font-size:22px;letter-spacing:.02em}
@@ -195,7 +195,7 @@ background:radial-gradient(900px 380px at 88% -20%,rgba(46,163,242,.55),transpar
 .eq{display:flex;gap:14px;align-items:center}.eq .ic{flex:none;width:54px;height:54px;border-radius:16px;display:grid;place-items:center;background:#eaf6ff;font-size:26px}
 .eq b{font:800 28px Poppins;color:var(--navy);display:block;line-height:1.1}.eq .lab{color:var(--ink2);font-size:13.5px}
 .esg .badge{display:inline-grid;place-items:center;width:46px;height:46px;border-radius:12px;color:#fff;font:800 18px Poppins;margin-bottom:8px}
-#map{height:520px;border-radius:16px;border:1px solid var(--line)}
+#map{height:520px;border-radius:16px;border:1px solid var(--line);position:relative;z-index:0;isolation:isolate}
 .pin{position:relative;cursor:pointer}.pin .ph{border-radius:50%;background:#dfe7f7 center/cover no-repeat;box-shadow:0 3px 12px rgba(20,18,58,.35);box-sizing:border-box}
 .pin .st{position:absolute;right:-2px;top:-2px;width:14px;height:14px;border-radius:50%;border:2px solid #fff}
 .pin .st.live{animation:pulse 2s infinite}

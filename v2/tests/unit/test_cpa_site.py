@@ -356,3 +356,13 @@ def test_site_colours_are_one_blue_ramp():
         assert 200 <= hue <= 225, (c, hue)                              # blue, no orange/teal
     light = [colorsys.rgb_to_hls(*(int(c[i:i + 2], 16) / 255 for i in (1, 3, 5)))[1] for c in g.SITE_COLOURS[:3]]
     assert light == sorted(light) and light[1] - light[0] > .15 and light[2] - light[1] > .15   # clearly different shades
+
+
+def test_map_scrolls_under_the_sticky_header():
+    """v301: the same stacking fix as the Prologis site (Leaflet panes go up to z-index 1000)."""
+    import cpa_gen as g
+    css = g.CSS.replace("\n", "")
+    m = re.search(r"#map\{([^}]*)\}", css).group(1)
+    assert "isolation:isolate" in m and "position:relative" in m
+    top = re.search(r"\.top\{([^}]*)\}", css).group(1)
+    assert "position:sticky" in top and int(re.search(r"z-index:(\d+)", top).group(1)) > 1000

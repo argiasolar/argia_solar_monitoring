@@ -117,3 +117,15 @@ def test_tab_icon_is_the_prologis_globe(env):
     signed = _signed_in(app_mod, pw)
     for path in ("/", "/map/", "/tickets/", "/shop/"):
         assert 'href="/favicon.png"' in signed.get(path).get_data(as_text=True).split("</head>")[0], path
+
+
+def test_map_scrolls_under_the_sticky_header():
+    """v301 (Tomasz: the map overlays the menu bar when scrolling). Leaflet's
+    panes carry z-index 400-1000; the map is now its own stacking context and
+    the sticky header sits above any of them."""
+    import prologis_ui as UI
+    css = UI.CSS.replace("\n", "")
+    m = re.search(r"#map\{([^}]*)\}", css).group(1)
+    assert "isolation:isolate" in m and "position:relative" in m and "z-index:0" in m
+    top = re.search(r"\.top\{([^}]*)\}", css).group(1)
+    assert "position:sticky" in top and int(re.search(r"z-index:(\d+)", top).group(1)) > 1000

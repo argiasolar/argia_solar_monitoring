@@ -47,7 +47,7 @@ CSS = """
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.55 "Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--act2);text-decoration:none}a:hover{color:var(--deep)}
-.top{background:var(--deep);color:#fff;position:sticky;top:0;z-index:50;box-shadow:0 2px 14px rgba(0,0,0,.18)}
+.top{background:var(--deep);color:#fff;position:sticky;top:0;z-index:1100;box-shadow:0 2px 14px rgba(0,0,0,.18)}
 .stripe{height:4px;background:linear-gradient(90deg,var(--deep2) 0 25%,var(--sky) 25% 50%,var(--teal) 50% 75%,var(--lime) 75% 100%)}
 .topin{max-width:1360px;margin:0 auto;display:flex;align-items:center;gap:18px;padding:10px 20px}
 .brand{display:flex;align-items:center;gap:12px;color:#fff;font-weight:800;letter-spacing:.02em;white-space:nowrap}
@@ -108,7 +108,7 @@ label{font-size:12px;font-weight:700;color:var(--ink2);display:block;margin:10px
 .tl{border-left:2px solid var(--line);margin-left:8px;padding-left:16px}.tl .ev{position:relative;margin-bottom:14px}
 .tl .ev:before{content:"";position:absolute;left:-23px;top:5px;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid var(--teal)}
 .chip{display:inline-flex;gap:6px;align-items:center;background:#f1f6f5;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:12.5px}
-#map{height:620px;border-radius:16px;border:1px solid var(--line)}
+#map{height:620px;border-radius:16px;border:1px solid var(--line);position:relative;z-index:0;isolation:isolate}
 .mini-map{height:330px!important}
 @media(max-width:700px){.brand .tag{display:none}.kpis{grid-template-columns:1fr 1fr}.hero .glow{display:none}.hero h1{font-size:24px}
 main{padding:14px 12px 40px}.hero{padding:20px 18px}.kpi .v{font-size:21px}table.t{font-size:12.5px}.pstep{display:none}.topin{padding:8px 12px;gap:10px}

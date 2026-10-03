@@ -53,10 +53,20 @@ JOBS = [
     ("portfolio_export", ["--out", "{tmp}/portfolio.json"], r"11 plants, 22 inverters"),
     ("invoice_publish", ["--last-month", "--out-root", "{tmp}", "--no-pdf"], r"index written; months published"),
     ("fin_savio_recon", [], r"SAVIO_ONLY|TRACKER_ONLY|MATCH|findings"),
+    ("ticket_weekly", ["--dry-run"], r"would mail ops@example\.invalid: \[ARGIA\] .* - 2 open maintenance tickets"),
 ]
 
 # jobs that only act in daylight (MX): run with the clock pinned to noon
 DAYLIGHT_ONLY = {"alerts_snapshot"}
+NOON_FILL_SQL = """
+INSERT INTO telemetry (ts_utc, plant_key, inverter_sn, status, power_w, temperature_c, vendor)
+SELECT g, i.plant_key, i.inverter_sn, 1, round((i.rated_kw * 600)::numeric, 2), 45, 'test'
+  FROM inverter i,
+       generate_series(((now() AT TIME ZONE 'America/Mexico_City')::date + time '09:00') AT TIME ZONE 'America/Mexico_City',
+                       ((now() AT TIME ZONE 'America/Mexico_City')::date + time '12:00') AT TIME ZONE 'America/Mexico_City',
+                       interval '5 minutes') g
+ WHERE i.plant_key <> 'MEX3' AND g > now();
+"""
 
 # job script -> why it cannot run in a test (it still gets the static checks
 # and whatever unit tests cover its pure parts)
@@ -82,6 +92,11 @@ def _run(script, argv, env, monkeypatch, capsys, caplog):
     for k, v in {**SERVER_ENV, **{k: env[k] for k in ("PGHOST", "PGPORT", "PGUSER", "PGTZ", "PATH")}}.items():
         monkeypatch.setenv(k, v)
     caplog.set_level(logging.INFO)
+    # v303: never read a real /opt/argia/auth/users.db from a test - with
+    # one on the box the seed subscriber was "not a portal user" and the
+    # mail jobs went quiet (the CI runner has none: portal check skipped)
+    from argia.alerts import subscriptions
+    monkeypatch.setattr(subscriptions, "portal_emails", lambda *a, **k: None)
     mod = importlib.import_module(script)
     clock = contextlib.nullcontext()
     if script in DAYLIGHT_ONLY:
@@ -92,6 +107,14 @@ def _run(script, argv, env, monkeypatch, capsys, caplog):
         from argia.core.time_utils import now_mx
         noon = now_mx().replace(hour=12, minute=0, second=0, microsecond=0)
         clock = freeze_time(noon)
+        # v303: the seed has telemetry only up to the REAL now, so before
+        # ~11:00 MX the 3 h tail behind the frozen noon held under 2 h of
+        # data and the acute tier could not say "absent for >= 2 h" (the
+        # suite failed every morning). Fill today's tail up to noon.
+        import subprocess
+        r = subprocess.run(["psql", "-d", "argia_mont", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-c", NOON_FILL_SQL],
+                           env=env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
     try:
         with clock:
             rc = mod.main(argv)

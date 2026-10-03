@@ -156,6 +156,8 @@ def explain(metric: str, severity: str = "",
         prefix = "Needs attention now. "
     elif sev == "WARNING":
         prefix = "Worth watching; act if it persists. "
+    elif sev == "INFO":
+        prefix = "For the record - no energy loss measured, nobody is mailed. "
     return f"{prefix}{entry['meaning']} What to check: {entry['check']}"
 
 

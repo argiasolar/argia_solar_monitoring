@@ -381,6 +381,7 @@ def ledger_issues(labels=None):
             extra["label"] = labels[sn]
         if brief is not None:
             extra["ticket"] = ticket_line(brief)
+            extra["ticket_no"] = brief.number     # v303: not repeated as an issue, see summarize()
         out.append((f"{metric}:{plant}:{sn}" if sn else f"{metric}:{plant}", sev,
                     first_seen, extra))
     return out
@@ -603,6 +604,17 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
               cost=None) -> dict:
     """Assemble everything the templates need. Pure, unit-tested."""
     ppa_keys = {k for k, _, _ in plants}
+    # v303 (Tomasz: "if there is open ticket stop sending me the same
+    # status over and over again"): an alert that belongs to an open
+    # maintenance ticket is no longer an open issue here - the plant shows
+    # the ticket number, the progress goes out on every status change and
+    # in the Monday reminder of all open tickets
+    in_hand: dict = {}
+    for a in alerts:
+        no = ((a[3] if len(a) > 3 else None) or {}).get("ticket_no")
+        if no:
+            in_hand.setdefault(subscriptions.alert_plant(a[0]), set()).add(no)
+    alerts = [a for a in alerts if not ((a[3] if len(a) > 3 else None) or {}).get("ticket_no")]
     rows = []
     for key, customer, kwp in plants:
         kwh, age, seen = today_map.get(key, (0.0, None, 0))
@@ -621,6 +633,8 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
             status, cls = "issues", "bad"
         elif plant_alerts:
             status, cls = "check", "warn"
+        elif key in in_hand:
+            status, cls = "ticket " + ", ".join(sorted(in_hand[key])), "hand"
         else:
             status, cls = "OK", "ok"
         rows.append({
@@ -668,6 +682,7 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
         "tot_yield": tot_today / tot_kwp if tot_kwp > 0 else 0.0,
         "tot_inv": f"{inv_seen}/{inv_all}" if inv_all else str(inv_seen),
         "issues": issues, "maint": list(maint),
+        "in_hand": sorted(n for k, v in in_hand.items() if k in ppa_keys for n in v),
         "n_bad": sum(1 for r in rows if r["cls"] == "bad"),
         "n_warn": sum(1 for r in rows if r["cls"] == "warn"),
     }
@@ -740,6 +755,8 @@ def render_text(data: dict) -> str:
                 L.append(f"      {i['why']}")
     else:
         L.append("Open issues: none")
+    if data.get("in_hand"):
+        L.append(IN_HAND_NOTE % ", ".join(data["in_hand"]))
     L += ["",
           "Today's figures are live telemetry, not yet reconciled - the"
           " nightly close finalizes them. Weather-expected for today"
@@ -749,7 +766,11 @@ def render_text(data: dict) -> str:
     return "\n".join(L)
 
 
+IN_HAND_NOTE = ("Open maintenance tickets, not repeated here: %s - every status change is"
+                " mailed as it happens, and all open tickets every Monday.")
+
 _PILL = {"ok": ("#e7f4e8", "#1d7a2c", "OK"),
+         "hand": ("#e6f4f3", "#05847d", None),
          "warn": ("#fdf3d7", "#8a6d1a", None),
          "bad": ("#fdeaea", "#b3261e", None)}
 
@@ -850,6 +871,9 @@ def render_html(data: dict) -> str:
     else:
         issues_html = ('<p style="margin:6px 0 0;color:#1d7a2c">'
                        'No open issues.</p>')
+    if data.get("in_hand"):
+        issues_html += ('<p style="margin:10px 0 0;font-size:12px;color:#05847d">%s</p>'
+                        % e(IN_HAND_NOTE % ", ".join(data["in_hand"])))
     return f'''<!doctype html><html><body style="margin:0;padding:0;
 background:#f2f5f8;font-family:'Segoe UI',Roboto,Arial,sans-serif;
 color:#243041">

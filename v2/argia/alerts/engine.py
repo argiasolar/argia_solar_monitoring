@@ -256,7 +256,7 @@ def reconcile_alerts(
       snapshot lacked the token - the DAILY run is the single owner of
       resolution, arbitrating on full-day aggregates.
     - records with other metrics, or already RESOLVED -> untouched
-    - duplicate candidates for one key: keep the worst (CRITICAL > WARNING)
+    - duplicate candidates for one key: keep the worst (CRITICAL > WARNING > INFO)
 
     Ledger order is preserved; new rows append at the end - the sheet is an
     append-plus-in-place-update history, rows never move or vanish.
@@ -265,7 +265,7 @@ def reconcile_alerts(
     by_key: Dict[str, Candidate] = {}
     for c in candidates:
         prev = by_key.get(c.alert_key)
-        if prev is None or (c.severity == "CRITICAL" and prev.severity != "CRITICAL"):
+        if prev is None or _RANK.get(c.severity, 0) > _RANK.get(prev.severity, 0):
             by_key[c.alert_key] = c
 
     records = list(ledger.records)

@@ -30,6 +30,12 @@ pseudo-alert. Intraday ticks mail CRITICAL only (``severities``) - a
 WARNING waits for the morning mail. Severity rule the mail follows:
 CRITICAL = energy is being lost or a plant/inverter is off; everything
 about data, heat without loss or a flag without loss is WARNING.
+
+v303 (Tomasz, 2026-10-03): a flag without a measured loss is INFO and
+never mailed (argia.alerts.grading); an alert that belongs to an open
+maintenance ticket is not mailed, not re-mailed and not listed as still
+open - the ticket's status changes and the Monday reminder of all open
+tickets carry it (argia.maintenance.notify, scripts/ticket_weekly.py).
 """
 from __future__ import annotations
 
@@ -80,6 +86,15 @@ REMAIL_AFTER_HOURS = 3.0
 REMAIL_DAY_START_MX = 7
 REMAIL_DAY_END_MX = 19
 _MAILED_PREFIX = "mailed@"
+REMAIL_SEEN_WITHIN_MIN = 40.0
+"""v303: a CRITICAL is re-mailed only while it is still being SEEN - the
+acute tier touched it within this many minutes (it runs every 30). A
+daily verdict on yesterday (energy below 70 % of expected, the twin
+lagging, an inverter far below its peers) is touched once, at 06:30, so
+it is mailed once that morning and not repeated every 3 h of the day
+(SAG, 26 and 29 Sep: "2 critical (SAG)" three more times a day); a plant
+that came back after an outage stops being re-mailed although its alert
+stays open until the daily run resolves it."""
 
 
 def last_mailed_at(record: AlertRecord) -> Optional[dt.datetime]:
@@ -109,11 +124,22 @@ def stamp_mailed(record: AlertRecord, now_utc: dt.datetime) -> AlertRecord:
     return dataclasses.replace(record, channels_sent=",".join(keep))
 
 
+def _seen_recently(r: AlertRecord, now_utc: dt.datetime, within_min: float) -> bool:
+    try:
+        seen = dt.datetime.fromisoformat((r.last_seen_utc or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if seen.tzinfo is None:
+        seen = seen.replace(tzinfo=dt.timezone.utc)
+    return (now_utc - seen).total_seconds() <= within_min * 60.0
+
+
 def due_for_remail(records: Sequence[AlertRecord], now_utc: dt.datetime,
                    now_mx_hour: int, every_hours: float = REMAIL_AFTER_HOURS,
-                   excluded=None) -> List[AlertRecord]:
-    """OPEN CRITICALs that were mailed, are still happening, and have not
-    been mentioned for ``every_hours``. Daylight only."""
+                   excluded=None, seen_within_min: float = REMAIL_SEEN_WITHIN_MIN) -> List[AlertRecord]:
+    """OPEN CRITICALs that were mailed, are still happening (seen within
+    ``seen_within_min``, v303), and have not been mentioned for
+    ``every_hours``. Daylight only."""
     from argia.alerts import subscriptions
     if not (REMAIL_DAY_START_MX <= now_mx_hour < REMAIL_DAY_END_MX):
         return []
@@ -127,6 +153,8 @@ def due_for_remail(records: Sequence[AlertRecord], now_utc: dt.datetime,
             continue                      # never mailed: unmailed() owns it
         if excluded is not None and not subscriptions.is_mailable(r.plant_key, excluded):
             continue
+        if not _seen_recently(r, now_utc, seen_within_min):
+            continue                      # v303: not seen again since - nothing new to say
         last = last_mailed_at(r)
         if last is None:
             continue                      # mailed before stamps existed; wait for the next open
@@ -279,11 +307,17 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
     except ValueError:
         pass
     head = f"{SUBJECT_PREFIX} {day} - " if day else f"{SUBJECT_PREFIX} "
+    # v303 (Tomasz: "if there is open ticket stop sending me the same
+    # status over and over again"): a ticket's alerts are named once, as
+    # ticket numbers - the progress goes out on every status change and
+    # in the Monday reminder (scripts/ticket_weekly.py), not every day
+    numbers = sorted({ln.split(": ", 1)[1].split(" · ")[0] for ln in hand_lines if ": " in ln})
+    hand_note = (f"Not repeated here: {len(handled)} alert{'s' if len(handled) != 1 else ''} covered by open "
+                 f"maintenance ticket{'s' if len(numbers) != 1 else ''} {', '.join(numbers)} - you get a mail on every "
+                 f"status change and a reminder of all open tickets every Monday.") if handled else ""
     if alerts:
         parts = ([f"{n_crit} critical"] if n_crit else []) + ([f"{n_warn} warning{'s' if n_warn != 1 else ''}"] if n_warn else [])
         subject = head + ", ".join(parts) + f" ({', '.join(plants)})"
-    elif hand_lines:
-        subject = head + f"nothing new - {len(hand_lines)} ticket{'s' if len(hand_lines) != 1 else ''} in hand"
     else:
         subject = head + f"nothing new - {so_crit} critical still open"
     # ---- text
@@ -301,10 +335,6 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
                 lab = n.inverter(pk, a.inverter_sn) + ": " if a.inverter_sn else ""
                 t.append(f"      {lab}{clean_message(a, n)}  ({a.alert_id})")
         t.append("")
-    if hand_lines:
-        t.append("In hand - open maintenance tickets")
-        t.extend(f"  {ln}" for ln in hand_lines)
-        t.append("")
     if so_lines:
         t.append(f"Still open from previous days: {so_crit} critical / {so_warn} warning")
         t.extend(f"  {ln}" for ln in so_lines)
@@ -313,6 +343,9 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
     if gl:
         t.append("What these mean")
         t.extend(f"  {ph}: {txt}" for ph, txt in gl)
+        t.append("")
+    if hand_note:
+        t.append(hand_note)
         t.append("")
     t.append("Portal: https://portal.argia.com.mx/monitoring/")
     text = "\n".join(t)
@@ -336,13 +369,6 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
                 lab = n.inverter(pk, a.inverter_sn) + ": " if a.inverter_sn else ""
                 h.append(f'<div style="margin:0 0 2px 36px;color:#5f6368;font-size:12px">{e(lab)}{e(clean_message(a, n))}'
                          f' <span style="color:#b0b4b8">{e(a.alert_id)}</span></div>')
-    if hand_lines:
-        h.append('<div style="margin:18px 0 4px;font-weight:700">In hand <span style="font-weight:400;color:#5f6368">open maintenance tickets</span></div>')
-        for ln in hand_lines:
-            num = ln.split(": ", 1)[1].split(" · ")[0] if ": " in ln else ""
-            link = f'https://portal.argia.com.mx/maintenance/t/{num}/' if num.startswith("TK-") else ""
-            h.append(f'<div style="margin:0 0 3px 12px;font-size:12px;color:#05847d">' + (f'<a href="{link}" style="color:#05847d">' if link else '')
-                     + e(ln) + ('</a>' if link else '') + '</div>')
     if so_lines:
         h.append(f'<div style="margin:18px 0 4px;font-weight:700">Still open from previous days '
                  f'<span style="font-weight:400;color:#5f6368">{so_crit} critical / {so_warn} warning</span></div>')
@@ -353,9 +379,11 @@ def render_mail(alerts: Sequence[AlertRecord], labels=None,
         h.append('<div style="margin:18px 0 4px;font-weight:700;color:#5f6368">What these mean</div>')
         for ph, txt in gl:
             h.append(f'<div style="margin:0 0 6px 12px;font-size:12px;color:#5f6368"><b>{e(ph)}</b> - {e(txt)}</div>')
+    if hand_note:
+        h.append(f'<div style="margin:14px 0 0;font-size:12px;color:#05847d">{e(hand_note)}</div>')
     h.append('<p style="color:#9aa0a6;font-size:11px;margin-top:16px">ARGIA Monitoring · '
              'portal: https://portal.argia.com.mx/monitoring/ · CRITICAL = energy being lost or a unit off; '
-             'WARNING = data, heat or a flag without a measured loss</p></div>')
+             'WARNING = a smaller measured loss or a day without data; flags without a loss stay on the portal (INFO)</p></div>')
     return subject, text, "".join(h)
 
 
@@ -434,24 +462,34 @@ def mail_new_alerts(records: Sequence[AlertRecord],
     - alerting must not crash the engine run."""
     from argia.alerts import emailer, subscriptions
     excluded = subscriptions.load_excluded_plants()
-    cands = [r for r in unmailed(records, severities)
-             if subscriptions.is_mailable(r.plant_key, excluded)][:MAX_PER_RUN]
+    tickets = tickets or {}
+    in_hand = lambda r: bool(getattr(tickets.get(r.alert_key), "open", False))  # noqa: E731
+    pending = unmailed(records, severities)
+    # v303: an alert that belongs to an open ticket is not news - the
+    # ticket's status changes and the Monday reminder carry it. Marked as
+    # mailed so it is not picked up again; if the ticket is closed while
+    # the alert is still open, the CRITICAL re-mail cadence takes over.
+    quiet = [r for r in pending if in_hand(r)]
+    cands = [r for r in pending
+             if not in_hand(r) and subscriptions.is_mailable(r.plant_key, excluded)][:MAX_PER_RUN]
     # v257: a CRITICAL still open hours later is still losing money - say
     # so again rather than letting one 13:30 mail be the whole warning.
     now_for_remail = now_utc or dt.datetime.now(dt.timezone.utc)
     mx_hour = int((now_mx_hour if now_mx_hour is not None
                    else (now_for_remail - dt.timedelta(hours=6)).hour))
     again = [r for r in due_for_remail(records, now_for_remail, mx_hour, excluded=excluded)
-             if r.alert_id not in {c.alert_id for c in cands}]
+             if r.alert_id not in {c.alert_id for c in cands} and not in_hand(r)]
     if again:
         LOG.info("ledger mail: %d CRITICAL still open, re-mailing", len(again))
     cands = (cands + again)[:MAX_PER_RUN]
     open_crit = [r for r in records if r.state == AlertState.OPEN and r.metric != DIGEST_METRIC
-                 and (r.severity or "").upper() == "CRITICAL"
+                 and (r.severity or "").upper() == "CRITICAL" and not in_hand(r)
                  and subscriptions.is_mailable(r.plant_key, excluded)]
+    if quiet:
+        LOG.info("ledger mail: %d new alert(s) belong to open tickets - not mailed (%s)",
+                 len(quiet), ", ".join(sorted({tickets[r.alert_key].number for r in quiet})))
     if not cands and not (morning and open_crit):
-        return list(records)
-    tickets = tickets or {}
+        return mark_mailed(records, {r.alert_id for r in quiet}, now_utc=now_for_remail) if quiet else list(records)
     try:
         rcpts = recipients()
     except Exception as e:  # noqa: BLE001
@@ -482,7 +520,8 @@ def mail_new_alerts(records: Sequence[AlertRecord],
     for emails, alerts in views:
         scope = scope_of.get(emails[0]) if emails else None
         so = [r for r in mailable_open if scope is None or r.plant_key.upper() in scope]
-        if not alerts and not any((r.severity or "").upper() == "CRITICAL" and r.state == AlertState.OPEN for r in so):
+        if not alerts and not any((r.severity or "").upper() == "CRITICAL" and r.state == AlertState.OPEN
+                                  and r.metric != DIGEST_METRIC and not in_hand(r) for r in so):
             continue                    # this view has nothing to say
         subject, body, html = render_mail(alerts, labels, still_open=so, when_mx=when_mx, now_utc=now_utc, tickets=tickets)
         if dry_run:
@@ -497,4 +536,7 @@ def mail_new_alerts(records: Sequence[AlertRecord],
         else:
             LOG.error("ledger mail: send FAILED for %s - will retry next run",
                       ", ".join(emails))
+    if dry_run:
+        return list(records)
+    mailed |= {r.alert_id for r in quiet}
     return mark_mailed(records, mailed, now_utc=now_for_remail) if mailed else list(records)

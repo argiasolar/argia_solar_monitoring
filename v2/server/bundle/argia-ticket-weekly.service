@@ -1,0 +1,11 @@
+[Unit]
+# v303: one mail with every open maintenance ticket (status, owner, age,
+# last update, open alerts) to the 'maintenance' subscribers; the daily
+# alert mails no longer repeat ticketed alerts.
+Description=ARGIA weekly open-ticket reminder
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/argia_v2/v2/pi/run_job.sh ticket-weekly ticket_weekly.py

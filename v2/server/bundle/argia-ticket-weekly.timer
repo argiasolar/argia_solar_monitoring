@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA weekly reminder of every open maintenance ticket, Mondays 07:10 Mexico City time
+[Timer]
+OnCalendar=Mon *-*-* 07:10:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

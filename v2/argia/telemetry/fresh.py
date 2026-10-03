@@ -85,3 +85,20 @@ def repeats(readings: Sequence[Reading]) -> list:
         out.append(is_repeat(prev, r))
         prev = r
     return out
+
+
+def drop_repeats(rows: Sequence, inverter, reading) -> list:
+    """v303: ``rows`` without the repeats - for the alert jobs, which read
+    telemetry rows rather than SQL. ``inverter(row)`` names the unit,
+    ``reading(row)`` gives its (ts, power_w, etoday_kwh). Rows keep their
+    order; each inverter's rows are judged in time order. Pure."""
+    by_inv: dict = {}
+    for i, r in enumerate(rows):
+        by_inv.setdefault(inverter(r), []).append(i)
+    drop = set()
+    for idx in by_inv.values():
+        idx.sort(key=lambda i: reading(rows[i])[0])
+        for i, flag in zip(idx, repeats([reading(rows[i]) for i in idx])):
+            if flag:
+                drop.add(i)
+    return [r for i, r in enumerate(rows) if i not in drop]

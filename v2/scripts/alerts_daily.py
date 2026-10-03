@@ -80,6 +80,8 @@ from argia.core.sheets import SheetsClient, open_sheets
 from argia.core.time_utils import UTC, now_mx
 from argia.kpi import compute_plant_energy, read_day_bundle
 from argia.core.job_log import instrument
+from argia.alerts import grading
+from argia.telemetry.fresh import drop_repeats
 
 logging.basicConfig(
     level=logging.INFO,
@@ -208,6 +210,21 @@ def build_candidates(
         cands.append(candidate_from_expected_breach(b))
 
     return cands
+
+
+def without_frozen(bundle):
+    """v303: the day's rows without frozen-logger repeats (the rule of
+    the live pages, argia.telemetry.fresh). A logger that went quiet at
+    16:35 while the vendor cloud kept answering with its last values is
+    a hole in the data - data_stale and the silent-inverter rule must see
+    the hole, not a fresh-looking repeat."""
+    from argia.kpi import DayBundle
+    rows = drop_repeats(list(bundle.rows), lambda r: (r.plant_key, str(r.inverter_sn).strip()),
+                        lambda r: (r.timestamp_utc, r.power_w, r.etoday_kwh))
+    if len(rows) == len(bundle.rows):
+        return bundle
+    log.info("frozen readings: %d repeated row(s) skipped for %s", len(bundle.rows) - len(rows), bundle.date_iso)
+    return DayBundle(date_iso=bundle.date_iso, rows=tuple(rows))
 
 
 TEMP_CLEAR_C = 60.0
@@ -415,7 +432,8 @@ def _ticket_notify(t, what, detail=""):
         n = naming.load_names()
         email_of, name_of = NOTIFY.account_lookups()
         NOTIFY.send(t, "monitoring", what, detail, email_of, name_of, n.plant(t.plant_key),
-                    n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else "")
+                    n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else "",
+                    watchers=NOTIFY.status_watchers(t.plant_key))      # v303: a status change
     except Exception as e:  # noqa: BLE001
         log.warning("ticket notification failed: %s", e)
 
@@ -510,7 +528,7 @@ def main(argv=None) -> int:
         return 3
 
     # --- inverter daily energies from telemetry ---
-    bundle = read_day_bundle(sheets, date_iso)
+    bundle = without_frozen(read_day_bundle(sheets, date_iso))
     readings: List[InverterReading] = []
     rated = {i.inverter_sn: i.rated_kw
              for p in portfolio.active_plants()
@@ -577,6 +595,9 @@ def main(argv=None) -> int:
                             + daily_silent_candidates(bundle, portfolio, date_iso)),
         string_rows=_read_string_evidence(date_iso),
     )
+    # v303: one severity policy for both tiers (argia.alerts.grading) -
+    # a flag without a measured loss is INFO: portal only, never mailed
+    candidates = grading.grade_all(candidates, tier="daily")
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
     if not candidates:

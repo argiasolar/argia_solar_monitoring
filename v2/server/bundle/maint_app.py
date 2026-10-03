@@ -289,12 +289,15 @@ def add_event(t: TK.Ticket, who: str, kind: str, body: str = '', meta: Optional[
 
 
 # ------------------------------------------------------------ notify
-def notify(t: TK.Ticket, who: str, what: str, detail: str = '') -> int:
+def notify(t: TK.Ticket, who: str, what: str, detail: str = '', status: bool = False) -> int:
     """E-mail the other participants about one change (v227: through
-    argia.maintenance.notify - usernames and bare e-mails alike)."""
+    argia.maintenance.notify - usernames and bare e-mails alike). v303:
+    ``status`` (a new ticket or a status change) also mails the
+    maintenance subscribers who see the plant."""
     n = names()
     return NOTIFY.send(t, who, what, detail, email_of, name_of, n.plant(t.plant_key),
-                       n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else '')
+                       n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else '',
+                       watchers=NOTIFY.status_watchers(t.plant_key) if status else ())
 
 
 # --------------------------------------------------------------- HTML
@@ -835,7 +838,7 @@ def new_post():
         add_event(t, me, 'assign', f'assigned to {name_of(assigned)}', {'to': assigned})
     for k in sorted(keys):
         add_event(t, me, 'alert', f'linked to alert {k}', {'alert_key': k})
-    notify(t, me, 'New ticket opened', t.description)
+    notify(t, me, 'New ticket opened', t.description, status=True)
     return redirect(f'/maintenance/t/{number}/')
 
 
@@ -872,7 +875,7 @@ def ticket_status(number):
     old = t.status
     t = load_ticket(number)
     add_event(t, me, 'status', (request.form.get('note') or '').strip(), {'from': old, 'to': to})
-    notify(t, me, f'Status: {TK.STATUS_LABEL.get(old, old)} → {TK.STATUS_LABEL.get(to, to)}', request.form.get('note') or '')
+    notify(t, me, f'Status: {TK.STATUS_LABEL.get(old, old)} → {TK.STATUS_LABEL.get(to, to)}', request.form.get('note') or '', status=True)
     return redirect(f'/maintenance/t/{t.number}/?m=status+updated')
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import html
 import logging
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Sequence
 
 from argia.maintenance import tickets as TK
 
@@ -77,15 +77,42 @@ def render(t: TK.Ticket, who_name: str, what: str, detail: str, plant: str, inve
     return subject, text, htm
 
 
+def status_watchers(plant_key: str, recipients=None, portal=None, excluded=None) -> List[str]:
+    """v303 (Tomasz: "remind me about all tickets once a week or when the
+    status changes"): the 'maintenance' mail subscribers who see this
+    plant - they hear about every ticket's creation and status change,
+    whether or not they are on the ticket. Portal users only, scoped to
+    their plants, never for an excluded (CAPEX / hold) plant. [] on any
+    failure: the participants are still mailed. The arguments are seams
+    for tests; None reads PostgreSQL / users.db."""
+    try:
+        from argia.alerts import subscriptions as S
+        excluded = S.load_excluded_plants() if excluded is None else excluded
+        if not S.is_mailable(plant_key, excluded):
+            return []
+        rc = S.recipients_for("maintenance") if recipients is None else recipients
+        rc = S.only_portal(rc, S.portal_emails() if portal is None else portal)
+        pk = (plant_key or "").upper()
+        return sorted({e.strip().lower() for e, scope in rc if e and (scope is None or pk in scope)})
+    except Exception as e:  # noqa: BLE001
+        LOG.warning("ticket status watchers unavailable (%s)", e)
+        return []
+
+
 def send(t: TK.Ticket, who: str, what: str, detail: str,
          email_lookup: Callable[[str], str], name_lookup: Callable[[str], str],
-         plant: str, inverter: str, cfg: Optional[dict] = None, mailer=None) -> int:
-    """Mail the other participants. Returns the number of addresses
-    mailed (0 when nobody, no SMTP, or on any failure)."""
+         plant: str, inverter: str, cfg: Optional[dict] = None, mailer=None,
+         watchers: Sequence[str] = ()) -> int:
+    """Mail the other participants - and (v303) ``watchers``, the
+    maintenance subscribers, for a creation or a status change; never the
+    person who made the change. Returns the number of addresses mailed
+    (0 when nobody, no SMTP, or on any failure)."""
     try:
         from argia.alerts import emailer
         mailer = mailer or emailer
-        to = sorted({address_of(u, email_lookup) for u in TK.recipients(t, who)} - {""})
+        me = address_of(who, email_lookup) if who else ""
+        to = sorted(({address_of(u, email_lookup) for u in TK.recipients(t, who)}
+                     | {w.strip().lower() for w in watchers}) - {"", me})
         if not to:
             return 0
         cfg = cfg or mailer.load_smtp()

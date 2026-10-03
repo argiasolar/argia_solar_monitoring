@@ -150,13 +150,16 @@ class TestMailIntegration:
         new = [self._rec(1, "k1"), self._rec(2, "k2")]
         subj, text, html = LM.render_mail(new, n, still_open=new, when_mx="2026-09-08 06:30", now_utc=NOW, tickets=briefs)
         assert subj == "[ARGIA] 8 Sep - 1 warning (Plastic Omnium)"                       # k1 is not counted as new
-        assert "In hand - open maintenance tickets\n  Plastic Omnium: TK-NL1-0007 · In progress · juan · 1 d 22 h - last update: Filters replaced (inverter running hot - Inverter 1 (JGMAE65009))" in text
+        # v303: the ticket's progress is no longer repeated - one line names the ticket
+        assert "In hand" not in text and "Filters replaced" not in text and "juan" not in text
+        assert ("Not repeated here: 1 alert covered by open maintenance ticket TK-NL1-0007 - you get a mail on every "
+                "status change and a reminder of all open tickets every Monday.") in text
         assert text.count("ALT-1") == 0 and "ALT-2" in text                                 # the handled alert is not listed as new
         assert "Still open" not in text                                                       # nor as still open
-        assert 'href="https://portal.argia.com.mx/maintenance/t/TK-NL1-0007/"' in html
-        # nothing new but a ticket in hand: the subject says so
+        assert "TK-NL1-0007" in html and "Filters replaced" not in html
+        # nothing new and only a ticketed alert open: no 'tickets in hand' subject any more
         subj, text, _ = LM.render_mail([], n, still_open=[self._rec(1, "k1", sent="email")], when_mx="2026-09-08 06:30", now_utc=NOW, tickets=briefs)
-        assert subj == "[ARGIA] 8 Sep - nothing new - 1 ticket in hand"
+        assert subj == "[ARGIA] 8 Sep - nothing new - 0 critical still open"
 
     def test_closed_ticket_does_not_hide_an_alert(self):
         from argia.alerts import ledger_mail as LM

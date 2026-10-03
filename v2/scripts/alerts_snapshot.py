@@ -59,6 +59,8 @@ from argia.core.sheets import SheetsClient, open_sheets
 from argia.core.normalize import normalize_text, safe_float
 from argia.core.time_utils import UTC, now_mx
 from argia.core.job_log import instrument
+from argia.telemetry.fresh import drop_repeats
+from argia.alerts import grading
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,8 +150,15 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
             ts, str(cell("plant_key") or ""), str(cell("inverter_sn") or ""),
             pw, safe_float(cell("temperature_c")),
             int(st) if isinstance(st, (int, float)) else None,
-            cell("fault_code"),
+            cell("fault_code"), etoday,
         ))
+    # v303: a frozen logger (FusionSolar repeating the last values) is
+    # no sample either - the plant ages into data_stale / silent instead
+    # of looking fresh (argia.telemetry.fresh, the rule of the live pages)
+    n_all = len(samples)
+    samples = [s[:7] for s in drop_repeats(samples, lambda s: (s[1], s[2]), lambda s: (s[0], s[3], s[7]))]
+    if len(samples) < n_all:
+        log.info("frozen readings: %d repeated sample(s) skipped", n_all - len(samples))
     span_h = 0.0
     if samples:
         stamps = [s[0] for s in samples]
@@ -294,7 +303,7 @@ def main(argv=None) -> int:
         absent_gap_hours=span_h if span_h >= 2.0 else None,
         configured_inverters=configured, rated_kw=rated, vendor_thermal=vendor,
         loss_note=loss_notes(portfolio.active_plants(), now_utc))
-    candidates = [candidate_from_acute_breach(b) for b in breaches]
+    candidates = grading.grade_all([candidate_from_acute_breach(b) for b in breaches], tier="acute")
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)
     if not candidates:

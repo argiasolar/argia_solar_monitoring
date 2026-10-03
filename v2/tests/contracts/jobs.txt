@@ -39,3 +39,4 @@ argia-telemetry-se  |  *-*-* 06..20:03,23,43:00 America/Mexico_City  |  telemetr
 argia-telemetry  |  *-*-* 05..21:00/5:00 America/Mexico_City  |  telemetry_5m.py
 argia-thermal  |  *-*-* 01:10:00 America/Mexico_City  |  thermal_daily.py
 argia-ticket-mail  |  *-*-* *:00/10:00  |  ticket_mail_in.py
+argia-ticket-weekly  |  Mon *-*-* 07:10:00 America/Mexico_City  |  ticket_weekly.py

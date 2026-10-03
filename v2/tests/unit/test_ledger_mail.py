@@ -263,6 +263,12 @@ class TestRemailAnUnresolvedCritical:
         base.update(kw)
         return AlertRecord(**base)
 
+    @staticmethod
+    def _seen(r, t):
+        """v303: the acute tier touched it at ``t`` (re-mail needs a recent sighting)."""
+        import dataclasses
+        return dataclasses.replace(r, last_seen_utc=t.isoformat())
+
     def test_the_stamp_round_trips(self):
         import datetime as dt
         from argia.alerts.ledger_mail import last_mailed_at, stamp_mailed
@@ -275,9 +281,10 @@ class TestRemailAnUnresolvedCritical:
         import datetime as dt
         from argia.alerts.ledger_mail import due_for_remail, stamp_mailed
         r = stamp_mailed(self._rec(), self.T0)
-        assert due_for_remail([r], self.T0 + dt.timedelta(hours=2), 15) == []
-        assert len(due_for_remail([r], self.T0 + dt.timedelta(hours=3), 16)) == 1
-        assert len(due_for_remail([r], self.T0 + dt.timedelta(hours=5), 18)) == 1
+        at = lambda h: self.T0 + dt.timedelta(hours=h)  # noqa: E731
+        assert due_for_remail([self._seen(r, at(2))], at(2), 15) == []
+        assert len(due_for_remail([self._seen(r, at(3))], at(3), 16)) == 1
+        assert len(due_for_remail([self._seen(r, at(5))], at(5), 18)) == 1
 
     def test_never_outside_daylight(self):
         """Nobody is woken at 03:00 for a plant that cannot produce anyway."""
@@ -285,6 +292,7 @@ class TestRemailAnUnresolvedCritical:
         from argia.alerts.ledger_mail import due_for_remail, stamp_mailed
         r = stamp_mailed(self._rec(), self.T0)
         late = self.T0 + dt.timedelta(hours=12)
+        r = self._seen(r, late)
         assert due_for_remail([r], late, 3) == []
         assert due_for_remail([r], late, 6) == []
         assert due_for_remail([r], late, 19) == []
@@ -296,6 +304,8 @@ class TestRemailAnUnresolvedCritical:
         from argia.core.alerts_state import AlertState
         from argia.alerts.ledger_mail import DIGEST_METRIC, due_for_remail, stamp_mailed
         later = self.T0 + dt.timedelta(hours=4)
+        self._rec = (lambda f: (lambda **kw: f(**{"last_seen_utc": later.isoformat(), **kw})))(self._rec)
+        assert len(due_for_remail([stamp_mailed(self._rec(), self.T0)], later, 16)) == 1     # the control: it IS due
         assert due_for_remail([stamp_mailed(self._rec(severity="WARNING"), self.T0)], later, 16) == []
         assert due_for_remail([stamp_mailed(self._rec(state=AlertState.RESOLVED), self.T0)], later, 16) == []
         assert due_for_remail([stamp_mailed(self._rec(metric=DIGEST_METRIC), self.T0)], later, 16) == []
@@ -307,7 +317,9 @@ class TestRemailAnUnresolvedCritical:
         from argia.alerts.ledger_mail import due_for_remail, stamp_mailed
         r = stamp_mailed(self._rec(), self.T0)
         t1 = self.T0 + dt.timedelta(hours=4)
-        assert len(due_for_remail([r], t1, 16)) == 1
+        assert len(due_for_remail([self._seen(r, t1)], t1, 16)) == 1
         r2 = stamp_mailed(r, t1)                    # it just went out again
-        assert due_for_remail([r2], t1 + dt.timedelta(minutes=30), 17) == []
-        assert len(due_for_remail([r2], t1 + dt.timedelta(hours=3), 18)) == 1
+        t2 = t1 + dt.timedelta(minutes=30)
+        assert due_for_remail([self._seen(r2, t2)], t2, 17) == []
+        t3 = t1 + dt.timedelta(hours=3)
+        assert len(due_for_remail([self._seen(r2, t3)], t3, 18)) == 1

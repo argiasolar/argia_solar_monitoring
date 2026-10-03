@@ -77,8 +77,10 @@ def quiet_for(i: Item, now: dt.datetime) -> dt.timedelta:
 def lines_for(i: Item, n, now: dt.datetime) -> List[str]:
     """The ticket in plain text: a head line and up to three detail lines. Pure."""
     t = i.ticket
-    who = n.plant(t.plant_key) + (f" · {n.inverter(t.plant_key, t.inverter_sn)}" if t.inverter_sn else "")
-    out = [f"{t.number} · {who} · {t.title}"]
+    plant, inv = n.plant(t.plant_key), (n.inverter(t.plant_key, t.inverter_sn) if t.inverter_sn else "")
+    # tickets opened from an alert already carry "Plant · Inverter 3: ..." in their title - say it once
+    who = [x for x in (plant, inv) if x and x.split(" (")[0].lower() not in (t.title or "").lower()]
+    out = [" · ".join([t.number] + who + [t.title])]
     _sla, sla_txt = TK.sla_state(t, now)
     out.append(f"{TK.STATUS_LABEL.get(t.status, t.status)} · {t.priority} · "
                f"{('assigned to ' + t.assigned_to) if t.assigned_to else 'nobody assigned'} · "

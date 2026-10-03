@@ -292,6 +292,18 @@ class TestWeeklyReminder:
         assert "https://portal.argia.com.mx/maintenance/t/TK-NL1-0001/" in text and 'href="https://portal.argia.com.mx/maintenance/t/TK-NL1-0001/"' in html
         assert "TK-NL1-0003" not in text                                  # closed: not listed
 
+    def test_the_head_line_names_plant_and_inverter_once(self):
+        """v304: production titles already say 'Plastic Omnium · Inverter 3: ...' (dry run on pio06)."""
+        W, _ = self._items()
+        n = naming.Names({"NL1": "Plastic Omnium"}, {("NL1", "SN1"): "Inverter 3"})
+        t = ticket(1)
+        for title, head in (("Plastic Omnium · Inverter 3: cooling inspection", "TK-NL1-0001 · Plastic Omnium · Inverter 3: cooling inspection"),
+                            ("Inverter 3 (SN1): cooling inspection", "TK-NL1-0001 · Plastic Omnium · Inverter 3 (SN1): cooling inspection"),
+                            ("Communication", "TK-NL1-0001 · Plastic Omnium · Inverter 3 (SN1) · Communication")):
+            import dataclasses
+            item = W.Item(dataclasses.replace(t, title=title), None, "")
+            assert W.lines_for(item, n, NOW)[0] == head
+
     def test_views_are_scoped_and_skip_excluded_plants(self):
         W, its = self._items()
         vs = W.views(its, [("a@x", None), ("b@x", frozenset({"MEX1"})), ("c@x", frozenset({"GTO1"}))], frozenset({"MEX1"}))

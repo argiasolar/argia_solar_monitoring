@@ -97,16 +97,19 @@ def gather_today():
     from live telemetry, MX 'today'. Energy = sum of per-inverter max
     etoday counters - same basis the plant pages use intraday."""
     from argia.store.pgq import psql_rows
+    from argia.telemetry.fresh import not_repeat, repeat_cte   # v302: frozen logger readings are not fresh
     mx_day = ("(ts_utc AT TIME ZONE 'America/Mexico_City')::date"
               " = (now() AT TIME ZONE 'America/Mexico_City')::date")
     out: Dict[str, Tuple[float, Optional[float], int]] = {}
     for r in psql_rows(
-            "SELECT plant_key, coalesce(sum(e),0),"
+            "WITH " + repeat_cte("now() - interval '2 days'") +
+            " SELECT plant_key, coalesce(sum(e),0),"
             " min(age_min), count(*) FROM ("
             " SELECT plant_key, inverter_sn, max(etoday_kwh) AS e,"
             "  extract(epoch FROM now() - max(ts_utc))/60 AS age_min"
             f" FROM telemetry WHERE {mx_day}"
             "  AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
+            f"  AND {not_repeat()}"
             " GROUP BY 1, 2) s GROUP BY 1;"):
         if len(r) >= 4:
             try:

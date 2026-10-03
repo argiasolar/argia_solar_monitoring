@@ -29,6 +29,9 @@ from plain_text import plain                       # v262: no em dash leaves a p
 
 # fault-code catalog from the repo checkout (documented vendor states)
 sys.path.insert(0, '/root/argia_v2/v2')
+# v302: a reading that only repeats the inverter's last values (logger
+# offline, the vendor cloud answering with stale data) is not live data
+from argia.telemetry.fresh import not_repeat, repeat_cte   # noqa: E402
 try:
     from argia.alerts.fault_catalog import explain_fault, is_normal_state
 except Exception:                                     # noqa: BLE001
@@ -328,7 +331,9 @@ except RuntimeError:
 # Latest USABLE sample per inverter per date (empty vendor replies are
 # data gaps, not outages - see 2026-08-26 MEX1 incident).
 LATEST = {}   # date -> plant -> [inverter dict]
-for r in q("SELECT DISTINCT ON (d, plant_key, inverter_sn) * FROM ("
+REP33 = repeat_cte("now() - interval '33 days'")     # v302: one day more than the rows read
+for r in q(f"WITH {REP33}"
+           " SELECT DISTINCT ON (d, plant_key, inverter_sn) * FROM ("
            f" SELECT {MX_D} AS d, plant_key, inverter_sn,"
            "  coalesce(inverter_label, inverter_sn) AS label, status,"
            "  power_w, etoday_kwh, temperature_c,"
@@ -338,7 +343,7 @@ for r in q("SELECT DISTINCT ON (d, plant_key, inverter_sn) * FROM ("
            "  extract(epoch FROM now() - ts_utc)/60 AS age, ts_utc"
            "  FROM telemetry WHERE (etoday_kwh IS NOT NULL"
            "   OR power_w IS NOT NULL)"
-           "   AND ts_utc > now() - interval '32 days') t"
+           f"   AND ts_utc > now() - interval '32 days' AND {not_repeat()}) t"
            " ORDER BY d, plant_key, inverter_sn, ts_utc DESC;"):
     if len(r) >= 11:
         d = r[0]
@@ -1781,18 +1786,19 @@ def portfolio_rows():
         "  AND cm.year = extract(year FROM d.prod_date)::int"
         "  AND cm.month = extract(month FROM d.prod_date)::int"
         " GROUP BY 1;") if len(r) >= 3}
+    rep2 = repeat_cte("now() - interval '2 days'")
     today_e = {r[0]: (f(r[1]) or 0, f(r[2])) for r in q(
-        "SELECT s.plant_key, coalesce(sum(s.e),0), min(s.age_min)"
+        f"WITH {rep2} SELECT s.plant_key, coalesce(sum(s.e),0), min(s.age_min)"
         " FROM (SELECT plant_key, inverter_sn, max(etoday_kwh) AS e,"
         "  extract(epoch FROM now() - max(ts_utc))/60 AS age_min"
         f" FROM telemetry WHERE {MX_D} = '{TODAY}'"
-        "  AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL)"
+        f"  AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL) AND {not_repeat()}"
         " GROUP BY 1, 2) s GROUP BY 1;") if len(r) >= 3}
     live_kw = {r[0]: f(r[1]) or 0 for r in q(
-        "SELECT plant_key, sum(power_w)/1000.0 FROM ("
+        f"WITH {rep2} SELECT plant_key, sum(power_w)/1000.0 FROM ("
         " SELECT DISTINCT ON (plant_key, inverter_sn) plant_key, power_w"
         " FROM telemetry WHERE ts_utc > now() - interval '30 minutes'"
-        "  AND power_w IS NOT NULL"
+        f"  AND power_w IS NOT NULL AND {not_repeat()}"
         " ORDER BY plant_key, inverter_sn, ts_utc DESC) t GROUP BY 1;")
         if len(r) >= 2}
     # current-month tariff for "today's money"

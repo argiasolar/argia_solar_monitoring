@@ -139,13 +139,20 @@ def area(points: Sequence[Tuple[str, float]], colour: str, unit: str, labels_en:
     return "".join(out)
 
 
+MAX_BRIDGE = 2          # 15-minute slots: up to 30 minutes are bridged
+
+
 def fill_gaps(times: Sequence[str], vals: Dict[str, float]) -> Dict[str, float]:
-    """A missing reading between two readings is drawn on the straight line
-    between them (a late upload is not an outage). Before the first and
-    after the last reading nothing is invented."""
+    """A short gap (up to MAX_BRIDGE missing slots) between two readings is
+    drawn on the straight line between them - a late upload is not an
+    outage. A longer gap stays empty: v302 drops repeated (frozen) logger
+    readings, and an hour without data must not be drawn as production.
+    Before the first and after the last reading nothing is invented."""
     known = [i for i, t in enumerate(times) if t in vals]
     out = dict(vals)
     for a, b in zip(known, known[1:]):
+        if b - a - 1 > MAX_BRIDGE:
+            continue
         va, vb = vals[times[a]], vals[times[b]]
         for i in range(a + 1, b):
             out[times[i]] = va + (vb - va) * (i - a) / (b - a)

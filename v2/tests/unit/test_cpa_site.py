@@ -156,6 +156,12 @@ class TestCharts:
         svg = C.stacked_area(t, [("A", "#000", {"10:00": 5.0, "10:30": 15.0})], "kW")
         assert "10:30|A: 15 kW" in svg and "10:15|A: 10 kW" in svg and "10:45" not in svg     # stops at the newest reading
 
+    def test_a_long_gap_is_not_drawn_as_production(self):
+        """v302: dropped frozen readings leave a gap; only up to 30 minutes are bridged."""
+        t = ["10:00", "10:15", "10:30", "10:45", "11:00", "11:15"]
+        assert C.fill_gaps(t, {"10:00": 10.0, "11:15": 60.0}) == {"10:00": 10.0, "11:15": 60.0}     # 1 h gap: empty
+        assert C.fill_gaps(t, {"10:00": 10.0, "10:45": 40.0}) == {"10:00": 10.0, "10:15": 20.0, "10:30": 30.0, "10:45": 40.0}
+
     def test_empty(self):
         assert "nodata" in C.stacked_bars([], [], "MWh", [], []) and "nodata" in C.area([], "#000", "t", [], [])
         assert "No readings yet today" in C.stacked_area(["06:00"], [("A", "#000", {})], "kW")
@@ -321,7 +327,9 @@ def test_generator_has_no_outbound_channel_and_only_reads(gen, monkeypatch):
     monkeypatch.setattr(g, "q", fake_q)
     sites, daily, live = g.fetch(g.load_config(str(CFG)), NOW)
     assert len(sites) == 3 and len(seen) == 5
-    assert all(sql.lstrip().upper().startswith("SELECT") for sql in seen)
+    assert all(sql.lstrip().upper().startswith(("SELECT", "WITH REP AS (SELECT")) for sql in seen)
+    assert not any(w in sql.upper() for sql in seen for w in ("INSERT ", "UPDATE ", "DELETE ", "DROP "))
+    assert all("NOT EXISTS (SELECT 1 FROM rep" in sql for sql in seen[2:])      # v302: repeats are not live data
     assert "prod_date < '2026-10-02'" in seen[1]                                # closed days: before MX today
     assert "= '2026-10-02'" in seen[2] and "= '2026-10-02'" in seen[4]          # today's counters and curve
     assert "interval '30 minutes'" in seen[3]                                   # power now

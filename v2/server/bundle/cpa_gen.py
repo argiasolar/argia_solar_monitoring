@@ -38,6 +38,7 @@ sys.path.insert(0, os.environ.get("ARGIA_V2_DIR", "/root/argia_v2/v2"))
 from argia.core import co2 as co2reg                      # noqa: E402
 from argia.cpa import charts as C                         # noqa: E402
 from argia.cpa import report as RP                        # noqa: E402
+from argia.telemetry.fresh import not_repeat, repeat_cte  # noqa: E402
 
 OUT_DEFAULT = "/www/hosting/cpa.argia.com.mx/www"
 CPA_DIR = os.environ.get("ARGIA_CPA_DIR", "/opt/argia/cpa")
@@ -124,19 +125,23 @@ def fetch(cfg: dict, now: dt.datetime) -> Tuple[List[RP.Site], Dict, Dict[str, R
                        f"AND prod_date < '{today}' ORDER BY 1, 2;"):
         daily[k].append((dt.date.fromisoformat(d), _f(kwh)))
     live = {k: RP.Live() for k in keys}
-    for k, e, age in q("SELECT s.plant_key, coalesce(sum(s.e),0), min(s.age_min) FROM (SELECT plant_key, inverter_sn, "
+    # v302: readings that only repeat an inverter's last values (logger offline,
+    # the vendor cloud answering with stale data) are not live data
+    rep = "WITH " + repeat_cte("now() - interval '2 days'") + " "
+    fresh = not_repeat()
+    for k, e, age in q(rep + "SELECT s.plant_key, coalesce(sum(s.e),0), min(s.age_min) FROM (SELECT plant_key, inverter_sn, "
                        "max(etoday_kwh) AS e, extract(epoch FROM now() - max(ts_utc))/60 AS age_min FROM telemetry "
                        f"WHERE {MX_D} = '{today}' AND plant_key IN ({inlist}) AND (etoday_kwh IS NOT NULL OR power_w IS NOT NULL) "
-                       "GROUP BY 1, 2) s GROUP BY 1;"):
+                       f"AND {fresh} GROUP BY 1, 2) s GROUP BY 1;"):
         live[k].today_kwh, live[k].age_min = _f(e) or 0.0, _f(age)
-    for k, kw in q("SELECT plant_key, sum(power_w)/1000.0 FROM (SELECT DISTINCT ON (plant_key, inverter_sn) plant_key, power_w "
-                   f"FROM telemetry WHERE ts_utc > now() - interval '30 minutes' AND power_w IS NOT NULL AND plant_key IN ({inlist}) "
+    for k, kw in q(rep + "SELECT plant_key, sum(power_w)/1000.0 FROM (SELECT DISTINCT ON (plant_key, inverter_sn) plant_key, power_w "
+                   f"FROM telemetry WHERE ts_utc > now() - interval '30 minutes' AND power_w IS NOT NULL AND plant_key IN ({inlist}) AND {fresh} "
                    "ORDER BY plant_key, inverter_sn, ts_utc DESC) t GROUP BY 1;"):
         live[k].kw = _f(kw) or 0.0
     mx = f"(ts_utc AT TIME ZONE '{MX_TZ}')"
-    for k, b, kw in q(f"SELECT plant_key, b, sum(p)/1000.0 FROM (SELECT plant_key, inverter_sn, to_char({mx}, 'HH24') || ':' || "
+    for k, b, kw in q(rep + f"SELECT plant_key, b, sum(p)/1000.0 FROM (SELECT plant_key, inverter_sn, to_char({mx}, 'HH24') || ':' || "
                       f"lpad(((extract(minute FROM {mx})::int / 15) * 15)::text, 2, '0') AS b, avg(power_w) AS p FROM telemetry "
-                      f"WHERE {MX_D} = '{today}' AND plant_key IN ({inlist}) AND power_w IS NOT NULL GROUP BY 1, 2, 3) t "
+                      f"WHERE {MX_D} = '{today}' AND plant_key IN ({inlist}) AND power_w IS NOT NULL AND {fresh} GROUP BY 1, 2, 3) t "
                       "GROUP BY 1, 2 ORDER BY 1, 2;"):
         live[k].curve.append((b, _f(kw) or 0.0))
     return sites, daily, live

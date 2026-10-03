@@ -48,12 +48,16 @@ MX_TZ = "America/Mexico_City"
 MX_D = f"(ts_utc AT TIME ZONE '{MX_TZ}')::date"
 WINDOW = (6, 20)
 KEY_RE = re.compile(r"^[A-Z0-9_]{2,16}$")
-# site colours: validated categorical slots (blue, orange, ARGIA teal) - the
-# dataviz validator passes them all-pairs on white; >3 sites reuse nothing,
-# they fall back to grey and the legend still names each one
-SITE_COLOURS = ["#2a78d6", "#eb6834", "#05b1a9", "#7d5bd0", "#d4a20a"]
+# v299 (Tomasz: "shades of blue"): one blue ramp in CPA's palette - deep,
+# mid, light. The dataviz validator: every pair >= 22 dE apart for normal
+# vision and >= 21 under colour-vision deficiency; the lightest sits above
+# the categorical lightness band (expected for a one-hue ramp), so every
+# chart carries a legend, a 2px white gap between stacked parts and a
+# tooltip naming the site. A 4th+ site gets grey and still its name.
+SITE_COLOURS = ["#1d3c78", "#2f80d1", "#9ccbf0", "#5a6b8c", "#b8c4d8"]
 NAVY, BLUE, TEAL = "#1f1d4f", "#2ea3f2", "#05b1a9"
-CO2_COLOUR = "#1baf7a"
+CO2_COLOUR = NAVY
+STATUS_RING = {"live": "#1e8e3e", "stale": "#e8a23a", "dark": "#c5221f", "night": "#9aa0a6"}
 RENDER_PDF = None          # set in main(); tests replace it (CI has no chromium)
 
 
@@ -191,7 +195,21 @@ background:radial-gradient(900px 380px at 88% -20%,rgba(46,163,242,.55),transpar
 .eq{display:flex;gap:14px;align-items:center}.eq .ic{flex:none;width:54px;height:54px;border-radius:16px;display:grid;place-items:center;background:#eaf6ff;font-size:26px}
 .eq b{font:800 28px Poppins;color:var(--navy);display:block;line-height:1.1}.eq .lab{color:var(--ink2);font-size:13.5px}
 .esg .badge{display:inline-grid;place-items:center;width:46px;height:46px;border-radius:12px;color:#fff;font:800 18px Poppins;margin-bottom:8px}
-#map{height:420px;border-radius:20px;border:1px solid var(--line)}
+#map{height:520px;border-radius:16px;border:1px solid var(--line)}
+.pin{position:relative;cursor:pointer}.pin .ph{border-radius:50%;background:#dfe7f7 center/cover no-repeat;box-shadow:0 3px 12px rgba(20,18,58,.35);box-sizing:border-box}
+.pin .st{position:absolute;right:-2px;top:-2px;width:14px;height:14px;border-radius:50%;border:2px solid #fff}
+.pin .st.live{animation:pulse 2s infinite}
+.pin .nm{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;white-space:nowrap;font:700 12px 'DM Sans',sans-serif;color:var(--navy);text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 4px #fff}
+.mtip{font:13px 'DM Sans',sans-serif;color:var(--ink);min-width:230px}.mtip img{width:100%;height:110px;object-fit:cover;border-radius:10px;margin-bottom:6px;display:block}
+.mtip h4{margin:0;font:700 15px Poppins;color:var(--navy)}.mtip .sub{color:var(--muted);font-size:12px;margin-bottom:4px}
+.mtip table{width:100%;border-collapse:collapse}.mtip td{padding:1px 0}.mtip td:last-child{text-align:right;font-weight:700}.mtip .go{margin-top:6px;color:var(--blue2);font-weight:700}
+.leaflet-tooltip.mt{border-radius:14px;border:1px solid var(--line);box-shadow:0 10px 28px rgba(20,18,58,.22);padding:10px 12px}
+.mlegend{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px 18px;margin-top:12px}
+.mlegend a{display:flex;gap:12px;align-items:center;color:var(--ink);padding:6px;border-radius:14px}.mlegend a:hover{background:#f3f6fc;color:var(--ink)}
+.mlegend .th{flex:none;width:48px;height:48px;border-radius:50%;background:#dfe7f7 center/cover no-repeat;border:4px solid}
+.mlegend b{display:block;font:700 15px Poppins;color:var(--navy)}.mlegend .sub{font-size:12px;color:var(--muted)}
+.mkey{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.mkey i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px}
 .btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:10px 18px;font-weight:700;background:var(--blue);color:#fff;border:0;cursor:pointer;font-size:14px}
 .btn:hover{background:var(--blue2);color:#fff}.btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--line)}.btn.navy{background:var(--navy)}
 table.t{width:100%;border-collapse:collapse;font-size:13.5px}table.t th{text-align:left;font-size:11.5px;color:var(--muted);font-weight:700;border-bottom:1px solid var(--line);padding:8px}
@@ -204,6 +222,35 @@ label.f{display:block;font-size:12.5px;font-weight:700;color:var(--ink2);margin:
 @media(max-width:700px){.big .v{font-size:26px}.kv{grid-template-columns:1fr 1fr}.brand img.ar{display:none}main{padding:16px 12px 50px}}
 @media print{.top,.noprint,.foot{display:none!important}html,body{background:#fff}main{padding:0}.card{box-shadow:none;break-inside:avoid}}
 """
+
+MAP_JS = """(function(){if(!window.L)return;var P=__P__;var m=L.map('map',{scrollWheelZoom:false});
+var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'&copy; Esri',maxZoom:19}).addTo(m);
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'&copy; Esri, Maxar',maxZoom:19});
+L.control.layers({'Streets':st,'Satellite':sat}).addTo(m);var b=[];
+function nf(v){return Number(v).toLocaleString('en-US',{maximumFractionDigits:0});}
+function es(){return document.documentElement.classList.contains('es');}
+var MK=[];
+// pins of sites a couple of km apart would sit on top of each other: push
+// the later one sideways (screen pixels only - the location stays true;
+// sideways so no pin moves towards the map edge where its card would clip)
+function declutter(){var pts=MK.map(function(o){return m.latLngToContainerPoint(o.ll);});var off=MK.map(function(){return [0,0];});
+for(var j=1;j<MK.length;j++){for(var it=0;it<4;it++){for(var i=0;i<j;i++){var ax=pts[i].x+off[i][0],ay=pts[i].y+off[i][1],bx=pts[j].x+off[j][0],by=pts[j].y+off[j][1];
+var dx=bx-ax,dy=by-ay,d=Math.sqrt(dx*dx+dy*dy),need=(MK[i].px+MK[j].px)/2+18;if(d<need){off[j][0]+=(dx>=0?1:-1)*(need-d);}}}}
+MK.forEach(function(o,k){var el=o.mk.getElement();if(el&&el.firstChild)el.firstChild.style.transform='translate('+off[k][0].toFixed(0)+'px,'+off[k][1].toFixed(0)+'px)';
+var t=o.mk.getTooltip();if(t)t.options.offset=L.point(off[k][0],off[k][1]);});}
+var LBL={live:['Live','En vivo'],stale:['Delayed data','Datos retrasados'],dark:['No data today','Sin datos hoy'],night:['Night','Noche']};
+P.forEach(function(p){var px=Math.round(Math.max(46,Math.min(76,Math.sqrt(p.kwp)*2.6)));
+var bg=p.photo?"background-image:url('"+p.photo+"')":'background:'+p.c;
+var icon=L.divIcon({className:'',iconSize:[px,px],iconAnchor:[px/2,px/2],
+html:'<div class="pin"><div class="ph" style="width:'+px+'px;height:'+px+'px;border:4px solid '+p.c+';'+bg+'"></div><span class="st '+p.st+'" style="background:'+p.ring+'"></span><div class="nm">'+p.name+'</div></div>'});
+var mk=L.marker([p.lat,p.lon],{icon:icon}).addTo(m);
+mk.bindTooltip(function(){var e=es(),k=e?1:0;return '<div class="mtip">'+(p.photo?'<img src="'+p.photo+'" alt="">':'')+'<h4>'+p.name+'</h4><div class="sub">'+p.city+' · '+nf(p.kwp)+' kWp · '+LBL[p.st][k]+(p.approx?(e?' · ubicación aproximada':' · approximate location'):'')+'</div><table>'
++'<tr><td>'+(e?'Generando ahora':'Generating now')+'</td><td>'+nf(p.kw)+' kW</td></tr><tr><td>'+(e?'Hoy':'Today')+'</td><td>'+nf(p.kwh)+' kWh</td></tr>'
++'<tr><td>'+(e?'A la fecha':'To date')+'</td><td>'+nf(p.mwh)+' MWh</td></tr><tr><td>CO2e '+(e?'evitado':'avoided')+'</td><td>'+nf(p.co2)+' t</td></tr></table><div class="go">'+(e?'Abrir el sitio':'Open the site')+' &rarr;</div></div>';},
+{direction:'auto',offset:[0,0],opacity:1,className:'mt'});
+mk.on('click',function(){window.location=p.url;});MK.push({mk:mk,ll:L.latLng(p.lat,p.lon),px:px});b.push([p.lat,p.lon]);});
+if(b.length)m.fitBounds(b,{padding:[150,150],maxZoom:12});
+m.on('zoomend',declutter);declutter();})();"""
 
 TIP_JS = """(function(){var t=document.createElement('div');t.id='tip';document.body.appendChild(t);
 document.addEventListener('mousemove',function(ev){var el=ev.target.closest?ev.target.closest('[data-tip]'):null;
@@ -333,16 +380,33 @@ def overview(ctx: Ctx) -> str:
         x = ctx.live[s.key]
         st = RP.status(x, ctx.in_window)
         ph = f"background-image:url(assets/photos/{s.slug}.jpg)" if ctx.brand.get("photos", {}).get(s.slug) else ""
-        cards += f"""<a class="card site" href="sites/{s.slug}/index.html"><div class="ph" style="{ph}"><div class="logo">{logo_html(s, cs)}</div></div>
+        cards += f"""<a class="card site" href="sites/{s.slug}/index.html" style="border-top:5px solid {ctx.colour[s.key]}"><div class="ph" style="{ph}"><div class="logo">{logo_html(s, cs)}</div></div>
 <div class="bd"><div style="display:flex;align-items:center;gap:8px"><h3>{esc(s.name)}</h3><span style="margin-left:auto">{status_pill(st)}</span></div>
 <div class="city">{esc(s.city)} · {fmt(s.kwp, 0)} kWp</div>
 <div class="kv"><div><b>{fmt(x.kw, 0)}</b><span>{L("kW now", "kW ahora")}</span></div><div><b>{fmt(x.today_kwh, 0)}</b><span>{L("kWh today", "kWh hoy")}</span></div>
 <div><b>{fmt(ctx.life[s.key].kwh / 1000, 0)}</b><span>{L("MWh to date", "MWh a la fecha")}</span></div></div></div></a>"""
     bars, co2 = month_charts(ctx, ctx.months)
     leg = C.legend([(s.name, ctx.colour[s.key]) for s in ctx.sites])
-    pts = [{"lat": s.lat, "lon": s.lon, "name": s.name, "kwp": s.kwp, "c": ctx.colour[s.key], "url": f"sites/{s.slug}/index.html",
-            "kw": round(ctx.live[s.key].kw, 1), "mwh": round(ctx.life[s.key].kwh / 1000, 1), "approx": s.approx}
-           for s in ctx.sites if s.lat is not None and s.lon is not None]
+    pts, mleg = [], ""
+    for s in ctx.sites:
+        st = RP.status(ctx.live[s.key], ctx.in_window)
+        photo = f"assets/photos/{s.slug}.jpg" if ctx.brand.get("photos", {}).get(s.slug) else ""
+        if s.lat is not None and s.lon is not None:
+            pts.append({"lat": s.lat, "lon": s.lon, "name": s.name, "city": s.city, "kwp": s.kwp, "c": ctx.colour[s.key],
+                        "url": f"sites/{s.slug}/index.html", "photo": photo, "st": st, "ring": STATUS_RING[st],
+                        "kw": round(ctx.live[s.key].kw, 1), "kwh": round(ctx.live[s.key].today_kwh, 1),
+                        "mwh": round(ctx.life[s.key].kwh / 1000, 1), "co2": round(ctx.life[s.key].co2_t, 1), "approx": s.approx})
+        th = f"background-image:url({photo});" if photo else f"background:{ctx.colour[s.key]};"
+        approx = L(" · approximate location", " · ubicación aproximada") if s.approx else ""
+        mleg += (f'<a href="sites/{s.slug}/index.html"><span class="th" style="{th}border-color:{ctx.colour[s.key]}"></span>'
+                 f'<span style="flex:1"><b>{esc(s.name)}</b><span class="sub">{esc(s.city)} · {fmt(s.kwp, 0)} kWp{approx}</span></span>'
+                 f'<span style="text-align:right">{status_pill(st)}<span class="sub" style="display:block">{fmt(ctx.live[s.key].kw, 0)} kW</span></span></a>')
+    mkey = (f'<div class="mkey"><span>{L("Ring = the site&#39;s colour in every chart", "Aro = el color del sitio en todas las gráficas")}</span>'
+            f'<span>{L("Circle size = installed kWp", "Tamaño = kWp instalados")}</span>'
+            f'<span><i style="background:{STATUS_RING["live"]}"></i>{L("Live", "En vivo")}</span>'
+            f'<span><i style="background:{STATUS_RING["stale"]}"></i>{L("Delayed data", "Datos retrasados")}</span>'
+            f'<span><i style="background:{STATUS_RING["dark"]}"></i>{L("No data today", "Sin datos hoy")}</span>'
+            f'<span><i style="background:{STATUS_RING["night"]}"></i>{L("Night", "Noche")}</span></div>')
     sdg = [("7", "#fcc30b", "Affordable and clean energy", "Energía asequible y no contaminante",
             "On-site solar supplies the tenants' operations with zero-emission electricity.", "Solar en sitio abastece la operación de los inquilinos con electricidad sin emisiones."),
            ("9", "#fd6925", "Industry, innovation and infrastructure", "Industria, innovación e infraestructura",
@@ -367,7 +431,8 @@ def overview(ctx: Ctx) -> str:
 <div class="grid" style="align-content:start"><div class="card eq"><div class="ic">🌳</div><div><b>{count(eq["trees"], 0)}</b><span class="lab">{L("tree seedlings grown for 10 years", "árboles plantados y cultivados 10 años")}</span></div></div>
 <div class="card eq"><div class="ic">🚗</div><div><b>{count(eq["cars_year"], 0)}</b><span class="lab">{L("cars off the road for a year", "autos fuera de circulación un año")}</span></div></div>
 <div class="card eq"><div class="ic">⛽</div><div><b>{count(eq["gasoline_l"] / 1000, 0)}</b><span class="lab">{L("thousand litres of gasoline not burned", "miles de litros de gasolina no quemados")}</span></div></div></div></div></div>
-<div class="sec"><h2>{L("Where the energy is made", "Dónde se genera la energía")}</h2><div class="card" style="padding:10px"><div id="map"></div></div></div>
+<div class="sec"><h2>{L("Where the energy is made", "Dónde se genera la energía")}</h2><div class="card" style="padding:10px"><div id="map"></div>
+<div class="mlegend">{mleg}</div>{mkey}</div></div>
 <div class="sec"><h2>{L("Ready for your ESG reporting", "Listo para su reporte ASG")}</h2><p class="lead">{L("The figures map directly to the frameworks CPA reports against.", "Las cifras corresponden directamente a los marcos que CPA reporta.")}</p>
 <div class="grid g3">{sdg_html}</div>
 <div class="grid g2" style="margin-top:16px"><div class="card"><h3>GRESB</h3><div class="note">{L("On-site renewable energy generated per asset (MWh), by month - the energy and renewables indicators of the GRESB Real Estate assessment.", "Energía renovable generada en sitio por activo (MWh), por mes - indicadores de energía y renovables de la evaluación GRESB Real Estate.")}</div></div>
@@ -377,11 +442,7 @@ def overview(ctx: Ctx) -> str:
 <div class="sec"><div class="card" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap"><div style="font-size:34px">💡</div><div style="flex:1;min-width:240px"><h3 style="margin:0">{L("LED lighting upgrades", "Mejora de iluminación LED")}</h3>
 <div class="note">{L("The second half of the programme: replace old warehouse lighting with LED. Estimate the savings for any building.", "La otra mitad del programa: reemplazar la iluminación de las naves por LED. Estime el ahorro de cualquier edificio.")}</div></div><a class="btn ghost" href="led/index.html">{L("LED savings estimator", "Estimador de ahorro LED")} →</a></div></div>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>(function(){{if(!window.L)return;var P={json.dumps(pts)};var m=L.map('map',{{scrollWheelZoom:false}});
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}}).addTo(m);var b=[];
-P.forEach(function(p){{var r=Math.max(9,Math.min(22,Math.sqrt(p.kwp)/1.2));L.circleMarker([p.lat,p.lon],{{radius:r,color:'#fff',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m)
-.bindPopup('<b>'+p.name+'</b><br>'+Math.round(p.kwp)+' kWp · '+Math.round(p.kw)+' kW<br>'+p.mwh.toLocaleString('en-US')+' MWh'+(p.approx?'<br><i>approx.</i>':'')+'<br><a href="'+p.url+'">Open</a>');b.push([p.lat,p.lon]);}});
-if(b.length)m.fitBounds(b,{{padding:[50,50],maxZoom:12}});}})();</script><script>{COUNT_JS}</script>"""
+<script>{MAP_JS.replace("__P__", json.dumps(pts))}</script><script>{COUNT_JS}</script>"""
     return page(ctx, "Clean energy", body, "home", 0)
 
 

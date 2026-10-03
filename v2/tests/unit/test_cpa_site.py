@@ -325,3 +325,34 @@ def test_generator_has_no_outbound_channel_and_only_reads(gen, monkeypatch):
     assert "prod_date < '2026-10-02'" in seen[1]                                # closed days: before MX today
     assert "= '2026-10-02'" in seen[2] and "= '2026-10-02'" in seen[4]          # today's counters and curve
     assert "interval '30 minutes'" in seen[3]                                   # power now
+
+
+def test_map_has_photo_pins_hover_cards_and_a_legend(gen):
+    """v299 (Tomasz): pictures on the map like the portal, a map legend, blue colours."""
+    g, tmp = gen
+    ctx, stage = build_site(g, tmp)
+    h = read(stage, "index.html")
+    pts = json.loads(re.search(r"var P=(\[.*?\]);var m=L\.map", h, flags=re.S).group(1))
+    assert [p["name"] for p in pts] == ["Northwind Foods", "Altamira Labs", "Sierra Plastics"]
+    assert pts[0]["photo"] == "assets/photos/northwind-foods.jpg" and pts[1]["photo"] == ""     # no photo -> coloured pin
+    assert {p["st"] for p in pts} == {"live", "stale", "dark"} and pts[2]["approx"] is True
+    assert pts[0]["mwh"] == round(ctx.life["MEX1"].kwh / 1000, 1) and pts[0]["co2"] == round(ctx.life["MEX1"].co2_t, 1)
+    leg = h[h.index('class="mlegend"'):h.index('class="mkey"')]
+    assert leg.count('<a href="sites/') == 3 and "approximate location" in leg
+    assert "assets/photos/northwind-foods.jpg" in leg
+    key = h[h.index('class="mkey"'):]
+    for word in ("Live", "Delayed data", "No data today", "Night", "installed kWp"):
+        assert word in key
+    assert "bindTooltip" in h and "declutter" in h
+    assert not re.search(r"\b(MEX1|GTO1|MEX3)\b", json.dumps(pts))
+
+
+def test_site_colours_are_one_blue_ramp():
+    import colorsys
+    import cpa_gen as g
+    for c in g.SITE_COLOURS[:3]:
+        r, gg, b = (int(c[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        hue = colorsys.rgb_to_hls(r, gg, b)[0] * 360
+        assert 200 <= hue <= 225, (c, hue)                              # blue, no orange/teal
+    light = [colorsys.rgb_to_hls(*(int(c[i:i + 2], 16) / 255 for i in (1, 3, 5)))[1] for c in g.SITE_COLOURS[:3]]
+    assert light == sorted(light) and light[1] - light[0] > .15 and light[2] - light[1] > .15   # clearly different shades

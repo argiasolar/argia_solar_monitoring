@@ -49,11 +49,14 @@ prologis_app  GET    /
 prologis_app  GET    /admin/services/
 prologis_app  GET    /admin/services/<code>
 prologis_app  GET    /admin/users/
+prologis_app  GET    /apple-touch-icon.png
 prologis_app  GET    /audit/
 prologis_app  GET    /brand/<name>
 prologis_app  GET    /docs/
 prologis_app  GET    /docs/<int:doc_id>/download
 prologis_app  GET    /export.zip
+prologis_app  GET    /favicon.ico
+prologis_app  GET    /favicon.png
 prologis_app  GET    /healthz
 prologis_app  GET    /lang/<code>
 prologis_app  GET    /login

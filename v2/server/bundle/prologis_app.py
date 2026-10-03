@@ -69,7 +69,14 @@ SECURE_COOKIE = os.environ.get("ARGIA_PL_INSECURE_COOKIE", "") != "1"
 MAX_UPLOAD = 50 * 1024 * 1024
 ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".dwg", ".dxf", ".xlsx", ".xls", ".csv", ".docx",
                ".doc", ".pptx", ".zip", ".txt", ".kmz", ".mp4", ".heic"}
-PUBLIC = {"login", "login_post", "healthz", "brand", "lang"}
+PUBLIC = {"login", "login_post", "healthz", "brand", "lang", "favicon"}
+# v300: the browser-tab icon - the Prologis globe (server-only files, first
+# one present wins; none = 404 and the browser shows its default)
+FAVICONS = {"favicon.png": ("prologis_favicon.png", "prologis_mark.png"),
+            "favicon.ico": ("prologis_favicon.png", "prologis_mark.png"),
+            "apple-touch-icon.png": ("prologis_touch.png", "prologis_mark.png")}
+ICON_LINKS = ('<link rel="icon" type="image/png" href="/favicon.png">'
+              '<link rel="apple-touch-icon" href="/apple-touch-icon.png">')
 SAMPLE_PILL = ' <span class="pill s-info">SAMPLE</span>'
 
 app = Flask(__name__)
@@ -197,7 +204,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
     pl = _logo()
     html_ = f"""<!doctype html><html lang="{tt.lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>{UI.e(title)} - ARGIA for Prologis</title><style>{UI.CSS}</style></head><body>
+<title>{UI.e(title)} - ARGIA for Prologis</title>{ICON_LINKS}<style>{UI.CSS}</style></head><body>
 <div class="top"><div class="stripe"></div><div class="topin">
 <a class="brand" href="/">{pl or UI.stripe_svg(26) + ' PROLOGIS'}<span class="x">×</span>
 <img class="ar" src="{argia_logo.MARK_URI}" alt="ARGIA"><span class="tag">{tt("Solar O&M platform", "Plataforma O&M solar")}</span></a>
@@ -229,6 +236,17 @@ def brand(name):
     return send_file(p, mimetype="image/png", max_age=86400)
 
 
+@app.get("/favicon.png", endpoint="favicon")
+@app.get("/favicon.ico", endpoint="favicon")
+@app.get("/apple-touch-icon.png", endpoint="favicon")
+def favicon():
+    for name in FAVICONS[request.path.lstrip("/")]:
+        p = os.path.join(BRAND_DIR, name)
+        if os.path.exists(p):
+            return send_file(p, mimetype="image/png", max_age=86400)
+    abort(404)
+
+
 @app.get("/lang/<code>")
 def lang(code):
     r = redirect(request.referrer or "/")
@@ -241,7 +259,7 @@ def _login_page(msg: str = "", status: int = 200) -> Response:
     pl = _logo()
     nxt = UI.e(request.args.get("next", "/"))
     html_ = f"""<!doctype html><html lang="{tt.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><title>Sign in - ARGIA for Prologis</title><style>{UI.CSS}
+<meta name="robots" content="noindex,nofollow"><title>Sign in - ARGIA for Prologis</title>{ICON_LINKS}<style>{UI.CSS}
 .login .art .brandrow{{display:flex;align-items:center;gap:14px}} .login .art img.pl{{height:34px;background:#fff;border-radius:8px;padding:4px 10px}}
 .login .art img.pl.rev{{height:38px;background:none;padding:0;border-radius:0}}
 </style></head><body><div class="login"><div class="art"><div class="brandrow">{pl or UI.stripe_svg(34)}<span style="opacity:.6">×</span>

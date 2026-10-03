@@ -88,6 +88,7 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("demo-favicon", "https://demo.argia.com.mx/favicon.png", (200,)),
     ("prologis-login", "https://prologis.argia.com.mx/login", (200,)),    # v292: its own sign-in page
     ("prologis-wall", "https://prologis.argia.com.mx/", (302,)),
+    ("prologis-favicon", "https://prologis.argia.com.mx/favicon.png", (200,)),   # v300: tab icon, public
     ("cpa-root", "https://cpa.argia.com.mx/", (401,)),             # v296: its own sign-in (HTTP Basic)
     ("cpa-favicon", "https://cpa.argia.com.mx/favicon.png", (200,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),

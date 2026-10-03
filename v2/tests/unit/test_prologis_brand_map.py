@@ -98,3 +98,22 @@ def test_map_opens_on_streets(env, path):
     assert "World_Street_Map" in js.group(0).split("var sat=")[0] and ".addTo(m);\nvar sat=" in js.group(0)
     sat_def = js.group(0).split("var sat=")[1].split(";\n")[0]
     assert "addTo(m)" not in sat_def                                       # satellite is the option, not the default
+
+
+def test_tab_icon_is_the_prologis_globe(env):
+    """v300 (Tomasz): a small Prologis logo on the browser tab, before and after sign-in."""
+    app_mod, pw, brand = env
+    cl = app_mod.app.test_client()
+    assert cl.get("/favicon.png").status_code == 404                      # no file yet: no icon, no error page
+    (brand / "prologis_mark.png").write_bytes(PNG + b"mark")
+    r = cl.get("/favicon.png")
+    assert r.status_code == 200 and r.data.endswith(b"mark")             # the mark is the fallback
+    (brand / "prologis_favicon.png").write_bytes(PNG + b"fav")
+    (brand / "prologis_touch.png").write_bytes(PNG + b"touch")
+    for path, tail in (("/favicon.png", b"fav"), ("/favicon.ico", b"fav"), ("/apple-touch-icon.png", b"touch")):
+        r = cl.get(path)
+        assert r.status_code == 200 and r.mimetype == "image/png" and r.data.endswith(tail), path   # public: no login
+    assert '<link rel="icon" type="image/png" href="/favicon.png">' in cl.get("/login").get_data(as_text=True)
+    signed = _signed_in(app_mod, pw)
+    for path in ("/", "/map/", "/tickets/", "/shop/"):
+        assert 'href="/favicon.png"' in signed.get(path).get_data(as_text=True).split("</head>")[0], path

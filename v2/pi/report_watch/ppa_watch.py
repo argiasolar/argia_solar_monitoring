@@ -51,7 +51,26 @@ def server_is_down() -> bool:
     return "status=DOWN" in txt
 
 
+def push_enabled(conf=None):
+    """v305.2: phone pushes are switched in push.conf next to this file
+    (PUSH=on|off); the ARGIA_PUSH environment variable overrides it."""
+    env = os.environ.get("ARGIA_PUSH")
+    if env:
+        return env.strip().lower() == "on"
+    conf = conf or os.path.join(os.path.dirname(os.path.abspath(__file__)), "push.conf")
+    try:
+        for ln in open(conf, encoding="utf-8"):
+            if ln.strip().startswith("PUSH="):
+                return ln.split("=", 1)[1].strip().lower() == "on"
+    except OSError:
+        pass
+    return False
+
+
 def push(title, msg):
+    if not push_enabled():
+        log("alert (push off): " + title)
+        return
     try:
         subprocess.run(
             ["curl", "-sS", "-m", "15", "-H", "Title: " + title,

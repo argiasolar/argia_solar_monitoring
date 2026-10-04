@@ -94,9 +94,10 @@ class TestReportWatch:
         calls = tmp_path / "calls.txt"
         calls.write_text("")
 
-        def go(mode_name, mode_ip="ok", times=1):
+        def go(mode_name, mode_ip="ok", times=1, push="on"):
             env = dict(os.environ, HOME=str(tmp_path), PATH=f"{bindir}:{os.environ['PATH']}",
-                       CALLS=str(calls), MODE_NAME=mode_name, MODE_IP=mode_ip)
+                       CALLS=str(calls), MODE_NAME=mode_name, MODE_IP=mode_ip,
+                       ARGIA_PUSH=push)                     # v305.2: pushes are off in push.conf
             out = ""
             for _ in range(times):
                 r = subprocess.run(["bash", str(RW / "report_watch.sh")], env=env, capture_output=True, text=True, timeout=30)
@@ -127,3 +128,56 @@ class TestReportWatch:
     def test_healthy_portal_is_silent(self, run):
         _, pushes, state = run("ok", times=3)
         assert pushes == [] and "status=OK" in state
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="bash harness (CI / Linux)")
+class TestPushSwitch:
+    """v305.2 (Tomasz, 2026-10-04: "I do not need any push notifications to
+    my phone at this moment"): push.conf says off - the watchdog still
+    watches and logs, nothing reaches the phone."""
+
+    def test_the_repo_switch_is_off(self):
+        assert "\nPUSH=off\n" in (RW / "push.conf").read_text(encoding="utf-8")
+
+    def test_a_real_outage_is_logged_not_pushed(self, tmp_path):
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        (bindir / "curl").write_text(FAKE_CURL)
+        (bindir / "curl").chmod(0o755)
+        calls = tmp_path / "calls.txt"
+        calls.write_text("")
+        env = {k: v for k, v in os.environ.items() if k != "ARGIA_PUSH"}
+        env.update(HOME=str(tmp_path), PATH=f"{bindir}:{os.environ['PATH']}", CALLS=str(calls),
+                   MODE_NAME="down", MODE_IP="down")
+        out = ""
+        for _ in range(2):
+            r = subprocess.run(["bash", str(RW / "report_watch.sh")], env=env, capture_output=True, text=True, timeout=60)
+            assert r.returncode == 0, r.stderr
+            out += r.stdout
+        assert "alert (push off): portal.argia.com.mx is DOWN" in out
+        assert [ln for ln in calls.read_text().splitlines() if "ntfy" in ln or "|" in ln] == []
+        assert "status=DOWN" in (tmp_path / "report_watch" / "state").read_text()
+
+    def test_python_watchers_follow_the_switch(self, tmp_path, monkeypatch):
+        import importlib.util as U
+        for name in ("ppa_watch", "health_watch"):
+            spec = U.spec_from_file_location(name + "_sw", RW / f"{name}.py")
+            m = U.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            monkeypatch.delenv("ARGIA_PUSH", raising=False)
+            assert m.push_enabled() is False                                   # the repo's push.conf
+            conf = tmp_path / "p.conf"
+            conf.write_text("PUSH=on\n")
+            assert m.push_enabled(str(conf)) is True
+            monkeypatch.setenv("ARGIA_PUSH", "on")
+            assert m.push_enabled() is True
+            monkeypatch.delenv("ARGIA_PUSH")
+        spec = U.spec_from_file_location("ppa_sw2", RW / "ppa_watch.py")
+        m = U.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pushed")))
+        m.push("SAG NOT producing", "x")                                       # logged only
+
+    def test_the_backup_pull_follows_it_too(self):
+        src = (V2 / "pi" / "db_backups" / "pull_backup.sh").read_text(encoding="utf-8")
+        assert '. "$(dirname "$0")/../report_watch/push.conf"' in src and 'if [ "$PUSH" = on ]; then' in src

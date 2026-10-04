@@ -95,6 +95,22 @@ def decide(state, health, fetch_ok, now, portal_down=False):
     return pushes, st
 
 
+def push_enabled(conf=None):
+    """v305.2: phone pushes are switched in push.conf next to this file
+    (PUSH=on|off); the ARGIA_PUSH environment variable overrides it."""
+    env = os.environ.get("ARGIA_PUSH")
+    if env:
+        return env.strip().lower() == "on"
+    conf = conf or os.path.join(os.path.dirname(os.path.abspath(__file__)), "push.conf")
+    try:
+        for ln in open(conf, encoding="utf-8"):
+            if ln.strip().startswith("PUSH="):
+                return ln.split("=", 1)[1].strip().lower() == "on"
+    except OSError:
+        pass
+    return False
+
+
 # ------------------------------------------------------------------ I/O
 def fetch():
     """The health file via SFTP, or None."""
@@ -113,6 +129,14 @@ def fetch():
 
 
 def push(prio, title, msg):
+    """ntfy when pushes are on; otherwise the log only - plus, for a dead
+    server or a dead monitoring job (what the server cannot mail itself),
+    the mail hook as the last resort when it exists."""
+    hook = os.path.expanduser("~/report_watch/send_mail_hook.sh")
+    if prio == "high" and title.startswith("ARGIA server:") and os.access(hook, os.X_OK):
+        subprocess.run([hook, title, msg], capture_output=True, timeout=60)
+    if not push_enabled():
+        return
     subprocess.run(["curl", "-sS", "-m", "15", "-H", "Title: " + title, "-H", "Priority: " + prio,
                     "-H", "Tags: " + ("rotating_light" if prio == "high" else "white_check_mark"),
                     "-d", msg, "https://ntfy.sh/" + NTFY_TOPIC], capture_output=True, timeout=20)
@@ -135,7 +159,8 @@ def main():
                            portal_down)
     for prio, title, msg in pushes:
         push(prio, title, msg)
-        print("%s health push (%s): %s" % (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), prio, title))
+        print("%s health %s (%s): %s" % (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                         "push" if push_enabled() else "alert, push off", prio, title))
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
     with open(STATE_FILE, "w", encoding="utf-8") as fh:
         json.dump(state, fh)

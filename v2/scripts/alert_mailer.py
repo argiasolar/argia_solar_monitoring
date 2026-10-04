@@ -269,17 +269,20 @@ def main(argv=None) -> int:
                     gather_satellite_drift())
                 if a.key.split(":")[1] not in in_maint]
     tele_age = gather_telemetry_age()
+    pi_status = gather_pi_status()            # v305.2: the server watches its watchdog
     active = (s_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
               + monitor.telemetry_alerts(tele_age, now_mx)
               + monitor.recon_alerts(gather_recon_fails())
               + monitor.cfe_alerts(gather_cfe_status(),
                                    today=now_mx.date())
-              + monitor.drift_alerts(gather_drift(), now=now))
+              + monitor.drift_alerts(gather_drift(), now=now)
+              + monitor.pi_alerts(pi_status, now))
     state, _sev_by_key = load_state()
     active_keys = {a.key for a in active}
     recovered = [k for k, st in sorted(state.items()) if st[1] and k not in active_keys]
     health = monitor.health_doc(active, state, now, tele_age, disk_pct, pg_ok)
+    health["pi"] = monitor.pi_summary(pi_status)
     to_send = monitor.plan_last_resort(active, state, now)
     LOG.info("active=%d in_scope=%d last_resort_mail=%d recovered=%d recipients=%d mail_cfg=%s",
              len(active), sum(1 for a in active if monitor.in_scope(a.key)), len(to_send),
@@ -327,6 +330,16 @@ def write_health(doc: dict, path: str = "") -> None:
         os.replace(tmp, path)
     except OSError as e:
         LOG.error("health file not written (%s) - the Pi will report it stale", e)
+
+
+def gather_pi_status() -> Optional[dict]:
+    """The office Pi's hourly self-report (pi/report_watch/pi_status.py), or None."""
+    import json
+    try:
+        with open(monitor.PI_STATUS_JSON, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
 
 
 def gather_telemetry_age() -> Optional[float]:

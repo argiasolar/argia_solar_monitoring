@@ -67,11 +67,20 @@ if [ $ok -eq 0 ] && [ $rc -eq 6 ]; then
   fi
 fi
 
+# v305.2: phone pushes are switched in push.conf (ARGIA_PUSH overrides, for tests)
+PUSH=off
+[ -f "$(dirname "$0")/push.conf" ] && . "$(dirname "$0")/push.conf"
+PUSH="${ARGIA_PUSH:-$PUSH}"
+
 alert() {  # $1 = title, $2 = message, $3 = ntfy priority (default high)
-  curl -sS -m 15 -H "Title: $1" -H "Priority: ${3:-high}" -H "Tags: warning" \
-       -d "$2" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1 \
-    && echo "$(stamp) alert sent (ntfy): $1" \
-    || echo "$(stamp) alert FAILED to send (ntfy): $1"
+  if [ "$PUSH" = on ]; then
+    curl -sS -m 15 -H "Title: $1" -H "Priority: ${3:-high}" -H "Tags: warning" \
+         -d "$2" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1 \
+      && echo "$(stamp) alert sent (ntfy): $1" \
+      || echo "$(stamp) alert FAILED to send (ntfy): $1"
+  else
+    echo "$(stamp) alert (push off): $1"
+  fi
   if [ -x "$STATE_DIR/send_mail_hook.sh" ]; then
     "$STATE_DIR/send_mail_hook.sh" "$1" "$2" \
       && echo "$(stamp) alert sent (mail): $1" \
@@ -121,3 +130,12 @@ fi
 # health_watch.py reads /root/argia_backups/health.json over the backup SFTP
 # key and pushes CRITICAL problems; it does nothing where that key is absent
 python3 "$(dirname "$0")/health_watch.py" 2>&1 || echo "$(stamp) health_watch failed"
+
+# v305.2: the Pi reports on itself to the server once an hour (pi_status.py:
+# cron, job logs, newest off-site backup, CFE heartbeat) - the server's health
+# job turns a silent Pi or a stale backup into a problem
+PS_STAMP="$STATE_DIR/pi_status_at"
+if [ $((now - $(cat "$PS_STAMP" 2>/dev/null || echo 0))) -ge 3300 ]; then
+  python3 "$(dirname "$0")/pi_status.py" 2>&1 || echo "$(stamp) pi_status failed"
+  echo "$now" > "$PS_STAMP"
+fi

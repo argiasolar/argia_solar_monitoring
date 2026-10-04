@@ -377,8 +377,10 @@ def with_lifetime_catchup(r: DailyRecon, catchup_kwh: Optional[float]) -> DailyR
     producing; the LIFETIME counter's next-night step proves the energy
     (loss_daily.catchup_kwh, argia.analytics.losses). Such a day is not a
     PASS on two frozen counters: it is REVIEW with the proven kWh in the
-    note. The reference (and so the billable self-heal) is NOT changed -
-    billing follows only with Tomasz's approval. Pure."""
+    note. The reference (and so the billable self-heal) is NOT changed:
+    billing is settled on the vendor portal's MONTH counter (Tomasz,
+    2026-10-04), and loss_daily caps the catch-up to it (losses.cap_to_month),
+    so this only fires for energy the month counter really holds. Pure."""
     if catchup_kwh is None or r.reference_kwh is None or r.status == STATUS_NO_DATA:
         return r
     if catchup_kwh < max(CATCHUP_MIN_KWH, abs(r.reference_kwh) * CATCHUP_MIN_PCT / 100.0):
@@ -386,7 +388,7 @@ def with_lifetime_catchup(r: DailyRecon, catchup_kwh: Optional[float]) -> DailyR
     note = (r.note + "; " if r.note else "") + (
         f"lost connection: the lifetime counter proves +{catchup_kwh:.1f} kWh not in the day counters"
         f" (the inverters kept producing; {r.reference_kwh + catchup_kwh:.1f} kWh in total)"
-        " - billable unchanged until approved")
+        " - the month is settled on the vendor portal's month counter")
     status = STATUS_REVIEW if r.status == STATUS_PASS else r.status
     from dataclasses import replace
     return replace(r, status=status, note=note)

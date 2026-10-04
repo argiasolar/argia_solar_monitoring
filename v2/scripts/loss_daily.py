@@ -96,7 +96,8 @@ def counters(d0: dt.date, d1: dt.date) -> Dict[str, List[Tuple[str, Optional[flo
     snapshots recon_snapshot takes at 23:50 (v276: the catch-up evidence)."""
     out: Dict[str, list] = defaultdict(list)
     for r in psql_rows("SELECT plant_key, snap_date::text, daily_kwh, lifetime_kwh FROM vendor_counter_snapshot"
-                       f" WHERE snap_date BETWEEN DATE '{d0}' - 1 AND DATE '{d1}' + 4 ORDER BY 1, 2;"):
+                       f" WHERE snap_date BETWEEN date_trunc('month', DATE '{d0}')::date - 1 AND DATE '{d1}' + 4"
+                       " ORDER BY 1, 2;"):           # v305: from the previous month's last night (month_budget)
         out[r[0]].append((r[1], _f(r[2]), _f(r[3])))
     return out
 
@@ -195,6 +196,9 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
         # night's lifetime counter proves the energy was made - credit it back
         short = {ds: max(0.0, (x.expected_kwh or 0.0) - (x.actual_kwh or 0.0)) for ds, x in mine.items()}
         credit = L.allocate_catch_up(L.catch_up(cnt.get(k, [])), short)
+        # v305: never beyond the month's lifetime counter (the portal's month total)
+        counted = {ds: e for (pk, ds), (e, _x) in prod.items() if pk == k}
+        credit = L.cap_to_month(credit, L.month_budget(cnt.get(k, []), counted))
         for ds, kwh in credit.items():
             if ds in mine and kwh > 0:
                 mine[ds] = one(ds, kwh)

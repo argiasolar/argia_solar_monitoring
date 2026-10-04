@@ -154,7 +154,7 @@ class TestReconciliationOfLostConnection:
         r = E.with_lifetime_catchup(E.daily_recon(2518.2, 2518.2, 2518.2, 100.0), 153.0)
         assert r.status == E.STATUS_REVIEW and r.reference_kwh == 2518.2          # billing basis untouched
         assert ("lost connection: the lifetime counter proves +153.0 kWh not in the day counters"
-                " (the inverters kept producing; 2671.2 kWh in total) - billable unchanged until approved") in r.note
+                " (the inverters kept producing; 2671.2 kWh in total) - the month is settled on the vendor portal's month counter") in r.note
 
     def test_small_catch_up_is_noise(self):
         r0 = E.daily_recon(2518.2, 2518.2, 2518.2, 100.0)
@@ -421,3 +421,117 @@ def test_recon_catch_up_lookup_never_stops_the_reconciliation(monkeypatch):
     import recon_snapshot as RS
     monkeypatch.setattr(RS, "psql_rows", lambda sql: (_ for _ in ()).throw(FileNotFoundError("psql")))
     assert RS.lifetime_catchup("2026-10-01") == {}
+
+
+class TestMonthCounterIsTheReference:
+    """Tomasz, 2026-10-04: "we always have to reconcile against the portal
+    counter for the total month production". SAG September: invoice 71,437.91
+    kWh = vendor portal month counter 71,438 = lifetime delta 71,438; the daily
+    rows (some healed from the vendor history) sum to 71,447 - while loss_daily
+    added 2,411 kWh of lifetime catch-up on top (73,859) and v305's first cut
+    reported it as 'unbilled'. It was double counted."""
+
+    def test_nothing_left_to_credit_when_the_days_already_hold_the_month(self):
+        from argia.analytics import losses as L
+        counters = [("2026-08-31", 2100.0, 1236358.0), ("2026-09-25", 263.6, 1290000.0), ("2026-09-30", 1598.0, 1307796.0)]
+        counted = {f"2026-09-{d:02d}": 71447.0 / 30 for d in range(1, 31)}
+        budget = L.month_budget(counters, counted)
+        assert round(budget["2026-09"]) == round(1307796.0 - 1236358.0 - 71447.0)       # -9 kWh: nothing uncounted
+        assert L.cap_to_month({"2026-09-25": 205.8, "2026-09-26": 153.0}, budget) == {}
+
+    def test_a_real_gap_is_credited_up_to_the_month_counter(self):
+        from argia.analytics import losses as L
+        counters = [("2026-08-31", 0.0, 1000.0), ("2026-09-02", 0.0, 1300.0)]
+        counted = {"2026-09-01": 100.0, "2026-09-02": 100.0}                            # 100 kWh of a frozen day missing
+        b = L.month_budget(counters, counted)
+        assert b == {"2026-09": 100.0}
+        assert L.cap_to_month({"2026-09-01": 150.0, "2026-09-02": 30.0}, b) == {"2026-09-01": 100.0}
+
+    def test_one_lifetime_reading_credits_nothing(self):
+        from argia.analytics import losses as L
+        assert L.month_budget([("2026-09-02", 0.0, 1300.0)], {"2026-09-01": 1.0, "2026-09-02": 1.0}) == {}
+        assert L.cap_to_month({"2026-09-01": 50.0}, {}) == {}
+
+    def test_without_the_month_start_the_covered_span_is_used(self):
+        from argia.analytics import losses as L
+        # nights 9, 10, 11 Sep: the 10th froze at 300 of 1,000 kWh, the 11th made 900
+        counters = [("2026-09-09", 0.0, 5000.0), ("2026-09-10", 300.0, 5300.0), ("2026-09-11", 900.0, 6900.0)]
+        counted = {"2026-09-09": 1000.0, "2026-09-10": 300.0, "2026-09-11": 900.0}
+        assert L.month_budget(counters, counted) == {"2026-09": 700.0}         # 1,900 - (300 + 900)
+
+    def test_snapshot_nights_after_the_counted_days_are_ignored(self):
+        from argia.analytics import losses as L
+        counters = [("2026-08-31", 0.0, 1000.0), ("2026-09-01", 0.0, 1100.0), ("2026-09-05", 0.0, 1500.0)]
+        assert L.month_budget(counters, {"2026-09-01": 100.0}) == {"2026-09": 0.0}     # not 400
+
+    def test_loss_daily_caps_its_credit(self):
+        src = (V2 / "scripts/loss_daily.py").read_text(encoding="utf-8")
+        assert "credit = L.cap_to_month(credit, L.month_budget(cnt.get(k, []), counted))" in src
+        assert "date_trunc('month', DATE '{d0}')::date - 1" in src
+
+
+# ------------------------------------------- v305.2: the server watches the Pi
+spec_ps = importlib.util.spec_from_file_location("pi_status", V2 / "pi" / "report_watch" / "pi_status.py")
+PS = importlib.util.module_from_spec(spec_ps)
+spec_ps.loader.exec_module(PS)
+
+
+class TestPiReportsOnItself:
+    def test_the_status_document(self):
+        now = T
+        files = {"logs": {"backup_pull": ("/x", now - 7 * 86400, "2026-09-27 pull OK"), "deploy": ("/y", now - 300, "ok")},
+                 "dumps": [("argia_mont_20260926.dump", now - 8 * 86400), ("argia_mont_20260927.dump", now - 7 * 86400)],
+                 "weekly": [("argia_mont_20260927.dump", now - 7 * 86400)],
+                 "cfe_heartbeat": (now - 6 * 86400, False)}
+        doc = PS.build(now, files, ["*/5 * * * * bash report_watch.sh"], "03f8b7a", 17000, "ARGIAPi")
+        assert doc["ts"] == "2026-10-04T14:00:00Z" and doc["host"] == "ARGIAPi" and doc["git_head"] == "03f8b7a"
+        assert doc["backup"] == {"newest": "argia_mont_20260927.dump", "age_h": 168.0, "daily_count": 2, "weekly_count": 1}
+        assert doc["cfe_heartbeat"] == {"age_h": 144.0, "writable": False}
+        assert doc["jobs"]["backup_pull"] == {"log_mtime": "2026-09-27T14:00:00Z", "last": "2026-09-27 pull OK"}
+
+    def test_report_watch_runs_it_hourly(self):
+        src = (V2 / "pi" / "report_watch" / "report_watch.sh").read_text(encoding="utf-8")
+        assert 'python3 "$(dirname "$0")/pi_status.py"' in src and "-ge 3300" in src
+
+    def test_does_nothing_off_the_pi(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(PS, "HOME", str(tmp_path))
+        monkeypatch.setattr(PS.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+        monkeypatch.setattr(PS.os.path, "expanduser", lambda p: str(tmp_path))
+        assert PS.main() == 0
+
+
+class TestServerWatchesThePi:
+    def status(self, age_h=0.5, backup_h=10.0):
+        ts = (NOW - dt.timedelta(hours=age_h)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"ts": ts, "backup": {"newest": "argia_mont_20261003.dump", "age_h": backup_h}, "jobs": {}, "crontab": ["a", "b"]}
+
+    def test_a_healthy_pi(self):
+        assert M.pi_alerts(self.status(), NOW) == []
+
+    def test_a_silent_pi_is_critical_and_in_scope(self):
+        (a,) = M.pi_alerts(self.status(age_h=4), NOW)
+        assert a.key == "pi-silent" and a.severity == M.SEV_CRIT and "4 h old" in a.detail and M.in_scope(a.key)
+        assert M.pi_alerts(None, NOW)[0].key == "pi-silent"
+
+    def test_a_week_without_the_backup_pull(self):
+        (a,) = M.pi_alerts(self.status(backup_h=168), NOW)
+        assert a.key == "pi-backup-stale" and "168 h old" in a.detail and M.in_scope(a.key)
+        assert M.pi_alerts(dict(self.status(), backup={}), NOW)[0].detail.count("missing") == 1
+
+    def test_summary_in_the_health_file(self):
+        s = M.pi_summary(self.status())
+        assert s["backup"]["age_h"] == 10.0 and s["cron_lines"] == 2 and M.pi_summary(None) is None
+        src = (V2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
+        assert 'health["pi"] = monitor.pi_summary(pi_status)' in src and "+ monitor.pi_alerts(pi_status, now))" in src
+
+    def test_mail_hook_only_for_what_the_server_cannot_say_itself(self, monkeypatch, tmp_path):
+        calls = []
+        hook = tmp_path / "send_mail_hook.sh"
+        hook.write_text("#!/bin/sh\n")
+        hook.chmod(0o755)
+        monkeypatch.setattr(HW.os.path, "expanduser", lambda p: str(hook) if p.endswith("send_mail_hook.sh") else p)
+        monkeypatch.setattr(HW.subprocess, "run", lambda args, **k: calls.append(args[1] if len(args) > 1 else args))
+        monkeypatch.setenv("ARGIA_PUSH", "off")
+        HW.push("high", "ARGIA server: monitoring stopped", "x")
+        HW.push("high", "ARGIA: job failed: argia-kpi", "x")        # the server mails that one itself after 6 h
+        assert calls == ["ARGIA server: monitoring stopped"]

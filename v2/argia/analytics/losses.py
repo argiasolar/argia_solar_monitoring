@@ -327,6 +327,58 @@ def allocate_catch_up(excess: Dict[str, float], shortfall: Dict[str, float], bac
     return out
 
 
+def month_budget(counters: Sequence[Tuple[str, Optional[float], Optional[float]]],
+                 counted: Dict[str, Optional[float]]) -> Dict[str, float]:
+    """{YYYY-MM: kWh the vendor LIFETIME counter holds for that month beyond
+    the days already counted}. v305 (Tomasz, 2026-10-04: "we always have to
+    reconcile against the portal counter for the total month production").
+
+    The month's true production is the lifetime counter's step from the
+    last night of the previous month to the month's last snapshot night
+    (SAG, September: 71,438 kWh = the vendor portal's month counter = the
+    invoice). ``counted``: {day: kWh already in daily_production} - often
+    healed already from the vendor history, in which case nothing is left
+    to credit. Without the previous month's last night the span starts at
+    the month's first snapshot night (only the days after it count); a
+    month with fewer than two lifetime readings is absent (no credit:
+    production is never invented). Pure."""
+    lt = {d: float(l) for d, _k, l in counters if l is not None}
+    out: Dict[str, float] = {}
+    for m in sorted({d[:7] for d in counted}):
+        y, mo = (int(x) for x in m.split("-"))
+        prev_end = (dt.date(y, mo, 1) - dt.timedelta(days=1)).isoformat()
+        last_counted = max(d for d in counted if d[:7] == m)
+        nights = sorted(d for d in lt if d[:7] == m and d <= last_counted)
+        if not nights:
+            continue
+        last = nights[-1]
+        # from the previous month's last night when we have it; otherwise the
+        # month's first snapshot night (only the days after it are covered)
+        start = prev_end if prev_end in lt else nights[0]
+        if start >= last:
+            continue
+        done = sum(float(v) for d, v in counted.items() if d[:7] == m and start < d <= last and v is not None)
+        out[m] = (lt[last] - lt[start]) - done
+    return out
+
+
+def cap_to_month(credit: Dict[str, float], budget: Dict[str, float]) -> Dict[str, float]:
+    """``allocate_catch_up``'s credits, never beyond what the month's lifetime
+    counter leaves uncounted (``month_budget``), earliest day first. Before
+    v305 a day counter healed from the vendor history AND its lifetime catch-up
+    were both counted: SAG September read 73,859 kWh against the portal's
+    71,438. Pure."""
+    left = {m: max(0.0, v) for m, v in budget.items()}
+    out: Dict[str, float] = {}
+    for d, kwh in sorted(credit.items()):
+        room = left.get(d[:7], 0.0)
+        give = min(room, kwh)
+        if give > 0:
+            out[d] = give
+            left[d[:7]] = room - give
+    return out
+
+
 def mxn(kwh: Optional[float], tariff: Optional[float]) -> Optional[float]:
     if kwh is None or not tariff:
         return None

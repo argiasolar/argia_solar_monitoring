@@ -413,7 +413,7 @@ def in_scope(key: str) -> bool:
     mailed)? Pure."""
     if key.startswith("unit-failed:"):
         return key.split(":", 1)[1].replace(".service", "") in MONITORING_UNITS
-    return key in ("postgres-down", "disk-full", "telemetry-stale")
+    return key in ("postgres-down", "disk-full", "telemetry-stale", "pi-silent", "pi-backup-stale")
 
 
 def telemetry_alerts(newest_age_min: Optional[float], now_mx: dt.datetime) -> List[Alert]:
@@ -476,3 +476,51 @@ def health_doc(active: List[Alert], state: Dict[str, tuple], now: dt.datetime,
         "disk_pct": None if disk_pct is None else round(disk_pct, 1),
         "pg_ok": bool(pg_ok),
     }
+
+
+# ------------------------------------------------------------------ v305.2
+# Tomasz, 2026-10-04: "make sure Pi is working as our watchdog". The Pi
+# watches the server (health.json); the server now watches the Pi: the Pi
+# pushes pi_status.json hourly into the CFE inbox (pi/report_watch/pi_status.py).
+PI_STATUS_JSON = "/opt/argia/cfe_inbox/pi_status.json"
+PI_SILENT_H = 3.0
+PI_BACKUP_MAX_H = 36.0
+"""The Pi pulls the nightly dump at 22:00 MX; older than this = a night missed."""
+
+
+def pi_alerts(status: Optional[dict], now: dt.datetime) -> List[Alert]:
+    """The watchdog's own health. CRITICAL (in scope): the Pi has not
+    reported for PI_SILENT_H, or its newest off-site backup is older than
+    PI_BACKUP_MAX_H. Pure."""
+    if not status:
+        return [Alert("pi-silent", SEV_CRIT, "office Pi has not reported",
+                      "No pi_status.json from the office Pi - its watchdog, backup pull and outage watch are unverified.")]
+    try:
+        ts = dt.datetime.strptime(status.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        age_h = (now - ts).total_seconds() / 3600.0
+    except ValueError:
+        age_h = None
+    out: List[Alert] = []
+    if age_h is None or age_h > PI_SILENT_H:
+        out.append(Alert("pi-silent", SEV_CRIT, "office Pi has not reported",
+                         "The office Pi's last status is " + ("unreadable" if age_h is None else f"{age_h:.0f} h old")
+                         + " - the Pi, its internet or its cron is down; the server is not being watched from outside."))
+        return out
+    b = status.get("backup") or {}
+    age = b.get("age_h")
+    if age is None or age > PI_BACKUP_MAX_H:
+        out.append(Alert("pi-backup-stale", SEV_CRIT, "off-site backup not pulled",
+                         "The office Pi's newest copy of the database is "
+                         + ("missing" if age is None else f"{age:.0f} h old") + f" ({b.get('newest') or 'no dump'})"
+                         + " - the nightly pull (22:00 MX) is not working."))
+    return out
+
+
+def pi_summary(status: Optional[dict]) -> Optional[dict]:
+    """The part of the Pi's report that goes into health.json. Pure."""
+    if not status:
+        return None
+    return {"ts": status.get("ts"), "git_head": status.get("git_head"), "disk_free_mb": status.get("disk_free_mb"),
+            "backup": status.get("backup"), "cfe_heartbeat": status.get("cfe_heartbeat"),
+            "jobs": {k: (v or {}).get("log_mtime") for k, v in (status.get("jobs") or {}).items()},
+            "cron_lines": len(status.get("crontab") or [])}

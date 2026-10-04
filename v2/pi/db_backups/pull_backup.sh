@@ -18,10 +18,17 @@ KEY="$HOME/.ssh/argia_backup_pull"
 BASE="$HOME/db_backups"
 stamp="$(date +%Y%m%d)"
 
+# v305.2: phone pushes are switched in report_watch/push.conf (ARGIA_PUSH overrides);
+# the server's health file reports a stale off-site backup either way (pi_status.py)
+PUSH=off
+[ -f "$(dirname "$0")/../report_watch/push.conf" ] && . "$(dirname "$0")/../report_watch/push.conf"
+PUSH="${ARGIA_PUSH:-$PUSH}"
 alert() {
-  curl -s -m 10 -H "Title: ARGIA DB backup" -H "Priority: high" \
-    -H "Tags: floppy_disk,warning" -d "$1" \
-    "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1 || true
+  if [ "$PUSH" = on ]; then
+    curl -s -m 10 -H "Title: ARGIA DB backup" -H "Priority: high" \
+      -H "Tags: floppy_disk,warning" -d "$1" \
+      "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1 || true
+  fi
   echo "$(date -Is) ALERT: $1"
 }
 

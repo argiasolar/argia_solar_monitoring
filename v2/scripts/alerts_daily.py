@@ -175,11 +175,15 @@ def build_candidates(
     temp_candidates: Optional[List[Candidate]] = None,
     offline_candidates: Optional[List[Candidate]] = None,
     string_rows: Optional[Dict] = None,
+    relative_skip=frozenset(),
 ) -> List[Candidate]:
-    """Run the detector layers; map breaches to engine candidates."""
+    """Run the detector layers; map breaches to engine candidates.
+    ``relative_skip`` (v305): (plant, sn) whose day counter is partial
+    (``stopped_early``) - not judged against their peers."""
     cands: List[Candidate] = []
 
-    for b in evaluate_inverter_relative(per_inverter_kwh):
+    for b in evaluate_inverter_relative([r for r in per_inverter_kwh
+                                         if (r.plant_key, str(r.inverter_sn).strip()) not in relative_skip]):
         cands.append(candidate_from_relative_breach(b))
 
     for b in evaluate_inverter_faults(fault_samples or []):
@@ -345,6 +349,114 @@ def daily_temp_candidates(bundle, portfolio,
     return out
 
 
+def silent_severity(kind: str, detected: str) -> str:
+    """v305 (Tomasz: mail where we are losing money, flag the rest): only
+    "the unit was OFF" - its counter grew clearly less than its siblings'
+    across the gap - is a measured loss (CRITICAL). "Kept producing" (the
+    counter climbed), "no counter to confirm" and "siblings too low to
+    compare" are missing data: INFO, on the portal; grading.escalate_blind
+    raises them after BLIND_DAYS days. Pure."""
+    return detected if kind == "off" else "INFO"
+
+
+STOPPED_EARLY_MIN = 45
+"""v305: an inverter whose last reading of the day is this much earlier
+than the plant's last production lost its connection (its day is cut
+short) - its day counter is partial, so comparing it with the peers
+would book a loss that is only missing data (TAM1 JNMAE5X00K, 30 Sep:
+"26% of peers" while it went silent at 11:31 and its peers reported to
+19:12)."""
+
+
+def stopped_early(bundle, portfolio, min_gap: int = STOPPED_EARLY_MIN) -> Dict[Tuple[str, str], Tuple[dt.datetime, dt.datetime]]:
+    """{(plant, sn): (its last reading, the plant's last production)} for
+    inverters whose last reading of the day is ``min_gap`` minutes or more
+    before the last moment the plant produced (any inverter above 0 W).
+    Rows without power are not readings; an inverter that powers down at
+    sunset with its datalogger is NOT cut short - only before the end of
+    production counts. Pure."""
+    out = {}
+    for plant in portfolio.active_plants():
+        last: Dict[str, dt.datetime] = {}
+        prod_end = None
+        for r in bundle.rows_for_plant(plant.plant_key):
+            if r.power_w is None:
+                continue
+            sn = str(r.inverter_sn).strip()
+            if sn not in last or r.timestamp_utc > last[sn]:
+                last[sn] = r.timestamp_utc
+            if r.power_w > 0 and (prod_end is None or r.timestamp_utc > prod_end):
+                prod_end = r.timestamp_utc
+        if prod_end is None or len(last) < 2:
+            continue
+        for sn, t in last.items():
+            if (prod_end - t) >= dt.timedelta(minutes=min_gap):
+                out[(plant.plant_key, sn)] = (t, prod_end)
+    return out
+
+
+CUT_OFF_MIN = 60
+CUT_OFF_POWER_SHARE = 0.05
+"""v305: a plant whose readings END while it is still producing (at least
+5 % of its kWp) an hour or more before the fleet's production ends lost
+its connection (or the whole site went dark with its logger): its day
+counter is partial, so its day energy is unconfirmed - SAG 20, 26 and 29
+Sep were mailed as CRITICAL "produced 264 kWh vs 2,251 expected (12%)"
+while the next night's lifetime counter proved a normal day."""
+
+
+def cut_off_plants(bundle, portfolio, min_gap: int = CUT_OFF_MIN,
+                   share: float = CUT_OFF_POWER_SHARE) -> Dict[str, Tuple[dt.datetime, float]]:
+    """{plant: (last reading, kW at that moment)} for plants whose data
+    stops while producing, ``min_gap`` minutes or more before the median
+    end of production across the fleet. Pure."""
+    last: Dict[str, dt.datetime] = {}
+    prod_end: Dict[str, dt.datetime] = {}
+    inv_last: Dict[str, Dict[str, Tuple[dt.datetime, float]]] = {}
+    kwp = {p.plant_key: float(getattr(p, "kwp_dc", 0) or 0) for p in portfolio.active_plants()}
+    for pk in kwp:
+        for r in bundle.rows_for_plant(pk):
+            if r.power_w is None:
+                continue
+            sn = str(r.inverter_sn).strip()
+            if pk not in last or r.timestamp_utc > last[pk]:
+                last[pk] = r.timestamp_utc
+            if r.power_w > 0 and (pk not in prod_end or r.timestamp_utc > prod_end[pk]):
+                prod_end[pk] = r.timestamp_utc
+            seen = inv_last.setdefault(pk, {}).get(sn)
+            if seen is None or r.timestamp_utc > seen[0]:
+                inv_last[pk][sn] = (r.timestamp_utc, float(r.power_w))
+    if len(prod_end) < 2:
+        return {}
+    fleet_end = sorted(prod_end.values())[len(prod_end) // 2]
+    out = {}
+    for pk, t in last.items():
+        if (fleet_end - t) < dt.timedelta(minutes=min_gap) or not kwp.get(pk):
+            continue
+        # each inverter's last reading, if it is within 10 min of the plant's last
+        kw = sum(p for ts, p in inv_last.get(pk, {}).values() if t - ts <= dt.timedelta(minutes=10)) / 1000.0
+        if kw >= share * kwp[pk]:
+            out[pk] = (t, kw)
+    return out
+
+
+def unconfirmed_energy(cands: List[Candidate], cut_off: Dict[str, Tuple[dt.datetime, float]]) -> List[Candidate]:
+    """Plant-day energy verdicts of a cut-off plant are a flag (INFO), not a
+    loss: the counter decides once it reports again (loss_daily's catch-up).
+    Pure."""
+    import dataclasses
+    from argia.core.time_utils import MX_TZ
+    out = []
+    for c in cands:
+        if c.metric in ("energy_daily_pct", "plant_twin_yield") and c.plant_key in cut_off:
+            t, kw = cut_off[c.plant_key]
+            c = dataclasses.replace(c, severity="INFO", message=(
+                f"{c.message} - its readings stopped at {t.astimezone(MX_TZ):%H:%M} MX while producing"
+                f" {kw:.0f} kW (lost connection?): energy unconfirmed until the counter reports [INFO]"))
+        out.append(c)
+    return out
+
+
 def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]:
     """Daily owner of inverter_silent (v203): every daylight gap of one
     inverter while its siblings produced, classified through the vendor
@@ -372,7 +484,7 @@ def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]
                 alert_key=make_inverter_alert_key(plant.plant_key, b.inverter_sn,
                                                   "inverter_silent"),
                 plant_key=plant.plant_key, inverter_sn=b.inverter_sn,
-                metric="inverter_silent", severity=b.severity.value,
+                metric="inverter_silent", severity=silent_severity(b.kind, b.severity.value),
                 value=b.gap_min, threshold=None, message=b.message))
     return out
 
@@ -587,6 +699,11 @@ def main(argv=None) -> int:
     open_temp_keys = frozenset(
         r.alert_key for r in ledger.records
         if r.metric == "inverter_temp_high" and (r.is_open() or r.is_silenced()))
+    early = stopped_early(bundle, portfolio)
+    for (pk, sn), (t, peers_t) in sorted(early.items()):
+        log.info("[%s] %s stopped reporting at %s UTC, the plant produced until %s - day counter partial,"
+                 " not compared with its peers (missing data, not a loss)", pk, sn,
+                 t.strftime("%H:%M"), peers_t.strftime("%H:%M"))
     candidates = build_candidates(
         readings, kpi, fault_samples, string_day, string_baseline, stale,
         temp_candidates=daily_temp_candidates(bundle, portfolio, open_temp_keys,
@@ -594,10 +711,26 @@ def main(argv=None) -> int:
         offline_candidates=(daily_offline_candidates(readings)
                             + daily_silent_candidates(bundle, portfolio, date_iso)),
         string_rows=_read_string_evidence(date_iso),
+        relative_skip=frozenset(early),
     )
     # v303: one severity policy for both tiers (argia.alerts.grading) -
     # a flag without a measured loss is INFO: portal only, never mailed
     candidates = grading.grade_all(candidates, tier="daily")
+    cut_off = cut_off_plants(bundle, portfolio)
+    for pk, (t, kw) in sorted(cut_off.items()):
+        log.info("[%s] readings stopped at %s UTC while producing %.0f kW - day energy unconfirmed (flag, not a loss)",
+                 pk, t.strftime("%H:%M"), kw)
+    candidates = unconfirmed_energy(candidates, cut_off)
+    # v305 last resort: blind for BLIND_DAYS days in a row -> one WARNING
+    open_since = {}
+    for r in ledger.records:
+        if r.is_open() and r.metric in grading.POTENTIAL:
+            try:
+                t0 = dt.datetime.fromisoformat(r.opened_utc)
+                open_since[r.alert_key] = t0 if t0.tzinfo else t0.replace(tzinfo=UTC)
+            except (TypeError, ValueError):
+                pass
+    candidates = grading.escalate_blind(candidates, open_since, dt.datetime.now(UTC))
     for c in candidates:
         log.info("CANDIDATE [%s] %s", c.severity, c.message)
     if not candidates:

@@ -308,7 +308,7 @@ ALERTS_OPEN = {}   # plant -> [dict]
 for r in q("SELECT plant_key, coalesce(inverter_sn,''), metric, severity,"
            " left(opened_utc, 10), message, alert_key FROM alert_ledger"
            " WHERE state = 'OPEN' AND metric <> 'daily_digest'"
-           " ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 ELSE 1 END,"
+           " ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'WARNING' THEN 1 ELSE 2 END,"
            " opened_utc;"):
     if len(r) >= 7:
         ALERTS_OPEN.setdefault(r[0], []).append({
@@ -1149,6 +1149,15 @@ def intraday_svg(pk, kwp, pr, d):
     return svg + '<div style="margin-top:6px">' + ''.join(leg) + '</div>'
 
 
+def sev_pill(sev):
+    """v305: CRITICAL red, WARNING amber, INFO a grey 'flag' - a possible
+    loss without a measured one; shown here, never mailed."""
+    s = (sev or '').upper()
+    if s == 'INFO':
+        return '<span class="pill off" data-en="FLAG" data-es="AVISO" title="no measured loss - not mailed">FLAG</span>'
+    return f'<span class="pill {"bad" if s == "CRITICAL" else "warn"}">{esc(s)}</span>'
+
+
 def alerts_card(pk):
     """Open ledger alerts for one plant - what the daily PDF lists and
     what the maintenance mails announce, on the page people look at."""
@@ -1165,7 +1174,7 @@ def alerts_card(pk):
         return (f'<a class="note" href="/maintenance/new/?alert={esc(a.get("key", ""))}&amp;plant={esc(pk)}&amp;sn={esc(a["sn"])}"'
                 f' data-en="open ticket" data-es="abrir ticket">open ticket</a>')
     trs = ''.join(
-        f'<tr><td><span class="pill {"bad" if a["sev"] == "CRITICAL" else "warn"}">{esc(a["sev"])}</span></td>'
+        f'<tr><td>{sev_pill(a["sev"])}</td>'
         f'<td>{inverter_html(pk, a["sn"])}</td><td>{esc(alert_phrase(a["metric"]))}</td><td>{esc(a["since"])}</td>'
         f'<td class="wrap-text">{esc(alert_text(a["msg"], pk, a["sn"]))}</td><td>{ticket_cell(a)}</td></tr>' for a in rows)
     n_crit = sum(1 for a in rows if a['sev'] == 'CRITICAL')

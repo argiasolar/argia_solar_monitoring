@@ -159,5 +159,5 @@ def test_mailer_wires_the_new_state_shape():
     src = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "alert_mailer.py"
            ).read_text(encoding="utf-8")
     assert "first_seen = CASE WHEN alert_state.active" in src        # re-activation resets
-    assert "mailed_keys=mailed_keys" in src and "with_alerts=bool(to_send)" in src
+    assert "recoveries_to_mail" not in src            # v305: no recovery mails (the Pi pushes a note)
     assert "coalesce(severity, 'CRITICAL'), first_seen" in src

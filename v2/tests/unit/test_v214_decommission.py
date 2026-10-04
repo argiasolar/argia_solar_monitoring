@@ -62,8 +62,8 @@ class TestNoOldHostLeft:
                      "argia-monitoring-gen.timer", "cfe_page_gen.py", "enable_report_domains.sh"):
             assert not (BUNDLE / name).exists(), name
         assert (BUNDLE / "argia-portal-gen.timer").exists()
-        am = (V2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
-        assert '"argia-portal-gen"' in am and '"argia-monitoring-gen"' not in am
+        from argia.alerts.monitor import MONITORING_UNITS          # v305: the watch list lives here
+        assert "argia-portal-gen" in MONITORING_UNITS and "argia-monitoring-gen" not in MONITORING_UNITS
         dp = (V2 / "scripts/daily_perf_mail.py").read_text(encoding="utf-8")
         assert '"argia-portal-gen": "Portal page generator"' in dp and '"argia-dashboard"' not in dp
 

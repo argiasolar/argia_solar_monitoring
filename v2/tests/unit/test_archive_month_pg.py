@@ -88,6 +88,9 @@ class TestWatched:
     def test_archive_is_instrumented_and_watched_by_the_mailer(self):
         src = (V2 / "scripts" / "archive_month_pg.py").read_text(encoding="utf-8")
         assert '@instrument("archive_month_pg", write_if=apply_flag_write_if)' in src
-        mailer = (V2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
-        for u in ("argia-archive-month", "argia-dailyperf", "argia-invoice", "argia-recon-close"):
-            assert f'"{u}"' in mailer, u
+        # v305 (Tomasz: the Drive archive and the finance jobs are not the
+        # monitoring's job to track): the 19:00 mail is watched, these are not
+        from argia.alerts.monitor import MONITORING_UNITS
+        assert "argia-dailyperf" in MONITORING_UNITS
+        for u in ("argia-archive-month", "argia-archive", "argia-invoice", "argia-recon-close"):
+            assert u not in MONITORING_UNITS, u

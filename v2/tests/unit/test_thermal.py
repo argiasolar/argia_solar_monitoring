@@ -257,7 +257,8 @@ class TestWiring:
         v2 = pathlib.Path(__file__).resolve().parents[2]
         assert "thermal_daily.py" in (v2 / "server" / "bundle" / "argia-thermal.service").read_text(encoding="utf-8")
         assert "01:10:00 America/Mexico_City" in (v2 / "server" / "bundle" / "argia-thermal.timer").read_text(encoding="utf-8")
-        assert '"argia-thermal"' in (v2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
+        from argia.alerts.monitor import MONITORING_UNITS          # v305: the watch list lives here
+        assert "argia-thermal" in MONITORING_UNITS
         from argia.ask import sqltool as S
         assert "thermal_daily" in S.ALLOWED_TABLES and "thermal_daily" in S.TABLE_NOTES
 

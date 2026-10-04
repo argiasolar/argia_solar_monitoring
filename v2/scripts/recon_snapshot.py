@@ -215,6 +215,20 @@ def stored_daily(date_iso: str) -> Dict[str, Tuple[Optional[float],
             for pk in set(snaps) | set(kpi)}
 
 
+def lifetime_catchup(date_iso: str) -> Dict[str, float]:
+    """{plant: kWh the next night's lifetime counter proved beyond the day
+    counters} from loss_daily (v276 catch-up; computed by loss_daily at
+    06:00 for the last 3 days). {} when the table is not there yet."""
+    try:
+        return {r[0]: v for r in psql_rows(
+            "SELECT plant_key, catchup_kwh FROM loss_daily"
+            f" WHERE prod_date = DATE '{date_iso}' AND catchup_kwh > 0;")
+            if len(r) >= 2 and (v := _f(r[1])) is not None}
+    except Exception as e:  # noqa: BLE001 - a check, never a reason to stop the reconciliation
+        LOG.warning("loss_daily catch-up unavailable (%s) - lost-connection days not flagged", e)
+        return {}
+
+
 def _txt(s: str) -> str:
     return "'" + str(s).replace("'", "''") + "'"
 
@@ -271,6 +285,7 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
     interval = interval_by_plant(date_iso)
     stored = stored_daily(date_iso)
     coverage = inverter_coverage(date_iso)
+    catchup = lifetime_catchup(date_iso)
     plants = sorted(set(interval) | set(stored) | set(brand_by_plant))
     values = []
     for pk in plants:
@@ -286,7 +301,8 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
             LOG.info("recon %s %s: %d/%d configured inverters reported"
                      " - completeness scaled to %s", date_iso, pk,
                      rep, conf, completeness)
-        r = E.daily_recon(ikwh, vendor_daily, kpi, completeness)
+        r = E.with_lifetime_catchup(E.daily_recon(ikwh, vendor_daily, kpi, completeness),
+                                    catchup.get(pk))     # v305: lost connection only
         LOG.info("recon %s %s: %s (%s)", date_iso, pk, r.status, r.note)
         # Self-heal (v206): a KPI day missing or below the day's REFERENCE
         # - the inverters' own counters, the vendor plant daily only where

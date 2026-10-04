@@ -43,7 +43,8 @@ class TestMapping:
         tmr = (BUNDLE / "argia-drift.timer").read_text(encoding="utf-8")
         assert "run_job.sh drift drift_check.py" in svc and "Environment=HOME=/root" in svc
         assert "06:30:00 America/Mexico_City" in tmr and "Persistent=true" in tmr
-        assert '"argia-drift"' in (V2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
+        from argia.alerts.monitor import MONITORING_UNITS          # v305: the watch list lives here
+        assert "argia-drift" in MONITORING_UNITS
 
 
 class TestCompare:

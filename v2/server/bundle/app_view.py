@@ -354,12 +354,15 @@ def all_alerts(plants):
     for p in plants:
         for a in p.get("alerts") or []:
             out.append((p, a))
-    out.sort(key=lambda pa: (0 if str(pa[1].get("sev", "")).upper() == "CRITICAL" else 1, pa[1].get("since") or ""))
+    rank = {"CRITICAL": 0, "WARNING": 1}
+    out.sort(key=lambda pa: (rank.get(str(pa[1].get("sev", "")).upper(), 2), pa[1].get("since") or ""))
     return out
 
 
 def sev_pill(sev) -> str:
     s = str(sev or "").upper()
+    if s == "INFO":        # v305: a possible loss without a measured one - a flag, never mailed
+        return t("Flag", "Señal", cls="pill p3")
     return (t("Critical", "Crítica", cls="pill crit") if s == "CRITICAL"
             else t("Warning", "Aviso", cls="pill warn"))
 

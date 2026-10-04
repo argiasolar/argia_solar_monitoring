@@ -214,9 +214,8 @@ class TestWiring:
                ).read_text(encoding="utf-8")
         assert "OnCalendar=*-*-* 15:45:00 UTC" in tim
         assert "Persistent=true" in tim
-        mailer = (V2 / "scripts" / "alert_mailer.py").read_text(
-            encoding="utf-8")
-        assert '"argia-cfe-push"' in mailer
+        from argia.alerts.monitor import MONITORING_UNITS          # v305: the push to the Engine is
+        assert "argia-cfe-push" not in MONITORING_UNITS             # not the monitoring's job (Tomasz)
 
     def test_secret_never_logged(self):
         # the only use of the key is the request header

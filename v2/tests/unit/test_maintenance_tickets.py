@@ -291,5 +291,6 @@ class TestV227:
         assert '(extra or {}).get("ticket") or _ISSUE_WHY.get(head, "")' in pm and "opened_utc, message, alert_key FROM alert_ledger" in pm
         pg = (v2 / "server/bundle/portal_gen.py").read_text(encoding="utf-8")
         assert pg.index("('ags',") < pg.index("('maint',") < pg.index("('setup',")
-        assert "argia-ticket-mail" in (v2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
+        from argia.alerts.monitor import MONITORING_UNITS          # v305: the watch list lives here
+        assert "argia-ticket-mail" in MONITORING_UNITS
         assert "ticket_mail_in.py" in (v2 / "server/bundle/argia-ticket-mail.service").read_text(encoding="utf-8")

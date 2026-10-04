@@ -59,15 +59,17 @@ class TestGrading:
                                msg="SLP1 X: day-peak temperature 61.0 degC - still above the clear level 60 [WARNING]"), "daily")
         assert c.severity == "INFO" and c.message.endswith("clear level 60 [INFO]")
 
-    def test_data_stale_is_info_intraday_and_warning_for_a_whole_day(self):
+    def test_data_stale_is_info_in_both_tiers(self):
+        # v303 kept a whole day without data as WARNING; v305 (Tomasz: mail only
+        # measured losses): missing data is a flag, the last resort is escalate_blind
         assert grading.grade(cand("data_stale", "WARNING"), "acute").severity == "INFO"
-        assert grading.grade(cand("data_stale", "WARNING"), "daily").severity == "WARNING"
+        assert grading.grade(cand("data_stale", "WARNING"), "daily").severity == "INFO"
 
     @pytest.mark.parametrize("metric", ["inverter_relative", "string_fault", "inverter_fault", "vendor_flag"])
     def test_measured_losses_and_faults_stay_warning(self, metric):
         assert grading.grade(cand(metric, "WARNING"), "daily").severity == "WARNING"
 
-    @pytest.mark.parametrize("metric", ["inverter_temp_high", "inverter_silent", "energy_daily_pct", "data_stale"])
+    @pytest.mark.parametrize("metric", ["inverter_temp_high", "energy_daily_pct", "plant_offline", "inverter_relative"])
     def test_critical_is_never_touched(self, metric):
         c = cand(metric, "CRITICAL")
         assert grading.grade(c, "acute") is c and grading.grade(c, "daily") is c
@@ -331,7 +333,8 @@ class TestWeeklyReminder:
         timer = (V2 / "server/bundle/argia-ticket-weekly.timer").read_text(encoding="utf-8")
         assert "OnCalendar=Mon *-*-* 07:10:00 America/Mexico_City" in timer and "Persistent=true" in timer
         assert "run_job.sh ticket-weekly ticket_weekly.py" in (V2 / "server/bundle/argia-ticket-weekly.service").read_text(encoding="utf-8")
-        assert "argia-ticket-weekly" in (V2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
+        from argia.alerts.monitor import MONITORING_UNITS          # v305: the watch list lives here
+        assert "argia-ticket-weekly" in MONITORING_UNITS
         assert "| argia-ticket-weekly | Mon 07:10 MX |" in (V2 / "docs/OPERATIONS.md").read_text(encoding="utf-8")
 
 

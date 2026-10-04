@@ -155,7 +155,6 @@ class TestInfraMailerScope:
         src = (V2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
         assert "INSERT INTO alert_state (key, severity, last_sent) VALUES" in src
         assert "{'now()' if mailed else 'NULL'}" in src
-        assert "sent_keys.extend(a.key for a in dropped)" in src
 
 
 class TestDigestRetired:

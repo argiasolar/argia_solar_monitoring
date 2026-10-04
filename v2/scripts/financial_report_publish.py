@@ -1,22 +1,18 @@
-"""Render and publish financial_report.html - the online, interactive
-version of the finance report (calendar from–to picker).
+"""Render financial_report.html - the interactive version of the finance
+report (calendar from-to picker) - into a local file.
 
-Mirrors dashboard_html_publish: renders one self-contained HTML file
-and uploads it to the private GCS bucket the dashboard uses (viewers =
-Google accounts with Storage Object Viewer). The bucket can be
-overridden with GCS_FINANCE_BUCKET to give financial data a stricter
-audience than the ops dashboard.
+v305 (Tomasz, 2026-10-04: "I am not using Google Cloud for anything"):
+the upload to the Google Cloud Storage bucket and its daily timer
+(argia-finreport) are gone; the finance pages on the portal are the
+online version. This stays a local render tool.
 
 Window: the picker can select any range inside [--window-start,
 --window-end] (defaults: 2026-07-01, the v2 KPI epoch, through the end
 of the current MX month + 1 - enough for MTD, previous month and
 forward-looking expected).
 
-Dry-run by default: renders locally, uploads nothing.
-
 Usage (from v2/):
-  PYTHONPATH=. python scripts/financial_report_publish.py             # render only
-  PYTHONPATH=. python scripts/financial_report_publish.py --apply     # render + upload
+  PYTHONPATH=. python scripts/financial_report_publish.py --out /tmp/fin.html
 """
 
 from __future__ import annotations
@@ -41,7 +37,6 @@ from argia.finance.income import Period                 # noqa: E402
 from argia.finance.webreport import (                   # noqa: E402
     build_daily_atoms, render_financial_report_html,
 )
-from scripts.dashboard_html_publish import upload_to_gcs  # noqa: E402
 
 MX_TZ = ZoneInfo("America/Mexico_City")
 OBJECT_NAME = "financial_report.html"
@@ -60,8 +55,6 @@ def default_window(today: dt.date | None = None) -> Period:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Publish the interactive financial report")
-    ap.add_argument("--apply", action="store_true",
-                    help="upload to GCS (default: render locally only)")
     ap.add_argument("--window-start", default=None)
     ap.add_argument("--window-end", default=None)
     ap.add_argument("--out",
@@ -97,19 +90,6 @@ def main(argv=None) -> int:
           % (args.out, len(html) // 1024, len(data["plants"]),
              len(data["days"]), data["last_actual_day"]))
 
-    if not args.apply:
-        print("[dry-run] not uploading (pass --apply to publish)")
-        return 0
-    bucket = (os.environ.get("GCS_FINANCE_BUCKET", "").strip()
-              or os.environ.get("GCS_DASHBOARD_BUCKET", "").strip())
-    if not bucket:
-        print("NOTICE: no GCS bucket configured (GCS_FINANCE_BUCKET / "
-              "GCS_DASHBOARD_BUCKET) - skipping upload.")
-        return 0
-    upload_to_gcs(bucket, OBJECT_NAME, html)
-    print("[apply] uploaded to gs://%s/%s - view at "
-          "https://storage.cloud.google.com/%s/%s"
-          % (bucket, OBJECT_NAME, bucket, OBJECT_NAME))
     return 0
 
 

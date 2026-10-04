@@ -93,14 +93,10 @@ class TestCapexNeverMailed:
         out = LM.mail_new_alerts([rec()])
         assert sent == [] and out[0].channels_sent == ""
 
-    def test_alert_mailer_filters_what_is_sent_not_what_is_tracked(self):
+    def test_alert_mailer_tracks_everything_mails_only_the_last_resort(self):
         src = (V2 / "scripts/alert_mailer.py").read_text(encoding="utf-8")
-        i_plan = src.index("monitor.plan_sends(")
-        i_drop = src.index("dropped = [a for a in to_send")
-        assert i_plan < i_drop, "the portfolio filter must sit on to_send"
-        assert "to_send = [a for a in to_send if a not in dropped]" in src
-        assert "if subscriptions.is_mailable(subscriptions.alert_plant(k), excluded)]" in src
-        assert "active = [a for a in active if a not in dropped]" not in src
+        assert "to_send = monitor.plan_last_resort(active, state, now)" in src       # v305
+        assert "persist(active, sent_keys, recovered)" in src                       # everything still tracked
 
 
 # ------------------------------------------------------------ 2. names

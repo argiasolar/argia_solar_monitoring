@@ -172,7 +172,8 @@ class TestWiring:
             assert "only_portal" in src and "portal_emails" in src
 
     def test_alert_mailer_groups_by_scope(self):
-        assert "group_recipients" in MAILER_SRC
+        # v305: the mailer only mails the administrator, as the last resort
+        assert "admins = sorted(subscriptions.admin_emails())" in MAILER_SRC
         assert "mail_recipient" not in MAILER_SRC.replace(
             "mail_recipients", "")  # legacy table fully gone
 
@@ -694,8 +695,8 @@ class TestPortfolioFilter:
         # v217: CAPEX cannot be allowed in
         assert S.excluded_plants(pf, frozenset({"PPA", "CAPEX"})) == frozenset({"GTO2", "QRO1", "TAM1"})
 
-    def test_alert_mailer_applies_it_to_what_is_sent(self):
-        src = (V2 / "scripts" / "alert_mailer.py").read_text(encoding="utf-8")
-        assert src.index("excluded = subscriptions.load_excluded_plants()") < src.index("monitor.plan_sends(")
-        assert src.index("monitor.plan_sends(") < src.index("dropped = [a for a in to_send")
-        assert "subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)" in src
+    def test_alert_mailer_mails_no_plant_alert(self):
+        # v305: plant conditions are not in the monitoring scope at all - the
+        # mailer's last resort is server health only (no portfolio filter needed)
+        from argia.alerts import monitor as M
+        assert not any(M.in_scope(k) for k in ("recon-fail:GTO2:2026-10-01", "satellite-drift:GTO2", "cfe-heartbeat"))

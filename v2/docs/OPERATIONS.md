@@ -23,16 +23,14 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-telemetry | every 5 min 05–21 MX | 5-minute inverter telemetry, Growatt + Huawei (`telemetry_5m.py --skip-brand SOLAREDGE`) |
 | argia-telemetry-se | :03/:23/:43 06–20 MX | SolarEdge telemetry |
 | argia-alerts-snap | :00/:30 07–19 MX | acute alerts (engine → `alert_ledger`) + ledger mail |
-| argia-mailer | :07/:37 every hour | infrastructure/plant alert mailer (`alert_mailer.py`), 07:07 MX WARNING digest |
+| argia-mailer | :07/:37 every hour | server health (`alert_mailer.py`): watches only the solar-monitoring chain (`monitor.MONITORING_UNITS`), writes `/root/argia_backups/health.json` for the office Pi (push to the phone); mail only as the last resort - a CRITICAL monitoring problem still active after 6 h, to the administrator, once a day (v305; no WARNING or recovery mails) |
 | argia-kpi | 06:00 MX | KPI end-of-day (`kpi_eod.py --dense-irradiance`) → `daily_production` |
 | argia-recon-close | 1st 06:10 MX | monthly close (`recon_close.py`) - closed months are frozen |
 | argia-satcheck | 06:20 MX | site sensor vs satellite irradiance drift |
 | argia-alerts-daily | 06:30 MX | daily alert tier (energy vs expected, twins, thermal day peak) |
 | argia-drift | 06:30 MX | status-quo harness (git vs deployed, smoke answers, backup age, inverter registry vs table + SolarEdge equipment lists) |
-| argia-finreport | 06:50 MX | financial report pages |
 | argia-report-am, argia-report-pm | 07:05 / 20:45 MX | daily report pages (yesterday / today) |
-| argia-client-pages | :15 07–20 MX | client report pages |
-| argia-dash-update | :02/10 06–20 MX | dashboard tabs + HTML |
+| argia-dash-update | :02/10 06–20 MX | dashboard buckets in PostgreSQL (`dashboard_plant` / `dashboard_inverter`, read by the daily report); v305: no Google Cloud upload any more (billing closed 3 Oct 2026; the portal is the dashboard) |
 | argia-portal-gen | every 5 min | portal pages (`/www/hosting/portal.argia.com.mx/www`) |
 | argia-demo-gen | every 5 min (:02, :07, ...) | demo.argia.com.mx pages (`/www/hosting/demo.argia.com.mx/www`), read-only through the `demo` schema views; exits 1 and publishes nothing if a real customer name is left (v279) |
 | argia-demo-annexes | 07:40 MX daily | demo example PDFs (daily morning + evening, financial weekly + monthly, invoice annex per plant) from the demo views into `/opt/argia/demo/annexes` (server only); scrubbed + leak gate incl. customer logo images; demo_gen lists them in Reports > Annexes (v288) |
@@ -54,7 +52,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 
 Services (always on): `argia-auth` 8512 (login/session), `argia-setup` 8511 (admin), `argia-ask` 8513 (Ask ARGIA), `argia-maint` 8514 (maintenance tickets, v226; attachments in `/opt/argia/tickets/`, root-only), `argia-fin` 8515 (finance + projects pages on the real books since v245, the v244 demo world under `/finance/demo/`; **private preview**: only the e-mails in `ARGIA_FIN_EMAILS`/`/opt/argia/auth/fin_allow.txt`, default tomasz.zemelka@argia.com.mx, get past the 403; everyone else also never sees the landing cards), `argia-savio-mock` 8530 (loopback-only fake of the Savio API serving `tests/fixtures/fin/savio/`; no timer - the finance ingest is run by hand for the demo, see §7); nginx in front. Every job runs through `pi/run_job.sh <name> <script>` (venv, secrets, flock, log `/root/argia_logs/<name>.log`).
 
-Pi cron (`pi/crontab.example` is byte-for-byte the live table): `deploy.sh` every 10 min (follows main), `report_watch.sh` every 5 min (portal probe → ntfy `argia-reportwatch-x9k24fq7`), `ppa_watch.sh` every 30 min 08–19 (acts only while the server is down), `pull_backup.sh` 22:00 (dumps + `portfolio.json`), `cfe_daily.sh` 08:10.
+Pi cron (`pi/crontab.example` is byte-for-byte the live table): `deploy.sh` every 10 min (follows main), `report_watch.sh` every 5 min (portal probe → ntfy `argia-reportwatch-x9k24fq7`; v305: it also runs `health_watch.py`, which reads `/root/argia_backups/health.json` over the backup SFTP key and pushes a CRITICAL monitoring problem, a health file older than 45 min (monitoring job or server dead) or an unreadable file), `ppa_watch.sh` every 30 min 08–19 (acts only while the server is down), `pull_backup.sh` 22:00 (dumps + `portfolio.json`), `cfe_daily.sh` 08:10.
 
 ## 3. Secrets (never in git, chat or logs)
 `/root/.argia_env` (vendor + PG + mail switches), `/root/.argia_mail` (SMTP), `/root/.argia_cfe_push` (Engine token), `/root/.argia_ask` (model key), `/root/.googlecredentials.json`, `/root/.growatt*.json` - all `0600 root`. Auth state in `/opt/argia/auth/` (`users.db` 0600, `sessions.db`, `session.key`). To inspect the env, only ever `grep "^ARGIA_.*SOURCE\|^ARGIA_SHEET\|^ARGIA_KPI_WRITE" /root/.argia_env`. Rotation = edit the file in place, restart the service that reads it.

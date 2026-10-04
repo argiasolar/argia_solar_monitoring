@@ -116,3 +116,8 @@ else
   fi
   save "$fails" "$new_status" "$last_alert"
 fi
+
+# v305: the server's own health (monitoring jobs, telemetry, database, disk) -
+# health_watch.py reads /root/argia_backups/health.json over the backup SFTP
+# key and pushes CRITICAL problems; it does nothing where that key is absent
+python3 "$(dirname "$0")/health_watch.py" 2>&1 || echo "$(stamp) health_watch failed"

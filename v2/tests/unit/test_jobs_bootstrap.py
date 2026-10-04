@@ -39,9 +39,3 @@ def test_no_wired_job_demands_the_workbook_id():
         if "SheetsClient(sheet_id" in src:
             offenders.append(n)
     assert offenders == []
-
-
-def test_client_reports_publish_bootstraps_like_report_daily():
-    src = (V2 / "scripts" / "client_reports_publish.py").read_text(encoding="utf-8")
-    assert "client = open_sheets()" in src
-    assert "GOOGLE_SHEET_ID_V2 not set" not in src

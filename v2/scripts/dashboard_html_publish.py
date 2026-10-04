@@ -1,21 +1,13 @@
-"""Render the HTML dashboard from the Dashboard tabs and publish it to GCS.
+"""Render the HTML dashboard from the Dashboard tabs into a local file.
 
-Reads Dashboard_Plant / Dashboard_Inverter (the shared truth the Looker
-report and alert engine also see), renders one self-contained HTML file, and
-uploads it to a private Google Cloud Storage bucket viewable at:
-
-    https://storage.cloud.google.com/<bucket>/dashboard.html
-
-Upload auth reuses the SAME service account as the Sheets client
-(GOOGLE_CREDENTIALS) - grant it "Storage Object Admin" on the bucket once;
-no new secret. Viewers are plain Google accounts granted "Storage Object
-Viewer" on the bucket.
-
-Dry-run by default: renders to a local file, uploads nothing.
+Reads Dashboard_Plant / Dashboard_Inverter and renders one self-contained
+HTML file. v305 (Tomasz, 2026-10-04: "I am not using Google Cloud for
+anything"): the upload to the Google Cloud Storage bucket is gone - the
+portal (portal.argia.com.mx) is the dashboard; this script stays a local
+render tool for checks and tests. No timer runs it.
 
 Usage (from v2/):
-  PYTHONPATH=. python scripts/dashboard_html_publish.py                # render only
-  PYTHONPATH=. python scripts/dashboard_html_publish.py --apply       # render + upload
+  PYTHONPATH=. python scripts/dashboard_html_publish.py                # render to $ARGIA_LOG_DIR/dashboard.html
   PYTHONPATH=. python scripts/dashboard_html_publish.py --out /tmp/d.html
 """
 
@@ -23,14 +15,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
 import os
 import tempfile
 import sys
 from zoneinfo import ZoneInfo
-
-import google.auth.transport.requests
-from google.oauth2.service_account import Credentials
 
 from argia.core.sheets import SheetsClient, open_sheets
 from argia.report import dashboard_html
@@ -38,7 +26,6 @@ from argia.core.job_log import apply_flag_write_if, instrument
 
 MX_TZ = ZoneInfo("America/Mexico_City")
 OBJECT_NAME = "dashboard.html"
-GCS_SCOPE = "https://www.googleapis.com/auth/devstorage.read_write"
 
 
 def _num(v):
@@ -85,34 +72,7 @@ def active_plants(plant_config_rows: list[dict]) -> list[str]:
     return sorted(out)
 
 
-def upload_to_gcs(bucket: str, object_name: str, html: str,
-                  credentials_json: str | None = None,
-                  session=None) -> None:
-    """Upload via the JSON API using the existing service account.
-
-    ``session`` is injectable for tests; production builds an AuthorizedSession
-    from GOOGLE_CREDENTIALS with the storage scope.
-    """
-    if session is None:
-        raw = credentials_json or os.environ.get("GOOGLE_CREDENTIALS", "")
-        if not raw:
-            raise RuntimeError("GOOGLE_CREDENTIALS not set")
-        creds = Credentials.from_service_account_info(
-            json.loads(raw), scopes=[GCS_SCOPE])
-        session = google.auth.transport.requests.AuthorizedSession(creds)
-    url = (f"https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o"
-           f"?uploadType=media&name={object_name}")
-    resp = session.post(
-        url, data=html.encode("utf-8"),
-        headers={"Content-Type": "text/html; charset=utf-8",
-                 "Cache-Control": "no-cache"})
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"GCS upload failed: HTTP {resp.status_code}: {resp.text[:300]}")
-
-
-def run(client: SheetsClient, *, out_path: str, apply: bool,
-        bucket: str | None, session=None) -> int:
+def run(client: SheetsClient, *, out_path: str) -> int:
     # A1:ZZ everywhere (see dashboard_update.py note): the A1:P read
     # here silently dropped the 17th Dashboard_Inverter column -
     # fault_events - killing the "fault today" UI from the day it
@@ -140,24 +100,12 @@ def run(client: SheetsClient, *, out_path: str, apply: bool,
           f"{len(prows)} plant rows, {len(irows)} inverter rows, "
           f"plants={plants}")
 
-    if not apply:
-        print("[dry-run] not uploading (pass --apply to publish)")
-        return 0
-    if not bucket:
-        print("NOTICE: GCS_DASHBOARD_BUCKET not set - skipping upload. "
-              "Set the secret to enable publishing.")
-        return 0
-    upload_to_gcs(bucket, OBJECT_NAME, html, session=session)
-    print(f"[apply] uploaded to gs://{bucket}/{OBJECT_NAME} - view at "
-          f"https://storage.cloud.google.com/{bucket}/{OBJECT_NAME}")
     return 0
 
 
-@instrument("dashboard_publish", write_if=apply_flag_write_if)
+@instrument("dashboard_publish", write_if=apply_flag_write_if)   # a local render never logs a run
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Publish HTML dashboard")
-    ap.add_argument("--apply", action="store_true",
-                    help="upload to GCS (default: render locally only)")
     # Default OUTSIDE the working tree (2026-07-07: writing into the
     # repo left an untracked build artifact that tripped deploy.sh's
     # dirty-tree guard on the Pi - three pushes sat undelivered).
@@ -174,8 +122,7 @@ def main(argv=None) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    return run(client, out_path=args.out, apply=args.apply,
-               bucket=os.environ.get("GCS_DASHBOARD_BUCKET"))
+    return run(client, out_path=args.out)
 
 
 if __name__ == "__main__":

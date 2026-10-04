@@ -134,42 +134,29 @@ def _client():
 
 
 class TestPublishRun:
-    def test_dry_run_renders_but_never_uploads(self, tmp_path):
+    def test_renders_to_the_local_file(self, tmp_path):
         out = tmp_path / "d.html"
-        session = MagicMock()
-        rc = P.run(_client(), out_path=str(out), apply=False,
-                   bucket="argia-dashboard", session=session)
+        rc = P.run(_client(), out_path=str(out))
         assert rc == 0
-        session.post.assert_not_called()
         data = _extract_payload(out.read_text(encoding="utf-8"))
         assert data["plants"] == ["GTO1"]          # QRO1 config-filtered
         assert data["plant_rows"][0]["total_kwh"] == 555.6  # coerced
+        assert "ARGIA - Smart Energy Solutions" in out.read_text(encoding="utf-8")   # v251 wordmark
 
-    def test_apply_uploads_with_html_and_nocache_headers(self, tmp_path):
-        session = MagicMock()
-        session.post.return_value = MagicMock(status_code=200)
-        rc = P.run(_client(), out_path=str(tmp_path / "d.html"), apply=True,
-                   bucket="argia-dashboard", session=session)
-        assert rc == 0
-        args, kwargs = session.post.call_args
-        assert "b/argia-dashboard/o" in args[0]
-        assert "name=dashboard.html" in args[0]
-        assert kwargs["headers"]["Cache-Control"] == "no-cache"
-        assert b"ARGIA - Smart Energy Solutions" in kwargs["data"]   # v251: the company wordmark, not the solar one
-
-    def test_apply_without_bucket_skips_gracefully(self, tmp_path):
-        session = MagicMock()
-        rc = P.run(_client(), out_path=str(tmp_path / "d.html"), apply=True,
-                   bucket=None, session=session)
-        assert rc == 0
-        session.post.assert_not_called()
-
-    def test_upload_failure_raises_loudly(self, tmp_path):
-        session = MagicMock()
-        session.post.return_value = MagicMock(status_code=403, text="denied")
-        with pytest.raises(RuntimeError, match="403"):
-            P.run(_client(), out_path=str(tmp_path / "d.html"), apply=True,
-                  bucket="argia-dashboard", session=session)
+    def test_no_google_cloud_upload_left(self):
+        """v305 (Tomasz: "I am not using Google Cloud for anything"): the
+        bucket billing was closed on 3 Oct and every upload failed with 403."""
+        import pathlib
+        v2 = pathlib.Path(__file__).resolve().parents[1]
+        for rel in ("scripts/dashboard_html_publish.py", "scripts/financial_report_publish.py"):
+            src = (v2 / rel).read_text(encoding="utf-8")
+            assert "storage.googleapis" not in src and "upload_to_gcs" not in src and "GCS_" not in src
+        assert not (v2 / "scripts/client_reports_publish.py").exists()
+        for unit in ("argia-client-pages", "argia-finreport"):
+            assert not (v2 / "server/bundle" / f"{unit}.timer").exists()
+            assert not (v2 / "server/bundle" / f"{unit}.service").exists()
+        dash = (v2 / "server/bundle/argia-dash-update.service").read_text(encoding="utf-8")
+        assert "dashboard_update.py --apply" in dash and "dashboard_html_publish" not in dash
 
 
 class TestVisualRegressions:

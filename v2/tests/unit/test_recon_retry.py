@@ -191,6 +191,7 @@ class TestWiring:
         monkeypatch.setattr(RS, "interval_by_plant", lambda d: {"GTO1": (900.0, 193)})
         monkeypatch.setattr(RS, "stored_daily", lambda d: {"GTO1": (1000.0, 500.0)})
         monkeypatch.setattr(RS, "inverter_coverage", lambda d: {"GTO1": (4, 4)})
+        monkeypatch.setattr(RS, "lifetime_catchup", lambda d: {})          # v305: hermetic (the laptop has no psql)
         monkeypatch.setattr(RS, "psql_exec", lambda sql: execd.append(sql))
         RS.reconcile_day("2026-08-30", {"GTO1": "GROWATT"}, dry_run=False,
                          frozen={("GTO1", "2026-08")})

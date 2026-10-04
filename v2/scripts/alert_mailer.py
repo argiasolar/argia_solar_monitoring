@@ -1,9 +1,21 @@
-"""Infrastructure / monitoring-internal email alerts (pio06 only).
+"""Monitoring health of the server (pio06 only).
 
 Every 30 minutes (argia-mailer.timer): gathers facts, evaluates the
-pure conditions in argia.alerts.monitor, deduplicates via alert_state,
-and emails as service@argia.com.mx. New alerts mail immediately,
-active ones re-mail every 6 h, recoveries mail once.
+pure conditions in argia.alerts.monitor, keeps them in alert_state.
+
+v305 (Tomasz, 2026-10-04: "make sure we have our server monitored,
+either from the Pi or GitHub ... mails should be last resort"):
+* only the solar-monitoring chain is watched (monitor.MONITORING_UNITS);
+* every run writes /root/argia_backups/health.json - the office Pi reads
+  it over its read-only backup SFTP key and pushes a CRITICAL problem to
+  the phone (pi/report_watch/health_watch.py); the Pi also pushes when
+  the file stops updating, i.e. when this server or this job is dead;
+* mail is the last resort: a CRITICAL monitoring problem still active
+  after 6 h, to the administrator, at most once a day; no WARNING mails,
+  no recovery mails. Reconciliation, satellite, CFE and drift findings
+  stay in alert_state and the health file's "other" list - the record.
+
+Earlier history:
 
 v223: the PLANT conditions (plant dark / stale, inverter silent) left
 this mailer - they duplicated the alert ledger's own rules (acute
@@ -28,6 +40,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -40,14 +53,10 @@ from argia.store.pgq import psql_exec, psql_rows
 
 LOG = logging.getLogger("argia.alert_mailer")
 
-UNITS = ("argia-telemetry", "argia-telemetry-se", "argia-kpi",
-         "argia-alerts-daily", "argia-alerts-snap", "argia-finreport",
-         "argia-report-am", "argia-report-pm", "argia-dash-update",
-         "argia-client-pages", "argia-archive", "argia-recon",
-         "argia-portal-gen", "argia-satcheck", "argia-strings",
-         "argia-cfe-push", "argia-archive-month",
-         "argia-dailyperf", "argia-invoice", "argia-recon-close",
-         "argia-thermal", "argia-drift", "argia-ticket-mail", "argia-ticket-weekly")
+UNITS = monitor.MONITORING_UNITS
+"""v305: only the solar-monitoring chain is watched (Tomasz: the Drive
+archive, finance, invoices, CFE push and the partner/demo sites are not
+the monitoring's job to track)."""
 
 
 def _txt(s: str) -> str:
@@ -259,85 +268,75 @@ def main(argv=None) -> int:
     s_alerts = [a for a in monitor.satellite_alerts(
                     gather_satellite_drift())
                 if a.key.split(":")[1] not in in_maint]
+    tele_age = gather_telemetry_age()
     active = (s_alerts
               + monitor.infra_alerts(gather_failed_units(), disk_pct, pg_ok)
+              + monitor.telemetry_alerts(tele_age, now_mx)
               + monitor.recon_alerts(gather_recon_fails())
               + monitor.cfe_alerts(gather_cfe_status(),
                                    today=now_mx.date())
               + monitor.drift_alerts(gather_drift(), now=now))
-    # v204: only the mailed portfolios (ARGIA_MAIL_PORTFOLIOS, default PPA)
-    # page anyone - CAPEX plants stay on the portal and in the ledger.
-    # v217: the filter sits on what is SENT, not on what is tracked, so
-    # the state stays true and a held alert is simply sent next tick;
-    # when the plant table is unreachable every plant alert is held.
-    excluded = subscriptions.load_excluded_plants()
-    # Anti-noise harness (2026-08-27): WARNINGs ride ONE daily digest -
-    # the 07:07 MX tick, after the whole morning chain has run.
-    digest = now_mx.hour == 7 and now_mx.minute < 30
-    state, sev_by_key = load_state()
-    to_send, recovered = monitor.plan_sends(active, state, now,
-                                            warn_digest=digest)
-    dropped = [a for a in to_send
-               if not subscriptions.is_mailable(subscriptions.alert_plant(a.key), excluded)]
-    if dropped:
-        LOG.info("portfolio filter: %d alert(s) not mailed (%s)", len(dropped),
-                 ", ".join(sorted({subscriptions.alert_plant(a.key) for a in dropped})))
-    to_send = [a for a in to_send if a not in dropped]
-    mailed_keys = {k for k, st in state.items() if len(st) > 2 and st[2]}
-    active_hours = {k: (now - st[3]).total_seconds() / 3600.0
-                    for k, st in state.items() if len(st) > 3}
-    mail_recovered = [
-        k for k in monitor.recoveries_to_mail(
-            recovered, sev_by_key, mailed_keys=mailed_keys,
-            active_hours=active_hours, with_alerts=bool(to_send))
-        if subscriptions.is_mailable(subscriptions.alert_plant(k), excluded)]
-    LOG.info("active=%d to_send=%d recovered=%d (mailable=%d) digest=%s"
-             " recipients=%d mail_cfg=%s",
-             len(active), len(to_send), len(recovered),
-             len(mail_recovered), digest, len(rcpt), bool(cfg))
+    state, _sev_by_key = load_state()
+    active_keys = {a.key for a in active}
+    recovered = [k for k, st in sorted(state.items()) if st[1] and k not in active_keys]
+    health = monitor.health_doc(active, state, now, tele_age, disk_pct, pg_ok)
+    to_send = monitor.plan_last_resort(active, state, now)
+    LOG.info("active=%d in_scope=%d last_resort_mail=%d recovered=%d recipients=%d mail_cfg=%s",
+             len(active), sum(1 for a in active if monitor.in_scope(a.key)), len(to_send),
+             len(recovered), len(rcpt), bool(cfg))
     for a in active:
-        LOG.info("ACTIVE %s [%s] %s", a.key, a.severity, a.title)
-
-    if (to_send or mail_recovered) and not args.dry_run:
-        if cfg and rcpt:
-            # one message per distinct filtered view - a plant-scoped
-            # subscriber sees only his plants, never infra noise
-            sent_keys: List[str] = []
-            names = naming.load_names()      # v217: names first, codes as detail
-            for emails, g_alerts, g_recovered in \
-                    subscriptions.group_recipients(to_send, mail_recovered,
-                                                   rcpt):
-                n_crit = sum(1 for a in g_alerts
-                             if a.severity == monitor.SEV_CRIT)
-                subject = (f"[ARGIA] {len(g_alerts)} alert(s)"
-                           + (f", {n_crit} critical" if n_crit else "")
-                           + (f", {len(g_recovered)} recovered"
-                              if g_recovered else "")
-                           + (" - daily digest" if digest and not n_crit
-                              else ""))
-                body = monitor.render_body(
-                    g_alerts, g_recovered,
-                    now_mx.strftime("%Y-%m-%d %H:%M"), names=names)
-                ok = emailer.send(emailer.build_email(
-                    subject, body, cfg["SMTP_USER"], emails), cfg)
-                LOG.info("mail %s to %d recipient(s) (%d alert(s))",
-                         "SENT" if ok else "FAILED", len(emails),
-                         len(g_alerts))
-                if ok:
-                    sent_keys.extend(a.key for a in g_alerts)
-            # a held alert (portfolio filter) is handled by the decision
-            # not to mail it - stamp it like a send so it follows the
-            # normal cadence instead of being re-decided every tick
-            sent_keys.extend(a.key for a in dropped)
-            persist(active, sorted(set(sent_keys)), recovered)
+        LOG.info("ACTIVE %s [%s] %s%s", a.key, a.severity, a.title,
+                 "" if monitor.in_scope(a.key) else " (record only, not monitoring scope)")
+    if args.dry_run:
+        LOG.info("[dry-run] health %s, %d problem(s) - file not written", health["status"], len(health["problems"]))
+        return 0
+    write_health(health)                 # v305: the Pi reads this and pushes; mail is the last resort
+    sent_keys: List[str] = []
+    if to_send:
+        admins = sorted(subscriptions.admin_emails())       # v217: infrastructure goes to the administrator only
+        if cfg and admins:
+            names = naming.load_names()
+            subject = (f"[ARGIA] still failing after {monitor.LAST_RESORT_HOURS:.0f} h: "
+                       + ", ".join(a.title for a in to_send[:3]) + (" ..." if len(to_send) > 3 else ""))
+            body = monitor.render_body(to_send, [], now_mx.strftime("%Y-%m-%d %H:%M"), names=names)
+            ok = emailer.send(emailer.build_email(subject, body, cfg["SMTP_USER"], admins), cfg)
+            LOG.info("last-resort mail %s to %d recipient(s) (%d alert(s))",
+                     "SENT" if ok else "FAILED", len(admins), len(to_send))
+            if ok:
+                sent_keys = [a.key for a in to_send]
         else:
-            LOG.warning("alerts pending but mail not configured "
-                        "(config=%s recipients=%d) - state tracked, "
-                        "no mail", bool(cfg), len(rcpt))
-            persist(active, [], recovered)
-    elif not args.dry_run:
-        persist(active, [a.key for a in dropped], recovered)
+            LOG.warning("last-resort mail due but mail not configured (config=%s admins=%d)",
+                        bool(cfg), len(admins))
+    persist(active, sent_keys, recovered)
     return 0
+
+
+HEALTH_JSON = os.environ.get("ARGIA_HEALTH_JSON", "/root/argia_backups/health.json")
+
+
+def write_health(doc: dict, path: str = "") -> None:
+    """Atomic write of the health file the office Pi fetches (read-only SFTP
+    to /root/argia_backups, the same key as the nightly backup pull)."""
+    import json
+    path = path or HEALTH_JSON
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=1)
+        os.replace(tmp, path)
+    except OSError as e:
+        LOG.error("health file not written (%s) - the Pi will report it stale", e)
+
+
+def gather_telemetry_age() -> Optional[float]:
+    """Minutes since the newest telemetry row with a power reading, any plant."""
+    try:
+        r = psql_rows("SELECT extract(epoch FROM now() - max(ts_utc)) / 60.0 FROM telemetry"
+                      " WHERE ts_utc > now() - interval '1 day' AND power_w IS NOT NULL;")
+        return float(r[0][0]) if r and r[0] and r[0][0] else None
+    except (RuntimeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":

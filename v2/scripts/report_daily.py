@@ -137,16 +137,23 @@ def main(argv=None) -> int:
         log.info("[DRY RUN] nothing uploaded - files left in %s", out_dir)
         return 0
 
-    drive = DriveClient()
-    reports_id = drive.ensure_folder(folder_id, REPORTS_FOLDER_NAME)
-    pdf_id = None
-    if pdf_path:
-        pdf_id = drive.upload_file(reports_id, base + ".pdf", pdf_path,
-                                   "application/pdf")
-    html_id = drive.upload_file(reports_id, base + ".html", html_path,
-                                "text/html")
-    log.info("Report %s uploaded to Drive folder '%s'",
-             date_iso, REPORTS_FOLDER_NAME)
+    # v305 (Tomasz: the Drive archive is not the monitoring's job to
+    # track): a Drive failure is logged and the report still goes out -
+    # it never fails the job (and so never raises a monitoring alert)
+    pdf_id = html_id = None
+    try:
+        drive = DriveClient()
+        reports_id = drive.ensure_folder(folder_id, REPORTS_FOLDER_NAME)
+        if pdf_path:
+            pdf_id = drive.upload_file(reports_id, base + ".pdf", pdf_path,
+                                       "application/pdf")
+        html_id = drive.upload_file(reports_id, base + ".html", html_path,
+                                    "text/html")
+        log.info("Report %s uploaded to Drive folder '%s'",
+                 date_iso, REPORTS_FOLDER_NAME)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Drive archive copy failed (%s) - the report is still mailed;"
+                    " not a monitoring problem", str(e)[:200])
     kind = ("morning_yesterday" if args.when == "yesterday"
             and not args.date else "evening_today")
     # v196: the server mails the PDF itself (the 'reports' channel);

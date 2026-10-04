@@ -468,8 +468,6 @@ _UNIT_ROLE = {
     "argia-alerts-daily": "Daily alert digest",
     "argia-mailer": "Alert mailer",
     "argia-dash-update": "Dashboard refresh",
-    "argia-client-pages": "Client report pages",
-    "argia-finreport": "Financial report build",
     "argia-cfe-ingest": "CFE tariff ingest",
     "argia-cfe-push": "CFE tariff push to the Engine app",
     "argia-portal-gen": "Portal page generator",

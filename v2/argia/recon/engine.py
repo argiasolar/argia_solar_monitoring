@@ -155,6 +155,13 @@ def daily_recon(interval_kwh: Optional[float],
     kvar = variance_pct(kpi_kwh, ref)
     if kvar is not None and abs(kvar) > DAILY_PASS_PCT:
         notes.append(f"KPI row vs reference {kvar:+.2f}%")
+    if kvar is not None and kvar > DAILY_REVIEW_PCT and status == STATUS_PASS:
+        # v305: both counters agree but the day's figure is far HIGHER -
+        # the counters froze (the logger lost its connection) and the day
+        # was corrected later from the vendor history. Not a PASS: the
+        # counters are not the evidence for this day (SAG 25 Sep: 264 vs 2,013 kWh)
+        status = STATUS_REVIEW
+        notes.append("counters froze (lost connection) - the day was corrected from the vendor history")
 
     note = "; ".join(notes)
     return DailyRecon(interval_kwh, vendor_daily_kwh, kpi_kwh,
@@ -354,3 +361,32 @@ def effective_completeness(tick_pct: Optional[float],
         return round(tick_pct, 2)
     factor = max(0.0, min(1.0, float(reporting) / float(configured)))
     return round(tick_pct * factor, 2)
+
+
+# ---------------------------------------------------------------------------
+# v305: lost connection only - the lifetime counter proves the production
+# ---------------------------------------------------------------------------
+CATCHUP_MIN_KWH = 5.0
+CATCHUP_MIN_PCT = 1.0
+
+
+def with_lifetime_catchup(r: DailyRecon, catchup_kwh: Optional[float]) -> DailyRecon:
+    """Tomasz, 2026-10-04: "make sure we have good reconciliation specially
+    when inverters went offline (lost connection only)". When the logger
+    loses its connection the DAY counters freeze while the inverter keeps
+    producing; the LIFETIME counter's next-night step proves the energy
+    (loss_daily.catchup_kwh, argia.analytics.losses). Such a day is not a
+    PASS on two frozen counters: it is REVIEW with the proven kWh in the
+    note. The reference (and so the billable self-heal) is NOT changed -
+    billing follows only with Tomasz's approval. Pure."""
+    if catchup_kwh is None or r.reference_kwh is None or r.status == STATUS_NO_DATA:
+        return r
+    if catchup_kwh < max(CATCHUP_MIN_KWH, abs(r.reference_kwh) * CATCHUP_MIN_PCT / 100.0):
+        return r
+    note = (r.note + "; " if r.note else "") + (
+        f"lost connection: the lifetime counter proves +{catchup_kwh:.1f} kWh not in the day counters"
+        f" (the inverters kept producing; {r.reference_kwh + catchup_kwh:.1f} kWh in total)"
+        " - billable unchanged until approved")
+    status = STATUS_REVIEW if r.status == STATUS_PASS else r.status
+    from dataclasses import replace
+    return replace(r, status=status, note=note)

@@ -108,7 +108,7 @@ def infra_alerts(failed_units: List[Tuple[str, str]],
                          f"job failed: {unit}",
                          f"systemd reports {unit} failed: {info}"))
     if disk_used_pct is not None and disk_used_pct >= DISK_ALERT_PCT:
-        out.append(Alert("disk-full", SEV_WARN,
+        out.append(Alert("disk-full", disk_alert_severity(disk_used_pct),   # v305: >= 90 % is CRITICAL
                          f"server disk at {disk_used_pct:.0f}%",
                          f"Root filesystem usage {disk_used_pct:.0f}% "
                          f"(threshold {DISK_ALERT_PCT:g}%)."))
@@ -371,3 +371,108 @@ def render_body(to_send: List[Alert], recovered: List[str],
         lines.append("")
     lines.append("Portal: https://portal.argia.com.mx/monitoring/")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ v305
+# Tomasz, 2026-10-04: "make sure we have our server monitored, either
+# from the Pi or GitHub, remove everything else ... mails should be last
+# resort" and, on Drive/finance jobs, "we do not need to send emails in
+# regards to it, it is not solar monitoring job to track it".
+#
+# * The mailer watches only the solar-monitoring chain (MONITORING_UNITS).
+# * Every run writes a health file (health_doc) to /root/argia_backups,
+#   where the office Pi already reads the backups over its read-only SFTP
+#   key; pi/report_watch/health_watch.py pushes a CRITICAL problem to the
+#   phone (ntfy) - the Pi is outside the server, so a dead server is seen.
+# * Mail is the last resort: a CRITICAL monitoring problem still active
+#   after LAST_RESORT_HOURS, then at most once a day; no WARNING mails, no
+#   recovery mails. Everything else stays in alert_state and the health
+#   file (the record), never mailed.
+MONITORING_UNITS = (
+    "argia-telemetry", "argia-telemetry-se", "argia-alerts-snap", "argia-alerts-daily",
+    "argia-kpi", "argia-recon", "argia-portal-gen", "argia-dailyperf", "argia-dash-update",
+    "argia-report-am", "argia-report-pm", "argia-thermal", "argia-strings", "argia-satcheck",
+    "argia-drift", "argia-dbdump", "argia-ticket-mail", "argia-ticket-weekly")
+"""The solar-monitoring chain: collection -> KPI/reconciliation -> alerts
+-> portal, reports and mails, its backup and tickets. NOT here (not the
+monitoring's job, Tomasz 2026-10-04): the Google Drive archive and finance
+ingest, invoices, the financial mails, the CFE push to the Engine, the
+demo / CPA / Prologis sites."""
+
+LAST_RESORT_HOURS = 6.0
+LAST_RESORT_RESEND_HOURS = 24.0
+DISK_CRIT_PCT = 90.0
+TELEMETRY_STALE_MIN = 40.0
+"""Fleet-wide: the newest telemetry row is older than this inside the
+collection window - the collector (or every vendor cloud) is down."""
+COLLECT_START_MX, COLLECT_END_MX = (6, 30), (19, 30)
+
+
+def in_scope(key: str) -> bool:
+    """Is this alert key part of the monitoring health (pushed, last-resort
+    mailed)? Pure."""
+    if key.startswith("unit-failed:"):
+        return key.split(":", 1)[1].replace(".service", "") in MONITORING_UNITS
+    return key in ("postgres-down", "disk-full", "telemetry-stale")
+
+
+def telemetry_alerts(newest_age_min: Optional[float], now_mx: dt.datetime) -> List[Alert]:
+    """CRITICAL when no plant has delivered a reading for
+    TELEMETRY_STALE_MIN inside the collection window. Pure."""
+    hm = (now_mx.hour, now_mx.minute)
+    if not (COLLECT_START_MX <= hm < COLLECT_END_MX):
+        return []
+    if newest_age_min is None or newest_age_min > TELEMETRY_STALE_MIN:
+        age = "no reading at all" if newest_age_min is None else f"newest reading {newest_age_min:.0f} min old"
+        return [Alert("telemetry-stale", SEV_CRIT, "telemetry collection stopped",
+                      f"No plant has delivered telemetry for over {TELEMETRY_STALE_MIN:.0f} min ({age})"
+                      " - the collector or the vendor clouds are down; plants are not being watched.")]
+    return []
+
+
+def disk_alert_severity(pct: float) -> str:
+    return SEV_CRIT if pct >= DISK_CRIT_PCT else SEV_WARN
+
+
+def plan_last_resort(active: List[Alert], state: Dict[str, tuple], now: dt.datetime,
+                     hours: float = LAST_RESORT_HOURS,
+                     resend_hours: float = LAST_RESORT_RESEND_HOURS) -> List[Alert]:
+    """In-scope CRITICAL alerts active for ``hours`` (the Pi has pushed them
+    by then) and not mailed in the last ``resend_hours``. ``state``: the
+    load_state() shape {key: (last_sent_or_first_seen, active, ever_sent,
+    first_seen)}. Pure."""
+    out = []
+    for a in active:
+        if a.severity != SEV_CRIT or not in_scope(a.key):
+            continue
+        st = state.get(a.key)
+        if st is None or not st[1] or len(st) < 4:
+            continue                                  # first sighting: the clock starts now
+        if (now - st[3]).total_seconds() < hours * 3600.0:
+            continue
+        if st[2] and (now - st[0]).total_seconds() < resend_hours * 3600.0:
+            continue
+        out.append(a)
+    return out
+
+
+def health_doc(active: List[Alert], state: Dict[str, tuple], now: dt.datetime,
+               telemetry_age_min: Optional[float], disk_pct: Optional[float], pg_ok: bool) -> dict:
+    """What the office Pi reads (health.json). ``problems`` = the
+    monitoring scope (pushed); ``other`` = tracked, never pushed. Pure."""
+    def since(a):
+        st = state.get(a.key)
+        first = st[3] if (st is not None and len(st) > 3 and st[1]) else now
+        return first.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    item = lambda a: {"key": a.key, "severity": a.severity, "title": a.title, "since_utc": since(a)}  # noqa: E731
+    probs = [item(a) for a in active if in_scope(a.key)]
+    return {
+        "generated_utc": now.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": ("critical" if any(p["severity"] == SEV_CRIT for p in probs)
+                   else "warning" if probs else "ok"),
+        "problems": probs,
+        "other": [item(a) for a in active if not in_scope(a.key)],
+        "telemetry_age_min": None if telemetry_age_min is None else round(telemetry_age_min, 1),
+        "disk_pct": None if disk_pct is None else round(disk_pct, 1),
+        "pg_ok": bool(pg_ok),
+    }

@@ -44,7 +44,6 @@ Found and fixed while building this:
 | Feature | Code | Coverage | Note |
 |---|---|---|---|
 | Drive ingest of the accounting books | `scripts/fin_drive_ingest.py` | 23% measured | The pipeline test runs it as a separate process, so coverage does not count it. It *is* tested; switch that test to in-process to measure it. |
-| Client report upload (FTP) | `scripts/client_reports_publish.py` | 28% | Needs a fake FTP server. |
 | Tickets by email (IMAP) | `scripts/ticket_mail_in.py` | 39% | Needs a fake IMAP server. |
 | Alert mailer (infra alerts) | `scripts/alert_mailer.py` | 55% | Runs, but only the dry-run branch. |
 | Daily PDF report job | `scripts/report_daily.py` | 58% | The HTML is tested; the PDF and upload are not. |

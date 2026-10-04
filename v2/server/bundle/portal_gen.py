@@ -81,9 +81,10 @@ def open_alerts():
     crit = warn = 0
     for lst in MG.ALERTS_OPEN.values():
         for a in lst:
-            if str(a.get('sev', '')).upper() == 'CRITICAL':
+            sev = str(a.get('sev', '')).upper()
+            if sev == 'CRITICAL':
                 crit += 1
-            else:
+            elif sev == 'WARNING':      # v305: an INFO flag is not a warning
                 warn += 1
     return crit, warn
 

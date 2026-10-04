@@ -25,7 +25,7 @@ to CFE directly.
 
 Daily: probe (GDMTH, current month, 17 divisions) -> between day 3
 and 27 fetch the full month once (10 tariffs x 17 divisions) and
-push it -> push heartbeat.json. Everything lands in
+push it -> push heartbeat_<UTC stamp>.json (v308: the server's rsync 3.5.0 jail cannot replace a file, so the name is new each day). Everything lands in
 /opt/argia/cfe_inbox on pio06 through an rrsync-jailed SSH key
 (~/.ssh/argia_cfe_push; the key can ONLY write into that inbox).
 pio06's argia-cfe-ingest.timer (09:15 MX) validates + loads CSVs

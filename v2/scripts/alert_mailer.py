@@ -333,10 +333,14 @@ def write_health(doc: dict, path: str = "") -> None:
 
 
 def gather_pi_status() -> Optional[dict]:
-    """The office Pi's hourly self-report (pi/report_watch/pi_status.py), or None."""
+    """The office Pi's hourly self-report (pi/report_watch/pi_status.py), or None.
+    v308: the newest pi_status_<stamp>.json in the inbox; older ones are removed."""
     import json
+    path = monitor.newest_push(monitor.PI_INBOX, "pi_status")
+    if not path:
+        return None
     try:
-        with open(monitor.PI_STATUS_JSON, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except (OSError, ValueError):
         return None

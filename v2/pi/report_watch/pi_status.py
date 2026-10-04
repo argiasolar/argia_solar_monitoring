@@ -7,7 +7,7 @@ was indirect (SFTP logins in the server's sshd log) - and that showed no
 nightly backup pull for a week. This script writes pi_status.json - what
 cron runs, when each Pi job last wrote its log and what it said, the newest
 off-site backup and its age, the CFE heartbeat, disk, the checkout's git
-commit - and pushes it into the server's CFE inbox with the CFE job's own
+commit - and pushes it (as pi_status_<UTC stamp>.json, v308) into the server's CFE inbox with the CFE job's own
 write-only rrsync key (ssh alias "argia-cfe"). The server's health job
 (alert_mailer.py) reads it: a silent Pi or a stale backup becomes a
 problem in health.json (and, after 6 h, the last-resort mail).
@@ -79,6 +79,14 @@ def build(now, files, crontab, git_head, disk_free_mb, hostname):
     }
 
 
+def push_name(now):
+    """v308: a new name for every push. The server's rsync 3.5.0 (Debian
+    security update, 29 Sep 2026) refuses to replace an existing file in the
+    write-only jail, so a fixed pi_status.json landed once and never again;
+    the server reads the newest pi_status_*.json and removes the older ones."""
+    return "pi_status_%s.json" % dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
 def gather(now):
     logs = {}
     for k, name in JOB_LOGS.items():
@@ -121,7 +129,7 @@ def main():
         p = os.path.join(d, "pi_status.json")
         with open(p, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, indent=1)
-        r = subprocess.run(["rsync", "--timeout=60", p, INBOX + ":pi_status.json"], capture_output=True, text=True, timeout=90)
+        r = subprocess.run(["rsync", "--timeout=60", p, INBOX + ":" + push_name(now)], capture_output=True, text=True, timeout=90)
     print("%s pi_status %s" % (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                "pushed" if r.returncode == 0 else "PUSH FAILED: " + r.stderr.strip()[:160]))
     return 0

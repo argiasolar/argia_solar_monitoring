@@ -10,6 +10,9 @@ and a recovery mail when a condition clears. Deduplication lives in the
 from __future__ import annotations
 
 import datetime as dt
+import os
+import re
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -481,11 +484,57 @@ def health_doc(active: List[Alert], state: Dict[str, tuple], now: dt.datetime,
 # ------------------------------------------------------------------ v305.2
 # Tomasz, 2026-10-04: "make sure Pi is working as our watchdog". The Pi
 # watches the server (health.json); the server now watches the Pi: the Pi
-# pushes pi_status.json hourly into the CFE inbox (pi/report_watch/pi_status.py).
-PI_STATUS_JSON = "/opt/argia/cfe_inbox/pi_status.json"
+# pushes pi_status_<UTC stamp>.json hourly into the CFE inbox (pi/report_watch/pi_status.py).
+PI_INBOX = "/opt/argia/cfe_inbox"
+PI_STATUS_JSON = PI_INBOX + "/pi_status.json"   # legacy name (before v308); still read
 PI_SILENT_H = 3.0
 PI_BACKUP_MAX_H = 36.0
 """The Pi pulls the nightly dump at 22:00 MX; older than this = a night missed."""
+
+
+_PUSHED = re.compile(r"^(?P<stem>.+)_(?P<ts>\d{8}T\d{6}Z)\.json$")
+
+
+def newest_push(inbox: str, stem: str, prune: bool = True) -> Optional[str]:
+    """v308: the newest file the Pi pushed as ``<stem>_<YYYYmmddTHHMMSSZ>.json``
+    (or under the legacy fixed name ``<stem>.json``, ranked by its mtime);
+    the older ones are removed when ``prune``. None when there is none.
+
+    Why: since rsync 3.5.0 (Debian security update on the server, 29 Sep
+    2026) the write-only rrsync jail refuses to REPLACE an existing file
+    ("could not make way for new regular file"), so a file pushed under a
+    fixed name lands once and never again - the CFE heartbeat froze on
+    28 Sep and the Pi's status after its first report. Every push now
+    carries a new name. Keep this in step with cfe_ingest.newest_push
+    (the bundle copy; one test runs both)."""
+    try:
+        names = os.listdir(inbox)
+    except OSError:
+        return None
+    found = []
+    for n in names:
+        p = os.path.join(inbox, n)
+        if n == stem + ".json":
+            try:
+                key = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(os.path.getmtime(p)))
+            except OSError:
+                continue
+        else:
+            m = _PUSHED.match(n)
+            if not m or m.group("stem") != stem:
+                continue
+            key = m.group("ts")
+        found.append((key, n))
+    if not found:
+        return None
+    found.sort()
+    if prune:
+        for _key, n in found[:-1]:
+            try:
+                os.remove(os.path.join(inbox, n))
+            except OSError:
+                pass
+    return os.path.join(inbox, found[-1][1])
 
 
 def pi_alerts(status: Optional[dict], now: dt.datetime) -> List[Alert]:

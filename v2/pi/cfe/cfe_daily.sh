@@ -4,7 +4,7 @@
 #    the WAF path works end to end and samples real values
 # 2) monthly: between day 3 and 27, if this month's full CSV has not
 #    been pushed yet, scrape all 10 tariffs and push it
-# 3) heartbeat: push heartbeat.json to pio06 (rrsync-restricted key)
+# 3) heartbeat: push heartbeat_<UTC stamp>.json to pio06 (rrsync-restricted key)
 # Logs: ~/cfe/logs/daily_YYYYMMDD.log (30 days kept)
 set -u
 CFE=~/cfe
@@ -27,15 +27,21 @@ echo "=== cfe_daily $(date -Is) ==="
 YM=$(date +%Y-%m)
 DOM=$(date +%-d)
 
-push() {  # push file to pio06 inbox; rrsync jail = /opt/argia/cfe_inbox
+push() {  # push file [as name] to pio06 inbox; rrsync jail = /opt/argia/cfe_inbox
     # Must return rsync's own status: the caller chains
     # push "$FULL" && ... && touch "$MARK", so a push() that always
     # succeeded marked the month as sent while nothing had arrived.
-    if rsync -t --timeout=60 "$1" "$INBOX:$(basename "$1")"; then
-        echo "pushed $(basename "$1")"
+    # v308: since the server's rsync 3.5.0 (Debian security update,
+    # 29 Sep 2026) the write-only jail refuses to REPLACE a file ("could
+    # not make way for new regular file"): a file pushed again under the
+    # same name never lands, so the heartbeat goes under a new name each
+    # time (the server reads the newest and removes the older ones).
+    local dst="${2:-$(basename "$1")}"
+    if rsync -t --timeout=60 "$1" "$INBOX:$dst"; then
+        echo "pushed $dst"
         return 0
     fi
-    echo "PUSH FAILED $1"
+    echo "PUSH FAILED $1 as $dst"
     return 1
 }
 
@@ -58,12 +64,16 @@ if [ "$PROBE_STATUS" = ok ] && [ ! -f "$MARK" ] \
         # file we already have - the scrape costs two hours, the push
         # costs seconds, and the two fail for unrelated reasons.
         echo "monthly CSV for $YM already scraped - retrying the push"
-        push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
+        # the month is sent once the CSV landed; the manifest is information only
+        # (v308: a manifest that cannot land must not keep the month open)
+        push "$FULL" && { push "$FULL.manifest.json"; touch "$MARK"; }
     else
         echo "monthly fetch for $YM starting"
         if timeout 7200 $PY $SCRAPER --months "$YM" \
                 --out "$FULL"; then
-            push "$FULL" && push "$FULL.manifest.json" && touch "$MARK"
+            # the month is sent once the CSV landed; the manifest is information only
+            # (v308: a manifest that cannot land must not keep the month open)
+            push "$FULL" && { push "$FULL.manifest.json"; touch "$MARK"; }
         else
             echo "monthly fetch FAILED (see manifest)"
             [ -f "$FULL.manifest.json" ] && push "$FULL.manifest.json"
@@ -101,7 +111,7 @@ cat > "$HB" <<EOF
  "disk_free_mb": $(df -m --output=avail ~ | tail -1 | tr -d ' '),
  "host": "$(hostname)"}
 EOF
-push "$HB"
+push "$HB" "heartbeat_$(date -u +%Y%m%dT%H%M%SZ).json"
 
 # --- housekeeping -----------------------------------------------------
 find $CFE/logs -name 'daily_*.log' -mtime +30 -delete

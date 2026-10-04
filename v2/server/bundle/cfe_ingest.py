@@ -7,14 +7,19 @@ argia-cfe-ingest.timer at 15:15 UTC (after the Pi's 08:10 MX job).
   anomaly ratio vs previous month) before handing it to cfe_load.py
 - valid  -> load as cfe_scrape, move to processed/
 - broken -> move to rejected/ (alert_mailer picks this up)
-- heartbeat.json -> cfe_pipeline_status row (alert_mailer watches
-  staleness / probe failures / missing months)
+- heartbeat_<UTC stamp>.json (v308; heartbeat.json before) -> the
+  cfe_pipeline_status row (alert_mailer watches staleness / probe
+  failures / missing months); the older heartbeats are removed
+- *.manifest.json (information only) -> processed/, so a manifest the Pi
+  pushes again under the same name can land (v308, see newest_push)
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
 
 INBOX = "/opt/argia/cfe_inbox"
 LOAD = "/opt/argia/bundle/cfe_load.py"
@@ -26,6 +31,60 @@ ALLOWED = {"SUMINISTRO BASICO", "ENERGIA BASE", "ENERGIA INTERMEDIA",
            "ENERGIA SEMIPUNTA"}
 HEADER = "tariff_code,region,month,charge_type,unit,value_mxn"
 VAL_MAX = 10000.0
+
+
+_PUSHED = re.compile(r"^(?P<stem>.+)_(?P<ts>\d{8}T\d{6}Z)\.json$")
+
+
+def newest_push(inbox, stem, prune=True):
+    """v308: the newest file the Pi pushed as <stem>_<YYYYmmddTHHMMSSZ>.json
+    (or under the legacy fixed name <stem>.json, ranked by its mtime); the
+    older ones are removed when ``prune``. None when there is none.
+    Since rsync 3.5.0 (Debian security update, 29 Sep 2026) the write-only
+    rrsync jail refuses to REPLACE a file, so a fixed heartbeat.json never
+    changed after 28 Sep. Same code as argia.alerts.monitor.newest_push
+    (the bundle runs without the argia package; one test runs both)."""
+    try:
+        names = os.listdir(inbox)
+    except OSError:
+        return None
+    found = []
+    for n in names:
+        p = os.path.join(inbox, n)
+        if n == stem + ".json":
+            try:
+                key = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(os.path.getmtime(p)))
+            except OSError:
+                continue
+        else:
+            m = _PUSHED.match(n)
+            if not m or m.group("stem") != stem:
+                continue
+            key = m.group("ts")
+        found.append((key, n))
+    if not found:
+        return None
+    found.sort()
+    if prune:
+        for _key, n in found[:-1]:
+            try:
+                os.remove(os.path.join(inbox, n))
+            except OSError:
+                pass
+    return os.path.join(inbox, found[-1][1])
+
+
+def file_manifests(inbox):
+    """Move the information-only manifests to processed/ (rsync 3.5.0 cannot
+    replace one in the jail; a month the Pi retries would never get its new
+    manifest in). Returns the names moved."""
+    moved = []
+    for f in sorted(os.listdir(inbox)):
+        if f.endswith(".manifest.json") and os.path.isfile(os.path.join(inbox, f)):
+            os.makedirs(os.path.join(inbox, "processed"), exist_ok=True)
+            shutil.move(os.path.join(inbox, f), os.path.join(inbox, "processed", f))
+            moved.append(f)
+    return moved
 
 
 def psql(sql):
@@ -108,9 +167,9 @@ def main():
             rejected.append(f)
 
     # heartbeat -> status row
-    hb_path = os.path.join(INBOX, "heartbeat.json")
+    hb_path = newest_push(INBOX, "heartbeat")
     hb = {}
-    if os.path.exists(hb_path):
+    if hb_path:
         try:
             hb = json.load(open(hb_path))
         except Exception as ex:
@@ -140,6 +199,9 @@ def main():
                           THEN EXCLUDED.last_csv_result
                           ELSE cfe_pipeline_status.last_csv_result END,
           updated_at = now();""")
+    moved = file_manifests(INBOX)
+    if moved:
+        print("manifests filed:", moved)
     cov = psql("SELECT max(month) FROM cfe_tariff"
                " WHERE source='cfe_scrape';")
     if loaded:

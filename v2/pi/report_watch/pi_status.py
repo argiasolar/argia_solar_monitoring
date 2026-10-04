@@ -48,6 +48,17 @@ def _last_line(path):
         return None
 
 
+def _tail(path, n=12):
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 8192))
+            lines = [ln.rstrip()[:200] for ln in fh.read().decode("utf-8", "replace").splitlines() if ln.strip()]
+        return lines[-n:]
+    except OSError:
+        return []
+
+
 def build(now, files, crontab, git_head, disk_free_mb, hostname):
     """The status document. ``files``: {name: (path, mtime or None, last
     line or None)} for the job logs; plus 'dumps' / 'weekly' lists of
@@ -64,6 +75,7 @@ def build(now, files, crontab, git_head, disk_free_mb, hostname):
                    "daily_count": len(dumps), "weekly_count": len(files.get("weekly", []))},
         "cfe_heartbeat": ({"age_h": round((now - hb[0]) / 3600.0, 1) if hb[0] else None, "writable": hb[1]}
                           if hb else None),
+        "tails": files.get("tails", {}),          # the last lines of the CFE and backup logs, for diagnosis
     }
 
 
@@ -95,7 +107,8 @@ def gather(now):
         free = int(st.f_bavail * st.f_frsize / 1048576)
     except OSError:
         free = None
-    return build(now, {"logs": logs, "dumps": dumps, "weekly": weekly, "cfe_heartbeat": hb_info},
+    tails = {k: _tail(v[0]) for k, v in logs.items() if k in ("cfe_daily", "backup_pull")}
+    return build(now, {"logs": logs, "dumps": dumps, "weekly": weekly, "cfe_heartbeat": hb_info, "tails": tails},
                  crontab, head, free, os.uname().nodename)
 
 

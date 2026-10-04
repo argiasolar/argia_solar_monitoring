@@ -100,3 +100,18 @@ def test_run_job_sets_pythonpath():
     scripts import argia exactly like the workflows do - with an
     explicit PYTHONPATH."""
     assert "PYTHONPATH" in _read("pi/run_job.sh")
+
+
+def test_every_pi_shell_script_is_executable_in_git():
+    """v307: the Pi's live crontab calls pull_backup.sh WITHOUT bash, and the
+    file was 100644 in git (Git for Windows keeps no executable bit) - every
+    nightly off-site backup pull since 5 Sep died with "Permission denied"
+    (found by the Pi's own status report, v306). The mode now travels with
+    the repo, so it works with or without "bash" in front."""
+    import subprocess
+    out = subprocess.run(["git", "ls-files", "-s", "--", "pi"], cwd=str(V2), capture_output=True, text=True).stdout
+    shells = [ln.split() for ln in out.splitlines() if ln.endswith(".sh")]
+    if not shells:
+        import pytest
+        pytest.skip("not a git checkout")
+    assert [(m, p) for m, _h, _s, p in shells if m != "100755"] == []

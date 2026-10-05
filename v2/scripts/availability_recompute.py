@@ -65,6 +65,19 @@ def samples(pk: str, day: dt.date) -> List[AV.Sample]:
     return out
 
 
+def last_states(pk: str, day: dt.date) -> Dict[str, str]:
+    """{serial: UP|DOWN} from each inverter's last reading in the 10 days
+    before ``day`` (MX midnight) that carried a power value."""
+    start = dt.datetime.combine(day, dt.time()) - AV.MX_OFFSET
+    rows = psql_rows(TIMEOUT + "SELECT DISTINCT ON (inverter_sn) inverter_sn, power_w FROM telemetry"
+                     f" WHERE plant_key = '{pk}' AND power_w IS NOT NULL"
+                     f" AND ts_utc < TIMESTAMPTZ '{start.isoformat()}+00'"
+                     f" AND ts_utc >= TIMESTAMPTZ '{(start - dt.timedelta(days=10)).isoformat()}+00'"
+                     " AND extract(hour FROM ts_utc AT TIME ZONE 'America/Mexico_City') BETWEEN 9 AND 16"
+                     " ORDER BY inverter_sn, ts_utc DESC;")
+    return {r[0]: (AV.UP if (f(r[1]) or 0.0) > 0 else AV.DOWN) for r in rows}
+
+
 def stored(first: dt.date, last: dt.date, only: Optional[str]):
     has_cov = psql_rows(TIMEOUT + "SELECT count(*) FROM information_schema.columns"
                         " WHERE table_name = 'daily_production' AND column_name = 'avail_coverage';")[0][0] != "0"
@@ -148,13 +161,13 @@ def run(days: int = 31, only: Optional[str] = None, apply: bool = False, csv_pat
     data = {}
     for pk, day, old_av, old_cov, exp, energy in rows:
         d = dt.date.fromisoformat(day)
-        data[(pk, day)] = (samples(pk, d), inverters(pk, d))
+        data[(pk, day)] = (samples(pk, d), inverters(pk, d), last_states(pk, d))
     # pass 1: the raw days, to learn each plant's usual ratio to its weather model
     first_pass = {}
     for pk, day, old_av, old_cov, exp, energy in rows:
         d = dt.date.fromisoformat(day)
-        s, inv = data[(pk, day)]
-        first_pass[(pk, day)] = AV.compute(s, inv, d, geo[pk][0], geo[pk][1], expected_kwh=f(exp))
+        s, inv, lb = data[(pk, day)]
+        first_pass[(pk, day)] = AV.compute(s, inv, d, geo[pk][0], geo[pk][1], expected_kwh=f(exp), last_before=lb)
     ratio = {}
     for pk in geo:
         ratio[pk] = typical_ratio([(first_pass[(p, dd)].coverage, sum(first_pass[(p, dd)].down_steps.values()),
@@ -172,10 +185,11 @@ def run(days: int = 31, only: Optional[str] = None, apply: bool = False, csv_pat
     changes, sql = [], []
     for pk, day, old_av, old_cov, exp, energy in rows:
         d = dt.date.fromisoformat(day)
-        s, inv = data[(pk, day)]
+        s, inv, lb = data[(pk, day)]
         typical = f(exp) * ratio[pk] if f(exp) else None
         day_energy = (f(energy) or 0.0) + late.get((pk, day), 0.0)
-        res = AV.compute(s, inv, d, geo[pk][0], geo[pk][1], expected_kwh=typical, plant_energy_kwh=day_energy)
+        res = AV.compute(s, inv, d, geo[pk][0], geo[pk][1], expected_kwh=typical, plant_energy_kwh=day_energy,
+                         last_before=lb)
         changes.append({"plant": pk, "date": day, "old": f(old_av), "new": res.availability, "coverage": res.coverage,
                         "energy_kwh": f(energy), "late_kwh": round(late.get((pk, day), 0.0), 1),
                         "expected_kwh": f(exp), "typical_kwh": round(typical, 1) if typical else None,

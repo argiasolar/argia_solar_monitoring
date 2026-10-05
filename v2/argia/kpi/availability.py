@@ -35,6 +35,8 @@ The rule now (IEC 61724-3 idea: time without information is not downtime):
   vendor counter finally reported it, reaches ``PLANT_PROOF`` of what the
   plant normally makes on such a day - the same holds for a day with no
   readings at all;
+* an inverter that went silent after a stop (last reading 0 W / fault), with
+  nothing showing it producing since, stays DOWN while its peers report;
 * availability = UP / (UP + DOWN), weighted by rated kW; UNKNOWN steps that
   nothing proves are left out and reported as ``coverage`` = known share of
   the judged time. A dark plant is "no data", never 0 % and never 100 %.
@@ -78,6 +80,7 @@ class AvailabilityDay:
     unknown_steps: Dict[str, int] = field(default_factory=dict)   # left unknown (not proven)
     proven: Tuple[str, ...] = ()         # inverters whose gaps their counter proved
     plant_proven_steps: int = 0          # v311: plant-wide silent steps the plant's day energy proved
+    carried_down_steps: int = 0          # v311: silent steps after a stop, still down
 
 
 def sun_elevation(lat: float, lon: float, t_local: dt.datetime) -> float:
@@ -137,7 +140,8 @@ def _counter_grew(pts: List[Tuple[dt.datetime, float]], day: dt.date, i: int) ->
 def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[float]]],
             day: dt.date, lat: Optional[float], lon: Optional[float],
             expected_kwh: Optional[float] = None,
-            plant_energy_kwh: Optional[float] = None) -> AvailabilityDay:
+            plant_energy_kwh: Optional[float] = None,
+            last_before: Optional[Dict[str, str]] = None) -> AvailabilityDay:
     """The plant-day availability. ``inverters``: the CONFIGURED inverters as
     (serial, rated kW) - an inverter that never reports stays in the judged
     time (as unknown), it cannot silently drop out.
@@ -224,6 +228,25 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
                 for sn in sns:
                     state[(sn, i)] = UP
 
+    # v311: an inverter that went quiet AFTER a stop (its last reading at 0 W
+    # or a fault) and that nothing has shown producing since stays down while
+    # its peers keep reporting - Ryder's inverter 3: fault at 0 W on 3 Oct
+    # 11:49, silent ever since. ``last_before``: {serial: UP|DOWN} of its
+    # last reading before this day. One that went quiet while producing
+    # (Ryder's inverter 2) stays unknown; a plant-wide silence is never carried.
+    carried = 0
+    last_before = last_before or {}
+    for sn in sns:
+        last = last_before.get(sn)
+        for i in steps:
+            st = state[(sn, i)]
+            if st == UNKNOWN:
+                if last == DOWN and not all(state[(o, i)] == UNKNOWN for o in sns):
+                    state[(sn, i)] = DOWN
+                    carried += 1
+            else:
+                last = st
+
     up = sum(rated[sn] for (sn, _i), s in state.items() if s == UP)
     down = sum(rated[sn] for (sn, _i), s in state.items() if s == DOWN)
     total = sum(rated[sn] for sn in sns) * len(steps)
@@ -236,6 +259,7 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
         unknown_steps={sn: n for sn in sns if (n := sum(1 for i in steps if state[(sn, i)] == UNKNOWN))},
         proven=tuple(proven),
         plant_proven_steps=plant_proven,
+        carried_down_steps=carried,
     )
 
 

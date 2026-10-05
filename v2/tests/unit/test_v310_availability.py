@@ -308,3 +308,30 @@ class TestV311Recompute:
         assert A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=300.0).availability is None
         big = m.spread_catchup([("a", 0.0, 1000.0, 0.0), ("b", 0.0, 1000.0, 99999.0)])
         assert big == {"a": pytest.approx(1000.0)}                               # capped at the shortfall
+
+
+class TestV311SilentAfterAStop:
+    def test_silent_after_a_fault_stays_down_while_peers_report(self):
+        """Ryder inverter 3: fault at 0 W on 3 Oct 11:49, silent ever since."""
+        dead = feed("C", power=lambda h, m: 0.0, end=(11, 50))           # 0 W, then quiet
+        r = run(feed("A") + feed("B") + dead + feed("D"))
+        assert r.down_steps["C"] == r.steps and "C" not in r.unknown_steps and r.carried_down_steps > 0
+        nxt = A.compute(feed("A") + feed("B") + feed("D"), INV, DAY, *MTY, last_before={"C": A.DOWN})
+        assert nxt.availability == pytest.approx(0.75, abs=1e-4) and nxt.coverage == 1.0
+
+    def test_silent_while_producing_stays_unknown(self):
+        """Ryder inverter 2: last seen producing 22.9 kW, then quiet - not proof of a stop."""
+        r = A.compute(feed("A") + feed("B") + feed("D"), INV, DAY, *MTY, last_before={"C": A.UP})
+        assert r.availability == 1.0 and r.unknown_steps == {"C": r.steps}
+
+    def test_a_plant_wide_silence_is_never_carried(self):
+        r = A.compute([], INV, DAY, *MTY, last_before={sn: A.DOWN for sn, _ in INV})
+        assert r.availability is None and r.carried_down_steps == 0
+
+    def test_production_ends_the_carry(self):
+        # down at 09:00, silent 09:15-12:00, producing again from 12:00
+        p = lambda h, m: 0.0 if h < 9 or (h == 9 and m < 15) else 30000.0
+        c = feed("C", power=p, gaps=[((9, 15), (12, 0))])
+        r = A.compute(feed("A") + feed("B") + c + feed("D"), INV, DAY, *MTY, last_before={"C": A.DOWN})
+        assert "C" not in r.unknown_steps or r.unknown_steps.get("C", 0) == 0
+        assert 0 < r.down_steps.get("C", 0) < r.steps

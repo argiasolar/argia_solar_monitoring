@@ -485,7 +485,8 @@ class TestPiReportsOnItself:
                  "cfe_heartbeat": (now - 6 * 86400, False)}
         doc = PS.build(now, files, ["*/5 * * * * bash report_watch.sh"], "03f8b7a", 17000, "ARGIAPi")
         assert doc["ts"] == "2026-10-04T14:00:00Z" and doc["host"] == "ARGIAPi" and doc["git_head"] == "03f8b7a"
-        assert doc["backup"] == {"newest": "argia_mont_20260927.dump", "age_h": 168.0, "daily_count": 2, "weekly_count": 1}
+        assert doc["backup"] == {"newest": "argia_mont_20260927.dump", "age_h": 168.0, "daily_count": 2, "weekly_count": 1,
+                                 "pull_exec": None}
         assert doc["cfe_heartbeat"] == {"age_h": 144.0, "writable": False}
         assert doc["jobs"]["backup_pull"] == {"log_mtime": "2026-09-27T14:00:00Z", "last": "2026-09-27 pull OK"}
 

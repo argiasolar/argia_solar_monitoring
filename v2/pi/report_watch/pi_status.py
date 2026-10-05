@@ -72,7 +72,8 @@ def build(now, files, crontab, git_head, disk_free_mb, hostname):
         "jobs": {k: {"log_mtime": _iso(v[1]), "last": v[2]} for k, v in sorted(files.get("logs", {}).items())},
         "backup": {"newest": newest[0] if newest else None,
                    "age_h": round((now - newest[1]) / 3600.0, 1) if newest else None,
-                   "daily_count": len(dumps), "weekly_count": len(files.get("weekly", []))},
+                   "daily_count": len(dumps), "weekly_count": len(files.get("weekly", [])),
+                   "pull_exec": files.get("pull_exec")},   # v309: is pull_backup.sh executable (cron runs it without bash)
         "cfe_heartbeat": ({"age_h": round((now - hb[0]) / 3600.0, 1) if hb[0] else None, "writable": hb[1]}
                           if hb else None),
         "tails": files.get("tails", {}),          # the last lines of the CFE and backup logs, for diagnosis
@@ -116,7 +117,10 @@ def gather(now):
     except OSError:
         free = None
     tails = {k: _tail(v[0]) for k, v in logs.items() if k in ("cfe_daily", "backup_pull")}
-    return build(now, {"logs": logs, "dumps": dumps, "weekly": weekly, "cfe_heartbeat": hb_info, "tails": tails},
+    pull = os.path.join(HOME, "argia_v2", "v2", "pi", "db_backups", "pull_backup.sh")
+    pull_exec = os.access(pull, os.X_OK) if os.path.exists(pull) else None
+    return build(now, {"logs": logs, "dumps": dumps, "weekly": weekly, "cfe_heartbeat": hb_info, "tails": tails,
+                       "pull_exec": pull_exec},
                  crontab, head, free, os.uname().nodename)
 
 

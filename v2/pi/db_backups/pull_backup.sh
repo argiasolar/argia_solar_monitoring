@@ -33,6 +33,13 @@ alert() {
 }
 
 mkdir -p "$BASE/daily" "$BASE/weekly" "$BASE/reports"
+# v309: one pull at a time - the 22:00 cron run and report_watch's catch-up
+# (catchup.sh) must never write the same temp files together
+exec 9>"$BASE/.pull.lock"
+if ! flock -n 9; then
+  echo "$(date -Is) another pull is running - skipped"
+  exit 0
+fi
 tmp_dump="$BASE/daily/.dump_$stamp.tmp"
 tmp_users="$BASE/daily/.users_$stamp.tmp"
 

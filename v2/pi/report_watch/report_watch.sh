@@ -131,6 +131,13 @@ fi
 # key and pushes CRITICAL problems; it does nothing where that key is absent
 python3 "$(dirname "$0")/health_watch.py" 2>&1 || echo "$(stamp) health_watch failed"
 
+# v309: a missed nightly backup pull is retried once an hour until the newest
+# off-site dump is fresh again (5 Sep - 4 Oct: 29 nights lost, nothing retried);
+# after a catch-up the status report goes out at once, so the server sees it
+CU_OUT=$(bash "$(dirname "$0")/../db_backups/catchup.sh" 2>&1)
+[ -n "$CU_OUT" ] && echo "$CU_OUT"
+case "$CU_OUT" in *"pull OK"*) rm -f "$STATE_DIR/pi_status_at" ;; esac
+
 # v305.2: the Pi reports on itself to the server once an hour (pi_status.py:
 # cron, job logs, newest off-site backup, CFE heartbeat) - the server's health
 # job turns a silent Pi or a stale backup into a problem

@@ -91,13 +91,14 @@ if [ "$PROBE_STATUS" = ok ]; then
     if timeout 1800 $PY $SCRAPER --gapfill $CFE/outbox \
             --state $CFE/state/gaps.json --out "$GAP"; then
         if [ -s "$GAP" ] && [ "$(wc -l < "$GAP")" -gt 1 ]; then
-            push "$GAP" && push "$GAP.manifest.json"
+            # the scraper does not always write a manifest (4 Oct: link_stat failed)
+            push "$GAP" && { [ ! -f "$GAP.manifest.json" ] || push "$GAP.manifest.json"; }
         else
             rm -f "$GAP" "$GAP.manifest.json"
         fi
     else
         echo "gap-fill: some cells still missing (see $GAP.manifest.json)"
-        [ -s "$GAP" ] && [ "$(wc -l < "$GAP")" -gt 1 ] && push "$GAP" && push "$GAP.manifest.json"
+        [ -s "$GAP" ] && [ "$(wc -l < "$GAP")" -gt 1 ] && push "$GAP" && { [ ! -f "$GAP.manifest.json" ] || push "$GAP.manifest.json"; }
     fi
 fi
 

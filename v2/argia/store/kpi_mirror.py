@@ -35,6 +35,7 @@ COLMAP = {
     "billable_kwh": "billable_kwh",
     "expected_kwh": "expected_kwh",
     "availability": "availability",
+    "avail_coverage": "avail_coverage",      # v310: known share of the judged time
     "cloud_coverage_pct": "cloud_cover_pct",
     "data_class": "data_class",
     "inverters_reporting": "inverters_reporting",
@@ -55,7 +56,7 @@ COLMAP = {
     "design_kwh": "design_kwh",
 }
 NUMERIC = {"energy_kwh", "irradiance_kwh_m2", "pr", "pr_stc",
-           "billable_kwh", "expected_kwh", "availability",
+           "billable_kwh", "expected_kwh", "availability", "avail_coverage",
            "cloud_cover_pct", "capacity_factor", "specific_yield",
            "soiling_loss_pct", "production_pct", "design_kwh"}
 INTEGER = {"inverters_reporting", "inverters_with_reboot"}
@@ -74,7 +75,8 @@ ALTER TABLE daily_production
   ADD COLUMN IF NOT EXISTS specific_yield             numeric,
   ADD COLUMN IF NOT EXISTS soiling_loss_pct           numeric,
   ADD COLUMN IF NOT EXISTS production_pct             numeric,
-  ADD COLUMN IF NOT EXISTS design_kwh                 numeric;
+  ADD COLUMN IF NOT EXISTS design_kwh                 numeric,
+  ADD COLUMN IF NOT EXISTS avail_coverage             numeric(6,4);
 """.strip()
 
 # columns a vendor-corrected row keeps no matter what the sheet says

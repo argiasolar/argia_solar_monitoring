@@ -476,7 +476,8 @@ def kpi_row(keys, label_en, label_es):
         if pf.get('pr') is not None:
             w_pr += pf['pr'] * kwp; kwp_pr += kwp
         if pf.get('avail') is not None:
-            w_av += pf['avail'] * kwp; kwp_av += kwp
+            cw = kwp * (pf['coverage'] if pf.get('coverage') is not None else 1.0)   # v310: known time only
+            w_av += pf['avail'] * cw; kwp_av += cw
     pr = w_pr / kwp_pr if kwp_pr else None
     av = w_av / kwp_av if kwp_av else None
     prt = '' if pr is None else ('good' if pr >= 0.75 else 'warn' if pr >= 0.65 else 'bad')

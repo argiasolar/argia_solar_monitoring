@@ -35,7 +35,7 @@ class TestMirrorIsComplete:
     def test_ensure_sql_adds_the_new_columns_idempotently(self):
         assert "ADD COLUMN IF NOT EXISTS specific_yield" in M.ENSURE_SQL
         assert "ADD COLUMN IF NOT EXISTS design_kwh" in M.ENSURE_SQL
-        assert M.ENSURE_SQL.count("ADD COLUMN IF NOT EXISTS") == 11
+        assert M.ENSURE_SQL.count("ADD COLUMN IF NOT EXISTS") == 12          # v310: avail_coverage
 
     def test_new_columns_keep_the_protected_and_frozen_semantics(self):
         sql = M.build_upsert_sql([{"prod_date": "2026-09-03", "plant_key": "GTO2",

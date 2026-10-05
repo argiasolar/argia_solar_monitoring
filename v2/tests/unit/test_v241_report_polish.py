@@ -76,9 +76,9 @@ def run_engine(globals_js: str, d0: str, d1: str, lang: str = "en", tmp_path=Non
     return json.loads(res.stdout.strip().splitlines()[-1])
 
 
-def globals_for(days, energy, avail, dq, expected=None, contract=None, asof=None, tariff=0.0, sla=0.98):
+def globals_for(days, energy, avail, dq, expected=None, contract=None, asof=None, tariff=0.0, sla=0.98, cov=None):
     g = {"D": days, "E": energy, "RV": None, "C": contract, "X": expected,
-         "AV": avail, "DQ": dq, "CO2Y": {}}
+         "AV": avail, "DQ": dq, "CO2Y": {}, "CV": cov or {}}
     s = "".join(f"const {k}={json.dumps(v)};" for k, v in g.items())
     s += f'const VSL="vs expected";const CO2F=0.444;const SLA={sla};const TARIFF={tariff};const ASOF="{asof or days[-1]}";'
     s += 'const CH_L={"actual":"actual","contract":"expected","weather":"expected from weather","money":"savings"};'
@@ -129,19 +129,23 @@ class TestRangeEngineDarkPlant:
         assert "no data in the selected range" in o["r_prodwhy"]["text"]
         assert o["r_dq"]["text"] == " - "           # nothing was owed either
 
-    def test_dark_days_count_as_unavailable_and_uncovered(self, tmp_path):
-        # Ryder: 7 lit days, then 3 days with a 0.0 vendor row and no telemetry
+    def test_dark_days_are_uncovered_time_not_an_outage(self, tmp_path):
+        # Ryder: 7 lit days, then 3 days with a 0.0 vendor row and no telemetry.
+        # v310: dark days are time WITHOUT DATA - the tile stays red and says
+        # so, but the figure is availability over the known time (it used to
+        # read 70.0% BREACH, as if the plant had stopped)
         days = _days("2026-09-01", 10)
         e = [1900.0] * 7 + [0.0] * 3
         av = {d: 1.0 for d in days[:7]}
         dq = {d: 1 for d in days[:7]}
         g = globals_for(days, e, av, dq, expected=[1800.0] * 10)
         o = run_engine(g, days[0], days[-1], tmp_path=tmp_path)
-        assert o["r_avail"]["text"] == "70.0%" and o["r_sla"]["text"] == "BREACH"
+        assert o["r_avail"]["text"] == "100.0%" and o["r_sla"]["text"] == "INCOMPLETE"
         assert "bad" in o["t_avail"]["cls"]
         assert "3 day(s) with no telemetry and no energy" in o["r_avwhy"]["text"]
         assert "data ends 2026-09-10" in o["r_avwhy"]["text"]
-        assert "09-08: 0%" in o["r_avwhy"]["text"]          # dark days lead the worst list
+        assert "inverter readings for only 70% of the time" in o["r_avwhy"]["text"]
+        assert "09-08: 0%" not in o["r_avwhy"]["text"]      # a dark day is not a 0% day
         assert o["r_dq"]["text"] == "70%"
         # the dark days' whole weather expectation is at risk
         assert o["r_loss"]["text"] == "≤ 5.4 MWh"
@@ -155,7 +159,7 @@ class TestRangeEngineDarkPlant:
         e = [2500.0] * 8 + [0.0] * 2
         g = globals_for(days, e, {d: 1.0 for d in days[:8]}, {d: 1 for d in days[:8]}, expected=[1000.0] * 10)
         o = run_engine(g, days[0], days[-1], tmp_path=tmp_path)
-        assert o["r_sla"]["text"] == "BREACH"
+        assert o["r_sla"]["text"] == "INCOMPLETE" and "REVIEW" not in o["r_sla"]["text"]
 
     def test_missing_rows_up_to_the_data_edge_are_dark(self, tmp_path):
         # Tetra Pak, 'Previous month' = July with rows to the 28th
@@ -163,7 +167,9 @@ class TestRangeEngineDarkPlant:
         g = globals_for(days, [1000.0] * 28, {d: 1.0 for d in days}, {d: 1 for d in days}, asof="2026-09-07")
         o = run_engine(g, "2026-07-01", "2026-07-31", tmp_path=tmp_path)
         assert o["r_dq"]["text"] == "90%"                  # 28 of 31
-        assert o["r_avail"]["text"] == "90.3%" and o["r_sla"]["text"] == "BREACH"
+        # v310: 28 of 31 days known (90.3%) - availability over them, amber, the dark days named
+        assert o["r_avail"]["text"] == "100.0%" and o["r_sla"]["text"] == "MET"
+        assert "warn" in o["t_avail"]["cls"] and "good" not in o["t_avail"]["cls"]
         assert "3 day(s) with no telemetry" in o["r_avwhy"]["text"]
 
     def test_days_after_the_fleet_edge_are_not_owed(self, tmp_path):
@@ -173,13 +179,25 @@ class TestRangeEngineDarkPlant:
         assert o["r_avail"]["text"] == "100.0%" and o["r_dq"]["text"] == "100%"
 
     def test_vendor_only_days_stay_out_of_availability(self, tmp_path):
-        # a backfilled month: energy from the vendor, no telemetry -
-        # the plant produced; only coverage says we were not watching
+        # a backfilled month: energy from the vendor, no telemetry - the
+        # plant produced, so those days are no outage; v310: they are not
+        # proof of availability either (one inverter could have been off),
+        # so the verdict says how little of the time was watched
         days = _days("2026-08-01", 10)
         g = globals_for(days, [1000.0] * 10, {days[-1]: 1.0}, {days[-1]: 1})
         o = run_engine(g, days[0], days[-1], tmp_path=tmp_path)
-        assert o["r_avail"]["text"] == "100.0%" and o["r_sla"]["text"] == "MET"
+        assert o["r_avail"]["text"] == "100.0%" and o["r_sla"]["text"] == "INCOMPLETE"
+        assert "inverter readings for only 10% of the time" in o["r_avwhy"]["text"]
         assert o["r_dq"]["text"] == "10%"
+
+    def test_coverage_weights_the_days(self, tmp_path):
+        # v310: a day known for only half its sunny time weighs half
+        days = _days("2026-09-01", 2)
+        g = globals_for(days, [1000.0] * 2, {days[0]: 1.0, days[1]: 0.5}, {d: 1 for d in days},
+                        cov={days[0]: 1.0, days[1]: 0.5})
+        o = run_engine(g, days[0], days[-1], tmp_path=tmp_path)
+        assert o["r_avail"]["text"] == "83.3%"            # (1.0*1 + 0.5*0.5) / 1.5
+        assert "inverter readings for only 75% of the time" in o["r_avwhy"]["text"]
 
     def test_reasons_are_bilingual(self, tmp_path):
         days = _days("2026-07-01", 5)

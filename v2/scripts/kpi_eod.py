@@ -44,6 +44,8 @@ from argia.maintenance.events import (
 from argia.maintenance.deemed import (
     daylight_fraction, deemed_for_date, measured_in_window_from_buckets,
 )
+from argia.kpi import availability as AV
+from argia.kpi.availability import compute as plant_availability
 from argia.archive.kpi_daily import (
     AVAILABILITY_COL_NAME,
     CLOUD_COVERAGE_COL_NAME,
@@ -53,7 +55,6 @@ from argia.archive.kpi_daily import (
     PRODUCTION_PCT_COL_NAME,
     SOILING_LOSS_COL_NAME,
     STATUS_NOTE_COL_NAME,
-    compute_availability,
     compute_expected_kwh,
     gated_production_pct,
     production_statement,
@@ -176,6 +177,19 @@ def losses_for_recent_days(dry_run: bool, days: int = 3) -> None:
         logging.getLogger("argia.kpi_eod").warning("loss_daily failed (KPI run unaffected): %s: %s", type(e).__name__, e)
 
 
+def _ensure_avail_coverage(dry_run: bool) -> None:
+    """v310: daily_production.avail_coverage exists before it is stamped
+    (idempotent ALTER; only where PostgreSQL is written)."""
+    from argia.store import kpi_write
+    if dry_run or not kpi_write.writes_pg():
+        return
+    try:
+        from argia.store.pgq import psql_exec
+        psql_exec(AV.ENSURE_SQL)
+    except Exception as e:  # noqa: BLE001 - the stamp itself will say it loudly
+        LOG.warning("avail_coverage column check failed: %s", e)
+
+
 @instrument("kpi_eod")
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
@@ -243,6 +257,7 @@ def main(argv=None) -> int:
     design_stamps: dict = {}
     design = load_design_monthly(sheets)
     avail_stamps: Dict[Tuple[str, str], float] = {}
+    cov_stamps: Dict[Tuple[str, str], float] = {}
     sy_stamps: Dict[Tuple[str, str], float] = {}
     prod_stamps: Dict[Tuple[str, str], float] = {}
     soil_stamps: Dict[Tuple[str, str], float] = {}
@@ -348,13 +363,18 @@ def main(argv=None) -> int:
         if dk is not None:
             design_stamps[(date_iso, plant.plant_key)] = dk
 
-        # Availability vs CONFIGURED inverters (uptime, not performance).
-        av = compute_availability(
-            [(r.timestamp_utc, r.inverter_sn, r.status) for r in rows],
-            [inv.inverter_sn for inv in portfolio.inverters_for(plant.plant_key)],
+        # Availability vs CONFIGURED inverters (v310: from evidence - fixed
+        # 15-min steps with the sun up, producing = up, 0 W = down, no data =
+        # unknown unless the inverter's day counter proves it produced;
+        # argia/kpi/availability.py). Coverage = the known share of the time.
+        avd = plant_availability(
+            [(r.timestamp_utc, r.inverter_sn, r.status, r.power_w, r.etoday_kwh) for r in rows],
+            [(inv.inverter_sn, inv.rated_kw) for inv in portfolio.inverters_for(plant.plant_key)],
+            dt.date.fromisoformat(date_iso), plant.lat, plant.lon, expected_kwh=exp,
         )
-        if av is not None:
-            avail_stamps[(date_iso, plant.plant_key)] = av
+        if avd.availability is not None:
+            avail_stamps[(date_iso, plant.plant_key)] = avd.availability
+        cov_stamps[(date_iso, plant.plant_key)] = avd.coverage
 
         # Specific yield (kWh/kWp) - feeds the plant-vs-twin indicator.
         sy = compute_specific_yield(perf.energy_kwh, plant.kwp_dc)
@@ -377,7 +397,7 @@ def main(argv=None) -> int:
         # Plain-language day statement (uses the values just computed;
         # partial days get their own honest sentence).
         note = production_statement(
-            pp, perf.pr, av, sl,
+            pp, perf.pr, avd.availability, sl,
             coverage.get((date_iso, plant.plant_key)))
         if note is not None:
             note_stamps[(date_iso, plant.plant_key)] = note
@@ -479,14 +499,19 @@ def main(argv=None) -> int:
         log.info("Stamped %d status_note cell(s)%s",
                  stamped, " (dry-run)" if args.dry_run else "")
 
-    # Stamp availability (fraction of daylight slots online, vs config).
-    if avail_stamps:
+    # Stamp availability and its coverage (v310, argia/kpi/availability.py).
+    if avail_stamps or cov_stamps:
         log.info("Availability: %s",
                  {pk: v for (_, pk), v in avail_stamps.items()})
+        log.info("Availability coverage: %s",
+                 {pk: v for (_, pk), v in cov_stamps.items()})
+        _ensure_avail_coverage(args.dry_run)
         stamped = stamp_column(sheets, AVAILABILITY_COL_NAME, avail_stamps,
                                dry_run=args.dry_run)
-        log.info("Stamped %d availability cell(s)%s",
-                 stamped, " (dry-run)" if args.dry_run else "")
+        stamped_c = stamp_column(sheets, "avail_coverage", cov_stamps,
+                                 dry_run=args.dry_run)
+        log.info("Stamped %d availability and %d coverage cell(s)%s",
+                 stamped, stamped_c, " (dry-run)" if args.dry_run else "")
 
     # Stamp billable_kwh = measured energy + approved customer-deemed
     # energy for the day (v91, maintenance/penalty feature). Deemed is

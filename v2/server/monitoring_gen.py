@@ -603,18 +603,26 @@ RECON_M = [r for r in q(
 # v242 (Mirek's QA, 2026-09-08): the averages used to run over the days
 # that HAD a value - Ryder showed PR 0.996 / PR_STC 1.084 / availability
 # 100% from ONE day while dark for six. Now: a PR needs MIN_PR_DAYS days
-# and a day above PR_MAX is an input error, not a value; a dark day (no
-# telemetry, no energy - or no row at all up to yesterday) is 0%
-# available, the same rule the plant report applies (v241).
+# and a day above PR_MAX is an input error, not a value.
+# v310 (Tomasz, 2026-10-04: "double check it if it was really the case ...
+# we have to deliver solid results"): availability is weighted by the
+# known share of each day (avail_coverage, argia/kpi/availability.py) and a
+# dark day (no telemetry, no energy - or no row at all up to yesterday) is
+# time WITHOUT DATA: it lowers the coverage shown under the figure, not the
+# availability. It used to count as 0 % available, so a datalogger outage
+# read as a plant outage (Budenheim 70 %, 9 dark days).
 MIN_PR_DAYS = 7
 PR_MAX = 1.05
+COVERAGE_SHOW = 0.95          # below this the page says how much of the time had data
 
 
 def perf_summary(rows, today, first_dates, min_pr_days=MIN_PR_DAYS, pr_max=PR_MAX):
     """rows: (plant_key, 'YYYY-MM-DD', pr, pr_stc, availability,
-    energy_kwh, expected_kwh) for the last 30 days as strings ('' = NULL);
-    first_dates: plant -> its first daily_production date. Pure."""
+    energy_kwh, expected_kwh[, avail_coverage]) for the last 30 days as
+    strings ('' = NULL); first_dates: plant -> its first daily_production
+    date. Pure."""
     import datetime as _dt
+    from argia.kpi.availability import window as _avail_window
     end = _dt.date.fromisoformat(today) - _dt.timedelta(days=1)
     start = _dt.date.fromisoformat(today) - _dt.timedelta(days=30)
     by = {}
@@ -627,23 +635,24 @@ def perf_summary(rows, today, first_dates, min_pr_days=MIN_PR_DAYS, pr_max=PR_MA
         prs = [f(r[2]) for r in rs if f(r[2]) is not None]
         good = [v for v in prs if v <= pr_max]
         stcs = [f(r[3]) for r in rs if f(r[3]) is not None and f(r[3]) <= pr_max]
-        avs, dark = [], 0
-        for r in rs:
-            a = f(r[4])
-            if a is not None:
-                avs.append(a)
-            elif (f(r[5]) or 0.0) <= 0:
-                dark += 1                      # a row with nothing in it
         fd = first_dates.get(pk)
         owed_from = max(start, _dt.date.fromisoformat(fd)) if fd else start
         owed = (end - owed_from).days + 1 if owed_from <= end else 0
-        have = sum(1 for r in rs if owed_from.isoformat() <= r[1] <= end.isoformat())
-        norow = max(0, owed - have)
-        n_av = len(avs) + dark + norow
+        inwin = [r for r in rs if owed_from.isoformat() <= r[1] <= end.isoformat()]
+        pairs, dark = [], 0
+        for r in inwin:
+            a = f(r[4])
+            if a is not None:
+                pairs.append((a, f(r[7]) if len(r) > 7 else None))
+            elif (f(r[5]) or 0.0) <= 0:
+                dark += 1                      # a row with nothing in it
+        norow = max(0, owed - len(inwin))
+        av, cov = _avail_window(pairs, owed)      # a day without inverter readings is uncovered time
         out[pk] = {
             'pr': round(sum(good) / len(good), 3) if len(good) >= min_pr_days else None,
             'pr_stc': round(sum(stcs) / len(stcs), 3) if len(stcs) >= min_pr_days else None,
-            'avail': round(sum(avs) / n_av, 3) if n_av else None,
+            'avail': round(av, 3) if av is not None else None,
+            'coverage': round(cov, 3) if cov is not None else None,
             'prod': sum(f(r[5]) or 0.0 for r in rs),
             'exp': sum(f(r[6]) or 0.0 for r in rs),
             'pr_days': len(prs), 'pr_bad': len(prs) - len(good),
@@ -655,7 +664,8 @@ def perf_summary(rows, today, first_dates, min_pr_days=MIN_PR_DAYS, pr_max=PR_MA
 FIRST_DATES = {r[0]: r[1] for r in q(
     "SELECT plant_key, min(prod_date)::text FROM daily_production GROUP BY 1;") if len(r) >= 2}
 PERF = perf_summary(q(
-    "SELECT plant_key, prod_date::text, pr, pr_stc, availability, energy_kwh, expected_kwh"
+    "SELECT plant_key, prod_date::text, pr, pr_stc, availability, energy_kwh, expected_kwh,"
+    " avail_coverage"
     f" FROM daily_production WHERE prod_date >= DATE '{TODAY}' - 30;"), TODAY, FIRST_DATES)
 
 PR_TREND = {}   # plant -> [(date, pr)] last 30d, for sparklines
@@ -679,7 +689,8 @@ def perf_avail_tiles(keys, grp=''):
         if p.get('pr') is not None:
             w_pr += p['pr'] * kwp; kwp_pr += kwp
         if p.get('avail') is not None:
-            w_av += p['avail'] * kwp; kwp_av += kwp
+            cw = kwp * (p['coverage'] if p.get('coverage') is not None else 1.0)   # v310: known time only
+            w_av += p['avail'] * cw; kwp_av += cw
     pr = (w_pr / kwp_pr) if kwp_pr else None
     av = (w_av / kwp_av) if kwp_av else None
     pr_cls = ('' if pr is None else
@@ -1488,6 +1499,16 @@ def pr_sparkline(pk, w=140, h=30):
             'stroke="#1e8e3e" stroke-width="1.6"/></svg>')
 
 
+def cov_note(cov):
+    """v310: under an availability figure, how much of the time had data -
+    shown only when it is below COVERAGE_SHOW (a dark plant must be seen)."""
+    if cov is None or cov >= COVERAGE_SHOW:
+        return ''
+    pct = f'{100 * cov:,.0f}%'
+    return (f'<div class="tkey" data-en="data {pct} of the time" data-es="datos {pct} del tiempo"'
+            f' title="share of the sunny hours with inverter readings">data {pct} of the time</div>')
+
+
 def performance_page(skin='old'):
     """skin='portal' (v213) returns the body without the controls row."""
     rows = []
@@ -1495,8 +1516,8 @@ def performance_page(skin='old'):
     # and availability are kWp-weighted means (a 155 kWp plant must not
     # pull the fleet number as hard as an 818 kWp one)
     t_kwp = t_prod = t_exp = 0.0
-    w_pr = w_prstc = w_av = 0.0
-    kwp_pr = kwp_prstc = kwp_av = 0.0
+    w_pr = w_prstc = w_av = w_cov = 0.0
+    kwp_pr = kwp_prstc = kwp_av = kwp_cov = 0.0
     for section, keys in (
             ('PPA', [k for k in sorted(PLANTS)
                      if PLANTS[k]['portfolio'] == 'PPA']),
@@ -1531,7 +1552,10 @@ def performance_page(skin='old'):
             if prstc is not None:
                 w_prstc += prstc * kwp; kwp_prstc += kwp
             if av is not None:
-                w_av += av * kwp; kwp_av += kwp
+                cw = kwp * (p.get('coverage') if p.get('coverage') is not None else 1.0)
+                w_av += av * cw; kwp_av += cw
+                w_cov += kwp * (p.get('coverage') if p.get('coverage') is not None else 1.0)
+            kwp_cov += kwp
             rows.append(
                 f'<tr><td><a href="{BASE}/{pk.lower()}/">{esc(meta["customer"])}'
                 f'</a> <span class="tkey">{pk}</span></td>'
@@ -1539,7 +1563,7 @@ def performance_page(skin='old'):
                 f'<td{pr_cls}>{" - " if pr is None else f"{pr:.3f}"}</td>'
                 f'<td>{" - " if prstc is None else f"{prstc:.3f}"}</td>'
                 f'<td>{pr_sparkline(pk)}</td>'
-                f'<td{av_cls}>{" - " if av is None else f"{100*av:,.1f}%"}</td>'
+                f'<td{av_cls}>{" - " if av is None else f"{100*av:,.1f}%"}{cov_note(p.get("coverage"))}</td>'
                 f'<td>{" - " if prod is None else f"{prod:,.0f}"}</td>'
                 f'<td>{" - " if exp is None else f"{exp:,.0f}"}</td>'
                 f'<td>{ratio}</td></tr>')
@@ -1553,7 +1577,8 @@ def performance_page(skin='old'):
         f'<td>{" - " if not kwp_pr else f"{w_pr/kwp_pr:.3f}"}</td>'
         f'<td>{" - " if not kwp_prstc else f"{w_prstc/kwp_prstc:.3f}"}</td>'
         '<td></td>'
-        f'<td>{" - " if not kwp_av else f"{100*w_av/kwp_av:,.1f}%"}</td>'
+        f'<td>{" - " if not kwp_av else f"{100*w_av/kwp_av:,.1f}%"}'
+        f'{cov_note(w_cov / kwp_cov if kwp_cov else None)}</td>'
         f'<td>{t_prod:,.0f}</td><td>{t_exp:,.0f}</td>'
         f'<td>{t_ratio}</td></tr>')
     body = ('' if skin == 'portal' else controls()) + f'''
@@ -1567,8 +1592,8 @@ def performance_page(skin='old'):
 <th data-en="Expected kWh" data-es="Esperado kWh">Expected kWh</th>
 <th data-en="vs exp." data-es="vs esp.">vs exp.</th></tr>
 {''.join(rows)}</table>
-<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature - only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. A PR needs at least 7 days in the window and a day above 1.05 is an input error, not a value ( - ); a day without telemetry and without energy counts as 0% available. Next: degradation vs the ≤0.4%/yr warranty."
- data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia - solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Un PR necesita al menos 7 días en la ventana y un día arriba de 1.05 es un error de entrada, no un valor ( - ); un día sin telemetría y sin energía cuenta como 0% disponible. Sigue: degradación vs garantía ≤0.4%/año.">
+<p class="note" data-en="PR and availability come from the daily KPI pipeline (vendor-counter-verified energy). PR_STC is temperature-corrected to 25°C cells (AGS-701 / IEC 61724-3) using measured, irradiance-weighted module temperature - only computed where a sensor exists, never estimated. Bands: PR green ≥0.75, amber 0.65–0.75; availability green ≥98% (IEC 63019), amber 95–98%. A PR needs at least 7 days in the window and a day above 1.05 is an input error, not a value ( - ). Availability (v310): 15-minute steps with the sun above 15°; an inverter producing is available, one at 0 W is not; time without readings is unknown unless the inverter's own day counter proves it produced - unknown time is left out and shown as 'data x% of the time', never counted as an outage. Next: degradation vs the ≤0.4%/yr warranty."
+ data-es="PR y disponibilidad provienen del pipeline diario de KPI. PR_STC está corregido a células de 25°C (AGS-701 / IEC 61724-3) con temperatura de módulo medida y ponderada por irradiancia - solo donde hay sensor, nunca estimado. Bandas: PR verde ≥0.75, ámbar 0.65–0.75; disponibilidad verde ≥98% (IEC 63019). Un PR necesita al menos 7 días en la ventana y un día arriba de 1.05 es un error de entrada, no un valor ( - ). Disponibilidad (v310): pasos de 15 minutos con el sol arriba de 15°; un inversor produciendo está disponible, uno en 0 W no; el tiempo sin lecturas es desconocido salvo que el contador diario del propio inversor pruebe que produjo - el tiempo desconocido queda fuera y se muestra como 'datos x% del tiempo', nunca como paro.">
 PR and availability come from the daily KPI pipeline.</p></div>'''
     if skin == 'portal':
         return body

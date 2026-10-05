@@ -64,8 +64,10 @@ class TestPerfSummary:
         rows = _rows("TAM1", days, pr=pr, pr_stc=pr, av=av, energy=energy)
         p = ns["perf_summary"](rows, self.TODAY, {"TAM1": "2026-05-13"})["TAM1"]
         assert p["pr"] is None and p["pr_stc"] is None and p["pr_days"] == 1
-        # 1 measured day + 6 dark rows -> 1/7
-        assert p["avail"] == pytest.approx(1 / 7, abs=1e-3)
+        # v310: 1 measured day of 30 owed -> availability over the known day,
+        # and the page says only 3% of the time had data (it used to read 1/7
+        # = 14% available, as if the plant had been off)
+        assert p["avail"] == 1.0 and p["coverage"] == pytest.approx(1 / 30, abs=1e-3)
         assert p["dark_days"] == 6
 
     def test_pr_above_cap_is_an_input_error(self):
@@ -82,7 +84,7 @@ class TestPerfSummary:
         rows = _rows("QRO1", days, pr=[0.8] * 20, av=[1.0] * 20, energy=[100.0] * 20)
         p = ns["perf_summary"](rows, self.TODAY, {"QRO1": "2026-07-10"})["QRO1"]
         assert p["dark_days"] == 10                    # 08-29 .. 09-07
-        assert p["avail"] == pytest.approx(20 / 30, abs=1e-3)
+        assert p["avail"] == 1.0 and p["coverage"] == pytest.approx(20 / 30, abs=1e-3)   # v310
 
     def test_vendor_only_days_stay_out_of_availability(self):
         ns = _mon_ns()
@@ -104,8 +106,24 @@ class TestPerfSummary:
         days = _days("2026-08-09", 30)
         rows = _rows("NL1", days, pr=[0.78] * 30, pr_stc=[0.83] * 30, av=[0.99] * 30, energy=[3000.0] * 30, exp=[2900.0] * 30)
         p = ns["perf_summary"](rows, self.TODAY, {"NL1": "2025-03-01"})["NL1"]
-        assert p == {"pr": 0.78, "pr_stc": 0.83, "avail": 0.99, "prod": 90000.0, "exp": 87000.0,
+        assert p == {"pr": 0.78, "pr_stc": 0.83, "avail": 0.99, "coverage": 1.0, "prod": 90000.0, "exp": 87000.0,
                      "pr_days": 30, "pr_bad": 0, "dark_days": 0}
+
+    def test_v310_coverage_weights_each_day(self):
+        ns = _mon_ns()
+        days = _days("2026-08-09", 30)
+        rows = [(r + ("0.5" if i == 0 else "1.0",)) for i, r in
+                enumerate(_rows("SLP2", days, av=[0.5] + [1.0] * 29, energy=[100.0] * 30))]
+        p = ns["perf_summary"](rows, self.TODAY, {"SLP2": "2025-03-01"})["SLP2"]
+        assert p["avail"] == pytest.approx((0.25 + 29) / 29.5, abs=1e-3)
+        assert p["coverage"] == pytest.approx(29.5 / 30, abs=1e-3)
+
+    def test_v310_cov_note_only_when_data_is_missing(self):
+        ns = _mon_ns()
+        seg = MON[MON.index("def cov_note(cov):"):MON.index("def performance_page(")]
+        exec(compile(seg, "mon_cov", "exec"), ns)
+        assert ns["cov_note"](0.99) == "" and ns["cov_note"](None) == ""
+        assert "data 68% of the time" in ns["cov_note"](0.682) and "datos 68% del tiempo" in ns["cov_note"](0.682)
 
     def test_wired_in(self):
         assert "PERF = perf_summary(q(" in MON

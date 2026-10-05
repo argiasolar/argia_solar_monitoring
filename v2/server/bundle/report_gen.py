@@ -118,10 +118,13 @@ _r = q("SELECT round(100.0*coalesce(sum(s.payment_mxn) FILTER (WHERE l.currency=
 usd_share = f(_r[0][0]) if _r and _r[0] else 0.0   # % of portfolio debt service that is USD
 
 avail_d = {}   # (key, 'YYYY-MM-DD') -> availability 0..1 (v2 days only)
-for r in q("SELECT plant_key, prod_date, availability FROM daily_production "
+cov_d = {}     # v310: (key, 'YYYY-MM-DD') -> known share of the day (avail_coverage)
+for r in q("SELECT plant_key, prod_date, availability, avail_coverage FROM daily_production "
            "WHERE availability IS NOT NULL;"):
     if len(r) > 2:
         avail_d[(r[0], r[1])] = f(r[2])
+        if len(r) > 3 and f(r[3]) is not None:
+            cov_d[(r[0], r[1])] = f(r[3])
 
 # Weather-expected energy, self-calibrated (management + solar-director
 # round, 2026-09-02). The stored expected_kwh uses each plant's config
@@ -733,10 +736,10 @@ function compute(){
  const dark=idx.filter(i=>AV[D[i]]==null&&E[i]<=0).map(i=>D[i]);
  const darkN=dark.length+norow;
  const nodata=idx.length===0;
- let prod=0,rev=0,ctr=0,avs=[],dqf=0,avloss=0,xsum=0,exsum=0,co2=0;
+ let prod=0,rev=0,ctr=0,avs=[],avw=0,avk=0,dqf=0,avloss=0,xsum=0,exsum=0,co2=0;
  idx.forEach(i=>{prod+=E[i];if(RV)rev+=RV[i];if(C)ctr+=C[i];
   co2+=E[i]/1000*((CO2Y&&CO2Y[D[i].slice(0,4)])||CO2F);
-  const a=AV[D[i]];if(a!=null)avs.push(a);
+  const a=AV[D[i]];if(a!=null){avs.push(a);const c=(typeof CV!=='undefined'&&CV[D[i]]!=null?CV[D[i]]:1);avw+=a*c;avk+=c;}
   if(X&&X[i]!=null){if(a!=null&&a<1)avloss+=X[i]*(1-a);else if(a==null&&E[i]<=0)avloss+=X[i];}
   if(X&&X[i]!=null){xsum+=X[i];exsum+=E[i];}
   const dq=DQ[D[i]];if(dq!=null){dqf+=dq;}});
@@ -745,8 +748,11 @@ function compute(){
  if($('r_rev')){if(nodata){$('r_rev').textContent=' - ';$('r_rev_u').textContent='MXN';}
   else if(rev>=1e6){$('r_rev').textContent=nf(rev/1e6,2);$('r_rev_u').textContent='M MXN';}
   else{$('r_rev').textContent=nf(rev);$('r_rev_u').textContent='MXN';}}
- const avN=avs.length+darkN;
- const av=avN?avs.reduce((x,y)=>x+y,0)/avN:null;
+ /* v310: availability over the time we KNOW (each day weighted by its
+    coverage); dark days and days without readings are uncovered time -
+    they turn the tile red with the reason, they are not a 0% outage */
+ const av=avk>0?avw/avk:null;
+ const cov=span>0?Math.min(1,avk/span):null;
  $('r_avail').textContent=av!=null?(100*av).toFixed(1)+'%':' - ';
  const rr=$('r_range');rr.textContent=d0+' – '+d1;
  document.querySelectorAll('.rdays').forEach(e=>e.textContent=days+' d');
@@ -785,10 +791,14 @@ function compute(){
   // day is never 'produced through the gap'.
   const ranFine=xsum>0&&exsum>=0.97*xsum&&!darkN;
   const worst=idx.filter(i=>AV[D[i]]!=null&&AV[D[i]]<0.95).map(i=>[D[i],AV[D[i]]])
-   .concat(dark.map(d=>[d,0])).sort((a,b)=>a[1]-b[1]).slice(0,2)
+   .sort((a,b)=>a[1]-b[1]).slice(0,2)
    .map(w=>w[0].slice(5)+': '+(100*w[1]).toFixed(0)+'%').join(', ');
   const worstTxt=T('Worst days: ','Peores días: ')+(worst||' - ');
-  if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail','good');why('r_avwhy','');}
+  const covTxt=cov!=null&&cov<0.9?T('inverter readings for only '+(100*cov).toFixed(0)+'% of the time - the figure covers that time only. ',
+                                     'lecturas de inversores solo el '+(100*cov).toFixed(0)+'% del tiempo - la cifra cubre solo ese tiempo. '):'';
+  if(cov!=null&&cov<0.9){$('r_sla').innerHTML=T('INCOMPLETE','INCOMPLETO');semTile('t_avail','bad');
+   why('r_avwhy',(darkN?darkTxt+' · ':'')+covTxt+worstTxt);}
+  else if(av>=SLA){$('r_sla').textContent='MET';semTile('t_avail',darkN?'warn':'good');why('r_avwhy',darkN?darkTxt:'');}
   else if(ranFine){$('r_sla').textContent='REVIEW';semTile('t_avail','warn');
    why('r_avwhy',T('produced through the gap (energy at '+(wxPct||0).toFixed(0)+'% of weather expectation) - telemetry loss, not proven downtime. ',
                    'produjo durante el hueco (energía al '+(wxPct||0).toFixed(0)+'% de la expectativa por clima) - pérdida de telemetría, no una parada comprobada. ')+worstTxt);}
@@ -796,7 +806,8 @@ function compute(){
    semTile('t_avail',av>=SLA-0.03?'warn':'bad');
    why('r_avwhy',(darkN?darkTxt+' · ':'')+T('low-availability days with energy missing too - check grid/site events. ',
                    'días de baja disponibilidad con energía faltante - revise eventos de red/sitio. ')+worstTxt);}
- }else{$('r_sla').textContent=' - ';semTile('t_avail','');why('r_avwhy','');}
+ }else if(darkN){$('r_sla').innerHTML=T('NO DATA','SIN DATOS');semTile('t_avail','bad');why('r_avwhy',darkTxt);}
+ else{$('r_sla').textContent=' - ';semTile('t_avail','');why('r_avwhy','');}
  const ls=$('r_loss');
  if(ls){const lsub=$('r_loss_sub');semTile('t_loss','');
   if(nodata){ls.textContent=' - ';semTile('t_loss','bad');
@@ -1315,6 +1326,7 @@ def plant_parts(k):
     if not any(clist):
         clist = None            # no contract/expected data
     avmap = {d: round(avail_d[(k, d)], 4) for d, _ in series if (k, d) in avail_d}
+    cvmap = {d: round(cov_d[(k, d)], 4) for d, _ in series if (k, d) in cov_d}
     dqmap = {d: dq_d[(k, d)] for d, _ in series if (k, d) in dq_d}
     xlist = [round(exp_d[(k, d)], 1) if (k, d) in exp_d else None
              for d, _ in series]
@@ -1531,6 +1543,7 @@ def plant_parts(k):
                 + ';const C=' + (json.dumps(clist) if clist else 'null')
                 + ';const X=' + (json.dumps(xlist) if xlist else 'null')
                 + ';const AV=' + json.dumps(avmap)
+                + ';const CV=' + json.dumps(cvmap)
                 + ';const DQ=' + json.dumps(dqmap)
                 + f';const VSL="{vs_lab}";const CO2F={co2_factor(None, k)};'
                 + ';const CO2Y=' + json.dumps(co2_factors_js(k)) + ';'

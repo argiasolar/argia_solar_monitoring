@@ -307,6 +307,7 @@ CREATE TABLE public.daily_production (
     soiling_loss_pct numeric,
     production_pct numeric,
     design_kwh numeric,
+    avail_coverage numeric(6,4),
     CONSTRAINT daily_production_energy_kwh_check CHECK ((energy_kwh >= (0)::numeric)),
     CONSTRAINT daily_production_irradiance_kwh_m2_check CHECK ((irradiance_kwh_m2 >= (0)::numeric)),
     CONSTRAINT daily_production_source_check CHECK ((source = ANY (ARRAY['v1'::text, 'v2'::text])))

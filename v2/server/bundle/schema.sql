@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS daily_production (
     billable_kwh        numeric(12,3),
     cloud_cover_pct     numeric(6,2),
     availability        numeric(6,4),
+    avail_coverage      numeric(6,4),   -- v310: known share of the judged time (argia/kpi/availability.py)
     inverters_reporting int,
     data_class          text,
     status_note         text,

@@ -163,6 +163,27 @@ def dark_plant_stamps(dense_web, plant, date_iso, design):
 from argia.core.job_log import instrument
 
 
+AVAIL_REFRESH_DAYS = 35
+
+
+def availability_for_recent_days(dry_run: bool, days: int = AVAIL_REFRESH_DAYS) -> None:
+    """v311: recompute availability for the last ``days`` MX days every
+    morning. Tomasz, 2026-10-04: "sometimes the solar system generates energy
+    even though we see the internet is offline; once it gets back online the
+    data comes for the whole period" - late readings and late vendor counters
+    (a plant dark for a week) must reach the days they belong to."""
+    try:
+        from argia.store import pg_mirror
+        if not pg_mirror.enabled() or dry_run:
+            return
+        import availability_recompute
+        n = availability_recompute.run(days, apply=True, quiet=True)
+        logging.getLogger("argia.kpi_eod").info("availability refreshed for %d plant-day(s), last %d days", n, days)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("argia.kpi_eod").warning("availability refresh failed (KPI run unaffected): %s: %s",
+                                                   type(e).__name__, e)
+
+
 def losses_for_recent_days(dry_run: bool, days: int = 3) -> None:
     """Recompute loss_daily for the last ``days`` MX days (a late counter or a
     thermal re-run is picked up the next morning)."""
@@ -595,6 +616,7 @@ def main(argv=None) -> int:
     # v264: what the under-production cost, per plant and cause - needs the
     # energy and expected_kwh stamped above, so it runs last. Never fails the KPI run.
     losses_for_recent_days(args.dry_run)
+    availability_for_recent_days(args.dry_run)
 
     if plants_with_data == 0:
         return 2

@@ -206,3 +206,105 @@ class TestWiring:
         assert '" avail_coverage"' in mon and "_avail_window(pairs, owed)" in mon
         rg = (V2 / "server" / "bundle" / "report_gen.py").read_text(encoding="utf-8")
         assert "const CV=" in rg and "avw+=a*c;avk+=c;" in rg
+
+
+class TestV311InternetDownPlantProducing:
+    """Tomasz, 2026-10-04: "sometimes the solar system generates energy even
+    though we see the internet is offline; once it gets back online the data
+    comes for the whole period"."""
+
+    def test_internet_down_all_afternoon_vendor_counter_proves_it(self):
+        # every inverter silent from 12:00 to the end of the day (one line, one
+        # datalogger); next day the vendor counter shows the full day's energy
+        gap = [((12, 0), (20, 0))]
+        s = sum((feed(sn, gaps=gap) for sn, _ in INV), [])
+        full_day = sum(max(e for *_x, e in feed(sn)) for sn, _ in INV)
+        blind = run(s, expected=full_day)                      # telemetry only: counters stop at 12:00
+        assert blind.coverage < 0.7 and blind.plant_proven_steps == 0
+        r = A.compute(s, INV, DAY, *MTY, expected_kwh=full_day, plant_energy_kwh=full_day)
+        assert r.availability == 1.0 and r.coverage == 1.0
+        assert set(r.proven) == {"A", "B", "C", "D"} or r.plant_proven_steps > 0
+
+    def test_a_whole_dark_day_with_normal_vendor_energy_is_available(self):
+        r = A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=950.0)
+        assert (r.availability, r.coverage) == (1.0, 1.0) and r.plant_proven_steps == r.steps
+
+    def test_a_silent_inverter_that_never_reported_needs_the_plant_proof(self):
+        # no readings at all for any inverter from 10:00 (no counters after) - only
+        # the plant-wide rule can prove those steps
+        s = sum((feed(sn, end=(10, 0)) for sn, _ in INV), [])
+        r = A.compute(s, INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=1000.0)
+        assert r.coverage == 1.0 and r.availability == 1.0
+        blind = A.compute(s, INV, DAY, *MTY, expected_kwh=1000.0)         # without the vendor's day energy
+        assert blind.coverage < 0.5
+
+    def test_a_dark_day_with_low_or_no_energy_stays_unknown(self):
+        assert A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=600.0).availability is None
+        assert A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=840.0).availability is None
+        assert A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=850.0).availability == 1.0   # PLANT_PROOF
+        assert A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=None).availability is None
+        assert A.compute([], INV, DAY, *MTY, expected_kwh=None, plant_energy_kwh=950.0).availability is None
+
+    def test_one_silent_inverter_is_not_proven_by_the_plant(self):
+        """Ryder inverter 2, 30 Sep: silent from 11:31 while its peers reported and the
+        plant beat its expectation - the plant's energy cannot speak for that inverter."""
+        s = feed("A", end=(11, 31)) + feed("B") + feed("C") + feed("D")
+        r = A.compute(s, INV, DAY, *MTY, expected_kwh=100.0, plant_energy_kwh=10000.0)
+        assert "A" in r.unknown_steps and r.plant_proven_steps == 0
+
+    def test_a_real_stop_is_still_a_stop(self):
+        """Readings at 0 W are evidence, the plant energy never overrides them."""
+        stop = lambda h, m: 0.0 if 11 <= h < 14 else (30000.0 if 7 <= h < 19 else 0.0)
+        r = A.compute(feed("A", power=stop) + feed("B", power=stop), [("A", 50.0), ("B", 50.0)], DAY, *MTY,
+                      expected_kwh=1.0, plant_energy_kwh=1e6)
+        assert r.availability < 0.85
+
+
+class TestV311Recompute:
+    def _mod(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("avr311", V2 / "scripts" / "availability_recompute.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_typical_ratio_learns_the_plants_own_normal(self):
+        m = self._mod()
+        days = [(1.0, 0, 800.0, 1000.0)] * 6 + [(0.3, 0, 100.0, 1000.0), (1.0, 4, 200.0, 1000.0)]
+        assert m.typical_ratio(days) == pytest.approx(0.8)           # gaps and stop days ignored
+        assert m.typical_ratio(days[:4]) == 1.0                       # too few good days
+        assert m.typical_ratio([(1.0, 0, 3000.0, 1000.0)] * 6) == 1.3   # bounded
+        assert m.typical_ratio([(1.0, 0, 100.0, 1000.0)] * 6) == 0.5
+
+    def test_kpi_eod_refreshes_35_days_every_morning(self):
+        src = (V2 / "scripts" / "kpi_eod.py").read_text(encoding="utf-8")
+        assert "AVAIL_REFRESH_DAYS = 35" in src and "availability_for_recent_days(args.dry_run)" in src
+        assert "availability_recompute.run(days, apply=True, quiet=True)" in src
+        assert src.index("losses_for_recent_days(args.dry_run)") < src.index("availability_for_recent_days(args.dry_run)")
+
+    def test_second_pass_uses_the_vendor_day_energy(self):
+        src = (V2 / "scripts" / "availability_recompute.py").read_text(encoding="utf-8")
+        assert "expected_kwh=typical, plant_energy_kwh=day_energy" in src
+        assert "day_energy = (f(energy) or 0.0) + late.get((pk, day), 0.0)" in src
+
+    def test_late_energy_goes_back_to_the_blind_days(self):
+        """Budenheim class: the internet is out for days, the lifetime counter stands
+        still, then jumps when the line is back - that energy belongs to the blind days."""
+        m = self._mod()
+        days = [("09-23", 1000.0, 1000.0, 0.0)] + [(f"09-{24 + i}", 0.0, 1000.0, 0.0) for i in range(5)] \
+            + [("09-29", 1000.0, 1000.0, 4800.0)]
+        x = m.spread_catchup(days)
+        assert set(x) == {"09-24", "09-25", "09-26", "09-27", "09-28"}           # stops at the normal day
+        assert all(v == pytest.approx(960.0) for v in x.values())
+        assert A.PLANT_PROOF == 0.85 and A.PLANT_PROOF > 5 / 6       # one dead inverter of six is no proof
+        r = A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=x["09-26"])
+        assert (r.availability, r.coverage) == (1.0, 1.0)
+
+    def test_a_small_catchup_proves_nothing_and_never_overfills(self):
+        m = self._mod()
+        days = [(f"d{i}", 0.0, 1000.0, 0.0) for i in range(4)] + [("d4", 900.0, 1000.0, 1200.0)]
+        x = m.spread_catchup(days)
+        assert all(v == pytest.approx(300.0) for v in x.values())                # 1200 over 4 blind days
+        assert A.compute([], INV, DAY, *MTY, expected_kwh=1000.0, plant_energy_kwh=300.0).availability is None
+        big = m.spread_catchup([("a", 0.0, 1000.0, 0.0), ("b", 0.0, 1000.0, 99999.0)])
+        assert big == {"a": pytest.approx(1000.0)}                               # capped at the shortfall

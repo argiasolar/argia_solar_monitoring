@@ -29,6 +29,12 @@ The rule now (IEC 61724-3 idea: time without information is not downtime):
   grid loss also kills the datalogger) is never waved through by equally
   silent peers - the plant's counted energy reaches ``COUNTER_PROOF`` of the
   expected energy when that is known;
+* v311: when the WHOLE plant is silent (internet or datalogger down - the
+  inverters keep producing and the vendor gets the whole period once the
+  line is back), the silent time is UP if the plant's day energy, as the
+  vendor counter finally reported it, reaches ``PLANT_PROOF`` of what the
+  plant normally makes on such a day - the same holds for a day with no
+  readings at all;
 * availability = UP / (UP + DOWN), weighted by rated kW; UNKNOWN steps that
   nothing proves are left out and reported as ``coverage`` = known share of
   the judged time. A dark plant is "no data", never 0 % and never 100 %.
@@ -47,6 +53,10 @@ MX_OFFSET = dt.timedelta(hours=-6)        # Mexico City: UTC-6 all year since 20
 STEP_MIN = 15
 SUN_MIN_ELEV = 15.0
 COUNTER_PROOF = 0.90
+PLANT_PROOF = 0.85                        # v311: plant energy vs its normal for a plant-wide silence -
+                                          # a weather model is a looser yardstick than the peers on the
+                                          # same roof (SAG's blind days: 86-90 % of normal, final counter);
+                                          # still below 5/6 = 83 %, so one dead inverter of six is no proof
 BRACKET_MIN = 15                          # how far a counter reading may sit from the step it judges
 COUNTER_STEP_KWH = 0.05                   # counter growth that proves energy flowed (above rounding)
 FALLBACK_HOURS = (8, 17)                  # judged window when a plant has no coordinates
@@ -67,6 +77,7 @@ class AvailabilityDay:
     down_steps: Dict[str, int] = field(default_factory=dict)
     unknown_steps: Dict[str, int] = field(default_factory=dict)   # left unknown (not proven)
     proven: Tuple[str, ...] = ()         # inverters whose gaps their counter proved
+    plant_proven_steps: int = 0          # v311: plant-wide silent steps the plant's day energy proved
 
 
 def sun_elevation(lat: float, lon: float, t_local: dt.datetime) -> float:
@@ -125,10 +136,21 @@ def _counter_grew(pts: List[Tuple[dt.datetime, float]], day: dt.date, i: int) ->
 
 def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[float]]],
             day: dt.date, lat: Optional[float], lon: Optional[float],
-            expected_kwh: Optional[float] = None) -> AvailabilityDay:
+            expected_kwh: Optional[float] = None,
+            plant_energy_kwh: Optional[float] = None) -> AvailabilityDay:
     """The plant-day availability. ``inverters``: the CONFIGURED inverters as
     (serial, rated kW) - an inverter that never reports stays in the judged
-    time (as unknown), it cannot silently drop out."""
+    time (as unknown), it cannot silently drop out.
+
+    ``expected_kwh``: what the plant normally makes on such a day (the
+    recompute passes the weather expectation scaled by the plant's own usual
+    ratio to it). ``plant_energy_kwh``: the plant's day energy as the vendor
+    counter finally reported it - v311 (Tomasz, 2026-10-04: "sometimes the
+    solar system generates energy even though we see the internet is offline;
+    once it gets back online the data comes for the whole period"): when the
+    whole plant went silent (one datalogger, one internet line) and the
+    counter later shows the plant made its normal energy, the silent time was
+    production, not downtime."""
     steps = judged_steps(day, lat, lon)
     judged = set(steps)
     sns = [str(sn).strip() for sn, _kw in inverters if str(sn).strip()]
@@ -171,8 +193,10 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
                 state[(sn, i)] = UP
 
     # counter proof for the unknown steps
+    plant_energy = max(sum(counter.values()), float(plant_energy_kwh or 0.0))
+    plant_proof = bool(expected_kwh and expected_kwh > 0 and plant_energy >= PLANT_PROOF * expected_kwh)
     plant_ok = (expected_kwh is None or expected_kwh <= 0
-                or sum(counter.values()) >= COUNTER_PROOF * expected_kwh)
+                or plant_energy >= COUNTER_PROOF * expected_kwh)
     proven = []
     for sn in sns:
         if sn not in counter or not any(state[(sn, i)] == UNKNOWN for i in steps):
@@ -187,6 +211,19 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
                 if state[(sn, i)] == UNKNOWN:
                     state[(sn, i)] = UP
 
+    # v311: a plant-wide silence (every inverter unknown in the step - the
+    # internet or the datalogger, not the inverters) is production when the
+    # counter later proves the plant made its normal energy that day. A
+    # silence of ONE inverter while its peers report stays that inverter's
+    # own business: only its own counter can prove it.
+    plant_proven = 0
+    if plant_proof:
+        for i in steps:
+            if all(state[(sn, i)] == UNKNOWN for sn in sns):
+                plant_proven += 1
+                for sn in sns:
+                    state[(sn, i)] = UP
+
     up = sum(rated[sn] for (sn, _i), s in state.items() if s == UP)
     down = sum(rated[sn] for (sn, _i), s in state.items() if s == DOWN)
     total = sum(rated[sn] for sn in sns) * len(steps)
@@ -198,6 +235,7 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
         down_steps={sn: n for sn in sns if (n := sum(1 for i in steps if state[(sn, i)] == DOWN))},
         unknown_steps={sn: n for sn in sns if (n := sum(1 for i in steps if state[(sn, i)] == UNKNOWN))},
         proven=tuple(proven),
+        plant_proven_steps=plant_proven,
     )
 
 

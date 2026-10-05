@@ -114,3 +114,4 @@ def test_pi_status_reports_whether_the_pull_script_is_executable(tmp_path, monke
     doc = ps.build(NOW, {"pull_exec": True}, [], "x", 1, "pi")
     assert doc["backup"]["pull_exec"] is True
     assert ps.build(NOW, {}, [], "x", 1, "pi")["backup"]["pull_exec"] is None
+    assert ps.build(NOW, {"python": "3.11.2"}, [], "x", 1, "pi")["python"] == "3.11.2"      # v312

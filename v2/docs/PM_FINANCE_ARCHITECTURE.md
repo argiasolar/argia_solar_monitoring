@@ -116,7 +116,7 @@ Four levels, as the TDD note suggests: **unit** (formulas and rules - Phase 0, p
 | 2 | 1–9 (offer → project, milestones, schedule health, Drive tree, documents, budget), 25, 36–39, 48–52, 57–61, 68, 69, 71, 74 |
 | 3 | 42–44 (advances, retentions), 53–56 (maintenance + PPA billing integration), 73 (Ask), 75 (golden path) |
 
-Rules of the road (same as today): commit scripts with `set -o pipefail`; tests pin `encoding="utf-8"`; laptop 3.14 + sandbox 3.11/3.10 green before push; every timer in OPERATIONS.md; `drift_check` after every deploy; no hand edits in PG; secrets never in chat, repo or logs.
+Rules of the road (same as today): commit scripts with `set -o pipefail`; tests pin `encoding="utf-8"`; laptop 3.14 + sandbox 3.11/3.13 green before push (CI matrix 3.11/3.12/3.13 since v312); every timer in OPERATIONS.md; `drift_check` after every deploy; no hand edits in PG; secrets never in chat, repo or logs.
 
 ## 10. Roadmap with gates
 

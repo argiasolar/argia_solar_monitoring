@@ -213,7 +213,7 @@ def check_accounts(payments: Sequence[dict], registered: Iterable[str], rec: Rec
 
 def reconcile(savio_invoices: Sequence[dict], savio_payments: Sequence[dict], tracker: Sequence[dict], deposits: Sequence[dict],
               registered_accounts: Iterable[str] = (), source: str = "mock", now: Optional[dt.datetime] = None) -> Recon:
-    rec = Recon(checked_at=now or dt.datetime.utcnow(), source=source)
+    rec = Recon(checked_at=now or dt.datetime.now(dt.timezone.utc).replace(tzinfo=None), source=source)
     match_invoices(savio_invoices, tracker, rec)
     match_payments(savio_payments, deposits, rec)
     check_accounts(savio_payments, registered_accounts, rec)

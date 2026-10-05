@@ -4,7 +4,7 @@ Two bug classes that no behavioural test catches until the code path runs
 on the server:
 
 * a file that does not even compile on the oldest Python in the CI matrix
-  (3.10) - many operational scripts and the Pi tools are never imported
+  (3.11 since v312, the office Pi's) - many operational scripts and the Pi tools are never imported
   by a test, so a syntax slip there is only found in production;
 * the pyflakes findings that are real defects, not style: an undefined
   name (a NameError waiting for its code path), a duplicate dict key

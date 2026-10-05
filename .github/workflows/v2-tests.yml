@@ -21,7 +21,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        # v312: 3.10 dropped - nothing runs it (server 3.13, office Pi 3.11, laptop 3.14);
+        # 3.13 added because it is what production runs
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4

@@ -77,6 +77,7 @@ def build(now, files, crontab, git_head, disk_free_mb, hostname):
         "cfe_heartbeat": ({"age_h": round((now - hb[0]) / 3600.0, 1) if hb[0] else None, "writable": hb[1]}
                           if hb else None),
         "tails": files.get("tails", {}),          # the last lines of the CFE and backup logs, for diagnosis
+        "python": files.get("python"),            # v312: the Pi's Python - the oldest one CI must cover
     }
 
 
@@ -120,7 +121,7 @@ def gather(now):
     pull = os.path.join(HOME, "argia_v2", "v2", "pi", "db_backups", "pull_backup.sh")
     pull_exec = os.access(pull, os.X_OK) if os.path.exists(pull) else None
     return build(now, {"logs": logs, "dumps": dumps, "weekly": weekly, "cfe_heartbeat": hb_info, "tails": tails,
-                       "pull_exec": pull_exec},
+                       "pull_exec": pull_exec, "python": sys.version.split()[0]},
                  crontab, head, free, os.uname().nodename)
 
 

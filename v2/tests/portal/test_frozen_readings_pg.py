@@ -17,6 +17,7 @@ import sys
 
 import pytest
 
+from argia.core.time_utils import parse_pg_ts
 from argia.telemetry import fresh as F
 
 from .conftest import reset_db
@@ -53,13 +54,14 @@ def test_sql_and_python_flag_the_same_rows(frozen):
                          "AND power_w IS NOT NULL AND ts_utc > now() - interval '1 day' ORDER BY 1, 2;")
     by_inv = {}
     for sn, ts, p, e in rows:
-        by_inv.setdefault(sn, []).append((dt.datetime.fromisoformat(ts.replace(" ", "T")), float(p), float(e) if e else None))
+        # v312: parse_pg_ts - PostgreSQL prints '+00', which fromisoformat rejects before 3.11
+        by_inv.setdefault(sn, []).append((parse_pg_ts(ts), float(p), float(e) if e else None))
     want = set()
     for sn, rs in by_inv.items():
         for r, flag in zip(rs, F.repeats(rs)):
             if flag:
                 want.add((sn, r[0]))
-    got = {(sn, dt.datetime.fromisoformat(ts.replace(" ", "T"))) for sn, ts in _psql(
+    got = {(sn, parse_pg_ts(ts)) for sn, ts in _psql(
         frozen, f"WITH {F.repeat_cte(chr(39) + '2000-01-01' + chr(39))} SELECT inverter_sn, ts_utc FROM rep "
                 "WHERE plant_key IN ('MEX1', 'GTO1') AND ts_utc > now() - interval '1 day';")}
     assert got == want

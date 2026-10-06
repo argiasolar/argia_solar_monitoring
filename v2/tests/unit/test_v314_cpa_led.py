@@ -208,7 +208,7 @@ def test_pages_pass_the_gate_and_carry_no_money(site):
         vis = _visible((stage / rel).read_text(encoding="utf-8"))
         assert not re.search(r"\bMXN\b|\$\s?\d|\bprice\b|\bprecio\b|\bcost saved\b|\bahorro econ", vis, flags=re.I), rel
     led = (stage / "led" / "index.html").read_text(encoding="utf-8")
-    assert 'id="p"' not in led and "o_mxn" not in led                          # the estimator lost its price field
+    assert 'id="p"' not in led and "mxn" not in led.lower()                    # the estimator lost its price field (v314.1: also in its script)
 
 
 def test_led_page_tiles_table_and_parks(site):

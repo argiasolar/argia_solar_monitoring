@@ -859,7 +859,7 @@ def led_page(ctx: Ctx) -> str:
 <div class="sec grid g3"><div class="card"><h3>1 · {L("Audit", "Auditoría")}</h3><div class="note">{L("Fixture count, wattage, hours and light levels per area.", "Conteo de luminarias, potencia, horas y niveles de iluminación por área.")}</div></div>
 <div class="card"><h3>2 · {L("Design and install", "Diseño e instalación")}</h3><div class="note">{L("LED fixtures sized to the required lux, sensors where they pay, installed around the tenant's operation.", "Luminarias LED dimensionadas al nivel de lux requerido, sensores donde convienen, instaladas sin detener la operación.")}</div></div>
 <div class="card"><h3>3 · {L("Hand over", "Entrega")}</h3><div class="note">{L("Light levels measured at handover; load and savings documented per building, as on this page.", "Niveles de luz medidos en la entrega; carga y ahorro documentados por edificio, como en esta página.")}</div></div></div>
-<script>{LED_JS}
+<script>{LED_JS.replace("mxn_year:kwh*p,", "")}
 (function(){{function v(id){{var x=parseFloat(document.getElementById(id).value);return isNaN(x)?0:x;}}
 function f(x,d){{return x.toLocaleString('en-US',{{minimumFractionDigits:d,maximumFractionDigits:d}});}}
 function run(){{var wo=v('wo'),wn=Math.min(v('wn'),wo),h=Math.min(v('h'),24),d=Math.min(v('d'),366);

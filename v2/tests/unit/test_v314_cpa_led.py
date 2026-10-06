@@ -238,7 +238,7 @@ def test_map_switch_and_led_points(site):
     assert "Potential saving" in lp[3]["ten"] and "New building" in lp[1]["ten"] and "building location" in lp[2]["ten"]
     assert not re.search(r"MXN|\$", json.dumps(lp))
     sl = json.loads(re.search(r",SL=(\{.*?\}),MODE0", h, flags=re.S).group(1))
-    assert len({v[2] for v in sl.values()}) == 4                                   # one colour per status
+    assert len({v[2] for v in sl.values()}) == len(sl) == len(LED.STATUSES)        # one colour per status (v315: + opportunity)
     ledpage = (stage / "led" / "index.html").read_text(encoding="utf-8")
     assert "MODE0='led'" in ledpage and '"url": "../led/index.html#LED-01"' in ledpage
 

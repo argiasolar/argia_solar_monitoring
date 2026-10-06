@@ -241,6 +241,7 @@ label.f{display:block;font-size:12.5px;font-weight:700;color:var(--ink2);margin:
 .kv4{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.kv4 div{background:#f6f8fc;border-radius:12px;padding:8px 10px}
 .kv4 b{display:block;font:700 17px Poppins;color:var(--navy)}.kv4 span{font-size:11.5px;color:var(--muted)}
 tr.anchor:target td{background:#fff7e0}
+.big.b6{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:700px){.big.b6{grid-template-columns:1fr 1fr}}
 /* v314.3: a row opened from the map lands below the sticky header, not under it */
 [id]{scroll-margin-top:120px}
 /* on a phone the menu wraps and a sticky header would take a quarter of the screen */
@@ -283,7 +284,7 @@ mk.on('click',function(){window.location=p.url;});MK.push({mk:mk,ll:L.latLng(p.l
 // v314: LED projects - one dot per building in its status colour, the
 // buildings of one park in a ring around the park (screen pixels only)
 var GR={},LM=[];LP.forEach(function(p){(GR[p.pk]=GR[p.pk]||[]).push(p);});
-Object.keys(GR).forEach(function(k){var g=GR[k];g.forEach(function(p,i){var px=p.st==='delivered'?20:15;
+Object.keys(GR).forEach(function(k){var g=GR[k];g.forEach(function(p,i){var px=p.st==='delivered'?20:(p.st==='opportunity'?13:15);
 var icon=L.divIcon({className:'',iconSize:[px,px],iconAnchor:[px/2,px/2],html:'<div class="ldot" style="width:'+px+'px;height:'+px+'px;background:'+SL[p.st][2]+'"></div>'});
 var mk=L.marker([p.lat,p.lon],{icon:icon,zIndexOffset:p.st==='delivered'?2500:2000}).addTo(led);
 mk.bindTooltip(function(){return es()?p.tes:p.ten;},{direction:'auto',offset:[0,0],opacity:1,className:'mt'});
@@ -337,7 +338,7 @@ class Ctx:
         self.parks, self.projects = led or ([], [])
         self.park = {p.id: p for p in self.parks}
         self.factor = co2reg.CURRENT
-        self.led = LED.summarise(self.projects, self.factor)
+        self.led = LED.summarise(self.projects, self.factor, today=now.date())
         self.partner = cfg.get("partner", "CPA")
         self.today = now.date()
         self.mon = RP.monthly(daily)
@@ -447,6 +448,28 @@ def lux_txt(p) -> str:
     return esc(p.lux_after or p.lux_before or "-")
 
 
+def tenant_txt(p, es: Optional[bool] = None) -> str:
+    """Tenant shown on CPA's site: the name, 'Vacant' for an empty building, '-'."""
+    if p.vacant:
+        return L("Vacant", "Vacante") if es is None else ("Vacante" if es else "Vacant")
+    return esc(p.tenant) if p.tenant else "-"
+
+
+def dmy(iso: Optional[str]) -> str:
+    return dt.date.fromisoformat(iso).strftime("%d/%m/%Y") if iso else "-"
+
+
+def when_txt(p, es: Optional[bool] = None) -> str:
+    """'Handed over 10/05/2022' / 'Planned 26/10/2026', or ''."""
+    if p.status == "delivered" and p.delivered:
+        en, sp = f"Handed over {dmy(p.delivered)}", f"Entregado el {dmy(p.delivered)}"
+    elif p.planned:
+        en, sp = f"Planned {dmy(p.planned)}", f"Previsto el {dmy(p.planned)}"
+    else:
+        return ""
+    return L(en, sp) if es is None else (sp if es else en)
+
+
 def chip(st: str) -> str:
     en, es, c = LED.STATUSES[st]
     return f'<span class="chip"><i style="background:{c}"></i>{L(en, es)}</span>'
@@ -474,19 +497,26 @@ def led_tip(ctx: Ctx, p: LED.Project, es: bool) -> str:
     else:
         rows.append((t("Lighting load", "Carga de iluminación"),
                      f"{kw_txt(p.kw_before)} &rarr; {kw_txt(p.kw_after)} kW ({cut_txt(p)})"))
+    if p.controls_pct:
+        rows.append((t("Lighting controls", "Controles de iluminación"), t(f"-{fmt(p.controls_pct, 0)}% hours on", f"-{fmt(p.controls_pct, 0)}% horas encendidas")))
     if p.lux_before or p.lux_after:
-        rows.append((t("Light level", "Nivel de iluminación"), lux_txt(p)))
+        rows.append((t("Light level (design)", "Nivel de luz (diseño)"), lux_txt(p)))
     if p.saved_kwh is not None:
         pot = p.status != "delivered"
         rows.append((t("Potential saving / year" if pot else "Saved per year", "Ahorro potencial / año" if pot else "Ahorro por año"),
                      f"{fmt(p.saved_kwh / 1000, 0)} MWh"))
         rows.append((t("CO2e avoided / year", "CO2e evitado / año"), f"{fmt(p.co2_t(ctx.factor), 0)} t"))
+        _, td = p.to_date(ctx.today)
+        if td:
+            rows.append((t("CO2e avoided to date", "CO2e evitado a la fecha"), f"{fmt(td, 0)} t"))
     else:
         rows.append((t("New building", "Edificio nuevo"), t("efficient LED from day one", "LED eficiente desde el inicio")))
     loc = t("building location", "ubicación del edificio") if p.exact else t("park location", "ubicación del parque")
-    who = (esc(p.tenant) + " · ") if p.tenant else ""
+    who = (tenant_txt(p, es) + " · ") if (p.tenant or p.vacant) else ""
+    when = when_txt(p, es)
     return (f'<div class="mtip"><span class="chip"><i style="background:{col}"></i>{es_st if es else en_st}</span>'
-            f'<h4 style="margin-top:6px">{esc(p.building)}</h4><div class="sub">{who}{esc(pk.name)}, {esc(pk.city)}</div><table>'
+            + (f' <span class="sub">{when}</span>' if when else "")
+            + f'<h4 style="margin-top:6px">{esc(p.building)}</h4><div class="sub">{who}{esc(pk.name)}, {esc(pk.city)}</div><table>'
             + "".join(f"<tr><td>{a}</td><td>{b}</td></tr>" for a, b in rows)
             + f'</table><div class="sub" style="margin-top:4px">{t("Estimated, not metered", "Estimado, no medido")} · {loc}</div>'
             f'<div class="go">{t("Open the project", "Abrir el proyecto")} &rarr;</div></div>')
@@ -559,12 +589,16 @@ def led_tiles(ctx: Ctx, dark: bool = True) -> str:
               L(f"{fmt(d.kw_before, 0)} to {fmt(d.kw_after, 0)} kW", f"de {fmt(d.kw_before, 0)} a {fmt(d.kw_after, 0)} kW")),
              (L("Energy saved per year", "Energía ahorrada por año"), f'{count(d.saved_kwh / 1000, 0)}<small>MWh</small>', L("estimated", "estimada")),
              (L("CO2e avoided per year", "CO2e evitado por año"), f'{count(d.co2_t, 0)}<small>t</small>', L("estimated", "estimado"))]
-    return '<div class="big">' + "".join(f'<div class="t"><div class="l">{a}</div><div class="v num">{b}</div><div class="d">{c}</div></div>'
+    if d.first:
+        f0 = dt.date.fromisoformat(d.first)
+        items.append((L("CO2e avoided to date", "CO2e evitado a la fecha"), f'{count(d.co2_to_date, 0)}<small>t</small>',
+                      L(f"since {C.MONTHS_FULL_EN[f0.month - 1]} {f0.year}, estimated", f"desde {C.MONTHS_FULL_ES[f0.month - 1]} de {f0.year}, estimado")))
+    return f'<div class="big{" b6" if len(items) == 6 else ""}">' + "".join(f'<div class="t"><div class="l">{a}</div><div class="v num">{b}</div><div class="d">{c}</div></div>'
                                          for a, b, c in items) + "</div>"
 
 
 def status_cards(ctx: Ctx) -> str:
-    out = ""
+    out, n = "", 0
     for k, (en, es, c) in LED.STATUSES.items():
         x = ctx.led[k]
         if not x.projects:
@@ -572,11 +606,14 @@ def status_cards(ctx: Ctx) -> str:
         pot = k != "delivered"
         sav = (f'<div><b>{fmt(x.saved_kwh / 1000, 0)}</b><span>{L("MWh / year" + (" potential" if pot else ""), "MWh / año" + (" potencial" if pot else ""))}</span></div>'
                f'<div><b>{fmt(x.co2_t, 0)}</b><span>{L("t CO2e / year", "t CO2e / año")}</span></div>')
+        if k == "delivered" and x.first:
+            sav += f'<div style="grid-column:1/-1"><b>{fmt(x.co2_to_date, 0)}</b><span>{L("t CO2e avoided to date", "t CO2e evitadas a la fecha")}</span></div>'
+        n += 1
         out += (f'<div class="card" style="border-top-color:{c}"><h3>{chip(k)}<span class="r">{n_of(x.parks, "park|parks", "parque|parques")}</span></h3>'
                 f'<div class="n">{x.projects}</div><div class="note">{L("building" if x.projects == 1 else "buildings", "edificio" if x.projects == 1 else "edificios")}</div>'
                 f'<div class="kv4"><div><b>{fmt(x.fixtures, 0)}</b><span>{L("LED fixtures", "luminarias LED")}</span></div>'
                 f'<div><b>{fmt(x.area_m2 / 1000, 1)}k</b><span>m²</span></div>{sav}</div></div>')
-    return f'<div class="grid g3 stat3">{out}</div>'
+    return f'<div class="grid {"g4" if n >= 4 else "g3"} stat3">{out}</div>'
 
 
 def park_cards(ctx: Ctx, up: str) -> str:
@@ -588,7 +625,7 @@ def park_cards(ctx: Ctx, up: str) -> str:
                       f'data-tip-es="{esc(es)}|{fmt(sum((p.saved_kwh or 0) for p in ps if p.status == k) / 1000, 0)} MWh / año"></i>'
                       for k, (en, es, c) in LED.STATUSES.items() if any(p.status == k and p.saved_kwh for p in ps))
         lis = "".join(f'<li><span class="t"><a href="{up}led/index.html#{p.id}"><b>{esc(p.building)}</b></a>'
-                      f'<small>{esc(p.tenant or "")}{" · " if p.tenant and p.kind else ""}{L(kind_label(p), kind_label(p, True)) if p.kind else ""}</small></span>{chip(p.status)}</li>'
+                      f'<small>{tenant_txt(p) if (p.tenant or p.vacant) else ""}{" · " if (p.tenant or p.vacant) and p.kind else ""}{L(kind_label(p), kind_label(p, True)) if p.kind else ""}</small></span>{chip(p.status)}</li>'
                       for p in ps)
         d = sum(p.status == "delivered" for p in ps)
         out += (f'<div class="card park"><h3>{esc(pk.name)}<span class="r">{esc(pk.city)}</span></h3>'
@@ -604,10 +641,16 @@ def projects_table(ctx: Ctx) -> str:
         pk = ctx.park[p.park]
         load = kw_txt(p.kw_after) if p.new_build else f"{kw_txt(p.kw_before)} &rarr; {kw_txt(p.kw_after)}"
         cut = cut_txt(p)
+        if p.controls_pct:
+            cut += f'<div class="note" style="white-space:nowrap">+{fmt(p.controls_pct, 0)}% {L("controls", "controles")}</div>'
         sav = "-" if p.saved_kwh is None else fmt(p.saved_kwh / 1000, 0)
         co2 = "-" if p.saved_kwh is None else fmt(p.co2_t(ctx.factor), 1)
+        _, td = p.to_date(ctx.today)
+        if td:
+            co2 += f'<div class="note" style="white-space:nowrap">{fmt(td, 0)} {L("to date", "a la fecha")}</div>'
+        when = when_txt(p)
         rows += (f'<tr class="anchor" id="{p.id}"><td><b>{esc(p.building)}</b><div class="note">{esc(pk.name)} · {esc(pk.city)}</div></td>'
-                 f'<td>{esc(p.tenant or "-")}</td><td>{chip(p.status)}</td><td>{L(kind_label(p), kind_label(p, True)) if p.kind else "-"}</td>'
+                 f'<td>{tenant_txt(p)}</td><td>{chip(p.status)}{f"<div class=note>{when}</div>" if when else ""}</td><td>{L(kind_label(p), kind_label(p, True)) if p.kind else "-"}</td>'
                  f'<td class="n">{fmt(p.area_m2, 0) if p.area_m2 else "-"}</td><td class="n">{fmt(p.fixtures, 0) if p.fixtures else "-"}</td>'
                  f'<td class="n" style="white-space:nowrap">{load}</td><td class="n">{cut}</td><td>{lux_txt(p)}</td>'
                  f'<td class="n">{sav}</td><td class="n">{co2}</td></tr>')
@@ -615,7 +658,7 @@ def projects_table(ctx: Ctx) -> str:
             f'<th>{L("Status", "Estado")}</th><th>{L("Use", "Uso")}</th><th class="n">m²</th><th class="n">{L("Fixtures", "Luminarias")}</th>'
             f'<th class="n">kW</th><th class="n">{L("Load cut", "Reducción")}</th><th>{L("Light level", "Nivel de luz")}</th>'
             f'<th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{rows}</table>'
-            f'<p class="note">{L("kW = installed lighting load before and after. MWh and t CO2e per year are estimated (not metered): the load cut x the building&#39;s operating hours; a new building has no before, so no saving is claimed. Light level: before at the audit; after as measured at handover (delivered) or as designed (pipeline).", "kW = carga de iluminación instalada antes y después. MWh y t CO2e por año son estimados (no medidos): la reducción de carga x las horas de operación del edificio; un edificio nuevo no tiene un antes, así que no se reclama ahorro. Nivel de luz: antes en la auditoría; después medido en la entrega (entregados) o de diseño (cartera).")}</p></div>')
+            f'<p class="note">{L("kW = installed lighting load before and after. MWh and t CO2e per year are estimated (not metered): the load cut x the building&#39;s operating hours (a standard 4,992 h a year, 8,736 h where the tenant runs around the clock), plus the hours lighting controls switch off where the design counts them; a new building has no before, so no saving is claimed. To date = from the handover, each year at that year&#39;s grid factor. Light level: before at the audit; after = the design level.", "kW = carga de iluminación instalada antes y después. MWh y t CO2e por año son estimados (no medidos): la reducción de carga x las horas de operación del edificio (4,992 h al año estándar, 8,736 h donde el inquilino opera las 24 horas), más las horas que apagan los controles donde el diseño las considera; un edificio nuevo no tiene un antes, así que no se reclama ahorro. A la fecha = desde la entrega, cada año con el factor de red de ese año. Nivel de luz: antes en la auditoría; después = nivel de diseño.")}</p></div>')
 
 
 
@@ -644,14 +687,18 @@ def overview(ctx: Ctx) -> str:
             "Every kWh from the roofs displaces grid electricity and its emissions.", "Cada kWh de los techos desplaza electricidad de la red y sus emisiones.")]
     led_sec = ""
     if ctx.projects:
-        pl = ctx.led["_pipeline"]
+        pl, op = ctx.led["_pipeline"], ctx.led["opportunity"]
         led_sec = f"""<div class="sec"><div class="hero" style="padding:28px 32px"><div class="k">{L("LED lighting in your parks", "Iluminación LED en sus parques")}</div>
 <h1 style="font-size:30px">{L("Better light in your buildings, a fraction of the energy.", "Mejor luz en sus naves, una fracción de la energía.")}</h1>
-<div class="sub">{L(f"Retrofits delivered by ARGIA in CPA parks. Plus {pl.projects} more buildings in the pipeline: another {fmt(pl.saved_kwh / 1000, 0)} MWh and {fmt(pl.co2_t, 0)} t CO2e every year if they go ahead.", f"Renovaciones entregadas por ARGIA en parques de CPA. Y {pl.projects} edificios más en cartera: otros {fmt(pl.saved_kwh / 1000, 0)} MWh y {fmt(pl.co2_t, 0)} t CO2e cada año si se realizan.")}</div>
+<div class="sub">{L(f"Retrofits delivered by ARGIA in CPA parks. In progress: {n_of(pl.projects, 'building|buildings', 'edificio|edificios')} ({fmt(pl.saved_kwh / 1000, 0)} MWh and {fmt(pl.co2_t, 0)} t CO2e a year once done). Ready to go: {op.projects} more buildings with a design ready, another {fmt(op.saved_kwh / 1000, 0)} MWh and {fmt(op.co2_t, 0)} t CO2e every year.", f"Renovaciones entregadas por ARGIA en parques de CPA. En curso: {n_of(pl.projects, 'building|buildings', 'edificio|edificios')} ({fmt(pl.saved_kwh / 1000, 0)} MWh y {fmt(pl.co2_t, 0)} t CO2e al año al terminar). Listos para arrancar: {op.projects} edificios más con diseño listo, otros {fmt(op.saved_kwh / 1000, 0)} MWh y {fmt(op.co2_t, 0)} t CO2e cada año.")}</div>
 {led_tiles(ctx)}<div style="margin-top:18px;position:relative"><a class="btn" href="led/index.html">{L("Every LED project, park by park", "Cada proyecto LED, parque por parque")} &rarr;</a></div></div></div>"""
-    led_line = (L(f" Plus {fmt(ctx.led['delivered'].co2_t, 0)} t CO2e avoided every year by the delivered LED retrofits (estimated).",
-                  f" Además, {fmt(ctx.led['delivered'].co2_t, 0)} t CO2e evitadas cada año por las renovaciones LED entregadas (estimado).")
-                if ctx.projects else "")
+    dl_ = ctx.led["delivered"] if ctx.projects else None
+    led_line = ("" if not ctx.projects else
+                L(f" Plus {fmt(dl_.co2_to_date, 0)} t CO2e avoided to date by the delivered LED retrofits, and {fmt(dl_.co2_t, 0)} t more every year (estimated).",
+                  f" Además, {fmt(dl_.co2_to_date, 0)} t CO2e evitadas a la fecha por las renovaciones LED entregadas, y {fmt(dl_.co2_t, 0)} t más cada año (estimado).")
+                if dl_.first else
+                L(f" Plus {fmt(dl_.co2_t, 0)} t CO2e avoided every year by the delivered LED retrofits (estimated).",
+                  f" Además, {fmt(dl_.co2_t, 0)} t CO2e evitadas cada año por las renovaciones LED entregadas (estimado)."))
     sdg_html = "".join(f'<div class="card esg"><div class="badge" style="background:{c}">{n}</div><h3>{L(f"SDG {n}: {en}", f"ODS {n}: {es}")}</h3><div class="note">{L(de, ds)}</div></div>'
                        for n, c, en, es, de, ds in sdg)
     body = f"""<div class="hero"><div class="sun"></div><div class="k">{esc(ctx.partner)} × ARGIA · {L("Clean energy programme", "Programa de energía limpia")}</div>
@@ -781,29 +828,30 @@ def report_page(ctx: Ctx, pdfs: Dict[str, str], csv_name: str, led_csv: str = ""
         drows = ""
         for pk, ps in LED.by_park([x for x in ctx.projects if x.status == "delivered"], ctx.parks):
             for x in ps:
-                drows += (f'<tr><td><b>{esc(x.building)}</b><div class="note">{esc(pk.name)}</div></td><td>{esc(x.tenant or "-")}</td>'
+                _, xt = x.to_date(ctx.today)
+                drows += (f'<tr><td><b>{esc(x.building)}</b><div class="note">{esc(pk.name)}</div></td><td>{tenant_txt(x)}</td><td>{dmy(x.delivered)}</td>'
                           f'<td class="n">{fmt(x.area_m2, 0) if x.area_m2 else "-"}</td><td class="n">{fmt(x.fixtures, 0) if x.fixtures else "-"}</td>'
                           f'<td class="n">{cut_txt(x)}</td>'
                           f'<td class="n">{"-" if x.saved_kwh is None else fmt(x.saved_kwh / 1000, 1)}</td>'
-                          f'<td class="n">{"-" if x.saved_kwh is None else fmt(x.co2_t(ctx.factor), 1)}</td></tr>')
-        drows += (f'<tr class="tot"><td>{L("Delivered", "Entregados")}</td><td></td><td class="n">{fmt(d.area_m2, 0)}</td><td class="n">{fmt(d.fixtures, 0)}</td>'
-                  f'<td class="n">-{fmt(d.cut_pct or 0, 0)}%</td><td class="n">{fmt(d.saved_kwh / 1000, 1)}</td><td class="n">{fmt(d.co2_t, 1)}</td></tr>')
+                          f'<td class="n">{"-" if x.saved_kwh is None else fmt(x.co2_t(ctx.factor), 1)}</td><td class="n">{"-" if xt is None else fmt(xt, 1)}</td></tr>')
+        drows += (f'<tr class="tot"><td>{L("Delivered", "Entregados")}</td><td></td><td></td><td class="n">{fmt(d.area_m2, 0)}</td><td class="n">{fmt(d.fixtures, 0)}</td>'
+                  f'<td class="n">-{fmt(d.cut_pct or 0, 0)}%</td><td class="n">{fmt(d.saved_kwh / 1000, 1)}</td><td class="n">{fmt(d.co2_t, 1)}</td><td class="n">{fmt(d.co2_to_date, 1)}</td></tr>')
         prow = "".join(f'<tr><td>{chip(k)}</td><td class="n">{ctx.led[k].projects}</td><td class="n">{fmt(ctx.led[k].fixtures, 0)}</td>'
                        f'<td class="n">{fmt(ctx.led[k].saved_kwh / 1000, 1)}</td><td class="n">{fmt(ctx.led[k].co2_t, 1)}</td></tr>'
                        for k in LED.STATUSES if k != "delivered" and ctx.led[k].projects)
         led_rep = f"""<div class="sec card" style="break-before:page"><h3>{L("LED lighting efficiency, delivered retrofits", "Eficiencia en iluminación LED, renovaciones entregadas")}<span class="r">{L("estimated, per year", "estimado, por año")}</span></h3>
-<div style="overflow-x:auto"><table class="t"><tr><th>{L("Building", "Edificio")}</th><th>{L("Tenant", "Inquilino")}</th><th class="n">m²</th><th class="n">{L("Fixtures", "Luminarias")}</th>
-<th class="n">{L("Load cut", "Reducción")}</th><th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{drows}</table></div>
-<p class="note">{L(f"Pipeline (not yet installed): {pl.projects} buildings, {fmt(pl.saved_kwh / 1000, 0)} MWh and {fmt(pl.co2_t, 0)} t CO2e per year if all go ahead.", f"Cartera (aún sin instalar): {pl.projects} edificios, {fmt(pl.saved_kwh / 1000, 0)} MWh y {fmt(pl.co2_t, 0)} t CO2e por año si todos se realizan.")}</p>
-<table class="t" style="max-width:640px"><tr><th>{L("Pipeline", "Cartera")}</th><th class="n">{L("Buildings", "Edificios")}</th><th class="n">{L("Fixtures", "Luminarias")}</th><th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{prow}</table></div>"""
+<div style="overflow-x:auto"><table class="t"><tr><th>{L("Building", "Edificio")}</th><th>{L("Tenant", "Inquilino")}</th><th>{L("Handover", "Entrega")}</th><th class="n">m²</th><th class="n">{L("Fixtures", "Luminarias")}</th>
+<th class="n">{L("Load cut", "Reducción")}</th><th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th><th class="n">t CO2e {L("to date", "a la fecha")}</th></tr>{drows}</table></div>
+<p class="note">{L(f"In progress (not yet installed): {pl.projects} buildings, {fmt(pl.saved_kwh / 1000, 0)} MWh and {fmt(pl.co2_t, 0)} t CO2e per year once done. Opportunities (design ready, not active): {ctx.led['opportunity'].projects} buildings, {fmt(ctx.led['opportunity'].saved_kwh / 1000, 0)} MWh and {fmt(ctx.led['opportunity'].co2_t, 0)} t CO2e per year.", f"En curso (aún sin instalar): {pl.projects} edificios, {fmt(pl.saved_kwh / 1000, 0)} MWh y {fmt(pl.co2_t, 0)} t CO2e por año al terminar. Oportunidades (diseño listo, no activas): {ctx.led['opportunity'].projects} edificios, {fmt(ctx.led['opportunity'].saved_kwh / 1000, 0)} MWh y {fmt(ctx.led['opportunity'].co2_t, 0)} t CO2e por año.")}</p>
+<table class="t" style="max-width:640px"><tr><th>{L("Not yet delivered", "Aún no entregados")}</th><th class="n">{L("Buildings", "Edificios")}</th><th class="n">{L("Fixtures", "Luminarias")}</th><th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{prow}</table></div>"""
     factors = ", ".join(f"{y_}: {f:.3f}" for y_, f in sorted(co2reg.FACTOR_BY_YEAR.items()))
     overrides = [esc(s.name) for s in ctx.sites if s.key in co2reg.PLANT_OVERRIDE]
     ov_en = (f" At the customer's request, {', '.join(overrides)} uses its contracted factor in every ARGIA document, so it is used here too."
              if overrides else "")
     ov_es = (f" A solicitud del cliente, {', '.join(overrides)} usa su factor contratado en todos los documentos de ARGIA, y aquí también."
              if overrides else "")
-    led_method = ("<p>" + L(f"LED savings: installed lighting load before minus after (kW) x the building's operating hours per year (4,992 h unless the tenant runs around the clock), x the current national grid factor ({ctx.factor:.3f} kg CO2e/kWh). Estimated, not metered; a new building has no before and claims no saving.",
-                            f"Ahorro LED: carga de iluminación instalada antes menos después (kW) x horas de operación del edificio al año (4,992 h salvo operación continua), x el factor nacional vigente ({ctx.factor:.3f} kg CO2e/kWh). Estimado, no medido; un edificio nuevo no tiene un antes y no reclama ahorro.") + "</p>") if ctx.projects else ""
+    led_method = ("<p>" + L(f"LED savings: installed lighting load before minus after (kW) x the building's operating hours per year (4,992 h unless the tenant runs around the clock), x the current national grid factor ({ctx.factor:.3f} kg CO2e/kWh). Lighting controls add the hours they switch off where the design counts them. To date: from each handover date, each calendar year at that year's factor. Estimated, not metered; a new building has no before and claims no saving. Light levels after = design levels.",
+                            f"Ahorro LED: carga de iluminación instalada antes menos después (kW) x horas de operación del edificio al año (4,992 h salvo operación continua), x el factor nacional vigente ({ctx.factor:.3f} kg CO2e/kWh). Los controles de iluminación suman las horas que apagan donde el diseño las considera. A la fecha: desde cada fecha de entrega, cada año con el factor de ese año. Estimado, no medido; un edificio nuevo no tiene un antes y no reclama ahorro. Niveles de luz después = niveles de diseño.") + "</p>") if ctx.projects else ""
     body = f"""<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-bottom:14px">{dl}</div>
 <div class="hero" style="padding:30px 34px"><div class="brand" style="margin-bottom:18px">{cpa_logo}<span class="x">×</span><img class="ar" src="{argia_logo.MARK_URI}" alt="ARGIA"></div>
 <div class="k">{L("Clean energy report", "Reporte de energía limpia")}</div>
@@ -846,9 +894,9 @@ def led_page(ctx: Ctx) -> str:
         d = ctx.led["delivered"]
         top = f"""<div class="hero"><div class="k">{esc(ctx.partner)} × ARGIA · {L("LED lighting", "Iluminación LED")}</div>
 <h1>{L("Better light, a fraction of the energy.", "Mejor luz, una fracción de la energía.")}</h1>
-<div class="sub">{L(f"ARGIA replaces warehouse, office and yard lighting with LED and sensors for CPA tenants. {d.projects} buildings delivered in {d.parks} parks; {ctx.led['_pipeline'].projects} more in the pipeline.", f"ARGIA reemplaza la iluminación de naves, oficinas y patios por LED con sensores para inquilinos de CPA. {d.projects} edificios entregados en {d.parks} parques; {ctx.led['_pipeline'].projects} más en cartera.")}</div>
+<div class="sub">{L(f"ARGIA replaces warehouse, office and yard lighting with LED and sensors for CPA tenants. {d.projects} buildings delivered in {d.parks} parks; {ctx.led['_pipeline'].projects} in progress; {ctx.led['opportunity'].projects} more with a design ready.", f"ARGIA reemplaza la iluminación de naves, oficinas y patios por LED con sensores para inquilinos de CPA. {d.projects} edificios entregados en {d.parks} parques; {ctx.led['_pipeline'].projects} en curso; {ctx.led['opportunity'].projects} más con diseño listo.")}</div>
 {led_tiles(ctx)}</div>
-<div class="sec"><h2>{L("Delivered and in the pipeline", "Entregados y en cartera")}</h2><p class="lead">{L("Pipeline figures are what each proposal would save every year once installed.", "Las cifras de la cartera son lo que cada propuesta ahorraría cada año una vez instalada.")}</p>{status_cards(ctx)}</div>
+<div class="sec"><h2>{L("Delivered, in progress and ready to go", "Entregados, en curso y listos para arrancar")}</h2><p class="lead">{L("For buildings not yet done, the figures are what each design would save every year once installed. Opportunities: buildings audited by ARGIA with a lighting design ready, not active today.", "Para los edificios aún no realizados, las cifras son lo que cada diseño ahorraría cada año una vez instalado. Oportunidades: edificios auditados por ARGIA con diseño de iluminación listo, hoy no activos.")}</p>{status_cards(ctx)}</div>
 <div class="sec"><h2>{L("On the map", "En el mapa")}</h2>{map_card(ctx, "../", "led")}</div>
 <div class="sec"><h2>{L("Park by park", "Parque por parque")}</h2><p class="lead">{L("The bar shows each park&#39;s yearly energy saving by status.", "La barra muestra el ahorro anual de energía de cada parque por estado.")}</p>{park_cards(ctx, "../")}</div>
 <div class="sec"><h2>{L("Every project", "Todos los proyectos")}</h2>{projects_table(ctx)}</div>"""
@@ -978,7 +1026,7 @@ def build(cfg: dict, sites, daily, live, now: dt.datetime, stage: str, pdf_cache
     led_csv = ""
     if ctx.projects:
         led_csv = f"{ctx.partner}_LED_projects.csv".replace(" ", "_")
-        write(stage, f"report/{led_csv}", LED.csv_projects(ctx.projects, ctx.parks, ctx.factor))
+        write(stage, f"report/{led_csv}", LED.csv_projects(ctx.projects, ctx.parks, ctx.factor, today=ctx.today))
     stem = f"{ctx.partner}_Clean_Energy_Report_{ctx.last_closed}".replace(" ", "_")
     pdfs = {}
     render = RENDER_PDF or chromium_pdf

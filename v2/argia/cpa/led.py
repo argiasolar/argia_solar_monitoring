@@ -20,10 +20,18 @@ Rules:
 * avoided CO2 = saved kWh x the current national grid factor from
   argia.core.co2 (the one register; no customer override applies to LED);
 * no price, cost or MXN figure exists here.
+
+v315 (Eduardo's answers, 6 Oct 2026): handover dates give the CO2 avoided
+since handover (each calendar year at that year's register factor); a
+building with lighting controls saves its after-load x hours x (1 -
+controls share) on top of the load cut; proposals no longer active are
+"opportunities" (design ready), shown apart from the active pipeline;
+a vacant building is marked as such.
 """
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 import json
 from dataclasses import dataclass
@@ -36,8 +44,10 @@ STATUSES: Dict[str, Tuple[str, str, str]] = {
     "delivered": ("Delivered", "Entregado", "#05b1a9"),
     "installing": ("To be installed", "Por instalar", "#e8a23a"),
     "to_confirm": ("To be confirmed", "Por confirmar", "#8b7fd6"),
-    "proposal": ("Proposed", "Propuesta", "#9aa3c7"),
+    "proposal": ("Proposed", "Propuesta", "#7f8fd1"),
+    "opportunity": ("Opportunity, design ready", "Oportunidad, diseño listo", "#c3c8db"),
 }
+PIPELINE = ("installing", "to_confirm", "proposal")      # active, not yet delivered
 SHEET_STATUS = {"entregado": "delivered", "por instalar": "installing", "por confirmar": "to_confirm",
                 "propuesta": "proposal"}
 KINDS: Dict[str, Tuple[str, str]] = {
@@ -75,6 +85,10 @@ class Project:
     lux_after: Optional[str] = None
     lat: Optional[float] = None    # the building itself, when known
     lon: Optional[float] = None
+    delivered: Optional[str] = None     # handover date, ISO (delivered projects)
+    planned: Optional[str] = None       # planned installation date, ISO
+    controls_pct: Optional[float] = None  # extra saving share from lighting controls (0-100)
+    vacant: bool = False
 
     @property
     def exact(self) -> bool:
@@ -86,10 +100,12 @@ class Project:
 
     @property
     def saved_kwh(self) -> Optional[float]:
-        """kWh per year; None when there is no 'before' to compare with."""
+        """kWh per year; None when there is no 'before' to compare with.
+        Controls (sensors, dimming) cut the new load's hours by their share."""
         if not self.kw_before or self.kw_after is None or not self.hours:
             return None
-        return max(0.0, (self.kw_before - self.kw_after) * self.hours)
+        after = self.kw_after * self.hours * (1 - (self.controls_pct or 0.0) / 100.0)
+        return max(0.0, self.kw_before * self.hours - after)
 
     @property
     def cut_pct(self) -> Optional[float]:
@@ -100,6 +116,26 @@ class Project:
     def co2_t(self, factor: Optional[float] = None) -> Optional[float]:
         s = self.saved_kwh
         return None if s is None else s * (co2reg.CURRENT if factor is None else factor) / 1000.0
+
+    def to_date(self, today: dt.date) -> Tuple[Optional[float], Optional[float]]:
+        """(kWh saved, t CO2e avoided) from the handover to ``today``: the yearly
+        saving spread evenly over the days, each calendar year at that year's
+        grid factor (the register). (None, None) without a date or a saving."""
+        s = self.saved_kwh
+        if s is None or not self.delivered or self.status != "delivered":
+            return None, None
+        start = dt.date.fromisoformat(self.delivered)
+        if start >= today:
+            return 0.0, 0.0
+        kwh = t = 0.0
+        d = start
+        while d < today:
+            end = min(today, dt.date(d.year + 1, 1, 1))
+            part = s * (end - d).days / 365.25
+            kwh += part
+            t += part * co2reg.factor(d.year) / 1000.0
+            d = end
+        return kwh, t
 
 
 @dataclass
@@ -112,19 +148,32 @@ class Summary:
     saved_kwh: float = 0.0
     co2_t: float = 0.0
     parks: int = 0
+    kwh_to_date: float = 0.0
+    co2_to_date: float = 0.0
+    first: Optional[str] = None          # earliest handover
 
     @property
     def cut_pct(self) -> Optional[float]:
         return (1 - self.kw_after / self.kw_before) * 100.0 if self.kw_before else None
 
 
-def summarise(projects: Sequence[Project], factor: Optional[float] = None) -> Dict[str, Summary]:
-    """{status: Summary, '_all': Summary, '_pipeline': Summary (installing +
-    to confirm + proposed)}. Pure."""
+def summarise(projects: Sequence[Project], factor: Optional[float] = None,
+              today: Optional[dt.date] = None) -> Dict[str, Summary]:
+    """{status: Summary, '_all': Summary, '_pipeline': Summary (the ACTIVE
+    projects not yet delivered: to install, to confirm, proposed)}. With
+    ``today``, delivered projects also add their savings since handover. Pure."""
     out = {k: Summary() for k in list(STATUSES) + ["_all", "_pipeline"]}
     parks: Dict[str, set] = {k: set() for k in out}
     for p in projects:
-        for k in (p.status, "_all") + (("_pipeline",) if p.status != "delivered" else ()):
+        if today is not None:
+            kwh, t = p.to_date(today)
+            if kwh is not None:
+                for k in (p.status, "_all"):
+                    out[k].kwh_to_date += kwh
+                    out[k].co2_to_date += t
+                    if out[k].first is None or p.delivered < out[k].first:
+                        out[k].first = p.delivered
+        for k in (p.status, "_all") + (("_pipeline",) if p.status in PIPELINE else ()):
             s = out[k]
             s.projects += 1
             s.fixtures += p.fixtures or 0
@@ -162,6 +211,25 @@ def _num(x) -> Optional[float]:
         return None
 
 
+def _date(v, r) -> Optional[str]:
+    if v in (None, ""):
+        return None
+    try:
+        d = dt.date.fromisoformat(str(v))
+    except ValueError:
+        raise ValueError(f"led.json: project {r.get('id')!r} has a bad date {v!r}")
+    if not dt.date(2015, 1, 1) <= d <= dt.date(2035, 12, 31):
+        raise ValueError(f"led.json: project {r.get('id')!r} has an impossible date {v!r}")
+    return d.isoformat()
+
+
+def _pct(v, r) -> Optional[float]:
+    x = _num(v)
+    if v not in (None, "") and (x is None or not 0 <= x < 100):
+        raise ValueError(f"led.json: project {r.get('id')!r} has a bad controls share {v!r}")
+    return x
+
+
 def load(path: str) -> Tuple[List[Park], List[Project]]:
     """Read led.json; raises ValueError on anything that would put a wrong
     pin or a wrong number on CPA's site."""
@@ -188,11 +256,14 @@ def load(path: str) -> Tuple[List[Park], List[Project]]:
             area_m2=_num(r.get("area_m2")), fixtures=int(r["fixtures"]) if _num(r.get("fixtures")) is not None else None,
             kw_before=kb, kw_after=ka, hours=h, kind=r.get("kind") if r.get("kind") in KINDS else None,
             sensors=bool(r.get("sensors")), lux_before=r.get("lux_before") or None, lux_after=r.get("lux_after") or None,
-            lat=_num(r.get("lat")), lon=_num(r.get("lon"))))
+            lat=_num(r.get("lat")), lon=_num(r.get("lon")),
+            delivered=_date(r.get("delivered"), r), planned=_date(r.get("planned"), r),
+            controls_pct=_pct(r.get("controls_pct"), r), vacant=bool(r.get("vacant"))))
     return parks, projects
 
 
-def csv_projects(projects: Sequence[Project], parks: Sequence[Park], factor: Optional[float] = None) -> str:
+def csv_projects(projects: Sequence[Project], parks: Sequence[Park], factor: Optional[float] = None,
+                 today: Optional[dt.date] = None) -> str:
     """One row per project for the sustainability team. No financial column."""
     f = co2reg.CURRENT if factor is None else factor
     pk = {p.id: p for p in parks}
@@ -200,14 +271,18 @@ def csv_projects(projects: Sequence[Project], parks: Sequence[Park], factor: Opt
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(["park", "city", "building", "tenant", "status", "use", "area_m2", "fixtures", "lighting_kw_before",
                 "lighting_kw_after", "operating_hours_per_year", "estimated_kwh_saved_per_year",
-                "grid_factor_kg_co2e_per_kwh", "estimated_t_co2e_avoided_per_year", "light_level_before", "light_level_after"])
+                "grid_factor_kg_co2e_per_kwh", "estimated_t_co2e_avoided_per_year", "light_level_before",
+                "light_level_after_design", "controls_saving_pct", "handover_date", "planned_date",
+                "estimated_kwh_saved_to_date", "estimated_t_co2e_avoided_to_date"])
     order = list(STATUSES)
     for p in sorted(projects, key=lambda p: (order.index(p.status), pk[p.park].name, p.building)):
         s = p.saved_kwh
-        w.writerow([pk[p.park].name, pk[p.park].city, p.building, p.tenant or "", STATUSES[p.status][0],
+        kd, td = p.to_date(today) if today else (None, None)
+        w.writerow([pk[p.park].name, pk[p.park].city, p.building, "Vacant" if p.vacant else (p.tenant or ""), STATUSES[p.status][0],
                     KINDS[p.kind][0] if p.kind else "", "" if p.area_m2 is None else f"{p.area_m2:.0f}",
                     "" if p.fixtures is None else p.fixtures, "" if p.kw_before is None else f"{p.kw_before:.2f}",
                     "" if p.kw_after is None else f"{p.kw_after:.2f}", "" if p.hours is None else f"{p.hours:.0f}",
                     "" if s is None else f"{s:.0f}", f"{f:.3f}", "" if s is None else f"{s * f / 1000:.2f}",
-                    p.lux_before or "", p.lux_after or ""])
+                    p.lux_before or "", p.lux_after or "", "" if p.controls_pct is None else f"{p.controls_pct:.0f}",
+                    p.delivered or "", p.planned or "", "" if kd is None else f"{kd:.0f}", "" if td is None else f"{td:.2f}"])
     return buf.getvalue()

@@ -14,6 +14,12 @@
   difference is printed and the import fails (--force writes anyway).
 * No price, cost or currency column is read.
 
+v315: --answers applies the field team's answers (cpa_led_answers.json:
+handover and planned dates, a missing "before" load, tenant / vacant,
+controls share, design light level, exact location, status) AFTER the
+sheet has been reconciled, each one keyed by project id AND building name
+(a moved row cannot take someone else's answer); every change is printed.
+
 Both files are server-only (tenants and buildings are CPA business data;
 the repo is public). Nothing is written unless every check passes.
 """
@@ -166,12 +172,45 @@ def reconcile(doc: dict, rows: List[Tuple]) -> List[str]:
     return out
 
 
+ANSWER_KEYS = {"kw_before", "tenant", "vacant", "delivered", "planned", "controls_pct", "lux_before", "lux_after",
+               "lat", "lon", "park", "status"}
+
+
+def apply_answers(doc: dict, answers: dict, parks_doc: dict) -> Tuple[List[str], List[str]]:
+    """(changes, problems). Pure apart from mutating ``doc``."""
+    by_id = {r["id"]: r for r in doc["projects"]}
+    park_ids = {p["id"] for p in parks_doc.get("parks") or []}
+    changes, problems = [], []
+    for pid, a in (answers.get("projects") or {}).items():
+        r = by_id.get(pid)
+        if r is None:
+            problems.append(f"{pid}: no such project in the sheet")
+            continue
+        if building_name(a.get("building", "")) != r["building"]:
+            problems.append(f"{pid}: answer is for {a.get('building')!r}, the sheet row is {r['building']!r}")
+            continue
+        for k, v in (a.get("set") or {}).items():
+            if k not in ANSWER_KEYS:
+                problems.append(f"{pid}: unknown field {k!r}")
+            elif k == "status" and v not in LED.STATUSES:
+                problems.append(f"{pid}: unknown status {v!r}")
+            elif k == "park" and v not in park_ids:
+                problems.append(f"{pid}: unknown park {v!r}")
+            elif r.get(k) != v:
+                changes.append(f"{pid} {r['building']}: {k} {r.get(k)!r} -> {v!r}")
+                r[k] = v
+    used = {r["park"] for r in doc["projects"]}
+    doc["parks"] = [{k: p[k] for k in ("id", "name", "city", "lat", "lon")} for p in parks_doc.get("parks") or [] if p["id"] in used]
+    return changes, problems
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("xlsx")
     ap.add_argument("--parks", default="/opt/argia/cpa/cpa_parks.json")
     ap.add_argument("--out", default="/opt/argia/cpa/led.json")
     ap.add_argument("--force", action="store_true", help="write even if the sheet summary disagrees")
+    ap.add_argument("--answers", help="field team's answers applied after the reconcile (cpa_led_answers.json)")
     a = ap.parse_args(argv)
     import openpyxl
     wb = openpyxl.load_workbook(a.xlsx, data_only=True, read_only=True)
@@ -188,11 +227,25 @@ def main(argv=None) -> int:
     diffs = reconcile(doc, rows)
     for d in diffs:
         print("MISMATCH", d)
-    s = LED.summarise([LED.Project(**r) for r in doc["projects"]])
+    if a.answers:
+        with open(a.answers, encoding="utf-8") as fh:
+            answers = json.load(fh)
+        changes, bad = apply_answers(doc, answers, parks_doc)
+        for c in changes:
+            print("ANSWER", c)
+        for b in bad:
+            print("PROBLEM", b)
+        if bad:
+            print("not written")
+            return 2
+        doc["answers"] = os.path.basename(a.answers)
+    import datetime as _dt
+    s = LED.summarise([LED.Project(**r) for r in doc["projects"]], today=_dt.date.today())
     for st in list(LED.STATUSES) + ["_all"]:
         x = s[st]
         print(f"{st:11s} {x.projects:3d} projects {x.fixtures:6d} fixtures {x.area_m2:12,.1f} m2 "
-              f"{x.saved_kwh:12,.0f} kWh/yr {x.co2_t:9,.1f} t CO2e/yr  parks {x.parks}")
+              f"{x.saved_kwh:12,.0f} kWh/yr {x.co2_t:9,.1f} t CO2e/yr  parks {x.parks}"
+              + (f"  to date {x.co2_to_date:,.1f} t since {x.first}" if x.first else ""))
     if diffs and not a.force:
         print("not written (use --force to write anyway)")
         return 3

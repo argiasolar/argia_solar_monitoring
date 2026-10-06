@@ -170,6 +170,11 @@ class TestCharts:
 # ------------------------------------------------------------------ the whole site (synthetic)
 @pytest.fixture
 def gen(tmp_path, monkeypatch):
+    return make_gen(tmp_path, monkeypatch)
+
+
+def make_gen(tmp_path, monkeypatch):
+    """The generator with a throwaway CPA folder (v314: shared with test_v314_cpa_led)."""
     monkeypatch.setenv("ARGIA_CPA_DIR", str(tmp_path / "cpa"))
     monkeypatch.setenv("ARGIA_PORTAL_ROOT", str(tmp_path / "portal"))
     (tmp_path / "cpa" / "brand").mkdir(parents=True)
@@ -345,10 +350,10 @@ def test_map_has_photo_pins_hover_cards_and_a_legend(gen):
     assert pts[0]["photo"] == "assets/photos/northwind-foods.jpg" and pts[1]["photo"] == ""     # no photo -> coloured pin
     assert {p["st"] for p in pts} == {"live", "stale", "dark"} and pts[2]["approx"] is True
     assert pts[0]["mwh"] == round(ctx.life["MEX1"].kwh / 1000, 1) and pts[0]["co2"] == round(ctx.life["MEX1"].co2_t, 1)
-    leg = h[h.index('class="mlegend"'):h.index('class="mkey"')]
+    leg = h[h.index('class="mlegend'):h.index('class="mkey')]          # v314: + solar-only (the map switch)
     assert leg.count('<a href="sites/') == 3 and "approximate location" in leg
     assert "assets/photos/northwind-foods.jpg" in leg
-    key = h[h.index('class="mkey"'):]
+    key = h[h.index('class="mkey'):]
     for word in ("Live", "Delayed data", "No data today", "Night", "installed kWp"):
         assert word in key
     assert "bindTooltip" in h and "declutter" in h

@@ -37,6 +37,7 @@ sys.path.insert(0, os.environ.get("ARGIA_V2_DIR", "/root/argia_v2/v2"))
 
 from argia.core import co2 as co2reg                      # noqa: E402
 from argia.cpa import charts as C                         # noqa: E402
+from argia.cpa import led as LED                          # noqa: E402
 from argia.cpa import report as RP                        # noqa: E402
 from argia.telemetry.fresh import not_repeat, repeat_cte  # noqa: E402
 
@@ -224,21 +225,38 @@ table.t td{border-bottom:1px solid var(--line);padding:8px}td.n,th.n{text-align:
 .cta{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:linear-gradient(120deg,var(--navy),#2a2a7a);color:#fff;border-radius:22px;padding:24px 28px}
 .cta h3{color:#fff;font-size:20px;margin:0}.cta p{margin:4px 0 0;color:#cdd2f2}
 label.f{display:block;font-size:12.5px;font-weight:700;color:var(--ink2);margin:10px 0 4px}input.f{width:100%;font:inherit;border:1px solid #cfd4e2;border-radius:12px;padding:9px 12px}
+/* v314: LED projects */
+.ldot{border-radius:50%;border:2px solid #fff;box-shadow:0 1px 6px rgba(20,18,58,.5);box-sizing:border-box;cursor:pointer}
+.mhead{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+.mswitch{display:inline-flex;background:#eef1f8;border-radius:999px;padding:3px;gap:2px}
+.mswitch button{border:0;background:none;font:700 13px 'DM Sans',sans-serif;color:var(--ink2);padding:7px 15px;border-radius:999px;cursor:pointer}
+.mswitch button.on{background:var(--navy);color:#fff}
+#mapwrap[data-mode=led] .solar-only,#mapwrap[data-mode=solar] .led-only{display:none}
+.chip{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px;background:#f1f3f9;color:var(--ink);white-space:nowrap}
+.chip i{display:inline-block;width:9px;height:9px;border-radius:50%}
+.pbar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:#eef1f8;margin:6px 0 4px}.pbar i{display:block;height:100%}.pbar i+i{border-left:2px solid #fff}
+.park h3{margin-bottom:2px}.park ul{list-style:none;margin:8px 0 0;padding:0}.park li{display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px solid var(--line);font-size:13.5px}
+.park li .t{flex:1;min-width:0}.park li .t small{color:var(--muted);display:block;font-size:12px}
+.stat3 .card{border-top:5px solid}.stat3 .n{font:800 30px Poppins;color:var(--navy);line-height:1.1}
+.kv4{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.kv4 div{background:#f6f8fc;border-radius:12px;padding:8px 10px}
+.kv4 b{display:block;font:700 17px Poppins;color:var(--navy)}.kv4 span{font-size:11.5px;color:var(--muted)}
+tr.anchor:target td{background:#fff7e0}
 @media(max-width:700px){.big .v{font-size:26px}.kv{grid-template-columns:1fr 1fr}.brand img.ar{display:none}main{padding:16px 12px 50px}}
 @media print{.top,.noprint,.foot{display:none!important}html,body{background:#fff}main{padding:0}.card{box-shadow:none;break-inside:avoid}}
 """
 
 MAP_JS = """(function(){if(!window.L)return;var P=__P__;var m=L.map('map',{scrollWheelZoom:false});
+var LP=__LP__,SL=__SL__,MODE0='__MODE__',KEY='cpa_map_mode_'+MODE0;
 var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'&copy; Esri',maxZoom:19}).addTo(m);
 var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'&copy; Esri, Maxar',maxZoom:19});
-L.control.layers({'Streets':st,'Satellite':sat}).addTo(m);var b=[];
+L.control.layers({'Streets':st,'Satellite':sat}).addTo(m);var sol=L.layerGroup(),led=L.layerGroup();
 function nf(v){return Number(v).toLocaleString('en-US',{maximumFractionDigits:0});}
 function es(){return document.documentElement.classList.contains('es');}
 var MK=[];
 // pins of sites a couple of km apart would sit on top of each other: push
 // the later one sideways (screen pixels only - the location stays true;
 // sideways so no pin moves towards the map edge where its card would clip)
-function declutter(){var pts=MK.map(function(o){return m.latLngToContainerPoint(o.ll);});var off=MK.map(function(){return [0,0];});
+function declutter(){if(!m.hasLayer(sol))return;var pts=MK.map(function(o){return m.latLngToContainerPoint(o.ll);});var off=MK.map(function(){return [0,0];});
 for(var j=1;j<MK.length;j++){for(var it=0;it<4;it++){for(var i=0;i<j;i++){var ax=pts[i].x+off[i][0],ay=pts[i].y+off[i][1],bx=pts[j].x+off[j][0],by=pts[j].y+off[j][1];
 var dx=bx-ax,dy=by-ay,d=Math.sqrt(dx*dx+dy*dy),need=(MK[i].px+MK[j].px)/2+18;if(d<need){off[j][0]+=(dx>=0?1:-1)*(need-d);}}}}
 MK.forEach(function(o,k){var el=o.mk.getElement();if(el&&el.firstChild)el.firstChild.style.transform='translate('+off[k][0].toFixed(0)+'px,'+off[k][1].toFixed(0)+'px)';
@@ -248,14 +266,32 @@ P.forEach(function(p){var px=Math.round(Math.max(46,Math.min(76,Math.sqrt(p.kwp)
 var bg=p.photo?"background-image:url('"+p.photo+"')":'background:'+p.c;
 var icon=L.divIcon({className:'',iconSize:[px,px],iconAnchor:[px/2,px/2],
 html:'<div class="pin"><div class="ph" style="width:'+px+'px;height:'+px+'px;border:4px solid '+p.c+';'+bg+'"></div><span class="st '+p.st+'" style="background:'+p.ring+'"></span><div class="nm">'+p.name+'</div></div>'});
-var mk=L.marker([p.lat,p.lon],{icon:icon}).addTo(m);
+var mk=L.marker([p.lat,p.lon],{icon:icon,zIndexOffset:1000}).addTo(sol);
 mk.bindTooltip(function(){var e=es(),k=e?1:0;return '<div class="mtip">'+(p.photo?'<img src="'+p.photo+'" alt="">':'')+'<h4>'+p.name+'</h4><div class="sub">'+p.city+' · '+nf(p.kwp)+' kWp · '+LBL[p.st][k]+(p.approx?(e?' · ubicación aproximada':' · approximate location'):'')+'</div><table>'
 +'<tr><td>'+(e?'Generando ahora':'Generating now')+'</td><td>'+nf(p.kw)+' kW</td></tr><tr><td>'+(e?'Hoy':'Today')+'</td><td>'+nf(p.kwh)+' kWh</td></tr>'
 +'<tr><td>'+(e?'A la fecha':'To date')+'</td><td>'+nf(p.mwh)+' MWh</td></tr><tr><td>CO2e '+(e?'evitado':'avoided')+'</td><td>'+nf(p.co2)+' t</td></tr></table><div class="go">'+(e?'Abrir el sitio':'Open the site')+' &rarr;</div></div>';},
 {direction:'auto',offset:[0,0],opacity:1,className:'mt'});
-mk.on('click',function(){window.location=p.url;});MK.push({mk:mk,ll:L.latLng(p.lat,p.lon),px:px});b.push([p.lat,p.lon]);});
-if(b.length)m.fitBounds(b,{padding:[150,150],maxZoom:12});
-m.on('zoomend',declutter);declutter();})();"""
+mk.on('click',function(){window.location=p.url;});MK.push({mk:mk,ll:L.latLng(p.lat,p.lon),px:px});});
+// v314: LED projects - one dot per building in its status colour, the
+// buildings of one park in a ring around the park (screen pixels only)
+var GR={},LM=[];LP.forEach(function(p){(GR[p.pk]=GR[p.pk]||[]).push(p);});
+Object.keys(GR).forEach(function(k){var g=GR[k];g.forEach(function(p,i){var px=p.st==='delivered'?20:15;
+var icon=L.divIcon({className:'',iconSize:[px,px],iconAnchor:[px/2,px/2],html:'<div class="ldot" style="width:'+px+'px;height:'+px+'px;background:'+SL[p.st][2]+'"></div>'});
+var mk=L.marker([p.lat,p.lon],{icon:icon,zIndexOffset:p.st==='delivered'?500:0}).addTo(led);
+mk.bindTooltip(function(){return es()?p.tes:p.ten;},{direction:'auto',offset:[0,0],opacity:1,className:'mt'});
+mk.on('click',function(){window.location=p.url;});LM.push({mk:mk,i:i,n:g.length});});});
+function ring(){LM.forEach(function(o){var el=o.mk.getElement();if(!el||!el.firstChild)return;var dx=0,dy=0;
+if(o.n>1){var r=7+o.n*3.4,a=2*Math.PI*o.i/o.n-Math.PI/2;dx=r*Math.cos(a);dy=r*Math.sin(a);}
+el.firstChild.style.transform='translate('+dx.toFixed(0)+'px,'+dy.toFixed(0)+'px)';var t=o.mk.getTooltip();if(t)t.options.offset=L.point(dx,dy);});}
+function setMode(x,fit){if(!LP.length)x='solar';if(!P.length)x='led';
+if(x!=='led')sol.addTo(m);else m.removeLayer(sol);if(x!=='solar')led.addTo(m);else m.removeLayer(led);
+document.querySelectorAll('#mswitch button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-m')===x);});
+var w=document.getElementById('mapwrap');if(w)w.setAttribute('data-mode',x);
+var bb=[];if(x!=='led')P.forEach(function(p){bb.push([p.lat,p.lon]);});if(x!=='solar')LP.forEach(function(p){bb.push([p.lat,p.lon]);});
+if(fit&&bb.length)m.fitBounds(bb,{padding:[60,60],maxZoom:12});declutter();ring();try{localStorage.setItem(KEY,x);}catch(e){}}
+window.cpaMapMode=function(x){setMode(x,true);};var mode=MODE0;try{mode=localStorage.getItem(KEY)||MODE0;}catch(e){}
+if(['solar','led','both'].indexOf(mode)<0)mode=MODE0;setMode(mode,true);
+m.on('zoomend',function(){declutter();ring();});})();"""
 
 TIP_JS = """(function(){var t=document.createElement('div');t.id='tip';document.body.appendChild(t);
 document.addEventListener('mousemove',function(ev){var el=ev.target.closest?ev.target.closest('[data-tip]'):null;
@@ -287,8 +323,13 @@ def count(v: float, d: int = 0) -> str:
 class Ctx:
     """Everything a page needs, computed once per run."""
 
-    def __init__(self, cfg, sites, daily, live, now, brand):
+    def __init__(self, cfg, sites, daily, live, now, brand, led=None):
         self.cfg, self.sites, self.daily, self.live, self.now, self.brand = cfg, sites, daily, live, now, brand
+        # v314: LED projects (server-only led.json); empty when there is none
+        self.parks, self.projects = led or ([], [])
+        self.park = {p.id: p for p in self.parks}
+        self.factor = co2reg.CURRENT
+        self.led = LED.summarise(self.projects, self.factor)
         self.partner = cfg.get("partner", "CPA")
         self.today = now.date()
         self.mon = RP.monthly(daily)
@@ -375,6 +416,201 @@ def today_chart(ctx: Ctx, sites: Sequence[RP.Site]) -> str:
     return C.stacked_area(times, series, "kW")
 
 
+# ------------------------------------------------------------------ v314: LED projects
+def n_of(n: int, en: str, es: str) -> str:
+    """'1 park' / '3 parks' in both languages (en/es given as singular|plural)."""
+    e1, e2 = en.split("|")
+    s1, s2 = es.split("|")
+    return L(f"{n} {e1 if n == 1 else e2}", f"{n} {s1 if n == 1 else s2}")
+
+
+def kw_txt(v: Optional[float]) -> str:
+    return "-" if v is None else fmt(v, 1 if v < 10 else 0)
+
+
+def cut_txt(p) -> str:
+    c = p.cut_pct
+    return "-" if c is None else ("0%" if c < 0.5 else f"-{fmt(c, 0)}%")
+
+
+def lux_txt(p) -> str:
+    if p.lux_before and p.lux_after:
+        return f"{esc(p.lux_before)} &rarr; {esc(p.lux_after)}"
+    return esc(p.lux_after or p.lux_before or "-")
+
+
+def chip(st: str) -> str:
+    en, es, c = LED.STATUSES[st]
+    return f'<span class="chip"><i style="background:{c}"></i>{L(en, es)}</span>'
+
+
+def kind_label(p: LED.Project, es: bool = False) -> str:
+    return LED.KINDS[p.kind][1 if es else 0] if p.kind else ""
+
+
+def led_tip(ctx: Ctx, p: LED.Project, es: bool) -> str:
+    """The hover card of one LED project, in one language (built here so the
+    map script only picks EN or ES)."""
+    pk = ctx.park[p.park]
+    t = (lambda en, sp: sp if es else en)
+    en_st, es_st, col = LED.STATUSES[p.status]
+    rows = []
+    if p.kind:
+        rows.append((t("Use", "Uso"), kind_label(p, es)))
+    if p.area_m2:
+        rows.append((t("Floor area", "Superficie"), f"{fmt(p.area_m2, 0)} m²"))
+    if p.fixtures:
+        rows.append((t("LED fixtures", "Luminarias LED"), fmt(p.fixtures, 0)))
+    if p.new_build:
+        rows.append((t("Lighting load", "Carga de iluminación"), f"{kw_txt(p.kw_after)} kW"))
+    else:
+        rows.append((t("Lighting load", "Carga de iluminación"),
+                     f"{kw_txt(p.kw_before)} &rarr; {kw_txt(p.kw_after)} kW ({cut_txt(p)})"))
+    if p.lux_before or p.lux_after:
+        rows.append((t("Light level", "Nivel de iluminación"), lux_txt(p)))
+    if p.saved_kwh is not None:
+        pot = p.status != "delivered"
+        rows.append((t("Potential saving / year" if pot else "Saved per year", "Ahorro potencial / año" if pot else "Ahorro por año"),
+                     f"{fmt(p.saved_kwh / 1000, 0)} MWh"))
+        rows.append((t("CO2e avoided / year", "CO2e evitado / año"), f"{fmt(p.co2_t(ctx.factor), 0)} t"))
+    else:
+        rows.append((t("New building", "Edificio nuevo"), t("efficient LED from day one", "LED eficiente desde el inicio")))
+    loc = t("building location", "ubicación del edificio") if p.exact else t("park location", "ubicación del parque")
+    who = (esc(p.tenant) + " · ") if p.tenant else ""
+    return (f'<div class="mtip"><span class="chip"><i style="background:{col}"></i>{es_st if es else en_st}</span>'
+            f'<h4 style="margin-top:6px">{esc(p.building)}</h4><div class="sub">{who}{esc(pk.name)}, {esc(pk.city)}</div><table>'
+            + "".join(f"<tr><td>{a}</td><td>{b}</td></tr>" for a, b in rows)
+            + f'</table><div class="sub" style="margin-top:4px">{t("Estimated, not metered", "Estimado, no medido")} · {loc}</div>'
+            f'<div class="go">{t("Open the project", "Abrir el proyecto")} &rarr;</div></div>')
+
+
+def led_points(ctx: Ctx, up: str) -> List[dict]:
+    return [{"lat": ctx.park[p.park].lat, "lon": ctx.park[p.park].lon, "pk": p.park, "st": p.status,
+             "url": f"{up}led/index.html#{p.id}", "ten": led_tip(ctx, p, False), "tes": led_tip(ctx, p, True)}
+            for p in ctx.projects]
+
+
+def solar_points(ctx: Ctx, up: str) -> List[dict]:
+    pts = []
+    for s in ctx.sites:
+        st = RP.status(ctx.live[s.key], ctx.in_window)
+        photo = f"{up}assets/photos/{s.slug}.jpg" if ctx.brand.get("photos", {}).get(s.slug) else ""
+        if s.lat is not None and s.lon is not None:
+            pts.append({"lat": s.lat, "lon": s.lon, "name": s.name, "city": s.city, "kwp": s.kwp, "c": ctx.colour[s.key],
+                        "url": f"{up}sites/{s.slug}/index.html", "photo": photo, "st": st, "ring": STATUS_RING[st],
+                        "kw": round(ctx.live[s.key].kw, 1), "kwh": round(ctx.live[s.key].today_kwh, 1),
+                        "mwh": round(ctx.life[s.key].kwh / 1000, 1), "co2": round(ctx.life[s.key].co2_t, 1), "approx": s.approx})
+    return pts
+
+
+def map_card(ctx: Ctx, up: str, mode: str) -> str:
+    """The map with the Solar / LED / Both switch and a legend for each layer."""
+    mleg = ""
+    for s in ctx.sites:
+        st = RP.status(ctx.live[s.key], ctx.in_window)
+        photo = f"{up}assets/photos/{s.slug}.jpg" if ctx.brand.get("photos", {}).get(s.slug) else ""
+        th = f"background-image:url({photo});" if photo else f"background:{ctx.colour[s.key]};"
+        approx = L(" · approximate location", " · ubicación aproximada") if s.approx else ""
+        mleg += (f'<a href="{up}sites/{s.slug}/index.html"><span class="th" style="{th}border-color:{ctx.colour[s.key]}"></span>'
+                 f'<span style="flex:1"><b>{esc(s.name)}</b><span class="sub">{esc(s.city)} · {fmt(s.kwp, 0)} kWp{approx}</span></span>'
+                 f'<span style="text-align:right">{status_pill(st)}<span class="sub" style="display:block">{fmt(ctx.live[s.key].kw, 0)} kW</span></span></a>')
+    mkey = (f'<div class="mkey solar-only"><span>{L("Solar: ring = the site&#39;s colour in every chart", "Solar: aro = el color del sitio en todas las gráficas")}</span>'
+            f'<span>{L("Circle size = installed kWp", "Tamaño = kWp instalados")}</span>'
+            f'<span><i style="background:{STATUS_RING["live"]}"></i>{L("Live", "En vivo")}</span>'
+            f'<span><i style="background:{STATUS_RING["stale"]}"></i>{L("Delayed data", "Datos retrasados")}</span>'
+            f'<span><i style="background:{STATUS_RING["dark"]}"></i>{L("No data today", "Sin datos hoy")}</span>'
+            f'<span><i style="background:{STATUS_RING["night"]}"></i>{L("Night", "Noche")}</span></div>')
+    has_led = bool(ctx.projects)
+    sw, lkey = "", ""
+    if has_led:
+        sw = ('<div class="mswitch noprint" id="mswitch" role="group">'
+              + "".join(f'<button type="button" data-m="{k}" onclick="cpaMapMode(\'{k}\')">{lbl}</button>'
+                        for k, lbl in (("solar", L("Solar", "Solar")), ("led", "LED"), ("both", L("Both", "Ambos")))) + "</div>")
+        counts = "".join(f'<span><i style="background:{c}"></i>{L(en, es)} ({ctx.led[k].projects})</span>'
+                         for k, (en, es, c) in LED.STATUSES.items() if ctx.led[k].projects)
+        lkey = (f'<div class="mkey led-only"><span>{L("LED: one dot per building; the buildings of a park form a ring around it", "LED: un punto por edificio; los edificios de un parque forman un anillo a su alrededor")}</span>'
+                f'{counts}</div>')
+    pts, lpts = solar_points(ctx, up), (led_points(ctx, up) if has_led else [])
+    sl = {k: [en, es, c] for k, (en, es, c) in LED.STATUSES.items()}
+    js = (MAP_JS.replace("__P__", json.dumps(pts)).replace("__LP__", json.dumps(lpts)).replace("__SL__", json.dumps(sl))
+          .replace("__MODE__", mode if has_led else "solar"))
+    return (f'<div class="card" id="mapwrap" data-mode="{mode if has_led else "solar"}" style="padding:10px">'
+            f'<div class="mhead"><span class="note">{L("Hover a pin or a dot for its figures; click to open it.", "Pase el cursor sobre un punto para ver sus cifras; haga clic para abrirlo.")}</span>{sw}</div>'
+            f'<div id="map"></div><div class="mlegend solar-only">{mleg}</div>{mkey}{lkey}</div>'
+            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">'
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>'
+            f"<script>{js}</script>")
+
+
+def led_tiles(ctx: Ctx, dark: bool = True) -> str:
+    """Delivered retrofits, from the park owner's side."""
+    d = ctx.led["delivered"]
+    items = [(L("Buildings upgraded", "Edificios mejorados"), count(d.projects), L("in ", "en ") + n_of(d.parks, "park|parks", "parque|parques")),
+             (L("LED fixtures installed", "Luminarias LED instaladas"), count(d.fixtures), L(f"{fmt(d.area_m2, 0)} m² relit", f"{fmt(d.area_m2, 0)} m² iluminados")),
+             (L("Lighting load cut", "Reducción de carga"), f'{count(d.cut_pct or 0)}<small>%</small>',
+              L(f"{fmt(d.kw_before, 0)} to {fmt(d.kw_after, 0)} kW", f"de {fmt(d.kw_before, 0)} a {fmt(d.kw_after, 0)} kW")),
+             (L("Energy saved per year", "Energía ahorrada por año"), f'{count(d.saved_kwh / 1000, 0)}<small>MWh</small>', L("estimated", "estimada")),
+             (L("CO2e avoided per year", "CO2e evitado por año"), f'{count(d.co2_t, 0)}<small>t</small>', L("estimated", "estimado"))]
+    return '<div class="big">' + "".join(f'<div class="t"><div class="l">{a}</div><div class="v num">{b}</div><div class="d">{c}</div></div>'
+                                         for a, b, c in items) + "</div>"
+
+
+def status_cards(ctx: Ctx) -> str:
+    out = ""
+    for k, (en, es, c) in LED.STATUSES.items():
+        x = ctx.led[k]
+        if not x.projects:
+            continue
+        pot = k != "delivered"
+        sav = (f'<div><b>{fmt(x.saved_kwh / 1000, 0)}</b><span>{L("MWh / year" + (" potential" if pot else ""), "MWh / año" + (" potencial" if pot else ""))}</span></div>'
+               f'<div><b>{fmt(x.co2_t, 0)}</b><span>{L("t CO2e / year", "t CO2e / año")}</span></div>')
+        out += (f'<div class="card" style="border-top-color:{c}"><h3>{chip(k)}<span class="r">{n_of(x.parks, "park|parks", "parque|parques")}</span></h3>'
+                f'<div class="n">{x.projects}</div><div class="note">{L("building" if x.projects == 1 else "buildings", "edificio" if x.projects == 1 else "edificios")}</div>'
+                f'<div class="kv4"><div><b>{fmt(x.fixtures, 0)}</b><span>{L("LED fixtures", "luminarias LED")}</span></div>'
+                f'<div><b>{fmt(x.area_m2 / 1000, 1)}k</b><span>m²</span></div>{sav}</div></div>')
+    return f'<div class="grid g3 stat3">{out}</div>'
+
+
+def park_cards(ctx: Ctx, up: str) -> str:
+    out = ""
+    for pk, ps in LED.by_park(ctx.projects, ctx.parks):
+        tot = sum((p.saved_kwh or 0) for p in ps) or 1.0
+        bar = "".join(f'<i style="width:{100 * sum((p.saved_kwh or 0) for p in ps if p.status == k) / tot:.1f}%;background:{c}" '
+                      f'data-tip="{esc(en)}|{fmt(sum((p.saved_kwh or 0) for p in ps if p.status == k) / 1000, 0)} MWh / year" '
+                      f'data-tip-es="{esc(es)}|{fmt(sum((p.saved_kwh or 0) for p in ps if p.status == k) / 1000, 0)} MWh / año"></i>'
+                      for k, (en, es, c) in LED.STATUSES.items() if any(p.status == k and p.saved_kwh for p in ps))
+        lis = "".join(f'<li><span class="t"><a href="{up}led/index.html#{p.id}"><b>{esc(p.building)}</b></a>'
+                      f'<small>{esc(p.tenant or "")}{" · " if p.tenant and p.kind else ""}{L(kind_label(p), kind_label(p, True)) if p.kind else ""}</small></span>{chip(p.status)}</li>'
+                      for p in ps)
+        d = sum(p.status == "delivered" for p in ps)
+        out += (f'<div class="card park"><h3>{esc(pk.name)}<span class="r">{esc(pk.city)}</span></h3>'
+                f'<div class="note">{n_of(len(ps), "building|buildings", "edificio|edificios")}, {L(f"{d} delivered", f"{d} entregados")} · '
+                f'{fmt(sum((p.saved_kwh or 0) for p in ps) / 1000, 0)} MWh / {L("year", "año")}</div><div class="pbar">{bar}</div><ul>{lis}</ul></div>')
+    return f'<div class="grid g3">{out}</div>'
+
+
+def projects_table(ctx: Ctx) -> str:
+    order = list(LED.STATUSES)
+    rows = ""
+    for p in sorted(ctx.projects, key=lambda p: (order.index(p.status), ctx.park[p.park].name, p.building)):
+        pk = ctx.park[p.park]
+        load = kw_txt(p.kw_after) if p.new_build else f"{kw_txt(p.kw_before)} &rarr; {kw_txt(p.kw_after)}"
+        cut = cut_txt(p)
+        sav = "-" if p.saved_kwh is None else fmt(p.saved_kwh / 1000, 0)
+        co2 = "-" if p.saved_kwh is None else fmt(p.co2_t(ctx.factor), 1)
+        rows += (f'<tr class="anchor" id="{p.id}"><td><b>{esc(p.building)}</b><div class="note">{esc(pk.name)} · {esc(pk.city)}</div></td>'
+                 f'<td>{esc(p.tenant or "-")}</td><td>{chip(p.status)}</td><td>{L(kind_label(p), kind_label(p, True)) if p.kind else "-"}</td>'
+                 f'<td class="n">{fmt(p.area_m2, 0) if p.area_m2 else "-"}</td><td class="n">{fmt(p.fixtures, 0) if p.fixtures else "-"}</td>'
+                 f'<td class="n" style="white-space:nowrap">{load}</td><td class="n">{cut}</td><td>{lux_txt(p)}</td>'
+                 f'<td class="n">{sav}</td><td class="n">{co2}</td></tr>')
+    return (f'<div class="card" style="overflow-x:auto"><table class="t"><tr><th>{L("Building", "Edificio")}</th><th>{L("Tenant", "Inquilino")}</th>'
+            f'<th>{L("Status", "Estado")}</th><th>{L("Use", "Uso")}</th><th class="n">m²</th><th class="n">{L("Fixtures", "Luminarias")}</th>'
+            f'<th class="n">kW</th><th class="n">{L("Load cut", "Reducción")}</th><th>{L("Light level", "Nivel de luz")}</th>'
+            f'<th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{rows}</table>'
+            f'<p class="note">{L("kW = installed lighting load before and after. MWh and t CO2e per year are estimated (not metered): the load cut x the building&#39;s operating hours; a new building has no before, so no saving is claimed. Light level: before at the audit; after as measured at handover (delivered) or as designed (pipeline).", "kW = carga de iluminación instalada antes y después. MWh y t CO2e por año son estimados (no medidos): la reducción de carga x las horas de operación del edificio; un edificio nuevo no tiene un antes, así que no se reclama ahorro. Nivel de luz: antes en la auditoría; después medido en la entrega (entregados) o de diseño (cartera).")}</p></div>')
+
+
+
 def overview(ctx: Ctx) -> str:
     kwp = sum(s.kwp for s in ctx.sites)
     life, ytd = ctx.life["_all"], ctx.ytd["_all"]
@@ -392,32 +628,22 @@ def overview(ctx: Ctx) -> str:
 <div><b>{fmt(ctx.life[s.key].kwh / 1000, 0)}</b><span>{L("MWh to date", "MWh a la fecha")}</span></div></div></div></a>"""
     bars, co2 = month_charts(ctx, ctx.months)
     leg = C.legend([(s.name, ctx.colour[s.key]) for s in ctx.sites])
-    pts, mleg = [], ""
-    for s in ctx.sites:
-        st = RP.status(ctx.live[s.key], ctx.in_window)
-        photo = f"assets/photos/{s.slug}.jpg" if ctx.brand.get("photos", {}).get(s.slug) else ""
-        if s.lat is not None and s.lon is not None:
-            pts.append({"lat": s.lat, "lon": s.lon, "name": s.name, "city": s.city, "kwp": s.kwp, "c": ctx.colour[s.key],
-                        "url": f"sites/{s.slug}/index.html", "photo": photo, "st": st, "ring": STATUS_RING[st],
-                        "kw": round(ctx.live[s.key].kw, 1), "kwh": round(ctx.live[s.key].today_kwh, 1),
-                        "mwh": round(ctx.life[s.key].kwh / 1000, 1), "co2": round(ctx.life[s.key].co2_t, 1), "approx": s.approx})
-        th = f"background-image:url({photo});" if photo else f"background:{ctx.colour[s.key]};"
-        approx = L(" · approximate location", " · ubicación aproximada") if s.approx else ""
-        mleg += (f'<a href="sites/{s.slug}/index.html"><span class="th" style="{th}border-color:{ctx.colour[s.key]}"></span>'
-                 f'<span style="flex:1"><b>{esc(s.name)}</b><span class="sub">{esc(s.city)} · {fmt(s.kwp, 0)} kWp{approx}</span></span>'
-                 f'<span style="text-align:right">{status_pill(st)}<span class="sub" style="display:block">{fmt(ctx.live[s.key].kw, 0)} kW</span></span></a>')
-    mkey = (f'<div class="mkey"><span>{L("Ring = the site&#39;s colour in every chart", "Aro = el color del sitio en todas las gráficas")}</span>'
-            f'<span>{L("Circle size = installed kWp", "Tamaño = kWp instalados")}</span>'
-            f'<span><i style="background:{STATUS_RING["live"]}"></i>{L("Live", "En vivo")}</span>'
-            f'<span><i style="background:{STATUS_RING["stale"]}"></i>{L("Delayed data", "Datos retrasados")}</span>'
-            f'<span><i style="background:{STATUS_RING["dark"]}"></i>{L("No data today", "Sin datos hoy")}</span>'
-            f'<span><i style="background:{STATUS_RING["night"]}"></i>{L("Night", "Noche")}</span></div>')
     sdg = [("7", "#fcc30b", "Affordable and clean energy", "Energía asequible y no contaminante",
             "On-site solar supplies the tenants' operations with zero-emission electricity.", "Solar en sitio abastece la operación de los inquilinos con electricidad sin emisiones."),
            ("9", "#fd6925", "Industry, innovation and infrastructure", "Industria, innovación e infraestructura",
             "Industrial parks with monitored, efficient energy infrastructure.", "Parques industriales con infraestructura energética eficiente y monitoreada."),
            ("13", "#3f7e44", "Climate action", "Acción por el clima",
             "Every kWh from the roofs displaces grid electricity and its emissions.", "Cada kWh de los techos desplaza electricidad de la red y sus emisiones.")]
+    led_sec = ""
+    if ctx.projects:
+        pl = ctx.led["_pipeline"]
+        led_sec = f"""<div class="sec"><div class="hero" style="padding:28px 32px"><div class="k">{L("LED lighting in your parks", "Iluminación LED en sus parques")}</div>
+<h1 style="font-size:30px">{L("Better light in your buildings, a fraction of the energy.", "Mejor luz en sus naves, una fracción de la energía.")}</h1>
+<div class="sub">{L(f"Retrofits delivered by ARGIA in CPA parks. Plus {pl.projects} more buildings in the pipeline: another {fmt(pl.saved_kwh / 1000, 0)} MWh and {fmt(pl.co2_t, 0)} t CO2e every year if they go ahead.", f"Renovaciones entregadas por ARGIA en parques de CPA. Y {pl.projects} edificios más en cartera: otros {fmt(pl.saved_kwh / 1000, 0)} MWh y {fmt(pl.co2_t, 0)} t CO2e cada año si se realizan.")}</div>
+{led_tiles(ctx)}<div style="margin-top:18px;position:relative"><a class="btn" href="led/index.html">{L("Every LED project, park by park", "Cada proyecto LED, parque por parque")} &rarr;</a></div></div></div>"""
+    led_line = (L(f" Plus {fmt(ctx.led['delivered'].co2_t, 0)} t CO2e avoided every year by the delivered LED retrofits (estimated).",
+                  f" Además, {fmt(ctx.led['delivered'].co2_t, 0)} t CO2e evitadas cada año por las renovaciones LED entregadas (estimado).")
+                if ctx.projects else "")
     sdg_html = "".join(f'<div class="card esg"><div class="badge" style="background:{c}">{n}</div><h3>{L(f"SDG {n}: {en}", f"ODS {n}: {es}")}</h3><div class="note">{L(de, ds)}</div></div>'
                        for n, c, en, es, de, ds in sdg)
     body = f"""<div class="hero"><div class="sun"></div><div class="k">{esc(ctx.partner)} × ARGIA · {L("Clean energy programme", "Programa de energía limpia")}</div>
@@ -429,25 +655,23 @@ def overview(ctx: Ctx) -> str:
 <div class="t"><div class="l"><span class="dot"></span>{L("Power right now", "Potencia ahora")}</div><div class="v num">{count(ctx.kw_now(), 0)}<small>kW</small></div><div class="d">{fmt(ctx.today_t["_all"].kwh, 0)} kWh {L("today so far", "hoy hasta ahora")}</div></div>
 <div class="t"><div class="l">{L(f"This year (to {C.month_label(ctx.last_closed)})", f"Este año (a {C.month_label(ctx.last_closed, True)})")}</div><div class="v num">{count(ytd.kwh / 1000, 1)}<small>MWh</small></div><div class="d">{fmt(ytd.co2_t, 1)} t CO2e {L("avoided", "evitadas")}</div></div></div></div>
 <div class="sec"><h2>{L("The sites", "Los sitios")}</h2><p class="lead">{L("Each rooftop, live. Open a site for its day, month and history.", "Cada techo, en vivo. Abra un sitio para ver su día, mes e historial.")}</p><div class="grid g3">{cards}</div></div>
+{led_sec}
 <div class="sec grid g2"><div class="card"><h3>{L("Power today", "Potencia hoy")}<span class="r">kW · {L("every 15 min", "cada 15 min")}</span></h3>{today_chart(ctx, ctx.sites)}{leg}</div>
 <div class="card"><h3>{L("Clean energy by month", "Energía limpia por mes")}<span class="r">MWh</span></h3>{bars}{leg}</div></div>
-<div class="sec"><h2>{L("Climate impact", "Impacto climático")}</h2><p class="lead">{L("Avoided emissions add up month after month. The equivalences below are illustrations (US EPA factors), not measurements.", "Las emisiones evitadas se acumulan mes a mes. Las equivalencias son ilustrativas (factores de la EPA de EE. UU.), no mediciones.")}</p>
+<div class="sec"><h2>{L("Climate impact", "Impacto climático")}</h2><p class="lead">{L("Avoided emissions add up month after month. The equivalences below are illustrations (US EPA factors), not measurements.", "Las emisiones evitadas se acumulan mes a mes. Las equivalencias son ilustrativas (factores de la EPA de EE. UU.), no mediciones.")}{led_line}</p>
 <div class="grid g2"><div class="card"><h3>{L("CO2e avoided, cumulative", "CO2e evitado, acumulado")}<span class="r">t CO2e</span></h3>{co2}</div>
 <div class="grid" style="align-content:start"><div class="card eq"><div class="ic">🌳</div><div><b>{count(eq["trees"], 0)}</b><span class="lab">{L("tree seedlings grown for 10 years", "árboles plantados y cultivados 10 años")}</span></div></div>
 <div class="card eq"><div class="ic">🚗</div><div><b>{count(eq["cars_year"], 0)}</b><span class="lab">{L("cars off the road for a year", "autos fuera de circulación un año")}</span></div></div>
 <div class="card eq"><div class="ic">⛽</div><div><b>{count(eq["gasoline_l"] / 1000, 0)}</b><span class="lab">{L("thousand litres of gasoline not burned", "miles de litros de gasolina no quemados")}</span></div></div></div></div></div>
-<div class="sec"><h2>{L("Where the energy is made", "Dónde se genera la energía")}</h2><div class="card" style="padding:10px"><div id="map"></div>
-<div class="mlegend">{mleg}</div>{mkey}</div></div>
+<div class="sec"><h2>{L("Solar and LED across your parks", "Solar y LED en sus parques") if ctx.projects else L("Where the energy is made", "Dónde se genera la energía")}</h2>
+<p class="lead">{L("Switch between the solar rooftops, the LED projects and both.", "Cambie entre los techos solares, los proyectos LED y ambos.") if ctx.projects else ""}</p>{map_card(ctx, "", "both")}</div>
 <div class="sec"><h2>{L("Ready for your ESG reporting", "Listo para su reporte ASG")}</h2><p class="lead">{L("The figures map directly to the frameworks CPA reports against.", "Las cifras corresponden directamente a los marcos que CPA reporta.")}</p>
 <div class="grid g3">{sdg_html}</div>
 <div class="grid g2" style="margin-top:16px"><div class="card"><h3>GRESB</h3><div class="note">{L("On-site renewable energy generated per asset (MWh), by month - the energy and renewables indicators of the GRESB Real Estate assessment.", "Energía renovable generada en sitio por activo (MWh), por mes - indicadores de energía y renovables de la evaluación GRESB Real Estate.")}</div></div>
 <div class="card"><h3>GHG Protocol</h3><div class="note">{L("For the tenant, solar consumed on site reduces purchased electricity (Scope 2). For CPA as landlord it sits in Scope 3, category 13 (downstream leased assets). Factor per month and site in the report.", "Para el inquilino, la energía solar consumida en sitio reduce la electricidad comprada (Alcance 2). Para CPA como arrendador está en Alcance 3, categoría 13 (activos arrendados). Factor por mes y sitio en el reporte.")}</div></div></div>
 <div class="cta" style="margin-top:16px"><div><h3>{L("Clean energy report", "Reporte de energía limpia")}</h3><p>{L("Year to date and since the start, per site and month, with method and factors. PDF in English and Spanish, data as CSV.", "Año a la fecha y desde el inicio, por sitio y mes, con método y factores. PDF en inglés y español, datos en CSV.")}</p></div>
 <a class="btn" href="report/index.html">{L("Open the report", "Abrir el reporte")} →</a></div></div>
-<div class="sec"><div class="card" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap"><div style="font-size:34px">💡</div><div style="flex:1;min-width:240px"><h3 style="margin:0">{L("LED lighting upgrades", "Mejora de iluminación LED")}</h3>
-<div class="note">{L("The second half of the programme: replace old warehouse lighting with LED. Estimate the savings for any building.", "La otra mitad del programa: reemplazar la iluminación de las naves por LED. Estime el ahorro de cualquier edificio.")}</div></div><a class="btn ghost" href="led/index.html">{L("LED savings estimator", "Estimador de ahorro LED")} →</a></div></div>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>{MAP_JS.replace("__P__", json.dumps(pts))}</script><script>{COUNT_JS}</script>"""
+<script>{COUNT_JS}</script>"""
     return page(ctx, "Clean energy", body, "home", 0)
 
 
@@ -502,7 +726,7 @@ def site_page(ctx: Ctx, s: RP.Site, cs: dict) -> str:
     return page(ctx, s.name, body, "sites", 2)
 
 
-def report_page(ctx: Ctx, pdfs: Dict[str, str], csv_name: str) -> str:
+def report_page(ctx: Ctx, pdfs: Dict[str, str], csv_name: str, led_csv: str = "") -> str:
     """The clean energy report: year to date (closed months) and since the
     start, per site and month, with the method. Printed to PDF as is."""
     months_ytd = [m for m in RP.months_between(ctx.ytd_first, ctx.last_closed) if m in set(ctx.months)]
@@ -541,12 +765,37 @@ def report_page(ctx: Ctx, pdfs: Dict[str, str], csv_name: str) -> str:
     dl = "".join(f'<a class="btn {"" if i == 0 else "ghost"}" href="{n}">{lbl}</a> ' for i, (lbl, n) in enumerate(
         [(L("PDF in English", "PDF en inglés"), pdfs.get("en", "")), (L("PDF in Spanish", "PDF en español"), pdfs.get("es", ""))]) if n)
     dl += f'<a class="btn ghost" href="{csv_name}">{L("Data (CSV)", "Datos (CSV)")}</a>'
+    if led_csv:
+        dl += f' <a class="btn ghost" href="{led_csv}">{L("LED projects (CSV)", "Proyectos LED (CSV)")}</a>'
+    led_rep = ""
+    if ctx.projects:
+        d, pl = ctx.led["delivered"], ctx.led["_pipeline"]
+        drows = ""
+        for pk, ps in LED.by_park([x for x in ctx.projects if x.status == "delivered"], ctx.parks):
+            for x in ps:
+                drows += (f'<tr><td><b>{esc(x.building)}</b><div class="note">{esc(pk.name)}</div></td><td>{esc(x.tenant or "-")}</td>'
+                          f'<td class="n">{fmt(x.area_m2, 0) if x.area_m2 else "-"}</td><td class="n">{fmt(x.fixtures, 0) if x.fixtures else "-"}</td>'
+                          f'<td class="n">{cut_txt(x)}</td>'
+                          f'<td class="n">{"-" if x.saved_kwh is None else fmt(x.saved_kwh / 1000, 1)}</td>'
+                          f'<td class="n">{"-" if x.saved_kwh is None else fmt(x.co2_t(ctx.factor), 1)}</td></tr>')
+        drows += (f'<tr class="tot"><td>{L("Delivered", "Entregados")}</td><td></td><td class="n">{fmt(d.area_m2, 0)}</td><td class="n">{fmt(d.fixtures, 0)}</td>'
+                  f'<td class="n">-{fmt(d.cut_pct or 0, 0)}%</td><td class="n">{fmt(d.saved_kwh / 1000, 1)}</td><td class="n">{fmt(d.co2_t, 1)}</td></tr>')
+        prow = "".join(f'<tr><td>{chip(k)}</td><td class="n">{ctx.led[k].projects}</td><td class="n">{fmt(ctx.led[k].fixtures, 0)}</td>'
+                       f'<td class="n">{fmt(ctx.led[k].saved_kwh / 1000, 1)}</td><td class="n">{fmt(ctx.led[k].co2_t, 1)}</td></tr>'
+                       for k in LED.STATUSES if k != "delivered" and ctx.led[k].projects)
+        led_rep = f"""<div class="sec card" style="break-before:page"><h3>{L("LED lighting efficiency, delivered retrofits", "Eficiencia en iluminación LED, renovaciones entregadas")}<span class="r">{L("estimated, per year", "estimado, por año")}</span></h3>
+<div style="overflow-x:auto"><table class="t"><tr><th>{L("Building", "Edificio")}</th><th>{L("Tenant", "Inquilino")}</th><th class="n">m²</th><th class="n">{L("Fixtures", "Luminarias")}</th>
+<th class="n">{L("Load cut", "Reducción")}</th><th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{drows}</table></div>
+<p class="note">{L(f"Pipeline (not yet installed): {pl.projects} buildings, {fmt(pl.saved_kwh / 1000, 0)} MWh and {fmt(pl.co2_t, 0)} t CO2e per year if all go ahead.", f"Cartera (aún sin instalar): {pl.projects} edificios, {fmt(pl.saved_kwh / 1000, 0)} MWh y {fmt(pl.co2_t, 0)} t CO2e por año si todos se realizan.")}</p>
+<table class="t" style="max-width:640px"><tr><th>{L("Pipeline", "Cartera")}</th><th class="n">{L("Buildings", "Edificios")}</th><th class="n">{L("Fixtures", "Luminarias")}</th><th class="n">MWh / {L("year", "año")}</th><th class="n">t CO2e / {L("year", "año")}</th></tr>{prow}</table></div>"""
     factors = ", ".join(f"{y_}: {f:.3f}" for y_, f in sorted(co2reg.FACTOR_BY_YEAR.items()))
     overrides = [esc(s.name) for s in ctx.sites if s.key in co2reg.PLANT_OVERRIDE]
     ov_en = (f" At the customer's request, {', '.join(overrides)} uses its contracted factor in every ARGIA document, so it is used here too."
              if overrides else "")
     ov_es = (f" A solicitud del cliente, {', '.join(overrides)} usa su factor contratado en todos los documentos de ARGIA, y aquí también."
              if overrides else "")
+    led_method = ("<p>" + L(f"LED savings: installed lighting load before minus after (kW) x the building's operating hours per year (4,992 h unless the tenant runs around the clock), x the current national grid factor ({ctx.factor:.3f} kg CO2e/kWh). Estimated, not metered; a new building has no before and claims no saving.",
+                            f"Ahorro LED: carga de iluminación instalada antes menos después (kW) x horas de operación del edificio al año (4,992 h salvo operación continua), x el factor nacional vigente ({ctx.factor:.3f} kg CO2e/kWh). Estimado, no medido; un edificio nuevo no tiene un antes y no reclama ahorro.") + "</p>") if ctx.projects else ""
     body = f"""<div class="noprint" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-bottom:14px">{dl}</div>
 <div class="hero" style="padding:30px 34px"><div class="brand" style="margin-bottom:18px">{cpa_logo}<span class="x">×</span><img class="ar" src="{argia_logo.MARK_URI}" alt="ARGIA"></div>
 <div class="k">{L("Clean energy report", "Reporte de energía limpia")}</div>
@@ -560,45 +809,62 @@ def report_page(ctx: Ctx, pdfs: Dict[str, str], csv_name: str) -> str:
 <th class="n">MWh {year}</th><th class="n">t CO2e {year}</th><th class="n">MWh {L("total", "total")}</th><th class="n">t CO2e {L("total", "total")}</th><th>kg CO2e/kWh</th></tr>{rows}</table></div></div>
 <div class="sec card"><h3>{L("By month", "Por mes")}<span class="r">MWh</span></h3>{chart}{C.legend([(s.name, ctx.colour[s.key]) for s in ctx.sites])}
 <div style="overflow-x:auto;margin-top:10px"><table class="t"><tr><th>{L("Site", "Sitio")}</th>{head}</tr>{mrows}</table></div></div>
+{led_rep}
 <div class="sec grid g2"><div class="card"><h3>{L("Method", "Método")}</h3><div class="note">
 <p>{L("Energy: AC energy measured by each site's inverters, collected every 5 minutes and checked every night against the manufacturer's own counters (the figures ARGIA invoices and reports on). Closed months only; the current month is in the live site.", "Energía: energía AC medida por los inversores de cada sitio, leída cada 5 minutos y verificada cada noche contra los contadores del fabricante (las cifras con que ARGIA factura y reporta). Solo meses cerrados; el mes en curso está en el sitio en vivo.")}</p>
 <p>{L(f"Avoided emissions: energy x the Mexican national grid emission factor published by SEMARNAT / CRE for the year (kg CO2e/kWh - {factors}; the newest applies until the next is published), location-based.{ov_en}", f"Emisiones evitadas: energía x factor de emisión del Sistema Eléctrico Nacional publicado por SEMARNAT / CRE para el año (kg CO2e/kWh - {factors}; el más reciente aplica hasta que se publique el siguiente), basado en ubicación.{ov_es}")}</p>
+{led_method}
 <p>{L("Equivalences: US EPA Greenhouse Gas Equivalencies (0.060 t CO2 per tree seedling grown 10 years; 4.6 t CO2 per passenger car per year; 8.887 kg CO2 per gallon of gasoline). Illustrative only.", "Equivalencias: Greenhouse Gas Equivalencies de la EPA de EE. UU. (0.060 t CO2 por árbol cultivado 10 años; 4.6 t CO2 por auto al año; 8.887 kg CO2 por galón de gasolina). Solo ilustrativas.")}</p></div></div>
 <div class="card"><h3>{L("How to use it", "Cómo usarlo")}</h3><div class="note">
 <p><b>GRESB</b> - {L("on-site renewable energy generated, per asset and month (CSV).", "energía renovable generada en sitio, por activo y mes (CSV).")}</p>
 <p><b>GHG Protocol</b> - {L("tenant: Scope 2 reduction for solar consumed on site; CPA: Scope 3 category 13 (downstream leased assets).", "inquilino: reducción de Alcance 2 por la energía solar consumida en sitio; CPA: Alcance 3 categoría 13 (activos arrendados).")}</p>
 <p><b>{L("SDGs", "ODS")}</b> - 7, 9, 13.</p>
-<p>{L("Data in the CSV: site, month, kWh, factor, t CO2e, kWp. ARGIA keeps the 5-minute inverter history behind every figure.", "Datos del CSV: sitio, mes, kWh, factor, t CO2e, kWp. ARGIA conserva el historial de 5 minutos de los inversores detrás de cada cifra.")}</p></div></div></div>"""
+<p>{L("Data in the CSV: site, month, kWh, factor, t CO2e, kWp. ARGIA keeps the 5-minute inverter history behind every figure.", "Datos del CSV: sitio, mes, kWh, factor, t CO2e, kWp. ARGIA conserva el historial de 5 minutos de los inversores detrás de cada cifra.")}</p>
+{("<p><b>LED</b> - " + L("energy-efficiency measures per building (GRESB); the LED CSV has one row per project with loads, hours and estimated savings.", "medidas de eficiencia energética por edificio (GRESB); el CSV LED tiene una fila por proyecto con cargas, horas y ahorro estimado.") + "</p>") if ctx.projects else ""}</div></div></div>"""
     return page(ctx, "Clean energy report", body, "report", 1,
                 extra_head="<style>@page{size:A4;margin:12mm}@media print{.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>")
 
 
 def led_page(ctx: Ctx) -> str:
+    """v314: the LED programme in CPA's parks (delivered and pipeline), the
+    map, park by park, every project; then the estimator. No money."""
     from argia.cpa.report import LED_JS
-    f = co2reg.CURRENT
+    f = ctx.factor
     fields = [("n", L("Light fixtures", "Luminarias"), 200), ("wo", L("Watts per fixture today (e.g. metal halide 400 W + ballast)", "Watts por luminaria hoy (p. ej. aditivo metálico 400 W + balastro)"), 458),
               ("wn", L("Watts per LED fixture", "Watts por luminaria LED"), 150), ("h", L("Hours on per day", "Horas encendidas al día"), 16),
-              ("d", L("Days per year", "Días al año"), 360), ("p", L("Electricity price, MXN per kWh", "Precio de la electricidad, MXN por kWh"), 2.4)]
+              ("d", L("Days per year", "Días al año"), 360)]
     inputs = "".join(f'<label class="f" for="{k}">{lbl}</label><input class="f" id="{k}" type="number" min="0" step="any" value="{v}">' for k, lbl, v in fields)
-    body = f"""<div class="hero"><div class="k">{esc(ctx.partner)} × ARGIA · {L("LED lighting", "Iluminación LED")}</div>
+    if ctx.projects:
+        d = ctx.led["delivered"]
+        top = f"""<div class="hero"><div class="k">{esc(ctx.partner)} × ARGIA · {L("LED lighting", "Iluminación LED")}</div>
 <h1>{L("Better light, a fraction of the energy.", "Mejor luz, una fracción de la energía.")}</h1>
-<div class="sub">{L("ARGIA replaces warehouse and yard lighting with LED for CPA tenants: audit, design, installation and measured savings. LED results appear on this site once a project is commissioned and measured.", "ARGIA reemplaza la iluminación de naves y patios por LED para inquilinos de CPA: auditoría, diseño, instalación y ahorro medido. Los resultados LED aparecerán aquí cuando un proyecto se ponga en marcha y se mida.")}</div></div>
-<div class="sec grid g2"><div class="card"><h3>{L("Savings estimator", "Estimador de ahorro")}</h3>{inputs}
+<div class="sub">{L(f"ARGIA replaces warehouse, office and yard lighting with LED and sensors for CPA tenants. {d.projects} buildings delivered in {d.parks} parks; {ctx.led['_pipeline'].projects} more in the pipeline.", f"ARGIA reemplaza la iluminación de naves, oficinas y patios por LED con sensores para inquilinos de CPA. {d.projects} edificios entregados en {d.parks} parques; {ctx.led['_pipeline'].projects} más en cartera.")}</div>
+{led_tiles(ctx)}</div>
+<div class="sec"><h2>{L("Delivered and in the pipeline", "Entregados y en cartera")}</h2><p class="lead">{L("Pipeline figures are what each proposal would save every year once installed.", "Las cifras de la cartera son lo que cada propuesta ahorraría cada año una vez instalada.")}</p>{status_cards(ctx)}</div>
+<div class="sec"><h2>{L("On the map", "En el mapa")}</h2>{map_card(ctx, "../", "led")}</div>
+<div class="sec"><h2>{L("Park by park", "Parque por parque")}</h2><p class="lead">{L("The bar shows each park&#39;s yearly energy saving by status.", "La barra muestra el ahorro anual de energía de cada parque por estado.")}</p>{park_cards(ctx, "../")}</div>
+<div class="sec"><h2>{L("Every project", "Todos los proyectos")}</h2>{projects_table(ctx)}</div>"""
+    else:
+        top = f"""<div class="hero"><div class="k">{esc(ctx.partner)} × ARGIA · {L("LED lighting", "Iluminación LED")}</div>
+<h1>{L("Better light, a fraction of the energy.", "Mejor luz, una fracción de la energía.")}</h1>
+<div class="sub">{L("ARGIA replaces warehouse and yard lighting with LED for CPA tenants: audit, design, installation and measured savings.", "ARGIA reemplaza la iluminación de naves y patios por LED para inquilinos de CPA: auditoría, diseño, instalación y ahorro medido.")}</div></div>"""
+    body = f"""{top}
+<div class="sec"><h2>{L("Estimate another building", "Estime otro edificio")}</h2><div class="grid g2"><div class="card"><h3>{L("Savings estimator", "Estimador de ahorro")}</h3>{inputs}
 <p class="note">{L(f"An estimate from your inputs, not a measurement. CO2e at the Mexican grid factor ({f:.3f} kg/kWh).", f"Estimación con sus datos, no una medición. CO2e con el factor de la red mexicana ({f:.3f} kg/kWh).")}</p></div>
 <div class="card" style="background:linear-gradient(140deg,#14123a,#1f1d4f 60%,#2a2a7a);color:#fff;border:0"><h3 style="color:#a9d8fb">{L("Every year", "Cada año")}</h3>
 <div class="big" style="grid-template-columns:1fr 1fr;margin-top:6px"><div class="t"><div class="l">{L("Energy saved", "Energía ahorrada")}</div><div class="v num"><span id="o_kwh">-</span><small>MWh</small></div></div>
-<div class="t"><div class="l">{L("Cost saved", "Ahorro")}</div><div class="v num"><span id="o_mxn">-</span><small>MXN</small></div></div>
 <div class="t"><div class="l">CO2e {L("avoided", "evitado")}</div><div class="v num"><span id="o_co2">-</span><small>t</small></div></div>
-<div class="t"><div class="l">{L("Lighting load cut", "Reducción de carga")}</div><div class="v num"><span id="o_pct">-</span><small>%</small></div><div class="d"><span id="o_kw">-</span> kW</div></div></div></div></div>
+<div class="t"><div class="l">{L("Lighting load cut", "Reducción de carga")}</div><div class="v num"><span id="o_pct">-</span><small>%</small></div></div>
+<div class="t"><div class="l">{L("Load removed", "Carga eliminada")}</div><div class="v num"><span id="o_kw">-</span><small>kW</small></div></div></div></div></div></div>
 <div class="sec grid g3"><div class="card"><h3>1 · {L("Audit", "Auditoría")}</h3><div class="note">{L("Fixture count, wattage, hours and light levels per area.", "Conteo de luminarias, potencia, horas y niveles de iluminación por área.")}</div></div>
 <div class="card"><h3>2 · {L("Design and install", "Diseño e instalación")}</h3><div class="note">{L("LED fixtures sized to the required lux, sensors where they pay, installed around the tenant's operation.", "Luminarias LED dimensionadas al nivel de lux requerido, sensores donde convienen, instaladas sin detener la operación.")}</div></div>
-<div class="card"><h3>3 · {L("Measure", "Medición")}</h3><div class="note">{L("Before and after metering; the measured savings join this site next to the solar figures.", "Medición antes y después; el ahorro medido se suma a este sitio junto a las cifras solares.")}</div></div></div>
+<div class="card"><h3>3 · {L("Hand over", "Entrega")}</h3><div class="note">{L("Light levels measured at handover; load and savings documented per building, as on this page.", "Niveles de luz medidos en la entrega; carga y ahorro documentados por edificio, como en esta página.")}</div></div></div>
 <script>{LED_JS}
 (function(){{function v(id){{var x=parseFloat(document.getElementById(id).value);return isNaN(x)?0:x;}}
 function f(x,d){{return x.toLocaleString('en-US',{{minimumFractionDigits:d,maximumFractionDigits:d}});}}
 function run(){{var wo=v('wo'),wn=Math.min(v('wn'),wo),h=Math.min(v('h'),24),d=Math.min(v('d'),366);
-var r=ledEst(v('n'),wo,wn,h,d,v('p'),{f});document.getElementById('o_kwh').textContent=f(r.kwh_year/1000,1);
-document.getElementById('o_mxn').textContent=f(r.mxn_year,0);document.getElementById('o_co2').textContent=f(r.t_co2_year,1);
+var r=ledEst(v('n'),wo,wn,h,d,0,{f});document.getElementById('o_kwh').textContent=f(r.kwh_year/1000,1);
+document.getElementById('o_co2').textContent=f(r.t_co2_year,1);
 document.getElementById('o_pct').textContent=f(r.pct,0);document.getElementById('o_kw').textContent=f(r.kw_saved,1);}}
 document.querySelectorAll('input.f').forEach(function(i){{i.addEventListener('input',run);}});run();}})();</script>"""
     return page(ctx, "LED lighting", body, "led", 1)
@@ -681,11 +947,19 @@ def check(stage: str, ctx: Ctx) -> List[str]:
     return errs
 
 
+def load_led() -> Tuple[List[LED.Park], List[LED.Project]]:
+    """v314: the LED projects (server-only, written by scripts/cpa_led_import.py).
+    No file = no LED section; a broken file stops the build (the last good
+    site stays online) rather than putting a wrong pin on CPA's map."""
+    path = os.path.join(CPA_DIR, "led.json")
+    return LED.load(path) if os.path.isfile(path) else ([], [])
+
+
 def build(cfg: dict, sites, daily, live, now: dt.datetime, stage: str, pdf_cache: Optional[str] = None) -> Ctx:
     os.makedirs(stage, exist_ok=True)
     brand = brand_files(stage)
     copy_photos(stage, sites, brand)
-    ctx = Ctx(cfg, sites, daily, live, now, brand)
+    ctx = Ctx(cfg, sites, daily, live, now, brand, load_led())
     write(stage, "index.html", overview(ctx))
     write(stage, "sites/index.html", sites_index(ctx))
     for s, cs in zip(sites, cfg["sites"]):
@@ -693,11 +967,15 @@ def build(cfg: dict, sites, daily, live, now: dt.datetime, stage: str, pdf_cache
     write(stage, "led/index.html", led_page(ctx))
     csv_name = f"{ctx.partner}_clean_energy_monthly.csv".replace(" ", "_")
     write(stage, f"report/{csv_name}", RP.csv_monthly(sites, ctx.mon, ctx.months))
+    led_csv = ""
+    if ctx.projects:
+        led_csv = f"{ctx.partner}_LED_projects.csv".replace(" ", "_")
+        write(stage, f"report/{led_csv}", LED.csv_projects(ctx.projects, ctx.parks, ctx.factor))
     stem = f"{ctx.partner}_Clean_Energy_Report_{ctx.last_closed}".replace(" ", "_")
     pdfs = {}
     render = RENDER_PDF or chromium_pdf
     # first pass without PDF links, print it, then the final page with the links
-    write(stage, "report/index.html", report_page(ctx, {}, csv_name))
+    write(stage, "report/index.html", report_page(ctx, {}, csv_name, led_csv))
     for lang in ("en", "es"):
         name = f"{stem}_{lang.upper()}.pdf"
         cached = os.path.join(pdf_cache, f"{name}.{now:%Y%m%d}") if pdf_cache else None
@@ -713,7 +991,7 @@ def build(cfg: dict, sites, daily, live, now: dt.datetime, stage: str, pdf_cache
                 shutil.copyfile(target, cached)
         if os.path.exists(target):
             pdfs[lang] = name
-    write(stage, "report/index.html", report_page(ctx, pdfs, csv_name))
+    write(stage, "report/index.html", report_page(ctx, pdfs, csv_name, led_csv))
     return ctx
 
 
@@ -743,7 +1021,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     publish(stage, out)
     n = sum(len(f) for _, _, f in os.walk(out))
     print(f"cpa_gen: {len(sites)} sites, {ctx.life['_all'].kwh / 1000:.1f} MWh to date, {ctx.life['_all'].co2_t:.1f} t CO2e, "
-          f"{ctx.kw_now():.0f} kW now, {n} files -> {out}")
+          f"{ctx.kw_now():.0f} kW now, {len(ctx.projects)} LED projects, {n} files -> {out}")
     return 0
 
 

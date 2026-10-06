@@ -255,18 +255,22 @@ function es(){return document.documentElement.classList.contains('es');}
 var MK=[];
 // pins of sites a couple of km apart would sit on top of each other: push
 // the later one sideways (screen pixels only - the location stays true;
-// sideways so no pin moves towards the map edge where its card would clip)
-function declutter(){if(!m.hasLayer(sol))return;var pts=MK.map(function(o){return m.latLngToContainerPoint(o.ll);});var off=MK.map(function(){return [0,0];});
-for(var j=1;j<MK.length;j++){for(var it=0;it<4;it++){for(var i=0;i<j;i++){var ax=pts[i].x+off[i][0],ay=pts[i].y+off[i][1],bx=pts[j].x+off[j][0],by=pts[j].y+off[j][1];
-var dx=bx-ax,dy=by-ay,d=Math.sqrt(dx*dx+dy*dy),need=(MK[i].px+MK[j].px)/2+18;if(d<need){off[j][0]+=(dx>=0?1:-1)*(need-d);}}}}
-MK.forEach(function(o,k){var el=o.mk.getElement();if(el&&el.firstChild)el.firstChild.style.transform='translate('+off[k][0].toFixed(0)+'px,'+off[k][1].toFixed(0)+'px)';
+// sideways so no pin moves towards the map edge where its card would clip).
+// v314.2: only from zoom 9 (city scale); zoomed out, a pushed pin landed
+// hundreds of km away (Vitalmex drawn next to Guadalajara), so there the
+// pins stay true and shrink instead
+function pinScale(){var z=m.getZoom();return z<7?0.55:(z<10?0.8:1);}
+function declutter(){if(!m.hasLayer(sol))return;var sc=pinScale(),push=m.getZoom()>=9;var pts=MK.map(function(o){return m.latLngToContainerPoint(o.ll);});var off=MK.map(function(){return [0,0];});
+if(push){for(var j=1;j<MK.length;j++){for(var it=0;it<4;it++){for(var i=0;i<j;i++){var ax=pts[i].x+off[i][0],ay=pts[i].y+off[i][1],bx=pts[j].x+off[j][0],by=pts[j].y+off[j][1];
+var dx=bx-ax,dy=by-ay,d=Math.sqrt(dx*dx+dy*dy),need=(MK[i].px+MK[j].px)*sc/2+18;if(d<need){off[j][0]+=(dx>=0?1:-1)*(need-d);}}}}}
+MK.forEach(function(o,k){var el=o.mk.getElement();if(el&&el.firstChild)el.firstChild.style.transform='translate('+off[k][0].toFixed(0)+'px,'+off[k][1].toFixed(0)+'px) scale('+sc+')';
 var t=o.mk.getTooltip();if(t)t.options.offset=L.point(off[k][0],off[k][1]);});}
 var LBL={live:['Live','En vivo'],stale:['Delayed data','Datos retrasados'],dark:['No data today','Sin datos hoy'],night:['Night','Noche']};
 P.forEach(function(p){var px=Math.round(Math.max(46,Math.min(76,Math.sqrt(p.kwp)*2.6)));
 var bg=p.photo?"background-image:url('"+p.photo+"')":'background:'+p.c;
 var icon=L.divIcon({className:'',iconSize:[px,px],iconAnchor:[px/2,px/2],
 html:'<div class="pin"><div class="ph" style="width:'+px+'px;height:'+px+'px;border:4px solid '+p.c+';'+bg+'"></div><span class="st '+p.st+'" style="background:'+p.ring+'"></span><div class="nm">'+p.name+'</div></div>'});
-var mk=L.marker([p.lat,p.lon],{icon:icon,zIndexOffset:1000}).addTo(sol);
+var mk=L.marker([p.lat,p.lon],{icon:icon}).addTo(sol);
 mk.bindTooltip(function(){var e=es(),k=e?1:0;return '<div class="mtip">'+(p.photo?'<img src="'+p.photo+'" alt="">':'')+'<h4>'+p.name+'</h4><div class="sub">'+p.city+' · '+nf(p.kwp)+' kWp · '+LBL[p.st][k]+(p.approx?(e?' · ubicación aproximada':' · approximate location'):'')+'</div><table>'
 +'<tr><td>'+(e?'Generando ahora':'Generating now')+'</td><td>'+nf(p.kw)+' kW</td></tr><tr><td>'+(e?'Hoy':'Today')+'</td><td>'+nf(p.kwh)+' kWh</td></tr>'
 +'<tr><td>'+(e?'A la fecha':'To date')+'</td><td>'+nf(p.mwh)+' MWh</td></tr><tr><td>CO2e '+(e?'evitado':'avoided')+'</td><td>'+nf(p.co2)+' t</td></tr></table><div class="go">'+(e?'Abrir el sitio':'Open the site')+' &rarr;</div></div>';},
@@ -277,7 +281,7 @@ mk.on('click',function(){window.location=p.url;});MK.push({mk:mk,ll:L.latLng(p.l
 var GR={},LM=[];LP.forEach(function(p){(GR[p.pk]=GR[p.pk]||[]).push(p);});
 Object.keys(GR).forEach(function(k){var g=GR[k];g.forEach(function(p,i){var px=p.st==='delivered'?20:15;
 var icon=L.divIcon({className:'',iconSize:[px,px],iconAnchor:[px/2,px/2],html:'<div class="ldot" style="width:'+px+'px;height:'+px+'px;background:'+SL[p.st][2]+'"></div>'});
-var mk=L.marker([p.lat,p.lon],{icon:icon,zIndexOffset:p.st==='delivered'?500:0}).addTo(led);
+var mk=L.marker([p.lat,p.lon],{icon:icon,zIndexOffset:p.st==='delivered'?2500:2000}).addTo(led);
 mk.bindTooltip(function(){return es()?p.tes:p.ten;},{direction:'auto',offset:[0,0],opacity:1,className:'mt'});
 mk.on('click',function(){window.location=p.url;});LM.push({mk:mk,i:i,n:g.length});});});
 function ring(){LM.forEach(function(o){var el=o.mk.getElement();if(!el||!el.firstChild)return;var dx=0,dy=0;
@@ -289,7 +293,7 @@ document.querySelectorAll('#mswitch button').forEach(function(b){b.classList.tog
 var w=document.getElementById('mapwrap');if(w)w.setAttribute('data-mode',x);
 var bb=[];if(x!=='led')P.forEach(function(p){bb.push([p.lat,p.lon]);});if(x!=='solar')LP.forEach(function(p){bb.push([p.lat,p.lon]);});
 if(fit&&bb.length)m.fitBounds(bb,{padding:[60,60],maxZoom:12});declutter();ring();try{localStorage.setItem(KEY,x);}catch(e){}}
-window.cpaMapMode=function(x){setMode(x,true);};var mode=MODE0;try{mode=localStorage.getItem(KEY)||MODE0;}catch(e){}
+window.cpaMapMode=function(x){setMode(x,true);};window.cpaMap=m;var mode=MODE0;try{mode=localStorage.getItem(KEY)||MODE0;}catch(e){}
 if(['solar','led','both'].indexOf(mode)<0)mode=MODE0;setMode(mode,true);
 m.on('zoomend',function(){declutter();ring();});})();"""
 

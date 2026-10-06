@@ -272,3 +272,14 @@ def test_a_broken_led_file_stops_the_build(gen):
     write_led(tmp / "cpa", projects=[dict(PROJECTS[0], status="??")])
     with pytest.raises(ValueError):
         T.build_site(g, tmp)
+
+
+def test_zoomed_out_solar_pins_stay_true_and_led_dots_stay_visible(site):
+    """v314.2: on the live site, zoomed out to all of Mexico, the declutter
+    push drew Vitalmex next to Guadalajara and the pins hid the CDMX LED
+    dots. Now pins are pushed only from zoom 9, shrink when zoomed out, and
+    LED dots sit above them."""
+    g, ctx, stage = site
+    h = (stage / "index.html").read_text(encoding="utf-8")
+    assert "push=m.getZoom()>=9" in h and "if(push){" in h and "scale('+sc+')" in h
+    assert "zIndexOffset:p.st==='delivered'?2500:2000" in h and "{icon:icon}).addTo(sol)" in h

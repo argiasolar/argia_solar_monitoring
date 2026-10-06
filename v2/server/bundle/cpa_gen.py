@@ -241,6 +241,10 @@ label.f{display:block;font-size:12.5px;font-weight:700;color:var(--ink2);margin:
 .kv4{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.kv4 div{background:#f6f8fc;border-radius:12px;padding:8px 10px}
 .kv4 b{display:block;font:700 17px Poppins;color:var(--navy)}.kv4 span{font-size:11.5px;color:var(--muted)}
 tr.anchor:target td{background:#fff7e0}
+/* v314.3: a row opened from the map lands below the sticky header, not under it */
+[id]{scroll-margin-top:120px}
+/* on a phone the menu wraps and a sticky header would take a quarter of the screen */
+@media(max-width:980px){.top{position:static}[id]{scroll-margin-top:16px}}
 @media(max-width:700px){.big .v{font-size:26px}.kv{grid-template-columns:1fr 1fr}.brand img.ar{display:none}main{padding:16px 12px 50px}}
 @media print{.top,.noprint,.foot{display:none!important}html,body{background:#fff}main{padding:0}.card{box-shadow:none;break-inside:avoid}}
 """
@@ -659,9 +663,9 @@ def overview(ctx: Ctx) -> str:
 <div class="t"><div class="l"><span class="dot"></span>{L("Power right now", "Potencia ahora")}</div><div class="v num">{count(ctx.kw_now(), 0)}<small>kW</small></div><div class="d">{fmt(ctx.today_t["_all"].kwh, 0)} kWh {L("today so far", "hoy hasta ahora")}</div></div>
 <div class="t"><div class="l">{L(f"This year (to {C.month_label(ctx.last_closed)})", f"Este año (a {C.month_label(ctx.last_closed, True)})")}</div><div class="v num">{count(ytd.kwh / 1000, 1)}<small>MWh</small></div><div class="d">{fmt(ytd.co2_t, 1)} t CO2e {L("avoided", "evitadas")}</div></div></div></div>
 <div class="sec"><h2>{L("The sites", "Los sitios")}</h2><p class="lead">{L("Each rooftop, live. Open a site for its day, month and history.", "Cada techo, en vivo. Abra un sitio para ver su día, mes e historial.")}</p><div class="grid g3">{cards}</div></div>
-{led_sec}
 <div class="sec grid g2"><div class="card"><h3>{L("Power today", "Potencia hoy")}<span class="r">kW · {L("every 15 min", "cada 15 min")}</span></h3>{today_chart(ctx, ctx.sites)}{leg}</div>
 <div class="card"><h3>{L("Clean energy by month", "Energía limpia por mes")}<span class="r">MWh</span></h3>{bars}{leg}</div></div>
+{led_sec}
 <div class="sec"><h2>{L("Climate impact", "Impacto climático")}</h2><p class="lead">{L("Avoided emissions add up month after month. The equivalences below are illustrations (US EPA factors), not measurements.", "Las emisiones evitadas se acumulan mes a mes. Las equivalencias son ilustrativas (factores de la EPA de EE. UU.), no mediciones.")}{led_line}</p>
 <div class="grid g2"><div class="card"><h3>{L("CO2e avoided, cumulative", "CO2e evitado, acumulado")}<span class="r">t CO2e</span></h3>{co2}</div>
 <div class="grid" style="align-content:start"><div class="card eq"><div class="ic">🌳</div><div><b>{count(eq["trees"], 0)}</b><span class="lab">{L("tree seedlings grown for 10 years", "árboles plantados y cultivados 10 años")}</span></div></div>

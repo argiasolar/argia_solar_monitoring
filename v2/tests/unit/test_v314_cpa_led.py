@@ -283,3 +283,17 @@ def test_zoomed_out_solar_pins_stay_true_and_led_dots_stay_visible(site):
     h = (stage / "index.html").read_text(encoding="utf-8")
     assert "push=m.getZoom()>=9" in h and "if(push){" in h and "scale('+sc+')" in h
     assert "zIndexOffset:p.st==='delivered'?2500:2000" in h and "{icon:icon}).addTo(sol)" in h
+
+
+def test_overview_order_solar_first_and_rows_clear_the_header(site):
+    """v314.3 (Tomasz): the overview shows the solar sites and their energy
+    first, then the LED improvements, then the climate impact; a project row
+    opened from the map was half hidden under the sticky header."""
+    g, ctx, stage = site
+    h = (stage / "index.html").read_text(encoding="utf-8")
+    order = [h.index(x) for x in ('The sites', 'Power today', 'Clean energy by month', 'LED lighting in your parks',
+                                  'Climate impact', 'Solar and LED across your parks')]
+    assert order == sorted(order)
+    css = g.CSS.replace("\n", "")
+    assert "[id]{scroll-margin-top:120px}" in css
+    assert "@media(max-width:980px){.top{position:static}[id]{scroll-margin-top:16px}}" in css   # phone: header wraps to ~200 px

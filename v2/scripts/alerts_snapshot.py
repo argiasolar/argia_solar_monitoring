@@ -46,6 +46,7 @@ from argia.maintenance.events import (
 from argia.analytics.acute import (
     DAYLIGHT_END_HOUR,
     DAYLIGHT_START_HOUR,
+    day_counters,
     evaluate_acute,
     vendor_thermal_state,
 )
@@ -91,7 +92,7 @@ def usable_sample(power_w, etoday_kwh, temperature_c) -> bool:
     return power_w is not None or etoday_kwh is not None or temperature_c is not None
 
 
-def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
+def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS, counters_out=None):
     """Read only the tail of Telemetry_Argia and parse the acute fields.
 
     Two cheap reads: column A for the used-row count, then the last
@@ -99,7 +100,8 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     reordering can't silently break parsing.
     Returns (samples, tail_span_hours): samples shaped for
     ``evaluate_acute``; tail_span_hours = coverage of the tail, used to
-    report plants entirely absent from it.
+    report plants entirely absent from it. ``counters_out`` (a dict),
+    when given, receives the day counters of the kept samples (v313).
     """
     from argia.telemetry import pg_source
     if pg_source.source() == "pg":
@@ -156,7 +158,10 @@ def _read_recent_samples(sheets: SheetsClient, tail_rows: int = TAIL_ROWS):
     # no sample either - the plant ages into data_stale / silent instead
     # of looking fresh (argia.telemetry.fresh, the rule of the live pages)
     n_all = len(samples)
-    samples = [s[:7] for s in drop_repeats(samples, lambda s: (s[1], s[2]), lambda s: (s[0], s[3], s[7]))]
+    kept = drop_repeats(samples, lambda s: (s[1], s[2]), lambda s: (s[0], s[3], s[7]))
+    if counters_out is not None:
+        counters_out.update(day_counters(kept))
+    samples = [s[:7] for s in kept]
     if len(samples) < n_all:
         log.info("frozen readings: %d repeated sample(s) skipped", n_all - len(samples))
     span_h = 0.0
@@ -284,7 +289,8 @@ def main(argv=None) -> int:
 
     # Only the TAIL of telemetry - the acute tier needs the latest samples,
     # not the day. The evaluator freshness-filters internally.
-    samples, span_h = _read_recent_samples(sheets)
+    counters: dict = {}
+    samples, span_h = _read_recent_samples(sheets, counters_out=counters)
     log.info("acute evaluation at %s MX over %d tail sample(s)", mx, len(samples))
 
     now_utc = dt.datetime.now(UTC)
@@ -302,7 +308,7 @@ def main(argv=None) -> int:
         samples, [p.plant_key for p in portfolio.active_plants()], now_utc,
         absent_gap_hours=span_h if span_h >= 2.0 else None,
         configured_inverters=configured, rated_kw=rated, vendor_thermal=vendor,
-        loss_note=loss_notes(portfolio.active_plants(), now_utc))
+        loss_note=loss_notes(portfolio.active_plants(), now_utc), counters=counters)
     candidates = grading.grade_all([candidate_from_acute_breach(b) for b in breaches], tier="acute")
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)

@@ -31,6 +31,11 @@ def _run_loss(env, d_from, d_to=None):
 def gap_day(fresh_db, psql):
     today = dt.date.fromisoformat(psql("SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text")[0][0])
     g = today - dt.timedelta(days=6)
+    if (g + dt.timedelta(days=1)).month != g.month:
+        # v313: this test is about the catch-up, not the month edge - on 6 Oct the
+        # gap fell on 30 Sep and v305's month cap (the proof sits in October's
+        # counter) credited 0; that edge is pinned in test_v313_vendor_zero.py
+        g -= dt.timedelta(days=1)
     e_g, e_n = (float(psql(f"SELECT energy_kwh FROM daily_production WHERE plant_key='MEX2' AND prod_date=DATE '{d}'")[0][0])
                 for d in (g, g + dt.timedelta(days=1)))
     frozen = round(0.3 * e_g, 3)
@@ -72,3 +77,4 @@ def test_without_the_evidence_the_same_day_is_a_loss(fresh_db, psql, gap_day):
     catchup, lost, expected = map(float, psql("SELECT catchup_kwh, lost_kwh, expected_kwh FROM loss_daily"
                                               f" WHERE plant_key='MEX2' AND prod_date=DATE '{g}'")[0])
     assert catchup == 0 and lost > 0.5 * expected
+

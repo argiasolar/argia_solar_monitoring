@@ -6,11 +6,13 @@ Selection rule: only conditions where a SINGLE snapshot is evidence -
 
 - inverter_fault      device self-diagnosed fault token in its latest sample
 - inverter_temp_high  thermal mass makes one high reading real, not noise
-- plant_offline       the WHOLE plant at 0 W mid-daylight; all inverters
-                      simultaneously is never a transient. (A single
-                      inverter at 0 IS transient - proven repeatedly - so
-                      per-inverter zero stays daily-only via the relative
-                      detector.)
+- plant_offline       the WHOLE plant at 0 W mid-daylight. v313: a 0 W
+                      reading whose own day counter grew since the
+                      previous sample is a vendor zero, not a dark plant
+                      (MEX2 6 Oct 10:25: three inverters "0 W" while each
+                      counter rose 5.2 kWh in 10 min; 27 such snapshots
+                      in 30 days). A single inverter at 0 is transient
+                      too, so per-inverter zero stays daily-only.
 - data_stale (acute)  the plant's newest sample is older than N minutes of
                       daylight; stateless, tolerant of one flaky poll.
 
@@ -85,6 +87,40 @@ SILENT_CRIT_MIN = 180
 SIBLING_MIN_W = 5000.0
 """A sibling counts as 'producing' above this (daylight, not dusk)."""
 
+# v313: a 0 W reading is no evidence of a dark plant when the inverter's
+# day counter grew since its previous sample (no older than this).
+COUNTER_GAP_MAX_MIN = 20
+COUNTER_GROWTH_KWH = 0.05
+
+
+def day_counters(samples) -> Dict[Tuple[str, str], List[Tuple[dt.datetime, float]]]:
+    """{(plant, sn): [(ts, etoday_kwh), ...] in time order} from samples
+    that carry the day counter as their 8th field (None is skipped). Pure."""
+    out: Dict[Tuple[str, str], List[Tuple[dt.datetime, float]]] = {}
+    for s in samples:
+        if len(s) < 8 or s[0] is None or s[7] is None:
+            continue
+        out.setdefault((str(s[1]).strip(), str(s[2]).strip()), []).append((s[0], float(s[7])))
+    for v in out.values():
+        v.sort(key=lambda x: x[0])
+    return out
+
+
+def counter_grew(counters, plant: str, sn: str, ts: dt.datetime) -> bool:
+    """True when the unit's day counter at ``ts`` is above its previous
+    reading (at most COUNTER_GAP_MAX_MIN older) by COUNTER_GROWTH_KWH - the
+    unit produced through the step whatever its power field says. Pure."""
+    seq = (counters or {}).get((plant, sn)) or []
+    now = [e for t, e in seq if t == ts]
+    before = [(t, e) for t, e in seq if t < ts]
+    if not now or not before:
+        return False
+    t0, e0 = before[-1]
+    if (ts - t0).total_seconds() > COUNTER_GAP_MAX_MIN * 60:
+        return False
+    return now[0] - e0 >= COUNTER_GROWTH_KWH
+
+
 DAYLIGHT_START_HOUR = 6
 DAYLIGHT_END_HOUR = 20
 
@@ -148,6 +184,7 @@ def evaluate_acute(
     rated_kw: Optional[Dict] = None,
     vendor_thermal: Optional[Dict[Tuple[str, str], Tuple[dt.datetime, str, int]]] = None,
     loss_note: Optional[Dict[str, str]] = None,
+    counters: Optional[Dict[Tuple[str, str], List[Tuple[dt.datetime, float]]]] = None,
 ) -> List[AcuteBreach]:
     """Evaluate the acute conditions against the newest samples.
 
@@ -254,6 +291,15 @@ def evaluate_acute(
             # 0 W; only measured zeros make a dark plant
             powers = [r[3] for r in rows if r[3] is not None]
             if powers and all(p <= 0 for p in powers):
+                # v313: a zero whose day counter kept growing is the
+                # vendor's power field, not the plant (``counters`` from
+                # ``day_counters``; without it the old rule applies)
+                grew = sorted(str(r[2]).strip() for r in rows if r[3] is not None
+                              and counter_grew(counters, plant, str(r[2]).strip(), r[0]))
+                if grew:
+                    LOG.info("%s: %d inverter(s) read 0 W but the day counter grew (%s) - "
+                             "vendor zero, not a dark plant", plant, len(powers), ", ".join(grew))
+                    continue
                 # v257 (Tomasz): a dark plant is money leaving the
                 # building - say how much, when we can price it.
                 cost = (loss_note or {}).get(plant, "")

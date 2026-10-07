@@ -40,11 +40,11 @@ def costs_for(tks: List[TK.Ticket], rows_csv: Callable[[str], str],
     try:
         for r in TK.rows_from_csv(rows_csv(
                 "SELECT plant_key, prod_date::text AS d, lost_kwh, tariff_mxn, unavailability_kwh, overheating_kwh,"
-                f" underperformance_kwh FROM loss_daily WHERE prod_date >= DATE '{since}'"
+                f" underperformance_kwh, lost_mxn FROM loss_daily WHERE prod_date >= DATE '{since}'"
                 f" AND plant_key IN ({in_list(plants)});")):
             loss.setdefault(r["plant_key"], {})[r["d"]] = TC.PlantDay(
                 _f(r["lost_kwh"]), _f(r["tariff_mxn"]), _f(r["unavailability_kwh"]) or 0.0,
-                _f(r["overheating_kwh"]) or 0.0, _f(r["underperformance_kwh"]) or 0.0)
+                _f(r["overheating_kwh"]) or 0.0, _f(r["underperformance_kwh"]) or 0.0, _f(r.get("lost_mxn")))
     except Exception:                                    # noqa: BLE001
         return {}
     inv_plants = {t.plant_key for t in tks if t.inverter_sn and wins.get(t.number)}

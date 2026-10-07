@@ -14,9 +14,18 @@ USAGE
     PYTHONPATH=. python scripts/satellite_check.py --dry-run
 
 EXIT CODES
-    0  every plant produced a verdict (OK / REVIEW / honest NO_DATA)
-    1  one or more plants failed to fetch or store
+    0  every plant produced a verdict (OK / REVIEW / honest NO_DATA), or
+       a few could not reach Open-Meteo after FETCH_TRIES attempts (v316:
+       stored as NO_DATA with the reason, logged as WARNING)
+    1  a store failed, or NO plant could reach Open-Meteo (the service or
+       our network is down - that is worth a mail)
     2  PG mirror disabled or plant config unreadable
+
+v316 (7 Oct 2026, "still failing after 6 h: job failed: argia-satcheck"):
+one TLS handshake timeout to Open-Meteo for SLP2 at 06:20 MX failed the
+whole daily unit, which then stayed "failed" until the next morning, so the
+mailer kept reporting it. A fetch is now tried 3 times (waits 10 s, 30 s);
+a plant that still cannot be reached gets an honest NO_DATA row saying so.
 """
 
 from __future__ import annotations
@@ -25,6 +34,7 @@ import argparse
 import json
 import logging
 import sys
+import time
 import urllib.request
 from typing import Dict, List, Tuple
 
@@ -37,6 +47,9 @@ from argia.store.pgq import psql_exec, psql_rows
 LOG = logging.getLogger("argia.satellite_check")
 
 FETCH_TIMEOUT_S = 30
+FETCH_TRIES = 3
+FETCH_WAITS_S = (10, 30)          # between tries
+SLEEP = time.sleep                # tests replace it
 MEASURED_LOOKBACK_DAYS = 45
 
 DDL = """
@@ -97,6 +110,28 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
+def fetch_with_retry(url: str, pk: str = "") -> dict:
+    """fetch_json, FETCH_TRIES times; the last error is raised."""
+    for i in range(FETCH_TRIES):
+        try:
+            return fetch_json(url)
+        except Exception as e:  # noqa: BLE001 - network, TLS, HTTP 5xx, bad JSON
+            if i == FETCH_TRIES - 1:
+                raise
+            wait = FETCH_WAITS_S[min(i, len(FETCH_WAITS_S) - 1)]
+            LOG.warning("%s: Open-Meteo try %d/%d failed (%s) - retrying in %d s", pk, i + 1, FETCH_TRIES, e, wait)
+            SLEEP(wait)
+    raise RuntimeError("unreachable")
+
+
+def unreachable_verdict(err: Exception):
+    """The honest row for a plant Open-Meteo could not serve today."""
+    from argia.kpi.satellite import DriftCheck
+    return DriftCheck(status="NO_DATA", drift_pct=None, recent_median=None, baseline_median=None,
+                      n_recent=0, n_baseline=0,
+                      note=f"satellite data unreachable after {FETCH_TRIES} tries: {str(err)[:120]}")
+
+
 def upsert_sql(pk: str, dc) -> str:
     return (
         "INSERT INTO satellite_check (plant_key, check_date, status,"
@@ -140,20 +175,21 @@ def main(argv=None) -> int:
     if not args.dry_run:
         psql_exec(DDL)
 
-    failures = 0
+    failures, unreachable = 0, 0
     for pk, lat, lon in plants:
         try:
-            sat = parse_daily_ghi(fetch_json(build_url(lat, lon)))
+            sat = parse_daily_ghi(fetch_with_retry(build_url(lat, lon), pk))
         except Exception as e:  # noqa: BLE001 - one plant must not kill the run
-            LOG.error("%s: Open-Meteo fetch failed: %s", pk, e)
-            failures += 1
-            continue
-        if not sat:
-            LOG.error("%s: Open-Meteo response unusable (unit/shape)", pk)
-            failures += 1
-            continue
-        ratios = ratio_series(measured.get(pk, {}), sat)
-        dc = drift_check(ratios)
+            LOG.warning("%s: Open-Meteo unreachable after %d tries: %s - NO_DATA today", pk, FETCH_TRIES, e)
+            unreachable += 1
+            dc = unreachable_verdict(e)
+            sat = None
+        else:
+            if not sat:
+                LOG.error("%s: Open-Meteo response unusable (unit/shape)", pk)
+                failures += 1
+                continue
+            dc = drift_check(ratio_series(measured.get(pk, {}), sat))
         LOG.info("%s: %s drift=%s%% recent=%s baseline=%s (%d/%d days)%s",
                  pk, dc.status,
                  dc.drift_pct if dc.drift_pct is not None else "-",
@@ -166,6 +202,9 @@ def main(argv=None) -> int:
             except RuntimeError as e:
                 LOG.error("%s: store failed: %s", pk, e)
                 failures += 1
+    if unreachable == len(plants):
+        LOG.error("Open-Meteo unreachable for every plant (%d) - service or network down", unreachable)
+        return 1
     return 1 if failures else 0
 
 

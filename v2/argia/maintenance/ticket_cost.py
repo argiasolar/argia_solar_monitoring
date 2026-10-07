@@ -47,6 +47,7 @@ class PlantDay:
     unavailability: float = 0.0
     overheating: float = 0.0
     underperformance: float = 0.0
+    lost_mxn: Optional[float] = None   # v316: loss_daily's own price of the day (the Losses page figure)
 
 
 @dataclass
@@ -115,7 +116,14 @@ def ticket_days(days: Iterable[dt.date], plant: Dict[str, PlantDay],
                 lost, cause, basis = plant_lost, main_cause(p), "plant-no-peers"
             else:
                 lost, cause, basis = min(short, plant_lost), "inverter", "inverter"
-        out.append(DayCost(ds, round(lost, 1), None if not p.tariff else round(lost * p.tariff, 2),
+        # v316: a plant-basis day carries loss_daily's own lost_mxn, priced on the
+        # unrounded kWh - re-pricing the stored 0.1-kWh-rounded figure differed by
+        # cents and showed $1,725 here vs $1,726 on the Losses page (7 Oct 2026)
+        if basis != "inverter" and p.lost_mxn is not None and p.tariff:
+            price = round(max(0.0, p.lost_mxn), 2)
+        else:
+            price = None if not p.tariff else round(lost * p.tariff, 2)
+        out.append(DayCost(ds, round(lost, 1), price,
                            cause if lost > 0 else "none", basis, round(plant_lost, 1)))
     return out
 

@@ -286,10 +286,10 @@ def test_the_card_carries_everything_the_script_needs():
     p = _payload()
     assert p["t"] == ["12:00", "12:05"] and p["c"][2] == "zz" and p["src"] == "5min"
     assert p["io"] == ["A", "B"] and p["d"][0]["img"].startswith("/monitoring/gto1/layout-main-")
-    assert p["s"][3]["p"] == [] and p["s"][0]["p"] == [["main", 10.0, 20.0]] and p["s"][0]["or"] == "5° / 148.7° SE"
+    assert p["s"][3]["p"] == [] and p["s"][0]["p"] == [["main", 10.0, 20.0, 1]] and p["s"][0]["or"] == "5° / 148.7° SE"
     html = SH.card(p)
     assert 'class="card slcard" id="slGTO1"' in html and "x<\\/script>" in html and "x</script>" not in html
-    assert 'data-es="Distribución de cadenas' in html and "Whole day" in html and 'type="range"' in html
+    assert 'data-es="Cadenas en la distribución' in html and "Whole day" in html and 'type="range"' in html
     assert chr(0x2014) not in html and chr(0x2013) not in html                     # no em / en dash
     assert "banner" not in html.split('<script type="application/json"')[0]
 
@@ -299,12 +299,12 @@ def test_a_stale_feed_says_so_and_an_old_day_has_no_slider():
     old = SH.render(_payload(src="daily", live=False))
     assert 'type="range"' not in old and "predates the 5-minute string record" in old
     none = SH.render(_payload(src="none"))
-    assert "No string data for this day yet" in none
+    assert "No string data for this day" in none
     p = _payload(src="none")
     assert p["c"] == [] and [d["c"] for d in p["dy"]] == [SL.NODATA] * 4
 
 
 def test_the_script_escapes_names_it_puts_in_html():
     js = SH.JS
-    for needle in ("E(s.il)", "E(s0.il)", "E(s.note)", "E(s.mod)", "E(sn)"):
+    for needle in ("E(s.il)", "E(iv.il", "E(v.il)", "E(v.sn)", "E(s.note)", "E(s.mod)", "E(sn)"):
         assert needle in js, needle

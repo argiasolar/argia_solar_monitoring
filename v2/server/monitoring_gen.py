@@ -1263,8 +1263,59 @@ def string_daily_ah(d):
     return _SD[d]
 
 
+_HIST = None    # plant -> {date: {(sn, channel): Ah}}  (v318: each string's own normal)
+
+
+def string_history():
+    """Day amp-hours per string channel over the last 70 days: the 5-minute
+    record (string_sample, every vendor) where it exists, else the nightly
+    Growatt string_daily. One query each, cached for the run."""
+    global _HIST
+    if _HIST is not None:
+        return _HIST
+    _HIST = {}
+    keys = ','.join(f"'{k}'" for k in LAYOUTS)
+    if not keys:
+        return _HIST
+    since = (dt.date.fromisoformat(TODAY) - dt.timedelta(days=70)).isoformat()
+    try:
+        for r in q("SET statement_timeout='30s'; SELECT plant_key, inverter_sn, 's' || channel_n, prod_date, q_ah FROM ("
+                   " SELECT plant_key, inverter_sn, substring(channel from 2) AS channel_n, prod_date, q_ah FROM string_daily"
+                   f" WHERE kind = 'string' AND plant_key IN ({keys}) AND prod_date >= DATE '{since}') x;"):
+            if len(r) >= 5 and f(r[4]) is not None:
+                _HIST.setdefault(r[0], {}).setdefault(dt.date.fromisoformat(r[3]), {})[(r[1], r[2])] = f(r[4])
+    except Exception:                                 # noqa: BLE001
+        pass
+    for arr, pre in (('str_a', 's'), ('mppt_a', 'm')):
+        try:
+            rows = q("SET statement_timeout='30s'; SELECT plant_key, inverter_sn,"
+                     " (ts_utc AT TIME ZONE 'America/Mexico_City')::date AS d, u.i, round((sum(u.v) * 5 / 60.0)::numeric, 2)"
+                     f" FROM string_sample, unnest({arr}) WITH ORDINALITY AS u(v, i)"
+                     f" WHERE plant_key IN ({keys}) AND ts_utc >= (DATE '{since}')::timestamp AT TIME ZONE 'America/Mexico_City'"
+                     " AND u.v IS NOT NULL AND u.v > 0 GROUP BY 1, 2, 3, 4;")
+        except Exception:                             # noqa: BLE001  (table not created yet)
+            rows = []
+        days = {}
+        for r in rows:
+            if len(r) >= 5 and f(r[4]) is not None:
+                days.setdefault((r[0], r[2]), {})[(r[1], f'{pre}{r[3]}')] = f(r[4])
+        for (pk, d), vals in days.items():
+            day = _HIST.setdefault(pk, {}).setdefault(dt.date.fromisoformat(d), {})
+            if pre == 's':
+                for k in [k for k in day if k[1].startswith('s')]:
+                    del day[k]                        # the 5-minute record replaces the nightly one that day
+            day.update(vals)
+    return _HIST
+
+
+def _per_string(strings, q):
+    """History values for MPPT channels are per string (an MPPT carries ``per`` strings)."""
+    per = {(s['sn'], s['ch']): int(s.get('per') or 1) for s in strings}
+    return {k: (v / per[k] if k in per else v) for k, v in q.items()}
+
+
 def string_layout_card(pk, d):
-    """The v317 card for one plant-day ('' when the plant has no layout)."""
+    """The v317 / v318 card for one plant-day ('' when the plant has no layout)."""
     lay = LAYOUTS.get(pk)
     if lay is None or SLH is None:
         return ''
@@ -1274,19 +1325,22 @@ def string_layout_card(pk, d):
     live = d == TODAY
     smp = string_samples(d).get(pk) or []
     try:
+        hist = {day: _per_string(strings, qq) for day, qq in (string_history().get(pk) or {}).items()}
+        normal = SLA.normals(strings, hist, dt.date.fromisoformat(d))
+        common = dict(img_url=imgs, normal=normal, monitored_inverters=len(CONFIG_INV.get(pk, [])))
         if smp:
             buckets, cur = SLA.series(strings, smp)
-            ev = SLA.evaluate(strings, buckets, cur)
+            ev = SLA.evaluate(strings, buckets, cur, normal)
             age = int((NOW_MX.replace(tzinfo=None) - max(s[0] for s in smp)).total_seconds() // 60) if live else None
             p = SLH.payload(pk, lay, labels, live=live, source='5min', buckets=buckets, cur=cur, ev=ev,
-                            age_min=age, img_url=imgs)
+                            age_min=age, **common)
         else:
             ah = string_daily_ah(d).get(pk) or {}
             if ah:
-                p = SLH.payload(pk, lay, labels, live=live, source='daily', day=SLA.evaluate_daily(strings, ah),
-                                img_url=imgs)
+                p = SLH.payload(pk, lay, labels, live=live, source='daily',
+                                day=SLA.evaluate_daily(strings, _per_string(strings, ah), normal), **common)
             else:
-                p = SLH.payload(pk, lay, labels, live=live, source='none', img_url=imgs)
+                p = SLH.payload(pk, lay, labels, live=live, source='none', **common)
         return SLH.card(p)
     except Exception as e:                            # noqa: BLE001  (a card must never cost the page)
         print(f'monitoring_gen: string layout card {pk} {d} failed: {e}', file=sys.stderr)

@@ -53,12 +53,17 @@ def site(pg_env, psql, tmp_path_factory):
     # today 10:00-11:55 MX: INV01 string 3 dead, INV02 string 2 weak
     psql(f"""INSERT INTO string_sample (ts_utc, plant_key, inverter_sn, str_a, mppt_a, mppt_v)
         SELECT (DATE '{today}' + time '10:00' + m * interval '5 minutes') AT TIME ZONE 'America/Mexico_City',
-               'GTO1', sn, CASE WHEN sn = 'GTO1INV01' THEN ARRAY[10.1, 10.0, 0.0, 9.9]::real[]
+               'GTO1', sn, CASE WHEN sn = 'GTO1INV01' THEN ARRAY[10.1, 10.0, 0.0, 8.5]::real[]
                                 ELSE ARRAY[10.0, 7.0, 10.2, 9.8]::real[] END, ARRAY[20.1, 9.9]::real[], NULL
         FROM generate_series(0, 23) m, (VALUES ('GTO1INV01'), ('GTO1INV02')) v(sn);""")
     psql(f"""INSERT INTO string_daily (plant_key, inverter_sn, prod_date, channel, kind, energy_kwh, q_ah, samples)
         SELECT 'GTO1', 'GTO1INV01', DATE '{yday}', 's' || n, 'string', 50, CASE WHEN n = 4 THEN 30 ELSE 70 END, 150
         FROM generate_series(1, 4) n;""")
+    # v318: ten earlier days - INV01 string 4 always reads 85 % of its neighbours (the Growatt pair bias)
+    psql(f"""INSERT INTO string_daily (plant_key, inverter_sn, prod_date, channel, kind, energy_kwh, q_ah, samples)
+        SELECT 'GTO1', sn, DATE '{yday}' - k, 's' || n, 'string', 50,
+               CASE WHEN sn = 'GTO1INV01' AND n = 4 THEN 59.5 ELSE 70 END, 150
+        FROM generate_series(1, 10) k, generate_series(1, 4) n, (VALUES ('GTO1INV01'), ('GTO1INV02')) v(sn);""")
     lay = tmp_path_factory.mktemp("layouts")
     (lay / "GTO1.json").write_text(json.dumps(_layout("GTO1", ["GTO1INV01", "GTO1INV02"])), encoding="utf-8")
     (lay / "MEX1.json").write_text(json.dumps(_layout("MEX1", ["MEX1INV01", "NOT-A-SERIAL"])), encoding="utf-8")
@@ -107,6 +112,9 @@ def test_the_card_sits_under_the_intraday_chart_with_live_strings(site):
     assert set(p["c"][by[("GTO1INV01", "s3")]]) == {"z"}            # dead string
     assert set(p["c"][by[("GTO1INV02", "s2")]]) == {"r"}            # 70 % of its peers
     assert set(p["c"][by[("GTO1INV01", "s1")]]) == {"g"}
+    k4 = by[("GTO1INV01", "s4")]                                     # v318: 86 % of its neighbours = its normal
+    assert set(p["c"][k4]) == {"g"} and abs(p["s"][k4]["nm"] - 0.85) < 0.01
+    assert p["chk"]["inverters"]["monitoring"] == 2 and [v["sn"] for v in p["inv"]] == ["GTO1INV01", "GTO1INV02"]
     assert p["s"][0]["il"] == "INV-01"                               # the inverter's portal label
 
 
@@ -126,7 +134,7 @@ def test_an_archived_day_uses_the_nightly_amp_hours(site):
     p = _data(page)
     assert p["src"] == "daily" and p["t"] == [] and not p["live"]
     cls = {s["ch"]: p["dy"][k]["c"] for k, s in enumerate(p["s"]) if s["sn"] == "GTO1INV01"}
-    assert cls == {"s1": "g", "s2": "g", "s3": "g", "s4": "r"}       # 30 Ah vs 70 Ah
+    assert cls == {"s1": "g", "s2": "g", "s3": "g", "s4": "r"}       # 30 Ah vs 70 Ah (normal 85 %: still very low)
     assert 'type="range"' not in page.split('id="slGTO1"')[1].split("</div>")[0]
 
 

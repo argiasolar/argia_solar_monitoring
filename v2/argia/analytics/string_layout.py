@@ -45,6 +45,10 @@ OK_RATIO = 0.90
 LOW_RATIO = 0.75
 MIN_GROUP = 3
 MIN_JUDGED = 6           # judged buckets a day index needs (30 min of good light)
+NORMAL_DAYS = 30         # v318: a string's own normal = median day index over this many days before
+NORMAL_MIN_DAYS = 7
+NORMAL_CLIP = (0.5, 1.2)
+CHRONIC = 0.80           # a string whose own normal is below this is never shown as ok
 CONFS = ('table', 'order', 'assumed', 'none')
 CH_RE = re.compile(r'^[sm]([1-9]\d?)$')
 
@@ -169,7 +173,25 @@ def bucket_of(ts_mx: dt.datetime) -> int:
     return m - m % BUCKET_MIN
 
 
-def classify(i: Optional[float], med: Optional[float]) -> Tuple[str, Optional[float]]:
+def adjust(r: float, normal: Optional[float]) -> float:
+    """v318: the ratio against the string's own normal. A Growatt MAX reads
+    the second string of an MPPT pair 10-20 % low at every PPA site
+    (string_daily, Sep-Oct 2026): judged against its neighbours alone that
+    paints a third of a plant amber for weeks. Against its own normal only a
+    change shows."""
+    if normal is None:
+        return r
+    lo, hi = NORMAL_CLIP
+    return r / min(max(normal, lo), hi)
+
+
+def _grade(adj: float, normal: Optional[float]) -> str:
+    if adj >= OK_RATIO:
+        return LOW if (normal is not None and normal < CHRONIC) else OK
+    return LOW if adj >= LOW_RATIO else VLOW
+
+
+def classify(i: Optional[float], med: Optional[float], normal: Optional[float] = None) -> Tuple[str, Optional[float]]:
     if i is None:
         return NODATA, None
     if med is None or med < DIM_A:
@@ -177,21 +199,17 @@ def classify(i: Optional[float], med: Optional[float]) -> Tuple[str, Optional[fl
     r = i / med
     if i < ZERO_A:
         return ZERO, r
-    if r >= OK_RATIO:
-        return OK, r
-    return (LOW if r >= LOW_RATIO else VLOW), r
+    return _grade(adjust(r, normal), normal), r
 
 
-def classify_index(idx: Optional[float], judged: int) -> str:
+def classify_index(idx: Optional[float], judged: int, normal: Optional[float] = None) -> str:
     if judged < MIN_JUDGED:          # it reported, but never in light good enough to judge
         return DIM
     if idx is None:
         return NODATA
     if idx < 0.05:
         return ZERO
-    if idx >= OK_RATIO:
-        return OK
-    return LOW if idx >= LOW_RATIO else VLOW
+    return _grade(adjust(idx, normal), normal)
 
 
 def series(strings: Sequence[dict], samples: Iterable[Tuple[dt.datetime, str, Sequence, Sequence]]):
@@ -214,8 +232,11 @@ def series(strings: Sequence[dict], samples: Iterable[Tuple[dt.datetime, str, Se
     return buckets, cur
 
 
-def evaluate(strings: Sequence[dict], buckets: Sequence[int], cur: Sequence[Sequence[Optional[float]]]) -> dict:
-    """Classes per string per bucket, the peer medians, the day index."""
+def evaluate(strings: Sequence[dict], buckets: Sequence[int], cur: Sequence[Sequence[Optional[float]]],
+             normal: Optional[Sequence[Optional[float]]] = None) -> dict:
+    """Classes per string per bucket, the peer medians, the day index.
+    ``normal``: each string's own normal day index (see ``normals``)."""
+    normal = list(normal) if normal is not None else [None] * len(strings)
     groups = peer_groups(strings)
     gnames = sorted(set(groups))
     members = peer_members(strings, groups)
@@ -230,7 +251,7 @@ def evaluate(strings: Sequence[dict], buckets: Sequence[int], cur: Sequence[Sequ
     cls, day = [], []
     for k, s in enumerate(strings):
         m = med[groups[k]]
-        cls.append(''.join(classify(cur[k][j], m[j])[0] for j in range(len(buckets))))
+        cls.append(''.join(classify(cur[k][j], m[j], normal[k])[0] for j in range(len(buckets))))
         num = den = 0.0
         judged = 0
         reported = 0
@@ -246,16 +267,18 @@ def evaluate(strings: Sequence[dict], buckets: Sequence[int], cur: Sequence[Sequ
         idx = (num / den) if den > 0 else None
         ah = sum(v for v in cur[k] if v is not None) * BUCKET_MIN / 60.0 if reported else None
         day.append({'ah': None if ah is None else round(ah, 1), 'idx': None if idx is None else round(idx, 3),
-                    'judged': judged, 'cls': classify_index(idx, judged) if reported else NODATA})
-    return {'groups': groups, 'med': med, 'cls': cls, 'day': day}
+                    'judged': judged, 'cls': classify_index(idx, judged, normal[k]) if reported else NODATA})
+    return {'groups': groups, 'med': med, 'cls': cls, 'day': day, 'normal': normal}
 
 
-def evaluate_daily(strings: Sequence[dict], q_ah: Dict[Tuple[str, str], float]) -> List[dict]:
-    """Days before v317: the nightly string_daily amp-hours (Growatt string
-    inputs only). Index = Ah / median Ah of the peers."""
+def evaluate_daily(strings: Sequence[dict], q_ah: Dict[Tuple[str, str], float],
+                   normal: Optional[Sequence[Optional[float]]] = None) -> List[dict]:
+    """A day's amp-hours per string (string_daily: Growatt string inputs; or
+    the day sums of string_sample). Index = Ah / median Ah of the peers."""
+    normal = list(normal) if normal is not None else [None] * len(strings)
     groups = peer_groups(strings)
     members = peer_members(strings, groups)
-    ah = [q_ah.get((s['sn'], s['ch'])) if s['ch'][0] == 's' else None for s in strings]
+    ah = [q_ah.get((s['sn'], s['ch'])) for s in strings]
     out = []
     for k, s in enumerate(strings):
         peers = [ah[j] for j in members[groups[k]] if ah[j] is not None]
@@ -266,8 +289,25 @@ def evaluate_daily(strings: Sequence[dict], q_ah: Dict[Tuple[str, str], float]) 
         idx = ah[k] / m if m else None
         enough = m is not None and m >= DIM_A * 2      # 2 Ah: less light than that is not a day to judge
         out.append({'ah': round(ah[k], 1), 'idx': None if idx is None else round(idx, 3),
-                    'judged': MIN_JUDGED if enough else 0, 'cls': classify_index(idx, MIN_JUDGED if enough else 0)})
+                    'judged': MIN_JUDGED if enough else 0,
+                    'cls': classify_index(idx, MIN_JUDGED if enough else 0, normal[k])})
     return out
+
+
+def normals(strings: Sequence[dict], history: Dict[dt.date, Dict[Tuple[str, str], float]], before: dt.date,
+            days: int = NORMAL_DAYS, min_days: int = NORMAL_MIN_DAYS) -> List[Optional[float]]:
+    """Each string's own normal: the median of its day index (Ah against its
+    peers) over the ``days`` days before ``before``, from days with enough
+    light; None with fewer than ``min_days`` such days (then it is judged
+    against its peers alone)."""
+    per = [[] for _ in strings]
+    for d, q in history.items():
+        if not (before - dt.timedelta(days=days) <= d < before):
+            continue
+        for k, r in enumerate(evaluate_daily(strings, q)):
+            if r['idx'] is not None and r['cls'] not in (DIM, NODATA):
+                per[k].append(r['idx'])
+    return [round(median(v), 3) if len(v) >= min_days else None for v in per]
 
 
 def inverter_summary(strings: Sequence[dict], cls: Sequence[str], nb: int) -> Dict[str, dict]:

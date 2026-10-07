@@ -1120,11 +1120,8 @@ CREATE TABLE public.string_sample (
     inverter_sn text NOT NULL,
     str_a real[],
     mppt_a real[],
-    mppt_v real[],
-    CONSTRAINT string_sample_pkey PRIMARY KEY (plant_key, inverter_sn, ts_utc)
+    mppt_v real[]
 );
-
-CREATE INDEX idx_string_sample_ts ON public.string_sample USING btree (ts_utc);
 
 CREATE TABLE public.supplier (
     supplier_id integer NOT NULL,
@@ -1644,6 +1641,9 @@ ALTER TABLE ONLY public.savio_event
 ALTER TABLE ONLY public.string_daily
     ADD CONSTRAINT string_daily_pkey PRIMARY KEY (plant_key, inverter_sn, prod_date, channel);
 
+ALTER TABLE ONLY public.string_sample
+    ADD CONSTRAINT string_sample_pkey PRIMARY KEY (plant_key, inverter_sn, ts_utc);
+
 ALTER TABLE ONLY public.supplier
     ADD CONSTRAINT supplier_entity_id_rfc_key UNIQUE (entity_id, rfc);
 
@@ -1710,6 +1710,8 @@ CREATE INDEX idx_cfe_month ON public.cfe_tariff USING btree (month);
 CREATE INDEX idx_daily_date ON public.daily_production USING btree (prod_date);
 
 CREATE INDEX idx_knowledge_tsv ON public.knowledge USING gin (tsv);
+
+CREATE INDEX idx_string_sample_ts ON public.string_sample USING btree (ts_utc);
 
 CREATE INDEX idx_tdetail_ts ON public.telemetry_detail USING btree (ts_utc);
 

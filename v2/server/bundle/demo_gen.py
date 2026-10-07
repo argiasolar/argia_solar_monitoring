@@ -476,6 +476,9 @@ def configure(PG):
         RG.CLIENT_LOGOS = logos
     # reference pages on argia.com.mx are named after the customer
     MG.REF_LINKS = {}
+    # v317: the string layouts are the customers' own drawings (names, logos, roofs) - never on the demo
+    assert hasattr(MG, 'LAYOUTS'), 'monitoring_gen changed: LAYOUTS not found'
+    MG.LAYOUTS.clear()
     # chrome: host, sub-tabs, no Ask / account / app
     C.PORTAL_HOST = DEMO_HOST
     C.SECTIONS = {

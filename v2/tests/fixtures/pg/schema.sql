@@ -1114,6 +1114,18 @@ CREATE TABLE public.string_daily (
     CONSTRAINT string_daily_kind_check CHECK ((kind = ANY (ARRAY['mppt'::text, 'string'::text])))
 );
 
+CREATE TABLE public.string_sample (
+    ts_utc timestamp with time zone NOT NULL,
+    plant_key text NOT NULL,
+    inverter_sn text NOT NULL,
+    str_a real[],
+    mppt_a real[],
+    mppt_v real[],
+    CONSTRAINT string_sample_pkey PRIMARY KEY (plant_key, inverter_sn, ts_utc)
+);
+
+CREATE INDEX idx_string_sample_ts ON public.string_sample USING btree (ts_utc);
+
 CREATE TABLE public.supplier (
     supplier_id integer NOT NULL,
     entity_id text NOT NULL,

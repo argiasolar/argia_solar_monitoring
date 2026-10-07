@@ -62,6 +62,7 @@ from argia.meteo.open_meteo import CloudCoverClient
 from argia.store import pg_detail
 from argia.vendors import growatt_token
 from argia.telemetry import growatt_row, huawei_row, sma_row, solaredge_row
+from argia.telemetry import string_sample
 from argia.telemetry.growatt_row import WeatherSnapshot
 from argia.telemetry.schema import (
     ARGIA_SCHEMA,
@@ -118,6 +119,20 @@ def _setup_logging(level: str = "INFO") -> None:
 
 def _today_iso_mx() -> str:
     return now_mx().date().isoformat()
+
+
+# v317: per-string currents of this run, stored once at the end
+STRING_SAMPLES: List = []
+
+
+def _keep_string_sample(build, log) -> None:
+    """Never lets a string-sample problem touch the collection."""
+    try:
+        smp = build()
+        if smp is not None:
+            STRING_SAMPLES.append(smp)
+    except Exception as e:  # noqa: BLE001
+        log.warning("string sample skipped: %s", e)
 
 
 # ============================================================
@@ -283,6 +298,8 @@ def _process_growatt_plant(
             common_rows.append(growatt_row.build_common_row(
                 latest, plant.plant_key, inv.inverter_sn, inv.inverter_label, weather,
             ))
+            _keep_string_sample(lambda: string_sample.from_growatt(
+                plant.plant_key, inv.inverter_sn, latest, growatt_row._timestamps(latest)[0]), log)
             time.sleep(PER_GROWATT_INVERTER_DELAY_SEC)
         except Exception as e:  # noqa: BLE001
             log.warning(
@@ -347,6 +364,8 @@ def _process_huawei_plant(
         try:
             plant_rows.append(huawei_row.build_plant_row(tel, label, weather))
             common_rows.append(huawei_row.build_common_row(tel, label, weather))
+            _keep_string_sample(lambda: string_sample.from_huawei(
+                plant.plant_key, tel, huawei_row._timestamps_from_telemetry(tel)[0]), log)
         except Exception as e:  # noqa: BLE001
             log.warning("[%s/%s] row build failed: %s",
                         plant.plant_key, tel.inverter_sn, e)
@@ -937,6 +956,7 @@ def main(argv=None) -> int:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
     args = parser.parse_args(argv)
+    STRING_SAMPLES.clear()
 
     _setup_logging(args.log_level)
     log = logging.getLogger("argia.telemetry_5m")
@@ -1082,6 +1102,8 @@ def main(argv=None) -> int:
                       "enabled (ARGIA_PG_MIRROR) - %d rows not stored",
                       len(all_common))
             total_errors += 1
+    if STRING_SAMPLES:                     # v317: analytics, never a run failure
+        string_sample.store(STRING_SAMPLES, dry_run=args.dry_run, log=log)
     if all_common and sheet_on:
         try:
             ensure_telemetry_tab(sheets, ARGIA_TAB_NAME, ARGIA_SCHEMA)

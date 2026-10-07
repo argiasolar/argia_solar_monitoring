@@ -661,6 +661,18 @@ def write_bytes(rel, data):
     os.chmod(p, 0o644)
 
 
+def write_bytes_if_changed(rel, data):
+    """v317: the drawings are the same file run after run - leave them be."""
+    p = os.path.join(OUTROOT, rel)
+    try:
+        with open(p, 'rb') as fh:
+            if fh.read() == data:
+                return
+    except OSError:
+        pass
+    write_bytes(rel, data)
+
+
 def write_app():
     """/app/ + the Home Screen icon. Returns the number of files written."""
     tickets, totals = app_tickets()
@@ -709,6 +721,8 @@ def main():
         write(f'report/{C.slug(k)}/index.html', plant_report(k)); n += 1
         # the code is an internal alias: /report/gto1/ -> /report/taigene/
         write(f'report/{k.lower()}/index.html', C.redirect_page(f'/report/{C.slug(k)}/', name(k), name(k))); n += 1
+        for fname, data, _did in MG.layout_images(k):       # v317: the string layout drawings
+            write_bytes_if_changed(f'monitoring/{C.slug(k)}/{fname}', data); n += 1
         write(f'monitoring/{C.slug(k)}/index.html', monitoring_plant(k, MG.TODAY)); n += 1
         write(f'monitoring/{k.lower()}/index.html', C.redirect_page(f'/monitoring/{C.slug(k)}/', name(k), name(k))); n += 1
         for d in MG.DATES:

@@ -1160,6 +1160,139 @@ def intraday_svg(pk, kwp, pr, d):
     return svg + '<div style="margin-top:6px">' + ''.join(leg) + '</div>'
 
 
+# ------------------------------------------------------- v317 string layout
+# Each PPA plant's drawing with its strings, coloured by each string's
+# current against its peers (argia.analytics.string_layout). The layout
+# files are server-only (/opt/argia/layouts/<PK>.json + drawing images:
+# customer engineering data, the repo is public); a plant without a file
+# simply has no card. A file that fails validation is not used and says
+# why in the generator log.
+LAYOUT_DIR = os.environ.get('ARGIA_LAYOUT_DIR', '/opt/argia/layouts')
+try:
+    from argia.analytics import string_layout as SLA
+    from argia.report import string_layout_html as SLH
+except Exception:                                     # noqa: BLE001
+    SLA = SLH = None
+LAYOUTS, LAYOUT_PROBLEMS, _LAYOUT_IMG = {}, {}, {}
+
+
+def _load_layouts():
+    if SLA is None or not os.path.isdir(LAYOUT_DIR):
+        return
+    for pk in PLANTS:
+        path = os.path.join(LAYOUT_DIR, f'{pk}.json')
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding='utf-8') as fh:
+                LAYOUTS[pk] = SLA.load(fh.read(), [sn for sn, _l, _r in CONFIG_INV.get(pk, [])])
+        except Exception as e:                        # noqa: BLE001
+            LAYOUT_PROBLEMS[pk] = str(e)[:300]
+            print(f'monitoring_gen: string layout of {pk} not used: {e}', file=sys.stderr)
+
+
+_load_layouts()
+
+
+def layout_images(pk):
+    """[(file name, bytes)] of the plant's drawings; the name carries a
+    content hash so a new drawing is never served from a browser cache."""
+    if pk in _LAYOUT_IMG:
+        return _LAYOUT_IMG[pk]
+    import hashlib
+    out = []
+    for d in (LAYOUTS.get(pk) or {}).get('drawings') or []:
+        try:
+            with open(os.path.join(LAYOUT_DIR, os.path.basename(d['image'])), 'rb') as fh:
+                data = fh.read()
+        except OSError as e:
+            print(f'monitoring_gen: layout image {d["image"]} of {pk}: {e}', file=sys.stderr)
+            continue
+        out.append((f'layout-{d["id"]}-{hashlib.sha1(data).hexdigest()[:10]}.jpg', data, d['id']))
+    _LAYOUT_IMG[pk] = out
+    return out
+
+
+_SS = {}        # date -> plant -> [(ts_mx, sn, str_a, mppt_a)]
+_SD = {}        # date -> plant -> {(sn, channel): q_ah}
+
+
+def _arr(txt):
+    return [f(x) for x in txt.split(',')] if txt else []
+
+
+def string_samples(d):
+    if d not in _SS:
+        out = {}
+        keys = ','.join(f"'{k}'" for k in LAYOUTS)
+        if keys:
+            try:
+                rows = q("SET statement_timeout='30s'; SELECT plant_key, inverter_sn,"
+                         " to_char(ts_utc AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD HH24:MI'),"
+                         " array_to_string(str_a, ',', ''), array_to_string(mppt_a, ',', '')"
+                         f" FROM string_sample WHERE plant_key IN ({keys})"
+                         f" AND ts_utc >= (DATE '{d}')::timestamp AT TIME ZONE 'America/Mexico_City'"
+                         f" AND ts_utc < (DATE '{d}' + 1)::timestamp AT TIME ZONE 'America/Mexico_City'"
+                         " ORDER BY ts_utc;")
+            except Exception:                         # noqa: BLE001  (table not created yet)
+                rows = []
+            for r in rows:
+                if len(r) < 3:
+                    continue
+                r = r + [''] * (5 - len(r))
+                out.setdefault(r[0], []).append((dt.datetime.strptime(r[2], '%Y-%m-%d %H:%M'), r[1],
+                                                 _arr(r[3]), _arr(r[4])))
+        _SS[d] = out
+    return _SS[d]
+
+
+def string_daily_ah(d):
+    if d not in _SD:
+        out = {}
+        keys = ','.join(f"'{k}'" for k in LAYOUTS)
+        if keys:
+            try:
+                rows = q("SET statement_timeout='30s'; SELECT plant_key, inverter_sn, channel, q_ah FROM string_daily"
+                         f" WHERE prod_date = DATE '{d}' AND kind = 'string' AND plant_key IN ({keys});")
+            except Exception:                         # noqa: BLE001
+                rows = []
+            for r in rows:
+                if len(r) >= 4 and f(r[3]) is not None:
+                    out.setdefault(r[0], {})[(r[1], r[2])] = f(r[3])
+        _SD[d] = out
+    return _SD[d]
+
+
+def string_layout_card(pk, d):
+    """The v317 card for one plant-day ('' when the plant has no layout)."""
+    lay = LAYOUTS.get(pk)
+    if lay is None or SLH is None:
+        return ''
+    strings = lay['strings']
+    labels = {sn: label for sn, label, _r in CONFIG_INV.get(pk, [])}
+    imgs = {did: f'{BASE}/{pk.lower()}/{name}' for name, _b, did in layout_images(pk)}
+    live = d == TODAY
+    smp = string_samples(d).get(pk) or []
+    try:
+        if smp:
+            buckets, cur = SLA.series(strings, smp)
+            ev = SLA.evaluate(strings, buckets, cur)
+            age = int((NOW_MX.replace(tzinfo=None) - max(s[0] for s in smp)).total_seconds() // 60) if live else None
+            p = SLH.payload(pk, lay, labels, live=live, source='5min', buckets=buckets, cur=cur, ev=ev,
+                            age_min=age, img_url=imgs)
+        else:
+            ah = string_daily_ah(d).get(pk) or {}
+            if ah:
+                p = SLH.payload(pk, lay, labels, live=live, source='daily', day=SLA.evaluate_daily(strings, ah),
+                                img_url=imgs)
+            else:
+                p = SLH.payload(pk, lay, labels, live=live, source='none', img_url=imgs)
+        return SLH.card(p)
+    except Exception as e:                            # noqa: BLE001  (a card must never cost the page)
+        print(f'monitoring_gen: string layout card {pk} {d} failed: {e}', file=sys.stderr)
+        return ''
+
+
 def sev_pill(sev):
     """v305: CRITICAL red, WARNING amber, INFO a grey 'flag' - a possible
     loss without a measured one; shown here, never mailed."""
@@ -1337,6 +1470,7 @@ def plant_page(pk, d, skin='old'):
     body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
+{string_layout_card(pk, d)}
 <div class="card"><h2 data-en="Inverters - {'latest sample' if live else 'last sample of the day'}" data-es="Inversores - última muestra">Inverters - latest sample</h2>
 <table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
 <p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% - the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail."
@@ -2159,6 +2293,21 @@ def write(rel, content):
     os.chmod(p, 0o644)
 
 
+def write_bytes(rel, data):
+    """v317: a binary file under /monitoring/, rewritten only when it changed."""
+    p = os.path.join(OUTROOT, 'monitoring', rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    try:
+        with open(p, 'rb') as fh:
+            if fh.read() == data:
+                return
+    except OSError:
+        pass
+    with open(p, 'wb') as fh:
+        fh.write(data)
+    os.chmod(p, 0o644)
+
+
 def write_root(rel, content):
     """Writer for pages OUTSIDE /monitoring/ (the portfolio map lives
     at the webroot so its auth area is its own, not 'monitoring')."""
@@ -2178,6 +2327,8 @@ def main():
     write('performance/index.html', performance_page()); n += 1
     write('recon/index.html', recon_page()); n += 1
     for pk in PLANTS:
+        for name, data, _did in layout_images(pk):         # v317
+            write_bytes(f'{pk.lower()}/{name}', data); n += 1
         write(f'{pk.lower()}/index.html', plant_page(pk, TODAY)); n += 1
         for d in DATES:
             if d != TODAY:

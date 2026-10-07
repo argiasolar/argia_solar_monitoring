@@ -111,6 +111,19 @@ CREATE TABLE IF NOT EXISTS string_daily (
     PRIMARY KEY (plant_key, inverter_sn, prod_date, channel)
 );
 
+-- v317: 5-minute per-string currents (scripts/telemetry_5m.py via
+-- argia/telemetry/string_sample.py; index n-1 = string / PV input n)
+CREATE TABLE IF NOT EXISTS string_sample (
+    ts_utc      timestamptz NOT NULL,
+    plant_key   text NOT NULL,
+    inverter_sn text NOT NULL,
+    str_a       real[],
+    mppt_a      real[],
+    mppt_v      real[],
+    PRIMARY KEY (plant_key, inverter_sn, ts_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_string_sample_ts ON string_sample (ts_utc);
+
 CREATE TABLE IF NOT EXISTS telemetry (
     ts_utc          timestamptz NOT NULL,
     plant_key       text NOT NULL,

@@ -312,6 +312,20 @@ def mex1(page):
     flagged = {3, 6, 39, 53}
     note = ('the field form lists inverter 1 PV3 twice (positions 6 and 53) and inverter 3 PV5 twice (3 and 39) '
             'and lacks inverter 1 PV5 and inverter 3 PV3; positions 53 and 3 shown on the missing inputs - confirm on site')
+    # v318: the first 5-minute string record (7 Oct 2026) shows inverter 2 PV4 at 0 A while its spare PV16
+    # carries a string (the PV4 / PV16 exception of 24 Aug), and inverter 3 PV21 (string 21, arc fault in
+    # June) at 0 A while its spare PV18 carries one: those two positions are shown on the live inputs
+    moved = {24: (2, 16, 4, 'field form: inverter 2 PV4; since the PV4 / PV16 exception of 24 Aug 2026 PV4 reads '
+                             '0 A and the spare PV16 carries a string - shown on PV16, confirm on site'),
+             54: (3, 18, 21, 'field form: inverter 3 PV21 (string 21, arc fault June 2026); PV21 reads 0 A and the '
+                             'spare PV18 carries a string - shown on PV18, confirm on site')}
+    for n, (i, new_pv, old_pv, _note) in moved.items():
+        sn = SN[('MEX1', f'INV{i}')]
+        X[('MEX1', sn, f's{new_pv}')] = dict(X[('MEX1', sn, f's{old_pv}')], **{
+            'Telemetry ID': f'PV{new_pv}', 'Standard name': f'SAG_INV{i}_PV{new_pv}', 'Note': ''})
+        USED.add(('MEX1', sn, f's{old_pv}'))         # the old input carries no string any more
+        m[n] = (i, new_pv)
+    flagged |= set(moved)
     drawing_inv = {n: {RED: 1, BLUE: 2, MAGENTA: 3}[lab['col']] for n, lab in L.items()}
     out = []
     for n in range(1, 55):
@@ -320,7 +334,7 @@ def mex1(page):
         extra = None
         if drawing_inv[n] != i:
             extra = f'the drawing colours position {n} as inverter {drawing_inv[n]}; the field form says inverter {i}'
-        notes = [x for x in (note if n in flagged else None, extra) if x]
+        notes = [x for x in (moved[n][3] if n in moved else (note if n in flagged else None), extra) if x]
         out.append(string_rec('MEX1', SN[('MEX1', inv)], inv, f's{pv}', [pt(L[n])],
                               'assumed' if n in flagged else 'table', '; '.join(notes) or None))
     return labs, out, []

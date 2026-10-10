@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS daily_review (
   day TEXT PRIMARY KEY, username TEXT NOT NULL, ts_utc TEXT NOT NULL, late INTEGER NOT NULL DEFAULT 0,
   sites_checked INTEGER NOT NULL DEFAULT 0, findings TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '{}');
 """
-DEFAULTS = {"mail_mode": "dry_run", "desk_emails": "", "review_start": "", "last_digest_day": ""}
+DEFAULTS = {"mail_mode": "dry_run", "desk_emails": "", "review_start": "", "last_digest_day": "",
+            "availability_guarantee": "0.98"}        # v322: Tomasz 9 Oct - 98 % (proposal; MSA text inconsistent)
 MAIL_MODES = ("dry_run", "live")
 MAIL_PREFS = [("", "No alarm e-mails", "Sin correos de alarmas"),
               ("critical", "Critical alarms at once (any hour)", "Alarmas críticas al momento (a cualquier hora)"),
@@ -138,6 +139,14 @@ def set_setting(c, key: str, value: str, by: str, ip: str = "") -> None:
         value = ", ".join(parse_emails(value))
     if key == "review_start" and value:
         dt.date.fromisoformat(value)
+    if key == "availability_guarantee":
+        try:
+            g = float(value)
+        except ValueError:
+            raise ValueError("the guarantee is a share, e.g. 0.98")
+        if not 0.9 <= g <= 1.0:
+            raise ValueError("the guarantee must be between 0.90 and 1.00")
+        value = f"{g:.4f}".rstrip("0").rstrip(".")
     old = setting(c, key)
     c.execute("INSERT OR REPLACE INTO settings (key, value, updated_by, updated_utc) VALUES (?,?,?,?)", (key, value, by, now_utc()))
     c.commit()
@@ -543,6 +552,18 @@ def alarm_mail(a, site_name: str, base_url: str) -> Tuple[str, str]:
     return subj, body
 
 
+def _report_line(c, today: dt.date) -> str:
+    """v322: from the 5th, remind that last month's report is due by the 10th."""
+    from argia.prologis import monthly as MR
+    m = MR.prev_month(today)
+    if today.day < 5:
+        return ""
+    st = MR.deadline_state(m, (MR.published(c, m) or {"published_utc": ""})["published_utc"], today)
+    if st in ("due", "overdue"):
+        return f"Monthly report {m}: NOT PUBLISHED, due by {MR.deadline(m):%d %b}" + (" - OVERDUE" if st == "overdue" else "") + "\n"
+    return ""
+
+
 REVIEW_WORDS = {"on_time": "done", "late": "done late", "missing": "MISSING", "today": "to do", "before_start": "log not started yet"}
 
 
@@ -567,6 +588,7 @@ def digest(c, rg, now_local: dt.datetime, base_url: str) -> Tuple[str, str, bool
             + ("\n".join(lines) if lines else "None.") + "\n\n"
             f"Daily performance review {yday:%d %b}: {REVIEW_WORDS.get(dict(rv).get(yday.isoformat(), ''), 'n/a')}\n"
             + (f"Days without a review (last 7): {', '.join(missing)}\n" if missing else "")
+            + _report_line(c, now_local.date())
             + f"\n{base_url}/alarms/\n")
     subj = f"[ARGIA for Prologis]{' [SAMPLE]' if sample else ''} Daily alarm digest {now_local:%d %b %Y} - {len(op)} open"
     return subj, body, sample

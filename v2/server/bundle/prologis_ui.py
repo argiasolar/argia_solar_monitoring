@@ -60,6 +60,7 @@ nav.main{display:flex;gap:2px;margin-left:auto;flex-wrap:wrap}
 nav.main a{color:#d7ebe8;padding:8px 11px;border-radius:9px;font-weight:600;font-size:13.5px}
 nav.main a:hover{background:rgba(255,255,255,.08);color:#fff}
 nav.main a.on{background:#fff;color:var(--deep)}
+@media(max-width:1500px){nav.main a{padding:7px 8px;font-size:13px}.who{font-size:12px}}
 .who{display:flex;align-items:center;gap:10px;font-size:12.5px;color:#cfe3e0;white-space:nowrap}
 .who a{color:#fff;font-weight:600}.who a.on{text-decoration:underline}
 .sample{background:repeating-linear-gradient(135deg,#fff7e6 0 14px,#fff1d6 14px 28px);color:#7a5200;text-align:center;font-size:12.5px;font-weight:700;padding:6px 12px;border-bottom:1px solid #f2dcae;letter-spacing:.02em}

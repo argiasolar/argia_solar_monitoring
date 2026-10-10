@@ -16,6 +16,8 @@ log of every login, change, upload and download, and a data export.
                       quarterly inventory report (v320)
     /alarms/          alarm engine results, triage in 4 business hours, daily
                       review log, mail outbox and settings (v321)
+    /reports/         monthly O&M report per site and portfolio (page, print,
+                      spreadsheet), HSE register, design yield (v322)
     /projects/        constructions and onboarding pipeline
     /docs/            documentation library per site and folder
     /security/        how the platform protects Prologis data
@@ -61,6 +63,7 @@ from argia.prologis import alarms as AL                   # noqa: E402
 from argia.prologis import assets as A                    # noqa: E402
 from argia.prologis import catalog as CAT                 # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
+from argia.prologis import monthly as MR                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
@@ -200,7 +203,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
     nav = [("/", tt("Overview", "Resumen"), "home"), ("/map/", tt("Map", "Mapa"), "map"),
            ("/sites/", tt("Sites", "Sitios"), "sites"), ("/tickets/", tt("Tickets", "Tickets"), "tickets"),
            ("/shop/", tt("Services", "Servicios"), "shop"), ("/assets/", tt("Assets", "Activos"), "assets"),
-           ("/alarms/", tt("Alarms", "Alarmas"), "alarms"),
+           ("/alarms/", tt("Alarms", "Alarmas"), "alarms"), ("/reports/", tt("Reports", "Reportes"), "reports"),
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
@@ -423,17 +426,7 @@ def open_tickets(c) -> List:
 
 
 def sla_of(c, tk, now_utc: dt.datetime) -> tuple:
-    cls = SLA.BY_CODE.get(tk["sla_class"], SLA.BY_CODE["OTHER"])
-    det = dt.datetime.fromisoformat(tk["detected_utc"])
-    appr = dt.datetime.fromisoformat(tk["approved_utc"]) if tk["approved_utc"] else None
-    start = SLA.clock_start(cls, det, appr if tk["approval"] in ("approved",) else (det if tk["approval"] == "not_required" else None))
-    if start is None:
-        return cls, None, "not_started"
-    end = dt.datetime.fromisoformat(tk["responded_utc"]) if tk["responded_utc"] else now_utc
-    spans = [(dt.datetime.fromisoformat(a), dt.datetime.fromisoformat(b) if b else None)
-             for a, b in S.waiting_spans(S.ticket_events(c, tk["id"]))]
-    used = SLA.elapsed_hours(start, end, spans)
-    return cls, used, SLA.status(cls, used, bool(tk["responded_utc"]))
+    return MR.ticket_clock(c, tk, now_utc)        # v322: one clock for the pages and the monthly report
 
 
 def sla_pill(cls, used, st, tt) -> str:
@@ -902,9 +895,14 @@ def ticket_page(number):
         acts += (f'<form method="post" action="/tickets/{number}/approve" style="margin-top:12px">{csrf_field()}<label>{tt("Prologis dispatch approval", "Aprobación de despacho Prologis")}'
                  f'{est_txt}</label><input name="note" placeholder="PO / {tt("comment", "comentario")}">'
                  f'<div style="margin-top:8px"><button class="btn sm" name="ok" value="1">{tt("Approve", "Aprobar")}</button> <button class="btn sm danger" name="ok" value="0">{tt("Reject", "Rechazar")}</button></div></form>')
+    if S.can(role, "ticket_work"):
+        acts += (f'<form method="post" action="/tickets/{number}/eta" style="margin-top:12px;display:flex;gap:6px;align-items:end;flex-wrap:wrap">{csrf_field()}'
+                 f'<div><label>{tt("Estimated return to service", "Regreso estimado a servicio")}</label><input name="eta" value="{UI.e(tk["eta_date"])}" placeholder="YYYY-MM-DD" style="width:140px"></div>'
+                 f'<button class="btn sm ghost">{tt("Set", "Fijar")}</button></form>')
     acts += (f'<form method="post" action="/tickets/{number}/comment" enctype="multipart/form-data" style="margin-top:12px">{csrf_field()}<label>{tt("Comment", "Comentario")}</label>'
              f'<textarea name="body"></textarea><input type="file" name="file" style="margin-top:6px"><div style="margin-top:8px"><button class="btn sm">{tt("Add", "Agregar")}</button></div></form>')
     chips = (('<span class="chip">' + UI.num(tk["kw_lost"]) + ' kW</span>') if tk["kw_lost"] else "") + \
+        (('<span class="chip">' + tt("Back in service by", "En servicio para") + ' ' + UI.e(tk["eta_date"]) + '</span>') if tk["eta_date"] else "") + \
         (('<span class="chip">MXN ' + UI.num(tk["estimate_mxn"]) + '</span>') if tk["estimate_mxn"] else "")
     body = f"""<div class="kick">{UI.e(s.name if s else tk["site_code"])} · {tk["number"]}{" · SAMPLE" if tk["sample"] else ""}</div><h1 class="pt">{UI.e(tk["title"])}</h1>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0"><span class="chip">{cls.priority} · {UI.e(tt(cls.en, cls.es))}</span><span class="chip">{UI.e(dict((k, tt(en, es)) for k, en, es in S.TICKET_STATUSES)[tk["status"]])}</span>{sla_pill(cls, used, st, tt)}
@@ -2295,6 +2293,371 @@ def outbox_page():
             + _mode_banner(c, tt) + _alarm_tabs("outbox", tt, n)
             + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t"><tr><th>{tt("Created", "Creado")}</th><th>{tt("Status", "Estado")}</th><th>{tt("Message", "Mensaje")}</th></tr>{tr}</table></div>')
     return page(tt("Mail outbox", "Bandeja de salida"), body, "alarms")
+
+
+# ------------------------------------------------------------------ monthly report (v322)
+# MSA Schedule A, Data & Reporting: monthly report per site and for the
+# portfolio within 10 days of month end; proposal 4.4: also as spreadsheet,
+# availability, HSE. Drafts are ARGIA's; Prologis sees published reports,
+# whose numbers are frozen at publication.
+DL_PILL = {"met": "s-ok", "late": "s-bad", "due": "s-warn", "overdue": "s-bad", "open": "s-off"}
+
+
+def _pct(v, d: int = 1) -> str:
+    return "-" if v is None else f"{v * 100:.{d}f}%"
+
+
+def _ratio(a, b) -> Optional[float]:
+    return (a / b) if (a is not None and b) else None
+
+
+def _dl_label(st: str, tt) -> str:
+    return {"met": tt("Published on time", "Publicado a tiempo"), "late": tt("Published late", "Publicado tarde"),
+            "due": tt("Due", "Por publicar"), "overdue": tt("Overdue", "Vencido"), "open": tt("Month running", "Mes en curso")}[st]
+
+
+def _months(today: dt.date, n: int = 12) -> List[str]:
+    out, d = [], today
+    for _ in range(n):
+        out.append(f"{d.year}-{d.month:02d}")
+        d = d.replace(day=1) - dt.timedelta(days=1)
+    return out
+
+
+def _reports_head(tt, title: str, sub: str = "") -> str:
+    tabs = [("/reports/", tt("Monthly reports", "Reportes mensuales")), ("/reports/hse", tt("HSE register", "Registro SSMA")),
+            ("/reports/design", tt("Design yield", "Producción de diseño"))]
+    cur = request.path
+    t_ = '<div class="tabs">' + "".join(f'<a class="tab{" on" if h == cur else ""}" href="{h}">{UI.e(lbl)}</a>' for h, lbl in tabs) + "</div>"
+    return (f'<div class="kick">{tt("Reports", "Reportes")}</div><h1 class="pt">{UI.e(title)}</h1>'
+            + (f'<p class="muted small">{sub}</p>' if sub else "") + t_)
+
+
+@app.get("/reports/")
+def reports_page(msg: str = "", err: bool = False):
+    tt = t()
+    c = db()
+    today = today_mx()
+    work = S.can(g.user["role"], "alarms_work")
+    tr = ""
+    for m in _months(today):
+        p = MR.published(c, m)
+        st = MR.deadline_state(m, p["published_utc"] if p else "", today)
+        state = (f'<span class="pill s-ok">{tt("Published", "Publicado")} {mx_time(p["published_utc"])}</span>' if p
+                 else f'<span class="pill s-off">{tt("Draft (ARGIA only)", "Borrador (solo ARGIA)")}</span>')
+        link = (f'<a href="/reports/{m}/"><b>{m}</b></a>' if (p or work) else f"<b>{m}</b>")
+        xl = f' <a class="small" href="/reports/{m}/report.xlsx">{tt("spreadsheet", "hoja de cálculo")}</a>' if (p or work) else ""
+        tr += (f'<tr><td>{link}{xl}</td><td>{state}</td><td class="nw">{MR.deadline(m):%d %b %Y}</td>'
+               f'<td><span class="pill {DL_PILL[st]}">{UI.e(_dl_label(st, tt))}</span></td></tr>')
+    g_ = float(AL.setting(c, "availability_guarantee") or 0.98)
+    gform = ""
+    if S.can(g.user["role"], "alarms_admin"):
+        gform = (f'<form method="post" action="/reports/guarantee" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">{csrf_field()}'
+                 f'<span class="small">{tt("Availability guarantee", "Garantía de disponibilidad")}</span><input name="g" value="{g_:g}" style="width:90px">'
+                 f'<button class="btn sm ghost">{tt("Save", "Guardar")}</button></form>')
+    body = (_reports_head(tt, tt("Monthly reports", "Reportes mensuales"),
+                          tt("One report per month for each site and the portfolio, published within 10 days of month end (MSA Schedule A). Published numbers are frozen; drafts are visible to ARGIA only.",
+                             "Un reporte por mes para cada sitio y el portafolio, publicado dentro de 10 días tras el cierre (MSA Anexo A). Las cifras publicadas quedan fijas; los borradores solo los ve ARGIA."))
+            + flash(msg, err)
+            + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t"><tr><th>{tt("Month", "Mes")}</th><th>{tt("Status", "Estado")}</th>'
+            f'<th>{tt("Deadline", "Fecha límite")}</th><th>{tt("10-day rule", "Regla de 10 días")}</th></tr>{tr}</table>'
+            f'<p class="small muted" style="margin-top:8px">{tt("Availability guarantee used in the reports", "Garantía de disponibilidad usada en los reportes")}: <b>{g_ * 100:g}%</b></p>{gform}</div>')
+    return page(tt("Reports", "Reportes"), body, "reports")
+
+
+@app.post("/reports/guarantee")
+def reports_guarantee():
+    need("alarms_admin")
+    try:
+        AL.set_setting(db(), "availability_guarantee", (request.form.get("g") or "").strip(), g.user["username"], ip())
+    except ValueError as ex:
+        return reports_page(f"Not saved: {ex}", True)
+    return reports_page("Saved. / Guardado.")
+
+
+def _report_or_404(month: str):
+    try:
+        MR.month_bounds(month)
+    except ValueError:
+        abort(404)
+    c = db()
+    d, frozen = MR.report_data(c, reg(), month, today_mx())
+    if not frozen and not S.can(g.user["role"], "alarms_work"):
+        abort(404)                                    # drafts are ARGIA's
+    return d, frozen
+
+
+def _kpi(label: str, value: str, sub: str = "") -> str:
+    return f'<div class="kpi"><div class="l">{label}</div><div class="v">{value}</div><div class="d">{sub}</div></div>'
+
+
+def _report_tables(d: Dict, tt, rg, site: str = "") -> str:
+    keep = (lambda x: x == site) if site else (lambda x: True)
+    out = [o for o in d["outages"] if keep(o["site"])]
+    orows = "".join(f'<tr><td class="nw"><a href="/tickets/{o["number"]}/">{o["number"]}</a>{SAMPLE_PILL if o["sample"] else ""}</td>'
+                    f'<td>{UI.e(_site_name(rg, o["site"]))}<div class="small">{UI.e(o["title"])}</div><div class="small muted">{UI.e(o["reason"])}</div></td>'
+                    f'<td class="small">{mx_time(o["detected"])}</td><td class="n">{o["days"]:.1f}</td><td class="n">{UI.num(o["kw_lost"]) if o["kw_lost"] else "-"}</td>'
+                    f'<td class="small">{UI.e(o["eta"] or ("-" if o["resolved"] else tt("not set", "sin fecha")))}{" · " + tt("back", "restablecido") + " " + mx_time(o["resolved"]) if o["resolved"] else ""}</td>'
+                    f'<td class="small">{UI.e(o["action"])}</td></tr>' for o in out) \
+        or f'<tr><td class="muted" colspan="7">{tt("No outage lasted more than 3 days.", "Ninguna falla duró más de 3 días.")}</td></tr>'
+    wos = [w for w in d["work_orders"] if keep(w["site"])]
+    stl = {"met": tt("Met", "Cumplido"), "breached": tt("Breached", "Incumplido"), "running": tt("Running", "En curso"),
+           "due": tt("Next site visit", "Próxima visita"), "not_started": tt("Awaiting approval", "Esperando aprobación")}
+    wrows = ""
+    for w in wos:
+        dl_txt = "-" if w["deadline_h"] is None else f'{w["deadline_h"]:g} h'
+        hr_txt = "-" if w["hours"] is None else f'{w["hours"]:.1f} h'
+        pc = "s-ok" if w["clock"] == "met" else ("s-bad" if w["clock"] == "breached" else "s-off")
+        wrows += (f'<tr><td class="nw"><a href="/tickets/{w["number"]}/">{w["number"]}</a>{SAMPLE_PILL if w["sample"] else ""}</td><td>{UI.e(_site_name(rg, w["site"]))}<div class="small">{UI.e(w["title"])}</div></td>'
+                  f'<td class="small">{w["priority"]} · {UI.e(w["class"])}</td><td class="n">{dl_txt}</td><td class="n">{hr_txt}</td>'
+                  f'<td><span class="pill {pc}">{UI.e(stl.get(w["clock"], w["clock"]))}</span></td></tr>')
+    wrows = wrows or f'<tr><td class="muted" colspan="6">{tt("No work orders this month.", "Sin órdenes de trabajo este mes.")}</td></tr>'
+    logs = [x for x in d["log"] if keep(x["site"])]
+    lrows = "".join(f'<tr><td class="small nw">{mx_time(x["ts"])}</td><td class="small">{UI.e(_site_name(rg, x["site"]))}</td>'
+                    f'<td class="small">{UI.e(x["type"])}{(" · " + UI.e(x["severity"])) if x["severity"] else ""}{SAMPLE_PILL if x["sample"] else ""}</td><td class="small">{UI.e(x["text"])}</td></tr>'
+                    for x in logs[:300]) or f'<tr><td class="muted" colspan="4">{tt("Nothing logged.", "Sin registros.")}</td></tr>'
+    more = f'<p class="small muted">{len(logs) - 300} {tt("more lines in the spreadsheet", "líneas más en la hoja de cálculo")}</p>' if len(logs) > 300 else ""
+    hs = [h for h in d["hse"] if keep(h["site"]) or not h["site"]]
+    hk = dict((k, tt(en, es)) for k, en, es in MR.HSE_KINDS)
+    ok24 = '<span class="pill s-ok">24 h</span>'
+    late24 = '<span class="pill s-bad">&gt; 24 h</span>'
+    hrows = ""
+    for h in hs:
+        flag = "" if h["on_time"] is None else (ok24 if h["on_time"] else late24)
+        hrows += (f'<tr><td class="small nw">{mx_time(h["occurred"])}</td><td class="small">{UI.e(_site_name(rg, h["site"]) if h["site"] else "-")}</td>'
+                  f'<td>{UI.e(hk.get(h["kind"], h["kind"]))}<div class="small">{UI.e(h["description"])}</div></td><td>{flag}</td></tr>')
+    hrows = hrows or f'<tr><td class="muted" colspan="4">{tt("No HSE events.", "Sin eventos SSMA.")}</td></tr>'
+    return (f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Outages longer than 3 days", "Fallas de más de 3 días")}</h2><table class="t"><tr><th>#</th><th>{tt("Site / reason", "Sitio / causa")}</th>'
+            f'<th>{tt("Since", "Desde")}</th><th class="n">{tt("Days", "Días")}</th><th class="n">kW</th><th>{tt("Estimated return to service", "Regreso estimado a servicio")}</th><th>{tt("Corrective action", "Acción correctiva")}</th></tr>{orows}</table></div>'
+            f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Work orders and response time", "Órdenes de trabajo y tiempo de respuesta")}</h2><table class="t"><tr><th>#</th><th>{tt("Site", "Sitio")}</th>'
+            f'<th>{tt("MSA class", "Clase MSA")}</th><th class="n">{tt("Deadline", "Plazo")}</th><th class="n">{tt("Response", "Respuesta")}</th><th></th></tr>{wrows}</table></div>'
+            f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Alarms and O&M log", "Bitácora de alarmas y O&M")}</h2><table class="t">{lrows}</table>{more}</div>'
+            f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Health, safety and environment", "Salud, seguridad y medio ambiente")}</h2><table class="t">{hrows}</table></div>')
+
+
+@app.get("/reports/<month>/")
+def report_page(month, msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    d, frozen = _report_or_404(month)
+    p = d["portfolio"]
+    pub = MR.published(c, month)
+    today = today_mx()
+    st = MR.deadline_state(month, pub["published_utc"] if pub else "", today)
+    status = (f'<span class="pill s-ok">{tt("Published", "Publicado")} {mx_time(pub["published_utc"])} · {UI.e(pub["published_by"])}</span>' if pub
+              else f'<span class="pill s-warn">{tt("DRAFT - ARGIA only", "BORRADOR - solo ARGIA")}</span>')
+    dl = f'<span class="pill {DL_PILL[st]}">{UI.e(_dl_label(st, tt))} · {tt("deadline", "límite")} {MR.deadline(month):%d %b %Y}</span>'
+    av_ok = p["availability"] is not None and p["availability"] + 1e-9 >= d["guarantee"]
+    tiles = ('<div class="hero tiles"><div class="kpis">'
+             + _kpi(tt("Actual energy", "Energía real"), f'{UI.num(p["kwh"] / 1000, 1)}<small>MWh</small>', f'{p["days"]} {tt("of", "de")} {p["days_in_month"]} {tt("days", "días")}')
+             + _kpi(tt("vs expected (weather adjusted)", "vs esperado (ajustado por clima)"), _pct(_ratio(p["kwh"], p["expected_kwh"])), f'{UI.num(p["expected_kwh"] / 1000, 1)} MWh')
+             + _kpi(tt("vs design (PVsyst / Helioscope)", "vs diseño (PVsyst / Helioscope)"), _pct(_ratio(p["kwh"] if p["design_sites"] == p["sites"] else None, p["design_kwh"])),
+                    (f'{p["design_sites"]} {tt("of", "de")} {p["sites"]} {tt("sites provided", "sitios con dato")}'))
+             + _kpi(tt("Insolation", "Insolación"), f'{p["irr_kwh_m2"]:.1f}<small>kWh/m²</small>', tt("kWp-weighted", "ponderada por kWp"))
+             + _kpi("PR", _pct(p["pr"]), "")
+             + _kpi(tt("Availability", "Disponibilidad"), _pct(p["availability"], 2), f'{tt("guarantee", "garantía")} {d["guarantee"] * 100:g}% · ' + (tt("met", "cumplida") if av_ok else tt("below", "debajo")))
+             + _kpi(tt("Response time met", "Tiempo de respuesta cumplido"), f'{d["response_met"]}/{d["response_closed"]}', tt("work orders", "órdenes"))
+             + _kpi(tt("Data completeness", "Completitud de datos"), _pct(p["completeness"], 1), "")
+             + "</div></div>")
+    srows = ""
+    for x in d["sites"]:
+        srows += (f'<tr><td><a href="/reports/{month}/{x["code"]}/"><b>{UI.e(x["name"])}</b></a><div class="small muted">{x["code"]}</div></td><td class="n">{UI.num(x["kwp"], 0)}</td>'
+                  f'<td class="n">{UI.num(x["kwh"])}</td><td class="n">{UI.num(x["expected_kwh"])}</td><td class="n">{"-" if x["design_kwh"] is None else UI.num(x["design_kwh"])}</td>'
+                  f'<td class="n">{_pct(_ratio(x["kwh"], x["expected_kwh"]), 0)}</td><td class="n">{x["irr_kwh_m2"]:.1f}</td><td class="n">{_pct(x["pr"])}</td>'
+                  f'<td class="n">{_pct(x["availability"], 2)}</td><td class="n">{_pct(x["completeness"], 0)}</td></tr>')
+    chart = UI.bar_chart([(k, a, e) for k, a, e in d["daily"]], w=1300, h=260)
+    notes = ""
+    if pub:
+        notes = f'<div class="card" style="margin-top:16px"><h2>{tt("Summary", "Resumen")}</h2><p style="white-space:pre-wrap">{UI.e(pub["notes"])}</p></div>'
+    elif S.can(g.user["role"], "alarms_work"):
+        can_pub = today > MR.month_bounds(month)[1]
+        notes = (f'<div class="card form" style="margin-top:16px"><h2>{tt("Publish to Prologis", "Publicar a Prologis")}</h2>'
+                 + (f'<form method="post" action="/reports/{month}/publish">{csrf_field()}<label>{tt("Summary for Prologis (findings, actions, open items)", "Resumen para Prologis (hallazgos, acciones, pendientes)")}</label>'
+                    f'<textarea name="notes" required></textarea><div style="margin-top:10px"><button class="btn">{tt("Publish - the numbers are frozen", "Publicar - las cifras quedan fijas")}</button></div></form>'
+                    if can_pub else f'<p class="small muted">{tt("Publishing opens when the month is over.", "La publicación abre cuando termina el mes.")}</p>') + "</div>")
+    oi = d["open_items"]
+    open_html = "".join(f'<li><a href="/tickets/{x["number"]}/">{x["number"]}</a> {UI.e(x["title"])} <span class="small muted">{UI.e(_site_name(rg, x["site"]))} · {UI.e(x["status"])}</span></li>'
+                        for x in oi["incidents"] + oi["orders"]) or f'<li class="muted">{tt("Nothing open.", "Nada abierto.")}</li>'
+    body = (_reports_head(tt, f'{tt("Monthly O&M report", "Reporte mensual de O&M")} · {month}',
+                          f'{d["first_day"]} - {d["last_day"]} · {tt("generated", "generado")} {mx_time(d["generated_utc"])}')
+            + flash(msg, err)
+            + f'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">{status} {dl}'
+            f'<a class="btn ghost" style="margin-left:auto" href="/reports/{month}/report.xlsx">{tt("Spreadsheet", "Hoja de cálculo")}</a>'
+            f'<a class="btn ghost" href="javascript:window.print()">{tt("Print / PDF", "Imprimir / PDF")}</a></div>'
+            + tiles + notes
+            + f'<div class="card" style="margin-top:16px"><h2>{tt("Portfolio energy per day", "Energía del portafolio por día")}<span class="r muted">{tt("bar: actual · line: expected (weather adjusted)", "barra: real · línea: esperado (ajustado por clima)")}</span></h2>{chart}</div>'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Sites", "Sitios")}</h2><table class="t"><tr><th>{tt("Site", "Sitio")}</th><th class="n">kWp</th>'
+            f'<th class="n">{tt("Actual", "Real")} kWh</th><th class="n">{tt("Expected", "Esperado")} kWh</th><th class="n">{tt("Design", "Diseño")} kWh</th><th class="n">{tt("vs exp.", "vs esp.")}</th>'
+            f'<th class="n">kWh/m²</th><th class="n">PR</th><th class="n">{tt("Avail.", "Disp.")}</th><th class="n">{tt("Data", "Datos")}</th></tr>{srows}</table></div>'
+            + _report_tables(d, tt, rg)
+            + f'<div class="card" style="margin-top:16px"><h2>{tt("Open corrective items and service orders", "Correctivos y órdenes de servicio abiertos")}</h2><ul class="small">{open_html}</ul></div>')
+    return page(f'{tt("Report", "Reporte")} {month}', body, "reports", sample=d["source"] == "sample")
+
+
+@app.get("/reports/<month>/<code>/")
+def report_site_page(month, code):
+    tt = t()
+    rg = reg()
+    d, _frozen = _report_or_404(month)
+    x = next((s for s in d["sites"] if s["code"] == code.upper()), None) or abort(404)
+    tiles = ('<div class="hero tiles"><div class="kpis">'
+             + _kpi(tt("Actual energy", "Energía real"), f'{UI.num(x["kwh"] / 1000, 1)}<small>MWh</small>', f'{UI.num(x["kwp"], 1)} kWp')
+             + _kpi(tt("vs expected", "vs esperado"), _pct(_ratio(x["kwh"], x["expected_kwh"])), f'{UI.num(x["expected_kwh"])} kWh')
+             + _kpi(tt("vs design", "vs diseño"), _pct(_ratio(x["kwh"], x["design_kwh"])), "-" if x["design_kwh"] is None else f'{UI.num(x["design_kwh"])} kWh')
+             + _kpi(tt("Insolation", "Insolación"), f'{x["irr_kwh_m2"]:.1f}<small>kWh/m²</small>', "")
+             + _kpi("PR", _pct(x["pr"]), "") + _kpi(tt("Availability", "Disponibilidad"), _pct(x["availability"], 2), "")
+             + _kpi(tt("Data completeness", "Completitud de datos"), _pct(x["completeness"], 0), "") + "</div></div>")
+    chart = UI.bar_chart([(dd, a, e) for dd, a, e, _i in x["daily"]], w=1300, h=260)
+    body = (_reports_head(tt, f'{UI.e(x["name"])} · {month}', f'<a href="/reports/{month}/">‹ {tt("Portfolio report", "Reporte del portafolio")}</a>')
+            + tiles + f'<div class="card" style="margin-top:16px"><h2>{tt("Energy per day", "Energía por día")}</h2>{chart}</div>' + _report_tables(d, tt, rg, x["code"]))
+    return page(f'{x["name"]} {month}', body, "reports", sample=x["source"] == "sample")
+
+
+@app.get("/reports/<month>/report.xlsx")
+def report_xlsx(month):
+    d, frozen = _report_or_404(month)
+    names = {s.code: s.name for s in reg().sites}
+    data = XL.workbook(MR.workbook_sheets(d, names))
+    S.audit(db(), g.user["username"], ip(), "monthly_report_export", month, "published" if frozen else "draft")
+    return Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename=prologis_om_report_{month}{'' if frozen else '_DRAFT'}.xlsx"})
+
+
+@app.post("/reports/<month>/publish")
+def report_publish(month):
+    need("alarms_work")
+    c = db()
+    try:
+        MR.month_bounds(month)
+        d = MR.build(c, reg(), month, today_mx())
+        MR.publish(c, month, d, request.form.get("notes", ""), g.user["username"], today_mx(), ip())
+    except ValueError as ex:
+        return report_page(month, f"Not published: {ex}", True)
+    return report_page(month, "Published. / Publicado.")
+
+
+# ---- HSE register
+@app.get("/reports/hse")
+def hse_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    hk = dict((k, tt(en, es)) for k, en, es in MR.HSE_KINDS)
+    tr = ""
+    for e in c.execute("SELECT * FROM hse_events ORDER BY occurred_utc DESC LIMIT 200"):
+        ot = MR.hse_on_time(e)
+        pill = "" if ot is None else (f'<span class="pill s-ok">{tt("reported within 24 h", "reportado en 24 h")}</span>' if ot and e["reported_utc"]
+                                      else (f'<span class="pill s-warn">{tt("to report within 24 h", "reportar en 24 h")}</span>' if ot else f'<span class="pill s-bad">{tt("not reported within 24 h", "no reportado en 24 h")}</span>'))
+        tr += (f'<tr><td class="small nw">{mx_time(e["occurred_utc"])}</td><td>{UI.e(_site_name(rg, e["site_code"]) if e["site_code"] else "-")}</td>'
+               f'<td>{UI.e(hk.get(e["kind"], e["kind"]))}<div class="small">{UI.e(e["description"])}</div><div class="small muted">{UI.e(e["actions"])}</div></td>'
+               f'<td>{pill}<div class="small muted">{mx_time(e["reported_utc"]) if e["reported_utc"] else ""}{" · Safety Mojo " + UI.e(e["mojo_ref"]) if e["mojo_ref"] else ""}</div></td></tr>')
+    tr = tr or f'<tr><td class="muted" colspan="4">{tt("No events recorded.", "Sin eventos registrados.")}</td></tr>'
+    form = ""
+    if S.can(g.user["role"], "alarms_work"):
+        sopts = "".join(f'<option value="{s.code}">{UI.e(s.name)}</option>' for s in rg.sites)
+        kopts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, en, es in MR.HSE_KINDS)
+        form = (f'<div class="card form" style="margin-top:16px"><h2>{tt("Record an event", "Registrar un evento")}</h2><form method="post" action="/reports/hse">{csrf_field()}'
+                f'<div class="row"><div><label>{tt("Site", "Sitio")}</label><select name="site"><option value="">{tt("Not at a site", "Fuera de sitio")}</option>{sopts}</select></div>'
+                f'<div><label>{tt("Kind", "Tipo")}</label><select name="kind">{kopts}</select></div></div>'
+                f'<div class="row"><div><label>{tt("Occurred (YYYY-MM-DD HH:MM, Mexico City)", "Ocurrió (AAAA-MM-DD HH:MM, Cd. de México)")}</label><input name="occurred" required></div>'
+                f'<div><label>{tt("Reported to Prologis (empty if not yet)", "Reportado a Prologis (vacío si aún no)")}</label><input name="reported"></div></div>'
+                f'<label>{tt("What happened", "Qué pasó")}</label><textarea name="description" required></textarea><label>{tt("Actions taken", "Acciones tomadas")}</label><textarea name="actions"></textarea>'
+                f'<label>{tt("Safety Mojo reference", "Referencia Safety Mojo")}</label><input name="mojo"><div style="margin-top:10px"><button class="btn">{tt("Record", "Registrar")}</button></div></form></div>')
+    body = (_reports_head(tt, tt("HSE register", "Registro SSMA"),
+                          tt("Every incident, first aid case and near miss is reported in writing to Prologis within 24 hours (MSA Exhibit F) and goes into the monthly report.",
+                             "Todo incidente, caso de primeros auxilios y casi accidente se reporta por escrito a Prologis en 24 horas (MSA Anexo F) y entra al reporte mensual."))
+            + flash(msg, err) + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t">{tr}</table></div>' + form)
+    return page(tt("HSE register", "Registro SSMA"), body, "reports")
+
+
+@app.post("/reports/hse")
+def hse_post():
+    need("alarms_work")
+    f = request.form
+    try:
+        MR.add_hse(db(), (f.get("occurred") or "").strip(), (f.get("site") or "").strip(), f.get("kind", ""), f.get("description", ""),
+                   f.get("actions", ""), g.user["username"], (f.get("reported") or "").strip(), f.get("mojo", ""), ip(),
+                   [s.code for s in reg().sites], now_mx())
+    except ValueError as ex:
+        return hse_page(f"Not recorded: {ex}", True)
+    return hse_page("Recorded. / Registrado.")
+
+
+# ---- design yield
+@app.get("/reports/design")
+def design_page(msg: str = "", err: bool = False, errors: Optional[List[str]] = None):
+    tt = t()
+    rg = reg()
+    c = db()
+    dm = MR.design_map(c)
+    head = "".join(f"<th class='n'>{i}</th>" for i in range(1, 13))
+    tr = ""
+    for s in rg.sites:
+        vals = [dm.get((s.code, i)) for i in range(1, 13)]
+        tot = sum(v for v in vals if v is not None)
+        tr += (f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code} · {UI.num(s.kwp, 0)} kWp</div></td>'
+               + "".join(f'<td class="n small">{"-" if v is None else UI.num(v)}</td>' for v in vals)
+               + f'<td class="n"><b>{UI.num(tot) if tot else "-"}</b>{"" if not tot else f"<div class=small>{tot / s.kwp:,.0f} kWh/kWp</div>"}</td></tr>')
+    form = ""
+    if S.can(g.user["role"], "alarms_work"):
+        errs = "".join(f"<li>{UI.e(x)}</li>" for x in (errors or [])[:100])
+        form = (f'<div class="card form" style="margin-top:16px"><h2>{tt("Load from CSV", "Cargar desde CSV")}</h2>{"<ul class=small>" + errs + "</ul>" if errs else ""}'
+                f'<p class="small">{tt("Columns", "Columnas")}: <code>site,m1,...,m12</code> (kWh). {tt("All or nothing; empty cells mean not provided; a value replaces the stored one.", "Todo o nada; celdas vacías = sin dato; un valor reemplaza al guardado.")} '
+                f'<a href="/reports/design_template.csv">{tt("Template", "Plantilla")}</a></p>'
+                f'<form method="post" action="/reports/design" enctype="multipart/form-data">{csrf_field()}<label>{tt("Source (study name and version)", "Fuente (estudio y versión)")}</label><input name="source" required>'
+                f'<input type="file" name="file" accept=".csv" required style="margin-top:8px"><div style="margin-top:10px"><button class="btn">{tt("Check and load", "Revisar y cargar")}</button></div></form></div>')
+    body = (_reports_head(tt, tt("Design yield", "Producción de diseño"),
+                          tt("Estimated monthly energy per site from the PVsyst / Helioscope studies - the 'estimated' line of the monthly report. Sites without it show 'not provided'.",
+                             "Energía mensual estimada por sitio de los estudios PVsyst / Helioscope - la línea 'estimada' del reporte mensual. Los sitios sin dato muestran 'sin dato'."))
+            + flash(msg, err) + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t"><tr><th>{tt("Site", "Sitio")}</th>{head}<th class="n">{tt("Year", "Año")}</th></tr>{tr}</table></div>' + form)
+    return page(tt("Design yield", "Producción de diseño"), body, "reports")
+
+
+@app.get("/reports/design_template.csv")
+def design_template():
+    need("alarms_work")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["site"] + [f"m{i}" for i in range(1, 13)])
+    for s in reg().sites:
+        w.writerow([s.code] + [""] * 12)
+    return Response(buf.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=design_yield_template.csv"})
+
+
+@app.post("/reports/design")
+def design_post():
+    need("alarms_work")
+    f = request.files.get("file")
+    source = (request.form.get("source") or "").strip()
+    if not f or not f.filename or not source:
+        return design_page("Choose a file and name the source. / Elija archivo y fuente.", True)
+    raw = f.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        abort(413)
+    rows, errs = MR.parse_design(raw.decode("utf-8-sig", errors="replace"), [s.code for s in reg().sites])
+    if errs:
+        return design_page(f"Nothing loaded: {len(errs)} problem(s). / No se cargó nada.", True, errs)
+    n = MR.save_design(db(), rows, source, g.user["username"], ip())
+    return design_page(f"{n} values loaded. / {n} valores cargados.")
+
+
+@app.post("/tickets/<number>/eta")
+def ticket_eta(number):
+    need("ticket_work")
+    tk = _ticket(number)
+    v = (request.form.get("eta") or "").strip()
+    if v:
+        try:
+            dt.date.fromisoformat(v)
+        except ValueError:
+            abort(400)
+    c = db()
+    c.execute("UPDATE tickets SET eta_date=? WHERE id=?", (v, tk["id"]))
+    c.commit()
+    S.add_event(c, tk["id"], g.user["username"], "comment", f"Estimated return to service: {v or 'cleared'}")
+    S.audit(c, g.user["username"], ip(), "ticket_eta", number, v)
+    return redirect(f"/tickets/{number}/")
 
 
 # ------------------------------------------------------------------ projects

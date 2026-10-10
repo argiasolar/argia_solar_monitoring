@@ -126,6 +126,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _assets.ensure(c)
     from argia.prologis import alarms as _alarms       # v321: alarms, outbox, daily review, settings
     _alarms.ensure(c)
+    from argia.prologis import monthly as _monthly     # v322: monthly report, design yield, HSE register
+    _monthly.ensure(c)
     return c
 
 

@@ -71,6 +71,16 @@ def test_only_hours_above_150_w_m2_count():
     assert 4 <= len(h) * AV.SLOT_H <= 11 and all(7 <= t.hour <= 18 for t in h)
 
 
+def test_sunny_hours_equals_the_slots_on_random_windows():
+    import random
+    rnd = random.Random(323)
+    for _ in range(40):
+        s = RG.operating[rnd.randrange(len(RG.operating))]
+        a = dt.datetime(2026, 1, 1) + dt.timedelta(minutes=rnd.randint(0, 300 * 1440))
+        b = a + dt.timedelta(minutes=rnd.randint(1, 20 * 1440))
+        assert AV.sunny_hours(s, a, b) == pytest.approx(len(AV.sunny_slots(s, a, b)) * AV.SLOT_H)
+
+
 # ------------------------------------------------------------------ LD and bonus
 def test_liquidated_damages_and_bonus():
     assert AV.annual_loss(0.97, 0.98, 1_000_000, 2.0) == pytest.approx(2.0 * (1_000_000 / 0.99 - 1_000_000))

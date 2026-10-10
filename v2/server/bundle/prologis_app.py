@@ -2858,7 +2858,7 @@ def availability_annual(msg: str = "", err: bool = False):
             rows += f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code}</div></td><td colspan="8" class="muted small">{tt("Contract terms not set (effective date, kWh rate, annual fee).", "Términos del contrato sin fijar (fecha efectiva, tarifa kWh, cuota anual).")}</td></tr>'
             continue
         eff = dt.date.fromisoformat(tr_["effective_date"])
-        for a, b in AV.contract_years(eff, today)[-2:]:
+        for a, b in [y for y in AV.contract_years(eff, today) if AV.analysis_due(y[1]) >= today]:   # running, or analysis not yet due
             upto = min(b, today)
             sa, sb = dt.datetime.combine(a, dt.time()), dt.datetime.combine(upto, dt.time())
             ra = AV.site_result(c, s, sa, sb, ("accepted",))

@@ -40,6 +40,7 @@ from __future__ import annotations
 import datetime as dt
 import sqlite3
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from argia.prologis import metering as M
@@ -107,18 +108,52 @@ def sample_irradiance(site, day: dt.date) -> Sequence[Tuple[str, float]]:
 
 
 # ------------------------------------------------------------------ the formula (pure)
+@lru_cache(maxsize=50_000)
+def _sample_sunny(code: str, lat: float, lon: float, kwp: float, day: dt.date) -> Tuple[int, ...]:
+    """Minutes of the day of the sunny slots (small ints: about 1 KB a day,
+    so two years of 19 sites stay well under 50 MB)."""
+    return tuple(int(h[:2]) * 60 + int(h[3:]) for h, _kw, ghi in M._profile(code, lat, lon, kwp, day) if ghi > IRR_MIN)
+
+
+def _sunny_hhmm(site, day: dt.date, irr: IrrFn) -> Sequence[str]:
+    if irr is sample_irradiance:                 # cached: a year of 19 sites is read many times
+        return [f"{m // 60:02d}:{m % 60:02d}" for m in _sample_sunny(site.code, site.lat, site.lon, site.kwp, day)]
+    return [h for h, ghi in irr(site, day) if ghi > IRR_MIN]
+
+
+def _sunny_count(site, day: dt.date, irr: IrrFn) -> int:
+    if irr is sample_irradiance:
+        return len(_sample_sunny(site.code, site.lat, site.lon, site.kwp, day))
+    return len(_sunny_hhmm(site, day, irr))
+
+
 def sunny_slots(site, start: dt.datetime, end: dt.datetime, irr: IrrFn = sample_irradiance) -> List[dt.datetime]:
     """Local 5-minute slot starts in [start, end) with irradiance > 150 W/m2."""
     out: List[dt.datetime] = []
     d = start.date()
     while d <= (end - dt.timedelta(seconds=1)).date():
-        for hhmm, ghi in irr(site, d):
-            if ghi > IRR_MIN:
-                t = dt.datetime.combine(d, dt.time(int(hhmm[:2]), int(hhmm[3:])))
-                if start <= t < end:
-                    out.append(t)
+        for hhmm in _sunny_hhmm(site, d, irr):
+            t = dt.datetime.combine(d, dt.time(int(hhmm[:2]), int(hhmm[3:])))
+            if start <= t < end:
+                out.append(t)
         d += dt.timedelta(days=1)
     return out
+
+
+def sunny_hours(site, start: dt.datetime, end: dt.datetime, irr: IrrFn = sample_irradiance) -> float:
+    """H_ttp without building every slot (whole days counted directly)."""
+    n = 0
+    d = start.date()
+    last = (end - dt.timedelta(seconds=1)).date()
+    while d <= last:
+        if d == start.date() or d == last:
+            for h in _sunny_hhmm(site, d, irr):
+                t = dt.datetime.combine(d, dt.time(int(h[:2]), int(h[3:])))
+                n += start <= t < end
+        else:
+            n += _sunny_count(site, d, irr)
+        d += dt.timedelta(days=1)
+    return n * SLOT_H
 
 
 @dataclass
@@ -365,8 +400,15 @@ def site_result(c, site, start: dt.datetime, end: dt.datetime, statuses: Sequenc
     exs = [Excl(r["id"], r["incident_id"], _iv(r)) for r in c.execute(
         f"SELECT * FROM exclusions WHERE (site_code=? OR site_code='') AND status IN ({q}) AND start_utc<? AND end_utc>?",
         (site.code, *statuses, e_u, s_u))] if statuses else []
-    slots = sunny_slots(site, start, end, irr)
-    return compute(kw_np if kw_np is not None else site.kwp, slots, incs, exs)
+    kw = kw_np if kw_np is not None else site.kwp
+    if not incs:                                  # nothing down: A = 1, only H_ttp to count
+        return Result(round(sunny_hours(site, start, end, irr), 3), kw, 0.0, 0.0, 0.0, {})
+    lo = max(start, min(i.span.start for i in incs))
+    hi = min(end, max((i.span.end or end) for i in incs))
+    slots = sunny_slots(site, lo, hi, irr) if hi > lo else []
+    r = compute(kw, slots, incs, exs)
+    r.h_ttp = round(sunny_hours(site, start, end, irr), 3)    # the denominator is the whole period
+    return r
 
 
 def portfolio(results: Sequence[Result]) -> Optional[float]:

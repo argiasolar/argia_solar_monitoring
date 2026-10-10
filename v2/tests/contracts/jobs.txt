@@ -24,6 +24,7 @@ argia-kpi  |  *-*-* 06:00:00 America/Mexico_City  |  kpi_eod.py
 argia-mailer  |  *-*-* *:07/30:00  |  alert_mailer.py
 argia-maint  |  (service)  |  maint_app.py
 argia-portal-gen  |  *:0/5  |  portal_gen.py
+argia-prologis-alarms  |  *:2/5  |  prologis_app.py
 argia-prologis  |  (service)  |  prologis_app.py
 argia-recon-close  |  *-*-01 06:10:00 America/Mexico_City  |  recon_close.py
 argia-recon  |  *-*-* 23:50:00 America/Mexico_City  |  recon_snapshot.py

@@ -14,6 +14,8 @@ log of every login, change, upload and download, and a data export.
     /admin/services/  services and prices, published or draft (admin)
     /assets/          equipment register, warranty claims, spare parts and the
                       quarterly inventory report (v320)
+    /alarms/          alarm engine results, triage in 4 business hours, daily
+                      review log, mail outbox and settings (v321)
     /projects/        constructions and onboarding pipeline
     /docs/            documentation library per site and folder
     /security/        how the platform protects Prologis data
@@ -29,6 +31,7 @@ logo) lives only under /opt/argia/prologis on the server.
     python3 prologis_app.py --seed-sample-tickets
     python3 prologis_app.py --seed-catalog FILE  add missing services from a JSON list (never overwrites)
     python3 prologis_app.py --seed-parts FILE    add missing spare parts and minimums (never overwrites)
+    python3 prologis_app.py --alarm-run [ISO]    one alarm engine pass (the 5-minute timer; ISO = MX time, tests)
 """
 from __future__ import annotations
 
@@ -54,6 +57,7 @@ sys.path.insert(0, os.environ.get("ARGIA_V2_DIR", "/root/argia_v2/v2"))
 import argia_logo                                         # noqa: E402
 import prologis_ui as UI                                  # noqa: E402
 from plain_text import plain                              # noqa: E402
+from argia.prologis import alarms as AL                   # noqa: E402
 from argia.prologis import assets as A                    # noqa: E402
 from argia.prologis import catalog as CAT                 # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
@@ -196,6 +200,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
     nav = [("/", tt("Overview", "Resumen"), "home"), ("/map/", tt("Map", "Mapa"), "map"),
            ("/sites/", tt("Sites", "Sitios"), "sites"), ("/tickets/", tt("Tickets", "Tickets"), "tickets"),
            ("/shop/", tt("Services", "Servicios"), "shop"), ("/assets/", tt("Assets", "Activos"), "assets"),
+           ("/alarms/", tt("Alarms", "Alarmas"), "alarms"),
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
@@ -602,7 +607,7 @@ def home():
 <div class="kpi"><div class="l">{tt("Performance ratio", "Performance ratio")}</div><div class="v">{k["pr_30d"] * 100:.1f}<small>%</small></div><div class="d">{tt("30-day, weighted", "30 días, ponderado")}</div></div>
 <div class="kpi"><div class="l">{tt("Open tickets", "Tickets abiertos")}</div><div class="v">{len(tks)}</div><div class="d">{k["alerts"]} {tt("live alerts", "alertas en vivo")} · {len(S.open_orders(c))} {tt("service orders", "órdenes de servicio")}</div></div></div></div>
 <div class="grid g2"><div class="card"><h2>{tt("Portfolio power today", "Potencia del portafolio hoy")}<span class="r muted">{tt("dashed: clear-sky expectation", "punteado: esperado cielo despejado")}</span></h2>{curve}</div>
-<div class="card"><h2>{tt("Live alerts", "Alertas en vivo")}<span class="r"><a href="/sites/">{tt("All sites", "Todos los sitios")} ›</a></span></h2><table class="t">{al}</table></div></div>
+<div class="card"><h2>{tt("Live alerts", "Alertas en vivo")}<span class="r"><a href="/alarms/">{tt("Alarms", "Alarmas")} ›</a> · <a href="/sites/">{tt("All sites", "Todos los sitios")} ›</a></span></h2><table class="t">{al}</table></div></div>
 <div class="grid g2"><div class="card"><h2>{tt("Where your energy is made", "Dónde se produce su energía")}<span class="r"><a href="/map/">{tt("Full map", "Mapa completo")} ›</a></span></h2>{map_block(rg, lv, "mini-map", projects=False)}</div>
 <div><div class="card"><h2>{tt("Open tickets", "Tickets abiertos")}<span class="r"><a href="/tickets/">{tt("All", "Todos")} ›</a></span></h2><table class="t">{trows}</table></div>
 <div class="card" style="margin-top:16px"><h2>{tt("Construction pipeline", "Avance de construcción")}<span class="r"><a href="/projects/">{tt("Projects", "Proyectos")} ›</a></span></h2>{projs or tt("No projects.", "Sin proyectos.")}</div></div></div>
@@ -1765,6 +1770,14 @@ def claim_status(number):
                            request.form.get("ref", ""), comp if request.form.get("to") == "APPROVED" else None, ip())
     except ValueError as ex:
         return claim_page(number, str(ex))
+    if request.form.get("to") == "DENIED":                 # v321: "notify Owner immediately" - also by e-mail
+        c = db()
+        site = _site_name(reg(), cl["site_code"])
+        AL.queue(c, "claim_denied", number, f"[ARGIA for Prologis] Warranty claim {number} denied - {site}",
+                 f"The supplier {cl['supplier']} denied warranty claim {number} for {site}.\n"
+                 f"Reason given: {request.form.get('note', '').strip()}\n\n"
+                 f"Please acknowledge it on the platform: https://prologis.argia.com.mx/assets/claims/{number}/\n",
+                 AL.recipients(c, "owner"), False)
     return redirect(f"/assets/claims/{number}/")
 
 
@@ -2020,6 +2033,268 @@ def spares_report():
             f'<th class="n">{tt("In warehouses", "En almacenes")}</th><th class="n">{tt("In transit", "En tránsito")}</th><th class="n">{tt("Order", "Pedir")}</th></tr>{rr}</table></div>'
             f'<div class="card"><h2>{tt("Issued to sites", "Salidas a sitios")}</h2><table class="t">{issued}</table></div></div>')
     return page(tt("Inventory report", "Reporte de inventario"), body, "assets")
+
+
+# ------------------------------------------------------------------ alarms (v321)
+# Alarm engine results, triage within 4 business hours, the daily review log,
+# the mail outbox and the alarm mail settings (MSA Schedule A, Monitoring;
+# proposal 4.1). The engine itself runs from the 5-minute timer
+# (prologis_app.py --alarm-run).
+SEV_PILL = {"critical": "s-bad", "warning": "s-warn"}
+REVIEW_PILL = {"on_time": "s-ok", "late": "s-warn", "missing": "s-bad", "today": "s-info", "before_start": "s-off"}
+OUTBOX_PILL = {"sent": "s-ok", "dry_run": "s-info", "sample": "s-off", "pending": "s-warn", "failed": "s-bad", "no_recipient": "s-warn"}
+
+
+def _dur(a_utc: str, b_utc: Optional[str] = None) -> str:
+    a = dt.datetime.fromisoformat(a_utc)
+    b = dt.datetime.fromisoformat(b_utc) if b_utc else utc_now()
+    m = max(0, int((b - a).total_seconds() // 60))
+    return f"{m // 1440} d {m % 1440 // 60} h" if m >= 1440 else (f"{m // 60} h {m % 60} min" if m >= 60 else f"{m} min")
+
+
+def triage_pill(a, tt) -> str:
+    st = AL.triage_state(a, utc_now())
+    if st == "auto":
+        return f'<span class="pill s-off">{tt("Cleared by itself", "Se resolvió sola")}</span>'
+    if a["triaged_utc"]:
+        lbl = dict((k, tt(en, es)) for k, en, es in AL.TRIAGE_ACTIONS).get(a["triage"], a["triage"])
+        return f'<span class="pill {"s-ok" if st == "met" else "s-bad"}">{UI.e(lbl)}{"" if st == "met" else " · " + tt("late", "tarde")}</span>'
+    due = AL.triage_due_local(a["detected_utc"])
+    if st == "breached":
+        return f'<span class="pill s-bad">{tt("Triage overdue since", "Clasificación vencida desde")} {due:%d %b %H:%M}</span>'
+    left = AL.business_hours_between(now_mx(), due)
+    return f'<span class="pill {"s-warn" if left < 1 else "s-lime"}">{tt("Triage due in", "Clasificar en")} {left:.1f} {tt("business h", "h hábiles")}</span>'
+
+
+def alarm_counts(c) -> Dict[str, int]:
+    nowu = utc_now()
+    op = AL.open_alarms(c)
+    st = AL.review_status(c, today_mx(), 30)
+    return {"open": len(op), "critical": sum(1 for a in op if a["severity"] == "critical"),
+            "overdue": sum(1 for a in c.execute("SELECT * FROM alarms WHERE triaged_utc=''") if AL.triage_state(a, nowu) == "breached"),
+            "review_missing": sum(1 for _, s in st if s == "missing")}
+
+
+def _alarm_tabs(on: str, tt, n: Dict[str, int]) -> str:
+    role = g.user["role"]
+    tabs = [("alarms", "/alarms/", tt("Alarms", "Alarmas"), n["open"]),
+            ("review", "/alarms/review", tt("Daily review", "Revisión diaria"), n["review_missing"] or None)]
+    if S.can(role, "alarms_work"):
+        tabs.append(("outbox", "/alarms/outbox", tt("Mail outbox", "Bandeja de salida"), None))
+    return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{UI.e(lbl)}{"" if v is None else f" <b>{v}</b>"}</a>'
+                                         for k, h, lbl, v in tabs) + "</div>"
+
+
+def _mode_banner(c, tt) -> str:
+    if AL.setting(c, "mail_mode") == "live":
+        return f'<div class="flash">{tt("E-mail: LIVE - critical alarms are mailed at once, the digest at 07:30. Alarms from SAMPLE data are never mailed.", "Correo: EN VIVO - las alarmas críticas se envían al momento, el resumen a las 07:30. Las alarmas de datos de MUESTRA nunca se envían.")}</div>'
+    return f'<div class="flash err">{tt("E-mail: DRY-RUN - every message is written to the outbox and shown here, nothing is sent. It switches to live when the SolarEdge / Hark data is connected.", "Correo: PRUEBA - cada mensaje se escribe en la bandeja de salida y se muestra aquí, no se envía nada. Pasa a vivo cuando se conecten los datos de SolarEdge / Hark.")}</div>'
+
+
+def _alarm_rows(c, rg, rows, tt, work: bool) -> str:
+    out = ""
+    kl = dict((k, tt(en, es)) for k, en, es in AL.KINDS)
+    for a in rows:
+        cls = SLA.BY_CODE.get(a["msa_class"], SLA.BY_CODE["OTHER"])
+        tk = _ticket_no(c, a["ticket_id"])
+        form = ""
+        if work and not a["triaged_utc"]:
+            aopts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, en, es in AL.TRIAGE_ACTIONS)
+            form = (f'<form method="post" action="/alarms/{a["id"]}/triage" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">{csrf_field()}'
+                    f'<select name="action" style="width:auto">{aopts}</select><input name="ticket" placeholder="PL-0001" style="width:90px">'
+                    f'<input name="note" placeholder="{tt("note / reason", "nota / motivo")}" style="width:170px"><button class="btn sm">{tt("Triage", "Clasificar")}</button></form>')
+        out += (f'<tr id="a{a["id"]}"><td class="small muted">#{a["id"]}{SAMPLE_PILL if a["sample"] else ""}</td>'
+                f'<td><b>{UI.e(_site_name(rg, a["site_code"]))}</b><div class="small muted">{UI.e(a["site_code"])}</div></td>'
+                f'<td>{UI.e(kl.get(a["kind"], a["kind"]))}<div class="small muted">{UI.e(a["detail"])}</div></td>'
+                f'<td><span class="pill {SEV_PILL.get(a["severity"], "s-off")}">{UI.e(tt("Critical" if a["severity"] == "critical" else "Warning", "Crítica" if a["severity"] == "critical" else "Advertencia"))}</span>'
+                f'<div class="small muted">{cls.priority} · {UI.e(tt(cls.en, cls.es))}</div></td>'
+                f'<td class="small">{mx_time(a["detected_utc"])}<div class="muted">{_dur(a["detected_utc"], a["cleared_utc"] or None)}'
+                f'{" · " + tt("cleared", "resuelta") + " " + mx_time(a["cleared_utc"]) if a["cleared_utc"] else ""}</div></td>'
+                f'<td>{triage_pill(a, tt)}{f" <a class=chip href=/tickets/{tk}/>{tk}</a>" if tk else ""}'
+                f'{"<div class=small>" + UI.e(a["triage_note"]) + "</div>" if a["triage_note"] else ""}{form}</td></tr>')
+    return out
+
+
+@app.get("/alarms/")
+def alarms_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    n = alarm_counts(c)
+    work = S.can(g.user["role"], "alarms_work")
+    head = (f'<tr><th>#</th><th>{tt("Site", "Sitio")}</th><th>{tt("Alarm", "Alarma")}</th><th>{tt("Severity / MSA class", "Severidad / clase MSA")}</th>'
+            f'<th>{tt("Detected / duration", "Detectada / duración")}</th><th>{tt("Triage (4 business hours)", "Clasificación (4 horas hábiles)")}</th></tr>')
+    op = _alarm_rows(c, rg, AL.open_alarms(c), tt, work) or f'<tr><td class="muted" colspan="6">{tt("No open alarms.", "Sin alarmas abiertas.")}</td></tr>'
+    since = (utc_now() - dt.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    cl = _alarm_rows(c, rg, c.execute("SELECT * FROM alarms WHERE cleared_utc<>'' AND cleared_utc>=? ORDER BY id DESC LIMIT 100", (since,)).fetchall(), tt, work) \
+        or f'<tr><td class="muted" colspan="6">{tt("Nothing cleared in the last 7 days.", "Ninguna resuelta en los últimos 7 días.")}</td></tr>'
+    res = [AL.triage_state(a, utc_now()) for a in c.execute("SELECT * FROM alarms WHERE detected_utc>=?", ((utc_now() - dt.timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"),))]
+    closed = [x for x in res if x in ("met", "breached")]
+    comp = f'{sum(1 for x in closed if x == "met") / len(closed) * 100:.0f}%' if closed else "-"
+    rc = AL.review_compliance(AL.review_status(c, today_mx(), 30))
+    me = S.user(c, g.user["username"])
+    popts = "".join(f'<option value="{k}" {"selected" if k == (me["alarm_mail"] or "") else ""}>{UI.e(tt(en, es))}</option>' for k, en, es in AL.MAIL_PREFS)
+    mine = (f'<div class="card" style="margin-top:16px"><h2>{tt("My alarm e-mails", "Mis correos de alarmas")}</h2>'
+            f'<form method="post" action="/alarms/me" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">{csrf_field()}<select name="pref" style="width:auto">{popts}</select>'
+            f'<button class="btn sm">{tt("Save", "Guardar")}</button><span class="small muted">{tt("to", "a")} {UI.e(me["email"] or tt("(no e-mail on your user - ask an administrator)", "(su usuario no tiene correo - pida a un administrador)"))}</span></form></div>')
+    sett = ""
+    if S.can(g.user["role"], "alarms_admin"):
+        mode = AL.setting(c, "mail_mode")
+        mo = "".join(f'<option value="{k}" {"selected" if k == mode else ""}>{k}</option>' for k in AL.MAIL_MODES)
+        sett = (f'<div class="card form" style="margin-top:16px"><h2>{tt("Alarm mail settings", "Configuración de correos de alarmas")}</h2><form method="post" action="/alarms/settings">{csrf_field()}'
+                f'<label>{tt("ARGIA desk addresses (critical alarms at any hour and the daily digest)", "Direcciones de la mesa ARGIA (alarmas críticas a cualquier hora y el resumen diario)")}</label>'
+                f'<input name="desk_emails" value="{UI.e(AL.setting(c, "desk_emails"))}" placeholder="monitoring@argia.com.mx">'
+                f'<label>{tt("Mode", "Modo")}</label><select name="mail_mode">{mo}</select>'
+                f'<div style="margin-top:10px"><button class="btn sm">{tt("Save", "Guardar")}</button></div></form></div>')
+    kp = (f'<div class="grid g3">'
+          f'<div class="card"><h2>{tt("Open alarms", "Alarmas abiertas")}</h2><div style="font-size:26px;font-weight:800;color:var(--deep)">{n["open"]} <small style="font-size:13px;color:var(--muted)">{n["critical"]} {tt("critical", "críticas")}</small></div><div class="small muted">{n["overdue"]} {tt("waiting for triage beyond 4 business hours", "sin clasificar tras 4 horas hábiles")}</div></div>'
+          f'<div class="card"><h2>{tt("Triage within 4 business hours", "Clasificación en 4 horas hábiles")}</h2><div style="font-size:26px;font-weight:800;color:var(--deep)">{comp}</div><div class="small muted">{tt("last 30 days; Mon-Fri 09:00-18:00, public holidays off", "últimos 30 días; lun-vie 09:00-18:00, sin días feriados")}</div></div>'
+          f'<div class="card"><h2>{tt("Daily performance review", "Revisión diaria de desempeño")}</h2><div style="font-size:26px;font-weight:800;color:var(--deep)">{"-" if rc is None else f"{rc * 100:.0f}%"}</div><div class="small muted">{n["review_missing"]} {tt("day(s) missed in 30 days", "día(s) sin revisión en 30 días")}</div></div></div>')
+    body = (f'<div class="kick">{tt("Monitoring", "Monitoreo")}</div><h1 class="pt">{tt("Alarms", "Alarmas")}</h1>'
+            f'<p class="muted small">{tt("Every operating site is checked every 5 minutes: production loss, communication loss, meter, weather sensor and data logger. Classes and deadlines are the MSA response-time table; a ticket opened from an alarm keeps the alarm time as its detection time.", "Cada sitio en operación se revisa cada 5 minutos: pérdida de producción, de comunicación, medidor, sensor meteorológico y datalogger. Clases y plazos de la tabla de tiempos de respuesta del MSA; un ticket abierto desde una alarma conserva la hora de la alarma como detección.")}</p>'
+            + flash(msg, err) + _mode_banner(c, tt) + _alarm_tabs("alarms", tt, n) + kp
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Open", "Abiertas")}</h2><table class="t">{head}{op}</table></div>'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Cleared in the last 7 days", "Resueltas en los últimos 7 días")}</h2><table class="t">{head}{cl}</table></div>'
+            + mine + sett)
+    return page(tt("Alarms", "Alarmas"), body, "alarms", sample=True)
+
+
+@app.post("/alarms/<int:aid>/triage")
+def alarm_triage(aid):
+    need("alarms_work")
+    c = db()
+    a = AL.alarm(c, aid) or abort(404)
+    f = request.form
+    try:
+        num = AL.triage(c, a, f.get("action", ""), g.user["username"], f.get("note", ""), f.get("ticket", ""), ip=ip())
+    except ValueError as ex:
+        return alarms_page(f"Not triaged: {ex}", True)
+    return alarms_page(f"Alarm #{aid} triaged" + (f" - ticket {num}" if num else "") + ".")
+
+
+@app.post("/alarms/me")
+def alarm_me():
+    try:
+        AL.set_mail_pref(db(), g.user["username"], request.form.get("pref", ""), ip())
+    except ValueError:
+        abort(400)
+    return alarms_page("Saved. / Guardado.")
+
+
+@app.post("/alarms/settings")
+def alarm_settings():
+    need("alarms_admin")
+    c = db()
+    try:
+        AL.set_setting(c, "desk_emails", request.form.get("desk_emails", ""), g.user["username"], ip())
+        AL.set_setting(c, "mail_mode", request.form.get("mail_mode", "dry_run"), g.user["username"], ip())
+    except ValueError as ex:
+        return alarms_page(f"Not saved: {ex}", True)
+    return alarms_page("Saved. / Guardado.")
+
+
+def review_evidence(rg, day: dt.date) -> List[Dict]:
+    """Per operating site for one day: energy vs expected, PR, availability
+    and data completeness (SAMPLE until live data) - what the reviewer
+    looked at, stored with the review."""
+    op = rg.operating
+    upto = now_mx().time() if day == today_mx() else None
+    out = []
+    for i, s in enumerate(op):
+        r = M.day_result(s.code, s.lat, s.lon, s.kwp, day, upto=upto, index=i, n_sites=len(op))
+        comp = sum(1 for _, v in r.series if v is not None) / max(1, len(r.series))
+        out.append({"site": s.code, "name": s.name, "kwh": r.kwh, "expected_kwh": r.expected_kwh,
+                    "ratio": round(r.kwh / r.expected_kwh, 3) if r.expected_kwh else None, "pr": r.pr,
+                    "availability": r.availability, "completeness": round(comp, 3), "source": M.source_for(s)})
+    return out
+
+
+@app.get("/alarms/review")
+def review_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    n = alarm_counts(c)
+    today = today_mx()
+    st = AL.review_status(c, today, 30)
+    lbl = {"on_time": tt("Reviewed", "Revisado"), "late": tt("Reviewed late", "Revisado tarde"), "missing": tt("Missed", "Sin revisión"),
+           "today": tt("To do today", "Pendiente hoy"), "before_start": tt("Before the log started", "Antes del inicio")}
+    rows = {r["day"]: r for r in c.execute("SELECT * FROM daily_review")}
+    tr = ""
+    for d, s in st:
+        if s == "before_start":
+            continue
+        r = rows.get(d)
+        tr += (f'<tr><td class="nw">{d}</td><td><span class="pill {REVIEW_PILL[s]}">{UI.e(lbl[s])}</span></td>'
+               f'<td>{UI.e(r["username"]) if r else ""}</td><td class="small">{UI.e(r["findings"]) if r else ""}</td></tr>')
+    day = request.args.get("day") or (today - dt.timedelta(days=1)).isoformat()
+    try:
+        dday = dt.date.fromisoformat(day)
+    except ValueError:
+        abort(400)
+    form = ""
+    if S.can(g.user["role"], "alarms_work"):
+        open_days = [d for d, s in st if s in ("missing", "today") and (today - dt.date.fromisoformat(d)).days <= AL.REVIEW_GRACE_DAYS]
+        if not AL.setting(c, "review_start"):
+            open_days = [today.isoformat(), (today - dt.timedelta(days=1)).isoformat()]
+        dopts = "".join(f'<option {"selected" if d == day else ""}>{d}</option>' for d in open_days)
+        ev = review_evidence(rg, dday)
+        er = ""
+        for x in ev:
+            ratio = "-" if x["ratio"] is None else f'{x["ratio"] * 100:.0f}%'
+            pr = "-" if x["pr"] is None else f'{x["pr"] * 100:.1f}%'
+            er += (f'<tr><td><b>{UI.e(x["name"])}</b></td><td class="n">{UI.num(x["kwh"])}</td><td class="n">{UI.num(x["expected_kwh"])}</td>'
+                   f'<td class="n">{ratio}</td><td class="n">{pr}</td><td class="n">{x["availability"] * 100:.1f}%</td>'
+                   f'<td class="n">{x["completeness"] * 100:.0f}%</td></tr>')
+        form = (f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Record the review", "Registrar la revisión")}</h2>'
+                + (f'<form method="get" style="margin-bottom:8px"><select name="day" style="width:auto" onchange="this.form.submit()">{dopts}</select></form>' if open_days else
+                   f'<p class="small muted">{tt("Every day in the last 3 days is reviewed.", "Todos los días de los últimos 3 están revisados.")}</p>')
+                + f'<table class="t small"><tr><th>{tt("Site", "Sitio")}</th><th class="n">kWh</th><th class="n">{tt("Expected", "Esperado")}</th><th class="n">%</th><th class="n">PR</th>'
+                f'<th class="n">{tt("Avail.", "Disp.")}</th><th class="n">{tt("Data", "Datos")}</th></tr>{er}</table>'
+                + (f'<form method="post" action="/alarms/review">{csrf_field()}<input type="hidden" name="day" value="{UI.e(day)}">'
+                   f'<label>{tt("Findings at inverter level (or: no findings)", "Hallazgos a nivel inversor (o: sin hallazgos)")}</label><textarea name="findings" required></textarea>'
+                   f'<div style="margin-top:10px"><button class="btn">{tt("Reviewed", "Revisado")} {UI.e(day)}</button></div></form>' if day in open_days else "")
+                + "</div>")
+    rc = AL.review_compliance(st)
+    body = (f'<div class="kick">{tt("Monitoring", "Monitoreo")}</div><h1 class="pt">{tt("Daily performance review", "Revisión diaria de desempeño")}</h1>'
+            f'<p class="muted small">{tt("MSA Schedule A: on a daily basis, review and analyze system performance at the inverter level. One entry per calendar day, with the numbers that were reviewed; up to 3 days late is accepted and marked late.", "MSA Anexo A: revisar y analizar a diario el desempeño a nivel inversor. Una entrada por día calendario, con las cifras revisadas; hasta 3 días tarde se acepta y se marca tarde.")}'
+            f' {tt("On time, last 30 days", "A tiempo, últimos 30 días")}: <b>{"-" if rc is None else f"{rc * 100:.0f}%"}</b></p>'
+            + flash(msg, err) + _alarm_tabs("review", tt, n) + form
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><table class="t"><tr><th>{tt("Day", "Día")}</th><th>{tt("Status", "Estado")}</th><th>{tt("By", "Por")}</th><th>{tt("Findings", "Hallazgos")}</th></tr>'
+            + (tr or f'<tr><td class="muted" colspan="4">{tt("The log starts with the first recorded review.", "La bitácora inicia con la primera revisión registrada.")}</td></tr>') + '</table></div>')
+    return page(tt("Daily review", "Revisión diaria"), body, "alarms", sample=True)
+
+
+@app.post("/alarms/review")
+def review_post():
+    need("alarms_work")
+    day = (request.form.get("day") or "").strip()
+    try:
+        d = dt.date.fromisoformat(day)
+        ev = review_evidence(reg(), d)
+        AL.save_review(db(), day, g.user["username"], request.form.get("findings", ""), len(ev), {"sites": ev}, today_mx(), ip())
+    except ValueError as ex:
+        return review_page(f"Not recorded: {ex}", True)
+    return review_page(f"Review of {day} recorded. / Revisión de {day} registrada.")
+
+
+@app.get("/alarms/outbox")
+def outbox_page():
+    need("alarms_work")
+    tt = t()
+    c = db()
+    n = alarm_counts(c)
+    rows = c.execute("SELECT * FROM outbox ORDER BY id DESC LIMIT 100").fetchall()
+    stl = {"sent": tt("Sent", "Enviado"), "dry_run": tt("Dry-run, not sent", "Prueba, no enviado"), "sample": tt("Sample data, never sent", "Datos de muestra, nunca se envía"),
+           "pending": tt("Waiting to send", "Por enviar"), "failed": tt("Failed", "Falló"), "no_recipient": tt("No recipient", "Sin destinatario")}
+    tr = "".join(f'<tr><td class="small nw">{mx_time(m["created_utc"])}</td><td><span class="pill {OUTBOX_PILL.get(m["status"], "s-off")}">{UI.e(stl.get(m["status"], m["status"]))}</span></td>'
+                 f'<td><details><summary>{UI.e(m["subject"])}</summary><pre class="small" style="white-space:pre-wrap">{UI.e(m["body"])}</pre></details>'
+                 f'<div class="small muted">{UI.e(m["to_addrs"] or "-")}</div></td></tr>' for m in rows) \
+        or f'<tr><td class="muted" colspan="3">{tt("No messages yet.", "Sin mensajes aún.")}</td></tr>'
+    body = (f'<div class="kick">{tt("Monitoring", "Monitoreo")}</div><h1 class="pt">{tt("Mail outbox", "Bandeja de salida")}</h1>'
+            + _mode_banner(c, tt) + _alarm_tabs("outbox", tt, n)
+            + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t"><tr><th>{tt("Created", "Creado")}</th><th>{tt("Status", "Estado")}</th><th>{tt("Message", "Mensaje")}</th></tr>{tr}</table></div>')
+    return page(tt("Mail outbox", "Bandeja de salida"), body, "alarms")
 
 
 # ------------------------------------------------------------------ projects
@@ -2333,6 +2608,20 @@ def main(argv: List[str]) -> int:
         c = S.connect()
         n = A.seed_parts(c, items, "seed")
         print(f"spare parts: {n} added, {len(items) - n} already present (never overwritten)")
+        return 0
+    if len(argv) >= 2 and argv[1] == "--alarm-run":
+        if not os.path.exists(os.environ.get("ARGIA_PL_DB", S.DEFAULT_DB)):
+            print("alarm run skipped: the Prologis store is not available (encrypted volume locked?)")
+            return 0
+        now = dt.datetime.fromisoformat(argv[2]) if len(argv) >= 3 else now_mx()
+        c = S.connect()
+        cfg = None
+        if AL.setting(c, "mail_mode") == "live":
+            from argia.alerts import emailer
+            cfg = emailer.load_smtp()
+        r = AL.run(c, reg(), now, cfg=cfg)
+        print(f"alarm run {now:%Y-%m-%d %H:%M} MX: " + ", ".join(f"{k}={v}" for k, v in r.items())
+              + f" (mail mode {AL.setting(c, 'mail_mode')}{'' if cfg or AL.setting(c, 'mail_mode') != 'live' else ', NO SMTP CONFIG'})")
         return 0
     if len(argv) >= 2 and argv[1] == "--seed-sample-tickets":
         _seed_sample_tickets()

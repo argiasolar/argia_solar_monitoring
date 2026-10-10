@@ -49,6 +49,9 @@ prologis_app  GET    /
 prologis_app  GET    /admin/services/
 prologis_app  GET    /admin/services/<code>
 prologis_app  GET    /admin/users/
+prologis_app  GET    /alarms/
+prologis_app  GET    /alarms/outbox
+prologis_app  GET    /alarms/review
 prologis_app  GET    /apple-touch-icon.png
 prologis_app  GET    /assets/
 prologis_app  GET    /assets/claims/
@@ -87,6 +90,10 @@ prologis_app  POST   /admin/services/<code>/remove
 prologis_app  POST   /admin/services/save
 prologis_app  POST   /admin/users/
 prologis_app  POST   /admin/users/<username>
+prologis_app  POST   /alarms/<int:aid>/triage
+prologis_app  POST   /alarms/me
+prologis_app  POST   /alarms/review
+prologis_app  POST   /alarms/settings
 prologis_app  POST   /assets/claims/<number>/ack
 prologis_app  POST   /assets/claims/<number>/comment
 prologis_app  POST   /assets/claims/<number>/pass

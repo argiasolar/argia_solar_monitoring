@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA for Prologis alarm engine every 5 minutes (v321)
+[Timer]
+OnCalendar=*:2/5
+RandomizedDelaySec=20
+Persistent=true
+[Install]
+WantedBy=timers.target

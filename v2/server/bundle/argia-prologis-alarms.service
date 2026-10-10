@@ -1,0 +1,19 @@
+[Unit]
+# v321: ARGIA for Prologis alarm engine - one pass every 5 minutes: evaluate
+# every operating site, open / escalate / clear alarms, queue the mail for each
+# new critical alarm (any hour, MSA: critical alarms in non-daylight hours) and
+# the 07:30 digest, deliver when the mail mode is live. Skips (exit 0) while
+# the encrypted volume is locked.
+Description=ARGIA for Prologis alarm engine (v321)
+After=argia-prologis.service
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_PL_DIR=/opt/argia/prologis
+Environment=ARGIA_PL_DB=/opt/argia/prologis/prologis.db
+Environment=ARGIA_PL_FILES=/opt/argia/prologis/files
+Environment=ARGIA_PL_REGISTRY=/opt/argia/prologis/registry.json
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py --alarm-run

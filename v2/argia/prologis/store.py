@@ -41,6 +41,8 @@ PERMS = {
     "catalog_edit": {"admin"},                           # services and prices
     "assets_edit": {"operator", "admin"},                # v320: equipment register, warranty claims, spare parts
     "assets_ack": {"manager", "admin"},                  # v320: Prologis acknowledges a denied warranty claim
+    "alarms_work": {"operator", "admin"},                # v321: triage alarms, record the daily review, see the outbox
+    "alarms_admin": {"admin"},                           # v321: alarm mail mode and the ARGIA desk addresses
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -122,6 +124,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _migrate(c)
     from argia.prologis import assets as _assets       # v320: equipment, warranty claims, spares
     _assets.ensure(c)
+    from argia.prologis import alarms as _alarms       # v321: alarms, outbox, daily review, settings
+    _alarms.ensure(c)
     return c
 
 

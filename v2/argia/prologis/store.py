@@ -132,6 +132,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _monthly.ensure(c)
     from argia.prologis import availability as _avail  # v323: MSA availability, exclusions, contract terms
     _avail.ensure(c)
+    from argia.prologis import scan as _scan           # v324: malware scan status of uploads
+    _scan.ensure(c)
     return c
 
 

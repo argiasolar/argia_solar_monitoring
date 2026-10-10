@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA for Prologis upload malware scan every 5 minutes (v324)
+[Timer]
+OnCalendar=*:3/5
+RandomizedDelaySec=20
+Persistent=true
+[Install]
+WantedBy=timers.target

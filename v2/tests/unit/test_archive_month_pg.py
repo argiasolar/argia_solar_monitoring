@@ -74,8 +74,9 @@ class TestExport:
 class TestSchedules:
     def test_only_the_unit_test_workflow_remains(self):
         # v207.1: every sheet-era Action is gone; nothing but pytest runs on GitHub
+        # (v324: plus the weekly dependency audit + SBOM, which holds no secret and writes nothing)
         names = sorted(p.name for p in (ROOT / ".github" / "workflows").glob("*.yml"))
-        assert names == ["v2-tests.yml"]
+        assert names == ["v2-security.yml", "v2-tests.yml"]
 
     def test_server_unit_runs_the_pg_archive(self):
         svc = (V2 / "server" / "bundle" / "argia-archive-month.service").read_text(encoding="utf-8")

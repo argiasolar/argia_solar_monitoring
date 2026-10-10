@@ -1,0 +1,63 @@
+name: v2-security
+
+# v324: known-vulnerability check and software bill of materials (Prologis
+# VSQ / ARGIA policy). Weekly, on demand, and whenever the requirements change.
+# pip-audit fails the run when a pinned server dependency has a known
+# vulnerability; the CycloneDX SBOM of the pinned requirements is kept as an
+# artifact. The server's own SBOM (Debian packages + the job venv) is written
+# weekly on pio06 by scripts/server_sbom.py (argia-sbom.timer).
+
+on:
+  schedule:
+    - cron: '17 11 * * 1'        # Mondays 05:17 Mexico City
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'v2/requirements.txt'
+      - 'v2/requirements.lock'
+      - 'v2/requirements-dev.txt'
+      - '.github/workflows/v2-security.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13 (what production runs)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install the audit tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit==2.10.1 cyclonedx-bom==7.5.0
+
+      - name: SBOM of the pinned server requirements (CycloneDX JSON)
+        run: cyclonedx-py requirements v2/requirements.lock --of JSON -o sbom-requirements.json
+
+      - name: Known vulnerabilities in the pinned server requirements
+        shell: bash
+        run: |
+          set -o pipefail
+          pip-audit -r v2/requirements.lock --progress-spinner off --desc on | tee pip-audit.txt
+
+      - name: Known vulnerabilities in the test tools
+        shell: bash
+        continue-on-error: true      # dev-only: reported, never deployed
+        run: |
+          set -o pipefail
+          pip-audit -r v2/requirements-dev.txt --progress-spinner off | tee pip-audit-dev.txt
+
+      - name: Keep the SBOM and the audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-and-audit
+          path: |
+            sbom-requirements.json
+            pip-audit.txt
+            pip-audit-dev.txt
+          retention-days: 400

@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA server SBOM every Monday 04:40 (v324)
+[Timer]
+OnCalendar=Mon *-*-* 04:40:00
+Persistent=true
+[Install]
+WantedBy=timers.target

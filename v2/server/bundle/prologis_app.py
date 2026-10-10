@@ -36,6 +36,7 @@ logo) lives only under /opt/argia/prologis on the server.
     python3 prologis_app.py --seed-catalog FILE  add missing services from a JSON list (never overwrites)
     python3 prologis_app.py --seed-parts FILE    add missing spare parts and minimums (never overwrites)
     python3 prologis_app.py --alarm-run [ISO]    one alarm engine pass (the 5-minute timer; ISO = MX time, tests)
+    python3 prologis_app.py --scan-uploads       malware-scan the pending uploads (the 5-minute timer, v324)
 """
 from __future__ import annotations
 
@@ -68,6 +69,7 @@ from argia.prologis import catalog as CAT                 # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
 from argia.prologis import monthly as MR                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
+from argia.prologis import scan as SC                     # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
 from argia.prologis import totp as TOTP                   # noqa: E402
@@ -227,9 +229,18 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
 <nav class="main">{links}</nav>{who}</div></div>{banner}
 <main>{body}</main>
 <div class="foot"><span>ARGIA for Prologis · {tt("operated by", "operado por")} ARGIA - Smart Energy Solutions</span>
-<span>{tt("Times in Mexico City time", "Horas en tiempo de Ciudad de México")}</span><a href="/security/">{tt("Security & data", "Seguridad y datos")}</a></div>
+<span>{tt("Times in Mexico City time", "Horas en tiempo de Ciudad de México")}</span><a href="/security/">{tt("Security & data", "Seguridad y datos")}</a>{privacy_link(tt)}</div>
 </body></html>"""
     return Response(html_, mimetype="text/html")
+
+
+def privacy_link(tt) -> str:
+    """v324: the privacy notice (published on argia.com.mx) - shown when the admin set its address."""
+    try:
+        url = AL.setting(db(), "privacy_url")
+    except Exception:                        # noqa: BLE001  (a page must render even if the store is busy)
+        url = ""
+    return f'<a href="{UI.e(url)}" rel="noopener" target="_blank">{tt("Privacy notice", "Aviso de privacidad")}</a>' if url else ""
 
 
 def flash(msg: str, err: bool = False) -> str:
@@ -291,7 +302,7 @@ def _login_page(msg: str = "", status: int = 200) -> Response:
 <label>{tt("Password", "Contraseña")}</label><input name="password" type="password" autocomplete="current-password" required>
 <div style="margin-top:16px"><button class="btn" type="submit">{tt("Continue", "Continuar")}</button></div>
 <p class="muted small" style="margin-top:18px">{tt("A second factor (authenticator app) is required after the password.", "Después de la contraseña se requiere un segundo factor (app autenticadora).")}
-<a href="/lang/{"es" if tt.lang == "en" else "en"}">{"Español" if tt.lang == "en" else "English"}</a></p></form></div></div></body></html>"""
+<a href="/lang/{"es" if tt.lang == "en" else "en"}">{"Español" if tt.lang == "en" else "English"}</a> {privacy_link(tt)}</p></form></div></div></body></html>"""
     return Response(html_, status=status, mimetype="text/html")
 
 
@@ -956,6 +967,10 @@ def _upload(f, site: str, folder: str, ticket_id: Optional[int] = None) -> Optio
     data = f.read(MAX_UPLOAD + 1)
     if len(data) > MAX_UPLOAD:
         abort(413)
+    kind = SC.executable_kind(data)
+    if kind:                                  # v324: never store an executable, whatever its name
+        S.audit(db(), g.user["username"], ip(), "upload_refused", name, kind)
+        abort(415)
     return S.add_document(db(), FILES_DIR, site, folder, name, data, mimetypes.guess_type(name)[0] or "application/octet-stream",
                           g.user["username"], ticket_id=ticket_id, ip=ip())
 
@@ -2962,6 +2977,14 @@ def project_save(pid):
 
 
 # ------------------------------------------------------------------ documents
+def scan_pill(d, tt) -> str:
+    st = d["scan_status"]
+    if st == "clean":
+        return ""
+    lbl = {"pending": tt("being scanned", "en análisis"), "infected": tt("quarantined", "en cuarentena"), "error": tt("scan failed", "análisis falló")}.get(st, st)
+    return f' <span class="pill {"s-warn" if st == "pending" else "s-bad"}">{UI.e(lbl)}</span>'
+
+
 @app.get("/docs/")
 def docs():
     tt = t()
@@ -2976,7 +2999,7 @@ def docs():
     folders = ""
     for key, en, es in S.DOC_FOLDERS + [("ticket", "Ticket attachments", "Adjuntos de tickets")]:
         items = by.get(key, [])
-        lis = "".join(f'<tr><td><a href="/docs/{d["id"]}/download">{UI.e(d["name"])}</a><div class="small muted">{UI.e(d["site_code"])} · {d["size"] / 1024:,.0f} KB · {UI.e(d["uploaded_by"])} · {mx_time(d["uploaded_utc"])}</div></td></tr>' for d in items)
+        lis = "".join(f'<tr><td><a href="/docs/{d["id"]}/download">{UI.e(d["name"])}</a>{scan_pill(d, tt)}<div class="small muted">{UI.e(d["site_code"])} · {d["size"] / 1024:,.0f} KB · {UI.e(d["uploaded_by"])} · {mx_time(d["uploaded_utc"])}</div></td></tr>' for d in items)
         empty_row = '<tr><td class="muted">' + tt("Empty", "Vacía") + '</td></tr>'
         folders += f'<div class="card"><h2>📁 {UI.e(tt(en, es))}<span class="r muted">{len(items)}</span></h2><table class="t">{lis or empty_row}</table></div>'
     sopts = "".join(f'<option value="{s.code}" {"selected" if s.code == site else ""}>{UI.e(s.name)}</option>' for s in rg.sites)
@@ -2989,7 +3012,7 @@ def docs():
               f'<div style="margin-top:10px"><button class="btn">{tt("Upload", "Subir")}</button></div></form></div>')
     body = (f'<div class="kick">{tt("Documentation", "Documentación")}</div><h1 class="pt">{tt("Document library", "Biblioteca de documentos")}</h1>'
             f'<form method="get" style="max-width:420px;margin:10px 0"><select name="site" onchange="this.form.submit()"><option value="">{tt("All sites", "Todos los sitios")}</option>{sopts}</select></form>'
-            f'<p class="small muted">{tt("Every upload and download is recorded in the audit log. Files are stored encrypted in transit (TLS) in ARGIA&#39;s Prologis-only file store.", "Cada carga y descarga queda en la bitácora. Los archivos viajan cifrados (TLS) al almacén exclusivo de Prologis en ARGIA.")}</p>'
+            f'<p class="small muted">{tt("Every upload and download is recorded in the audit log. Files travel encrypted (TLS) to ARGIA&#39;s Prologis-only file store; executables are refused and every file is scanned for malware before anyone can download it.", "Cada carga y descarga queda en la bitácora. Los archivos viajan cifrados (TLS) al almacén exclusivo de Prologis en ARGIA; los ejecutables se rechazan y cada archivo se analiza contra malware antes de poder descargarse.")}</p>'
             f'<div class="grid g2e">{folders}</div>{up}')
     return page(tt("Documents", "Documentos"), body, "docs")
 
@@ -3011,6 +3034,15 @@ def docs_download(doc_id):
     d = c.execute("SELECT * FROM documents WHERE id=? AND deleted=0", (doc_id,)).fetchone()
     if not d:
         abort(404)
+    if d["scan_status"] != "clean":           # v324: fail closed until the malware scan passed it
+        tt = t()
+        why = {"pending": tt("This file is waiting for the malware scan (every 5 minutes). Try again shortly.", "Este archivo espera el análisis antimalware (cada 5 minutos). Intente de nuevo en breve."),
+               "infected": tt("This file was quarantined: the malware scan found", "Este archivo fue puesto en cuarentena: el análisis encontró") + " " + d["scan_detail"],
+               "error": tt("The malware scan could not read this file; ARGIA has been notified.", "El análisis no pudo leer este archivo; ARGIA fue notificado.")}.get(d["scan_status"], "")
+        S.audit(c, g.user["username"], ip(), "doc_download_blocked", f"{d['site_code']}/{d['folder']}/{d['name']}", d["scan_status"])
+        r = page(tt("Documents", "Documentos"), f'<div class="card form">{flash(why, True)}<a class="btn ghost" href="/docs/">{tt("Back", "Volver")}</a></div>', "docs")
+        r.status_code = 409
+        return r
     p = S.doc_path(FILES_DIR, d)
     if not os.path.exists(p):
         abort(404)
@@ -3160,13 +3192,40 @@ def security_page():
         (tt("Every action logged", "Todo queda registrado"), tt("Sign-ins, failures, uploads, downloads, ticket and user changes - downloadable by Prologis managers.", "Accesos, fallos, cargas, descargas, cambios de tickets y usuarios - descargable por gerentes de Prologis.")),
         (tt("Your data, exportable", "Sus datos, exportables"), tt("One click exports sites, energy, tickets, documents index, users and audit log as CSV.", "Un clic exporta sitios, energía, tickets, índice de documentos, usuarios y bitácora en CSV.")),
         (tt("Brute-force protection", "Protección contra fuerza bruta"), tt("Lock-out after 5 failed attempts per user or address; idle sessions end after 8 hours.", "Bloqueo tras 5 intentos fallidos por usuario o dirección; sesiones inactivas terminan a las 8 horas.")),
-        (tt("Tested releases", "Versiones probadas"), tt("Every release passes 4,500+ automated tests before it reaches the server; the server is checked against the code every morning.", "Cada versión pasa más de 4,500 pruebas automáticas antes de llegar al servidor; el servidor se compara con el código cada mañana.")),
+        (tt("Tested releases", "Versiones probadas"), tt("Every release passes 5,000+ automated tests before it reaches the server; the server is checked against the code every morning.", "Cada versión pasa más de 5,000 pruebas automáticas antes de llegar al servidor; el servidor se compara con el código cada mañana.")),
+        (tt("Malware-checked uploads", "Cargas revisadas contra malware"), tt("Executables are refused; every uploaded file is scanned with ClamAV and cannot be downloaded until it passes; infected files are quarantined.", "Los ejecutables se rechazan; cada archivo se analiza con ClamAV y no se puede descargar hasta pasar el análisis; los infectados van a cuarentena.")),
+        (tt("Access logs kept 12 months", "Registros de acceso por 12 meses"), tt("Web server access logs of this platform are kept for 12 months; the audit log is never deleted automatically.", "Los registros de acceso del servidor web de esta plataforma se guardan 12 meses; la bitácora de auditoría nunca se borra automáticamente.")),
+        (tt("Known software, checked", "Software conocido y revisado"), tt("A software bill of materials (CycloneDX) is produced every week and dependencies are checked for known vulnerabilities.", "Cada semana se genera una lista de componentes de software (CycloneDX) y se revisan las dependencias contra vulnerabilidades conocidas.")),
     ]
+    if os.path.ismount(DATA_DIR):            # v324: claimed only while it is true on this server
+        items.insert(4, (tt("Encryption at rest", "Cifrado en reposo"), tt("The platform's database and files live on an encrypted volume whose key is not stored on the server; backups are encrypted for two offline keys.", "La base de datos y los archivos de la plataforma están en un volumen cifrado cuya llave no se guarda en el servidor; los respaldos se cifran para dos llaves fuera de línea.")))
     cards = "".join(f'<div class="card"><h2>{UI.stripe_svg(16)} {UI.e(a)}</h2><div class="small">{UI.e(b)}</div></div>' for a, b in items)
+    c = db()
+    admin = ""
+    if S.can(g.user["role"], "alarms_admin"):
+        st = dict(c.execute("SELECT scan_status, count(*) FROM documents WHERE deleted=0 GROUP BY scan_status").fetchall())
+        admin = (f'<div class="card form" style="margin-top:16px"><h2>{tt("Administration", "Administración")}</h2>'
+                 f'<p class="small">{tt("Uploads by malware-scan status", "Cargas por estado del análisis")}: {UI.e(", ".join(f"{k} {v}" for k, v in sorted(st.items())) or "-")}</p>'
+                 f'<form method="post" action="/security/privacy">{csrf_field()}<label>{tt("Privacy notice address (https://, on argia.com.mx)", "Dirección del aviso de privacidad (https://, en argia.com.mx)")}</label>'
+                 f'<input name="url" value="{UI.e(AL.setting(c, "privacy_url"))}" placeholder="https://argia.com.mx/aviso-de-privacidad"><div style="margin-top:8px"><button class="btn sm">{tt("Save", "Guardar")}</button></div></form></div>')
+    pl = privacy_link(tt)
     body = (f'<div class="kick">{tt("Trust", "Confianza")}</div><h1 class="pt">{tt("How we protect Prologis data", "Cómo protegemos los datos de Prologis")}</h1>'
-            f'<div class="grid g2e">{cards}</div>'
-            + (f'<p style="margin-top:16px"><a class="btn" href="/export.zip">{tt("Export all data", "Exportar todos los datos")}</a> <a class="btn ghost" href="/audit/">{tt("Audit log", "Bitácora")}</a></p>' if S.can(g.user["role"], "export") else ""))
+            + (f'<p class="small">{pl}</p>' if pl else "") + f'<div class="grid g2e">{cards}</div>'
+            + (f'<p style="margin-top:16px"><a class="btn" href="/export.zip">{tt("Export all data", "Exportar todos los datos")}</a> <a class="btn ghost" href="/audit/">{tt("Audit log", "Bitácora")}</a></p>' if S.can(g.user["role"], "export") else "")
+            + admin)
     return page(tt("Security", "Seguridad"), body)
+
+
+@app.post("/security/privacy")
+def security_privacy():
+    need("alarms_admin")
+    try:
+        AL.set_setting(db(), "privacy_url", request.form.get("url", ""), g.user["username"], ip())
+    except ValueError as ex:
+        r = page("Security", f'<div class="card form">{flash(str(ex), True)}<a class="btn ghost" href="/security/">Back / Volver</a></div>')
+        r.status_code = 400
+        return r
+    return redirect("/security/")
 
 
 # ------------------------------------------------------------------ CLI
@@ -3236,6 +3295,20 @@ def main(argv: List[str]) -> int:
         r = AL.run(c, reg(), now, cfg=cfg)
         print(f"alarm run {now:%Y-%m-%d %H:%M} MX: " + ", ".join(f"{k}={v}" for k, v in r.items())
               + f" (mail mode {AL.setting(c, 'mail_mode')}{'' if cfg or AL.setting(c, 'mail_mode') != 'live' else ', NO SMTP CONFIG'})")
+        return 0
+    if len(argv) >= 2 and argv[1] == "--scan-uploads":
+        if not os.path.exists(os.environ.get("ARGIA_PL_DB", S.DEFAULT_DB)):
+            print("upload scan skipped: the Prologis store is not available (encrypted volume locked?)")
+            return 0
+        c = S.connect()
+        r = SC.scan_pending(c, FILES_DIR, os.path.join(DATA_DIR, "quarantine"))
+        if r["infected"]:
+            bad = c.execute("SELECT * FROM documents WHERE scan_status='infected' AND scan_utc>=?",
+                            ((utc_now() - dt.timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),)).fetchall()
+            subj, body = SC.infected_mail(bad)
+            AL.queue(c, "malware", "scan", subj, body, AL.recipients(c, "critical"), False)
+            AL.deliver(c, None if AL.setting(c, "mail_mode") != "live" else __import__("argia.alerts.emailer", fromlist=["x"]).load_smtp())
+        print("upload scan: " + ", ".join(f"{k}={v}" for k, v in r.items()))
         return 0
     if len(argv) >= 2 and argv[1] == "--seed-sample-tickets":
         _seed_sample_tickets()

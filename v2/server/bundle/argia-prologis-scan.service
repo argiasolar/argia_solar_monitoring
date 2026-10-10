@@ -1,0 +1,19 @@
+[Unit]
+# v324: malware scan of the files uploaded to ARGIA for Prologis. clamscan runs
+# once over every pending upload (one signature load per batch, no resident
+# daemon); a file is downloadable only after it passed; an infected one is
+# quarantined and mailed to the ARGIA desk. Skips while the vault is locked.
+Description=ARGIA for Prologis upload malware scan (v324)
+After=argia-prologis.service
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_PL_DIR=/opt/argia/prologis
+Environment=ARGIA_PL_DB=/opt/argia/prologis/prologis.db
+Environment=ARGIA_PL_FILES=/opt/argia/prologis/files
+Environment=ARGIA_PL_REGISTRY=/opt/argia/prologis/registry.json
+UMask=0077
+Nice=10
+ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py --scan-uploads

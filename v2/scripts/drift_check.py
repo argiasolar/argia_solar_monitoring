@@ -61,6 +61,8 @@ EXPLICIT: List[Tuple[str, str]] = [
     ("v2/server/bundle/prologis.argia.com.mx.conf", "/etc/nginx/sites-enabled/prologis.argia.com.mx.conf"),
     # v296: cpa.argia.com.mx (ARGIA for CPA)
     ("v2/server/bundle/cpa.argia.com.mx.conf", "/etc/nginx/sites-enabled/cpa.argia.com.mx.conf"),
+    # v324: ARGIA for Prologis web logs kept 12 months
+    ("v2/server/bundle/argia-prologis.logrotate", "/etc/logrotate.d/argia-prologis"),
 ]
 # bundle files that are deliberately NOT deployed anywhere
 NOT_DEPLOYED = {

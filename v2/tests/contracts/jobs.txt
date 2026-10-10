@@ -25,6 +25,7 @@ argia-mailer  |  *-*-* *:07/30:00  |  alert_mailer.py
 argia-maint  |  (service)  |  maint_app.py
 argia-portal-gen  |  *:0/5  |  portal_gen.py
 argia-prologis-alarms  |  *:2/5  |  prologis_app.py
+argia-prologis-scan  |  *:3/5  |  prologis_app.py
 argia-prologis  |  (service)  |  prologis_app.py
 argia-recon-close  |  *-*-01 06:10:00 America/Mexico_City  |  recon_close.py
 argia-recon  |  *-*-* 23:50:00 America/Mexico_City  |  recon_snapshot.py
@@ -32,6 +33,7 @@ argia-report-am  |  *-*-* 07:05:00 America/Mexico_City  |  report_daily.py
 argia-report-pm  |  *-*-* 20:45:00 America/Mexico_City  |  report_daily.py
 argia-satcheck  |  *-*-* 06:20:00 America/Mexico_City  |  satellite_check.py
 argia-savio-mock  |  (service)  |  savio_mock.py
+argia-sbom  |  Mon *-*-* 04:40:00  |  server_sbom.py
 argia-setup  |  (service)  |  setup_app.py
 argia-strings  |  *-*-* 21:15:00 America/Mexico_City  |  string_daily.py
 argia-telemetry-se  |  *-*-* 06..20:03,23,43:00 America/Mexico_City  |  telemetry_5m.py

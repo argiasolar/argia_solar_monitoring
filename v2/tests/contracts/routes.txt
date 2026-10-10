@@ -128,6 +128,7 @@ prologis_app  POST   /reports/<month>/publish
 prologis_app  POST   /reports/design
 prologis_app  POST   /reports/guarantee
 prologis_app  POST   /reports/hse
+prologis_app  POST   /security/privacy
 prologis_app  POST   /shop/add
 prologis_app  POST   /shop/cart/remove
 prologis_app  POST   /shop/checkout

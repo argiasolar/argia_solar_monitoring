@@ -1,0 +1,17 @@
+# v324: ARGIA for Prologis web logs kept 12 months (VSQ / policy: access logs
+# retained one year). The vhost writes to /var/log/argia-prologis/, outside
+# the /var/log/nginx/*.log glob of /etc/logrotate.d/nginx (14 days).
+# Deployed to /etc/logrotate.d/argia-prologis.
+/var/log/argia-prologis/*.log {
+	daily
+	missingok
+	rotate 400
+	compress
+	delaycompress
+	notifempty
+	create 0640 www-data adm
+	sharedscripts
+	postrotate
+		invoke-rc.d nginx rotate >/dev/null 2>&1
+	endscript
+}

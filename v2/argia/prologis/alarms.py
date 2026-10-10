@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS daily_review (
   sites_checked INTEGER NOT NULL DEFAULT 0, findings TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '{}');
 """
 DEFAULTS = {"mail_mode": "dry_run", "desk_emails": "", "review_start": "", "last_digest_day": "",
-            "availability_guarantee": "0.98"}        # v322: Tomasz 9 Oct - 98 % (proposal; MSA text inconsistent)
+            "availability_guarantee": "0.98",        # v322: Tomasz 9 Oct - 98 % (proposal; MSA text inconsistent)
+            "privacy_url": ""}                       # v324: the privacy notice on argia.com.mx (footer link when set)
 MAIL_MODES = ("dry_run", "live")
 MAIL_PREFS = [("", "No alarm e-mails", "Sin correos de alarmas"),
               ("critical", "Critical alarms at once (any hour)", "Alarmas críticas al momento (a cualquier hora)"),
@@ -139,6 +140,10 @@ def set_setting(c, key: str, value: str, by: str, ip: str = "") -> None:
         value = ", ".join(parse_emails(value))
     if key == "review_start" and value:
         dt.date.fromisoformat(value)
+    if key == "privacy_url" and value:
+        value = value.strip()
+        if not re.match(r"^https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/[^\s<>\"']*)?$", value):
+            raise ValueError("the privacy notice must be an https:// address")
     if key == "availability_guarantee":
         try:
             g = float(value)
@@ -552,6 +557,19 @@ def alarm_mail(a, site_name: str, base_url: str) -> Tuple[str, str]:
     return subj, body
 
 
+def _scan_line(c, nowu: dt.datetime) -> str:
+    """v324: uploads the malware scan has not passed after an hour (or found infected in the last day)."""
+    old = (nowu - dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    day = (nowu - dt.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        stuck = c.execute("SELECT count(*) FROM documents WHERE scan_status IN ('pending','error') AND deleted=0 AND uploaded_utc<?", (old,)).fetchone()[0]
+        bad = c.execute("SELECT count(*) FROM documents WHERE scan_status='infected' AND scan_utc>=?", (day,)).fetchone()[0]
+    except sqlite3.OperationalError:
+        return ""
+    return ((f"Uploads waiting for the malware scan for over 1 h: {stuck}\n" if stuck else "")
+            + (f"Uploads quarantined as malware in the last 24 h: {bad}\n" if bad else ""))
+
+
 def _report_line(c, today: dt.date) -> str:
     """v322: from the 5th, remind that last month's report is due by the 10th."""
     from argia.prologis import monthly as MR
@@ -588,7 +606,7 @@ def digest(c, rg, now_local: dt.datetime, base_url: str) -> Tuple[str, str, bool
             + ("\n".join(lines) if lines else "None.") + "\n\n"
             f"Daily performance review {yday:%d %b}: {REVIEW_WORDS.get(dict(rv).get(yday.isoformat(), ''), 'n/a')}\n"
             + (f"Days without a review (last 7): {', '.join(missing)}\n" if missing else "")
-            + _report_line(c, now_local.date())
+            + _report_line(c, now_local.date()) + _scan_line(c, nowu)
             + f"\n{base_url}/alarms/\n")
     subj = f"[ARGIA for Prologis]{' [SAMPLE]' if sample else ''} Daily alarm digest {now_local:%d %b %Y} - {len(op)} open"
     return subj, body, sample

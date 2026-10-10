@@ -54,6 +54,7 @@ JOBS = [
     ("invoice_publish", ["--last-month", "--out-root", "{tmp}", "--no-pdf"], r"index written; months published"),
     ("fin_savio_recon", [], r"SAVIO_ONLY|TRACKER_ONLY|MATCH|findings"),
     ("ticket_weekly", ["--dry-run"], r"would mail ops@example\.invalid: \[ARGIA\] .* - 2 open maintenance tickets"),
+    ("server_sbom", ["--out", "{tmp}/sbom.json"], r"SBOM: [1-9]\d* components \(\d+ Debian packages, [1-9]\d* Python distributions\)"),   # v324
 ]
 
 # jobs that only act in daylight (MX): run with the clock pinned to noon

@@ -173,9 +173,12 @@ def test_documents_upload_download_audited(env):
     assert bad.status_code == 415
     lib = op.get("/docs/?site=TST003").get_data(as_text=True)
     doc_id = re.search(r"/docs/(\d+)/download", lib).group(1)
+    assert op.get(f"/docs/{doc_id}/download").status_code == 409          # v324: not before the malware scan
+    c = S.connect(str(tmp / "pl.db"))
+    c.execute("UPDATE documents SET scan_status='clean' WHERE id=?", (doc_id,))   # what the scan job does (test_v324_security)
+    c.commit()
     d = op.get(f"/docs/{doc_id}/download")
     assert d.status_code == 200 and d.data == b"%PDF-1.7 fake"
-    c = S.connect(str(tmp / "pl.db"))
     acts = [x["action"] for x in c.execute("SELECT action FROM audit")]
     assert "doc_upload" in acts and "doc_download" in acts
 

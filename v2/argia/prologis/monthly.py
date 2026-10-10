@@ -239,6 +239,10 @@ def build(c, rg, month: str, today: dt.date, now_utc_dt: Optional[dt.datetime] =
     s_u = (dt.datetime.combine(start, dt.time()) - M.MX_OFFSET).strftime("%Y-%m-%d %H:%M:%S")
     e_u = (dt.datetime.combine(end + dt.timedelta(days=1), dt.time()) - M.MX_OFFSET).strftime("%Y-%m-%d %H:%M:%S")
     design = design_map(c)
+    from argia.prologis import availability as AV
+    a_start = dt.datetime.combine(start, dt.time())
+    a_end = dt.datetime.combine(last + dt.timedelta(days=1), dt.time())
+    msa_acc, msa_cl = [], []
     sites = []
     daily_tot: Dict[str, List[float]] = {}
     for s in rg.operating:
@@ -249,6 +253,11 @@ def build(c, rg, month: str, today: dt.date, now_utc_dt: Optional[dt.datetime] =
         comp = (sum(sum(1 for _, v in d.series if v is not None) / max(1, len(d.series)) for d in days) / len(days)) if days else 0.0
         des_m = design.get((s.code, start.month))
         des = (des_m * len(days) / ((end - start).days + 1)) if des_m is not None and days else None
+        ra = AV.site_result(c, s, a_start, a_end, ("accepted",)) if days else None
+        rc_ = AV.site_result(c, s, a_start, a_end, ("accepted", "claimed")) if days else None
+        if ra:
+            msa_acc.append(ra)
+            msa_cl.append(rc_)
         for d in days:
             t = daily_tot.setdefault(d.day.isoformat(), [0.0, 0.0])
             t[0] += d.kwh
@@ -258,6 +267,8 @@ def build(c, rg, month: str, today: dt.date, now_utc_dt: Optional[dt.datetime] =
                       "pr": round(kwh / (s.kwp * irr), 3) if irr else None,
                       "availability": round(sum(d.availability for d in days) / len(days), 4) if days else None,
                       "completeness": round(comp, 3), "source": M.source_for(s), "days": len(days),
+                      "msa_availability": None if not ra or ra.availability is None else round(ra.availability, 5),
+                      "msa_availability_claimed": None if not rc_ or rc_.availability is None else round(rc_.availability, 5),
                       "daily": [[d.day.isoformat(), d.kwh, d.expected_kwh, d.irr_kwh_m2] for d in days]})
     kwp = sum(x["kwp"] for x in sites)
     tot = lambda k: round(sum(x[k] for x in sites), 1)                      # noqa: E731
@@ -269,7 +280,11 @@ def build(c, rg, month: str, today: dt.date, now_utc_dt: Optional[dt.datetime] =
             "irr_kwh_m2": round(irr_w / kwp, 2) if kwp else 0.0, "pr": round(tot("kwh") / irr_w, 3) if irr_w else None,
             "availability": round(sum((x["availability"] or 0) * x["kwp"] for x in sites) / kwp, 4) if kwp and any(x["days"] for x in sites) else None,
             "completeness": round(sum(x["completeness"] * x["kwp"] for x in sites) / kwp, 3) if kwp else 0.0,
-            "days": (last - start).days + 1 if last >= start else 0, "days_in_month": (end - start).days + 1}
+            "days": (last - start).days + 1 if last >= start else 0, "days_in_month": (end - start).days + 1,
+            "msa_availability": None if AV.portfolio(msa_acc) is None else round(AV.portfolio(msa_acc), 5),
+            "msa_availability_claimed": None if AV.portfolio(msa_cl) is None else round(AV.portfolio(msa_cl), 5),
+            "exclusions_pending": c.execute("SELECT count(*) FROM exclusions WHERE status='claimed' AND start_utc<? AND end_utc>?",
+                                            (e_u, s_u)).fetchone()[0]}
     # alarms and O&M log
     log = []
     for a in c.execute("SELECT * FROM alarms WHERE detected_utc>=? AND detected_utc<? ORDER BY detected_utc", (s_u, e_u)):
@@ -365,14 +380,18 @@ def workbook_sheets(d: Dict, names: Dict[str, str]) -> List[Tuple[str, List[List
             ["sites", p["sites"]], ["kWp", p["kwp"]], ["actual kWh", p["kwh"]], ["expected kWh (weather adjusted)", p["expected_kwh"]],
             ["design kWh (PVsyst / Helioscope)", "" if p["design_kwh"] is None else p["design_kwh"]],
             ["sites with a design value", p["design_sites"]], ["insolation kWh/m2", p["irr_kwh_m2"]], ["PR", p["pr"]],
-            ["availability", p["availability"]], ["availability guarantee", d["guarantee"]], ["data completeness", p["completeness"]],
+            ["MSA availability (accepted exclusions)", p.get("msa_availability")],
+            ["MSA availability (incl. exclusions awaiting Prologis)", p.get("msa_availability_claimed")],
+            ["exclusions awaiting Prologis", p.get("exclusions_pending", 0)],
+            ["availability from the data (daily check)", p["availability"]], ["availability guarantee", d["guarantee"]],
+            ["data completeness", p["completeness"]],
             ["work orders with response measured", d["response_closed"]], ["response within the MSA deadline", d["response_met"]]]
     sites = [["site", "name", "kWp", "actual kWh", "expected kWh", "design kWh", "actual / expected", "insolation kWh/m2", "PR",
-              "availability", "data completeness", "source"]]
+              "MSA availability", "MSA availability incl. claimed", "availability (daily check)", "data completeness", "source"]]
     for x in d["sites"]:
         sites.append([x["code"], names.get(x["code"], x["name"]), x["kwp"], x["kwh"], x["expected_kwh"], x["design_kwh"],
-                      round(x["kwh"] / x["expected_kwh"], 3) if x["expected_kwh"] else None, x["irr_kwh_m2"], x["pr"], x["availability"],
-                      x["completeness"], x["source"]])
+                      round(x["kwh"] / x["expected_kwh"], 3) if x["expected_kwh"] else None, x["irr_kwh_m2"], x["pr"],
+                      x.get("msa_availability"), x.get("msa_availability_claimed"), x["availability"], x["completeness"], x["source"]])
     daily = [["site", "day", "actual kWh", "expected kWh", "insolation kWh/m2"]]
     for x in d["sites"]:
         for day, kwh, exp, irr in x["daily"]:

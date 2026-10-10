@@ -18,6 +18,8 @@ log of every login, change, upload and download, and a data export.
                       review log, mail outbox and settings (v321)
     /reports/         monthly O&M report per site and portfolio (page, print,
                       spreadsheet), HSE register, design yield (v322)
+    /availability/    MSA availability, incident and exclusion registers, annual
+                      analysis with liquidated damages and bonus (v323)
     /projects/        constructions and onboarding pipeline
     /docs/            documentation library per site and folder
     /security/        how the platform protects Prologis data
@@ -61,6 +63,7 @@ import prologis_ui as UI                                  # noqa: E402
 from plain_text import plain                              # noqa: E402
 from argia.prologis import alarms as AL                   # noqa: E402
 from argia.prologis import assets as A                    # noqa: E402
+from argia.prologis import availability as AV             # noqa: E402
 from argia.prologis import catalog as CAT                 # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
 from argia.prologis import monthly as MR                  # noqa: E402
@@ -2325,7 +2328,8 @@ def _months(today: dt.date, n: int = 12) -> List[str]:
 
 
 def _reports_head(tt, title: str, sub: str = "") -> str:
-    tabs = [("/reports/", tt("Monthly reports", "Reportes mensuales")), ("/reports/hse", tt("HSE register", "Registro SSMA")),
+    tabs = [("/reports/", tt("Monthly reports", "Reportes mensuales")), ("/availability/", tt("Availability", "Disponibilidad")),
+            ("/availability/annual", tt("Annual analysis", "Análisis anual")), ("/reports/hse", tt("HSE register", "Registro SSMA")),
             ("/reports/design", tt("Design yield", "Producción de diseño"))]
     cur = request.path
     t_ = '<div class="tabs">' + "".join(f'<a class="tab{" on" if h == cur else ""}" href="{h}">{UI.e(lbl)}</a>' for h, lbl in tabs) + "</div>"
@@ -2448,7 +2452,9 @@ def report_page(month, msg: str = "", err: bool = False):
     status = (f'<span class="pill s-ok">{tt("Published", "Publicado")} {mx_time(pub["published_utc"])} · {UI.e(pub["published_by"])}</span>' if pub
               else f'<span class="pill s-warn">{tt("DRAFT - ARGIA only", "BORRADOR - solo ARGIA")}</span>')
     dl = f'<span class="pill {DL_PILL[st]}">{UI.e(_dl_label(st, tt))} · {tt("deadline", "límite")} {MR.deadline(month):%d %b %Y}</span>'
-    av_ok = p["availability"] is not None and p["availability"] + 1e-9 >= d["guarantee"]
+    msa = p.get("msa_availability")
+    av_ok = msa is not None and msa + 1e-9 >= d["guarantee"]
+    pend = p.get("exclusions_pending", 0)
     tiles = ('<div class="hero tiles"><div class="kpis">'
              + _kpi(tt("Actual energy", "Energía real"), f'{UI.num(p["kwh"] / 1000, 1)}<small>MWh</small>', f'{p["days"]} {tt("of", "de")} {p["days_in_month"]} {tt("days", "días")}')
              + _kpi(tt("vs expected (weather adjusted)", "vs esperado (ajustado por clima)"), _pct(_ratio(p["kwh"], p["expected_kwh"])), f'{UI.num(p["expected_kwh"] / 1000, 1)} MWh')
@@ -2456,7 +2462,9 @@ def report_page(month, msg: str = "", err: bool = False):
                     (f'{p["design_sites"]} {tt("of", "de")} {p["sites"]} {tt("sites provided", "sitios con dato")}'))
              + _kpi(tt("Insolation", "Insolación"), f'{p["irr_kwh_m2"]:.1f}<small>kWh/m²</small>', tt("kWp-weighted", "ponderada por kWp"))
              + _kpi("PR", _pct(p["pr"]), "")
-             + _kpi(tt("Availability", "Disponibilidad"), _pct(p["availability"], 2), f'{tt("guarantee", "garantía")} {d["guarantee"] * 100:g}% · ' + (tt("met", "cumplida") if av_ok else tt("below", "debajo")))
+             + _kpi(tt("MSA availability", "Disponibilidad MSA"), _pct(msa, 2),
+                    f'{tt("guarantee", "garantía")} {d["guarantee"] * 100:g}% · ' + (tt("met", "cumplida") if av_ok else tt("below", "debajo"))
+                    + (f' · {pend} {tt("exclusion(s) awaiting Prologis", "exclusión(es) esperando a Prologis")}' if pend else ""))
              + _kpi(tt("Response time met", "Tiempo de respuesta cumplido"), f'{d["response_met"]}/{d["response_closed"]}', tt("work orders", "órdenes"))
              + _kpi(tt("Data completeness", "Completitud de datos"), _pct(p["completeness"], 1), "")
              + "</div></div>")
@@ -2465,7 +2473,7 @@ def report_page(month, msg: str = "", err: bool = False):
         srows += (f'<tr><td><a href="/reports/{month}/{x["code"]}/"><b>{UI.e(x["name"])}</b></a><div class="small muted">{x["code"]}</div></td><td class="n">{UI.num(x["kwp"], 0)}</td>'
                   f'<td class="n">{UI.num(x["kwh"])}</td><td class="n">{UI.num(x["expected_kwh"])}</td><td class="n">{"-" if x["design_kwh"] is None else UI.num(x["design_kwh"])}</td>'
                   f'<td class="n">{_pct(_ratio(x["kwh"], x["expected_kwh"]), 0)}</td><td class="n">{x["irr_kwh_m2"]:.1f}</td><td class="n">{_pct(x["pr"])}</td>'
-                  f'<td class="n">{_pct(x["availability"], 2)}</td><td class="n">{_pct(x["completeness"], 0)}</td></tr>')
+                  f'<td class="n">{_pct(x.get("msa_availability"), 2)}</td><td class="n">{_pct(x["completeness"], 0)}</td></tr>')
     chart = UI.bar_chart([(k, a, e) for k, a, e in d["daily"]], w=1300, h=260)
     notes = ""
     if pub:
@@ -2489,7 +2497,8 @@ def report_page(month, msg: str = "", err: bool = False):
             + f'<div class="card" style="margin-top:16px"><h2>{tt("Portfolio energy per day", "Energía del portafolio por día")}<span class="r muted">{tt("bar: actual · line: expected (weather adjusted)", "barra: real · línea: esperado (ajustado por clima)")}</span></h2>{chart}</div>'
             + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Sites", "Sitios")}</h2><table class="t"><tr><th>{tt("Site", "Sitio")}</th><th class="n">kWp</th>'
             f'<th class="n">{tt("Actual", "Real")} kWh</th><th class="n">{tt("Expected", "Esperado")} kWh</th><th class="n">{tt("Design", "Diseño")} kWh</th><th class="n">{tt("vs exp.", "vs esp.")}</th>'
-            f'<th class="n">kWh/m²</th><th class="n">PR</th><th class="n">{tt("Avail.", "Disp.")}</th><th class="n">{tt("Data", "Datos")}</th></tr>{srows}</table></div>'
+            f'<th class="n">kWh/m²</th><th class="n">PR</th><th class="n">{tt("MSA avail.", "Disp. MSA")}</th><th class="n">{tt("Data", "Datos")}</th></tr>{srows}</table>'
+            f'<p class="small muted">{tt("MSA availability: irradiance above 150 W/m², weighted by the DC behind each unavailable component, from the incident register with the exclusions Prologis accepted.", "Disponibilidad MSA: irradiancia sobre 150 W/m², ponderada por el DC de cada componente no disponible, del registro de incidentes con las exclusiones aceptadas por Prologis.")} <a href="/availability/?m={month}">{tt("Details", "Detalle")} ›</a></p></div>'
             + _report_tables(d, tt, rg)
             + f'<div class="card" style="margin-top:16px"><h2>{tt("Open corrective items and service orders", "Correctivos y órdenes de servicio abiertos")}</h2><ul class="small">{open_html}</ul></div>')
     return page(f'{tt("Report", "Reporte")} {month}', body, "reports", sample=d["source"] == "sample")
@@ -2506,7 +2515,7 @@ def report_site_page(month, code):
              + _kpi(tt("vs expected", "vs esperado"), _pct(_ratio(x["kwh"], x["expected_kwh"])), f'{UI.num(x["expected_kwh"])} kWh')
              + _kpi(tt("vs design", "vs diseño"), _pct(_ratio(x["kwh"], x["design_kwh"])), "-" if x["design_kwh"] is None else f'{UI.num(x["design_kwh"])} kWh')
              + _kpi(tt("Insolation", "Insolación"), f'{x["irr_kwh_m2"]:.1f}<small>kWh/m²</small>', "")
-             + _kpi("PR", _pct(x["pr"]), "") + _kpi(tt("Availability", "Disponibilidad"), _pct(x["availability"], 2), "")
+             + _kpi("PR", _pct(x["pr"]), "") + _kpi(tt("MSA availability", "Disponibilidad MSA"), _pct(x.get("msa_availability"), 2), "")
              + _kpi(tt("Data completeness", "Completitud de datos"), _pct(x["completeness"], 0), "") + "</div></div>")
     chart = UI.bar_chart([(dd, a, e) for dd, a, e, _i in x["daily"]], w=1300, h=260)
     body = (_reports_head(tt, f'{UI.e(x["name"])} · {month}', f'<a href="/reports/{month}/">‹ {tt("Portfolio report", "Reporte del portafolio")}</a>')
@@ -2658,6 +2667,248 @@ def ticket_eta(number):
     S.add_event(c, tk["id"], g.user["username"], "comment", f"Estimated return to service: {v or 'cleared'}")
     S.audit(c, g.user["username"], ip(), "ticket_eta", number, v)
     return redirect(f"/tickets/{number}/")
+
+
+# ------------------------------------------------------------------ MSA availability (v323)
+# The availability formula of MSA Schedule A on the incident register, the
+# exclusion register (claimed by ARGIA, accepted or rejected by Prologis),
+# the annual analysis with liquidated damages and the bonus.
+EXCL_PILL = {"claimed": "s-warn", "accepted": "s-ok", "rejected": "s-bad"}
+
+
+def _month_window(m: str) -> tuple:
+    a, b = MR.month_bounds(m)
+    last = min(b, today_mx() - dt.timedelta(days=1))
+    return dt.datetime.combine(a, dt.time()), dt.datetime.combine(max(last, a - dt.timedelta(days=1)) + dt.timedelta(days=1), dt.time())
+
+
+def _lt(ts_utc: str) -> str:
+    return "-" if not ts_utc else f"{AV.to_local(ts_utc):%d %b %Y %H:%M}"
+
+
+@app.get("/availability/")
+def availability_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    m = request.values.get("m") or f"{today_mx():%Y-%m}"       # forms post the month back, so the page stays on it
+    try:
+        start, end = _month_window(m)
+    except ValueError:
+        abort(400)
+    g_ = float(AL.setting(c, "availability_guarantee") or 0.98)
+    rows, acc, cl = "", [], []
+    for s in rg.operating:
+        ra = AV.site_result(c, s, start, end, ("accepted",))
+        rc_ = AV.site_result(c, s, start, end, ("accepted", "claimed"))
+        acc.append(ra)
+        cl.append(rc_)
+        a = ra.availability
+        low = a is not None and a + 1e-9 < g_
+        rows += (f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code}</div></td><td class="n">{ra.h_ttp:,.1f}</td><td class="n">{UI.num(ra.kw_np, 1)}</td>'
+                 f'<td class="n">{UI.num(ra.gross_kwh_eq, 1)}</td><td class="n">{UI.num(ra.excluded_kwh_eq, 1)}</td>'
+                 f'<td class="n"><b style="color:{"var(--red, #b2443c)" if low else "inherit"}">{_pct(a, 2)}</b></td><td class="n">{_pct(rc_.availability, 2)}</td></tr>')
+    pa, pc = AV.portfolio(acc), AV.portfolio(cl)
+    incs = c.execute("SELECT * FROM unavail_incidents WHERE start_utc<? AND (end_utc='' OR end_utc>?) ORDER BY start_utc DESC",
+                     (AV.to_utc(end), AV.to_utc(start))).fetchall()
+    work = S.can(g.user["role"], "alarms_work")
+    ir = ""
+    for r in incs:
+        tk = _ticket_no(c, r["ticket_id"])
+        close = ""
+        if work and not r["end_utc"]:
+            close = (f'<form method="post" action="/availability/incident/{r["id"]}/close" style="display:flex;gap:4px;margin-top:4px">{csrf_field()}<input type="hidden" name="m" value="{UI.e(m)}">'
+                     f'<input name="end" placeholder="YYYY-MM-DD HH:MM" style="width:150px"><button class="btn sm ghost">{tt("Close", "Cerrar")}</button></form>')
+        ir += (f'<tr><td class="small muted">#{r["id"]}{SAMPLE_PILL if r["sample"] else ""}</td><td>{UI.e(_site_name(rg, r["site_code"]))}<div class="small">{UI.e(r["component"])}</div></td>'
+               f'<td class="n">{UI.num(r["dc_kw"], 1)}</td><td class="small">{_lt(r["start_utc"])}<br>{_lt(r["end_utc"]) if r["end_utc"] else tt("open", "abierto")}</td>'
+               f'<td class="small">{UI.e(r["cause"])}{f" <a href=/tickets/{tk}/>{tk}</a>" if tk else ""}{close}</td></tr>')
+    ir = ir or f'<tr><td class="muted" colspan="5">{tt("No unavailability recorded in this period.", "Sin indisponibilidad registrada en este periodo.")}</td></tr>'
+    exs = c.execute("SELECT * FROM exclusions WHERE start_utc<? AND end_utc>? ORDER BY id DESC", (AV.to_utc(end), AV.to_utc(start))).fetchall()
+    cat = dict((k, tt(en, es)) for k, en, es in AV.CATEGORIES)
+    decide = S.can(g.user["role"], "exclusion_decide")
+    er = ""
+    for x in exs:
+        st = {"claimed": tt("Claimed by ARGIA, awaiting Prologis", "Reclamada por ARGIA, esperando a Prologis"), "accepted": tt("Accepted", "Aceptada"),
+              "rejected": tt("Rejected", "Rechazada")}[x["status"]]
+        act = ""
+        if decide and x["status"] == "claimed":
+            act = (f'<form method="post" action="/availability/exclusion/{x["id"]}/decide" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">{csrf_field()}<input type="hidden" name="m" value="{UI.e(m)}">'
+                   f'<input name="note" placeholder="{tt("comment (required to reject)", "comentario (obligatorio para rechazar)")}" style="width:200px">'
+                   f'<button class="btn sm" name="ok" value="1">{tt("Accept", "Aceptar")}</button><button class="btn sm danger" name="ok" value="0">{tt("Reject", "Rechazar")}</button></form>')
+        dec = f'<div class="small muted">{UI.e(x["decided_by"])} {_lt(x["decided_utc"])} {UI.e(x["decision_note"])}</div>' if x["decided_by"] else ""
+        er += (f'<tr><td class="small muted">#{x["id"]}</td><td>{UI.e(_site_name(rg, x["site_code"]) if x["site_code"] else tt("All sites", "Todos los sitios"))}'
+               f'{"<div class=small>" + tt("incident", "incidente") + " #" + str(x["incident_id"]) + "</div>" if x["incident_id"] else ""}</td>'
+               f'<td>{UI.e(cat.get(x["category"], x["category"]))}<div class="small">{UI.e(x["reason"])}</div></td>'
+               f'<td class="small">{_lt(x["start_utc"])}<br>{_lt(x["end_utc"])}</td><td><span class="pill {EXCL_PILL[x["status"]]}">{UI.e(st)}</span>{dec}{act}</td></tr>')
+    er = er or f'<tr><td class="muted" colspan="5">{tt("No exclusions in this period.", "Sin exclusiones en este periodo.")}</td></tr>'
+    forms = ""
+    if work:
+        sopts = "".join(f'<option value="{s.code}">{UI.e(s.name)}</option>' for s in rg.operating)
+        copts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, en, es in AV.CATEGORIES)
+        sug = ""
+        for x in AV.suggestions(c):
+            sug += (f'<li class="small">{UI.e(_site_name(rg, x["site"]))} · {tt("incident", "incidente")} #{x["incident"]} · {UI.e(cat[x["category"]])}: {_lt(x["start_utc"])} - {_lt(x["end_utc"])} · {UI.e(x["reason"])}'
+                    f'<form method="post" action="/availability/exclusion" style="display:inline">{csrf_field()}<input type="hidden" name="m" value="{UI.e(m)}"><input type="hidden" name="incident" value="{x["incident"]}">'
+                    f'<input type="hidden" name="category" value="{x["category"]}"><input type="hidden" name="start" value="{AV.to_local(x["start_utc"]):%Y-%m-%d %H:%M}">'
+                    f'<input type="hidden" name="end" value="{AV.to_local(x["end_utc"]):%Y-%m-%d %H:%M}"><input type="hidden" name="reason" value="{UI.e(x["reason"])}">'
+                    f' <button class="btn sm ghost">{tt("Claim", "Reclamar")}</button></form></li>')
+        forms = (f'<div class="grid g2e" style="margin-top:16px"><div class="card"><h2>{tt("Record unavailability", "Registrar indisponibilidad")}</h2>'
+                 f'<form method="post" action="/availability/incident">{csrf_field()}<input type="hidden" name="m" value="{UI.e(m)}"><div class="row"><div><label>{tt("Site", "Sitio")}</label><select name="site">{sopts}</select></div>'
+                 f'<div><label>{tt("Equipment # (DC kW from the register)", "Equipo # (DC kW del registro)")}</label><input name="equipment" inputmode="numeric"></div></div>'
+                 f'<div class="row"><div><label>{tt("Component", "Componente")}</label><input name="component" placeholder="INV-02"></div><div><label>{tt("DC kW behind it", "DC kW detrás")}</label><input name="dc_kw" inputmode="decimal"></div></div>'
+                 f'<div class="row"><div><label>{tt("From (YYYY-MM-DD HH:MM)", "Desde (AAAA-MM-DD HH:MM)")}</label><input name="start" required></div><div><label>{tt("To (empty = still down)", "Hasta (vacío = sigue)")}</label><input name="end"></div></div>'
+                 f'<div class="row"><div><label>{tt("Ticket (e.g. PL-0001)", "Ticket (ej. PL-0001)")}</label><input name="ticket"></div><div><label>{tt("Cause (equipment fault)", "Causa (falla de equipo)")}</label><input name="cause"></div></div>'
+                 f'<div style="margin-top:10px"><button class="btn">{tt("Record", "Registrar")}</button></div></form></div>'
+                 f'<div class="card"><h2>{tt("Claim an exclusion", "Reclamar una exclusión")}</h2><form method="post" action="/availability/exclusion">{csrf_field()}<input type="hidden" name="m" value="{UI.e(m)}">'
+                 f'<div class="row"><div><label>{tt("Site", "Sitio")}</label><select name="site"><option value="">{tt("All sites", "Todos los sitios")}</option>{sopts}</select></div>'
+                 f'<div><label>{tt("Incident # (optional)", "Incidente # (opcional)")}</label><input name="incident" inputmode="numeric"></div></div>'
+                 f'<label>{tt("Category", "Categoría")}</label><select name="category">{copts}</select>'
+                 f'<div class="row"><div><label>{tt("From", "Desde")}</label><input name="start" required></div><div><label>{tt("To", "Hasta")}</label><input name="end" required></div></div>'
+                 f'<label>{tt("Reason and evidence", "Motivo y evidencia")}</label><textarea name="reason" required></textarea><div style="margin-top:10px"><button class="btn">{tt("Claim", "Reclamar")}</button></div></form>'
+                 + (f'<h2 style="margin-top:14px">{tt("Proven by the data", "Probadas por los datos")}</h2><ul>{sug}</ul>' if sug else "") + "</div></div>")
+    months = "".join(f'<option {"selected" if x == m else ""}>{x}</option>' for x in _months(today_mx()))
+    g_txt = tt("guarantee", "garantía") + f" {g_ * 100:g}%"
+    body = (_reports_head(tt, tt("MSA availability", "Disponibilidad MSA"),
+                          tt("A = 1 - (1 / (H_ttp x kW_np)) x SUM(H_un x kW_un): hours above 150 W/m², weighted by the DC nameplate behind each unavailable component. Exclusions claimed by ARGIA count only once Prologis accepts them; the second column shows the result if every claimed exclusion were accepted.",
+                             "A = 1 - (1 / (H_ttp x kW_np)) x SUMA(H_un x kW_un): horas sobre 150 W/m², ponderadas por el DC nominal de cada componente no disponible. Las exclusiones que reclama ARGIA cuentan solo cuando Prologis las acepta; la segunda columna muestra el resultado si se aceptaran todas."))
+            + flash(msg, err)
+            + f'<form method="get" style="margin:10px 0"><select name="m" style="width:auto" onchange="this.form.submit()">{months}</select></form>'
+            + f'<div class="hero tiles"><div class="kpis">{_kpi(tt("Portfolio, accepted exclusions", "Portafolio, exclusiones aceptadas"), _pct(pa, 3), g_txt)}'
+            f'{_kpi(tt("Incl. exclusions awaiting Prologis", "Incl. exclusiones esperando a Prologis"), _pct(pc, 3), "")}'
+            f'{_kpi(tt("Incidents in the period", "Incidentes en el periodo"), str(len(incs)), "")}{_kpi(tt("Exclusions awaiting Prologis", "Exclusiones esperando a Prologis"), str(sum(1 for x in exs if x["status"] == "claimed")), "")}</div></div>'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><table class="t"><tr><th>{tt("Site", "Sitio")}</th><th class="n">H_ttp</th><th class="n">kW_np</th>'
+            f'<th class="n">{tt("Unavailable", "No disponible")} kWh-eq</th><th class="n">{tt("Excluded", "Excluido")} kWh-eq</th><th class="n">{tt("Availability", "Disponibilidad")}</th>'
+            f'<th class="n">{tt("Incl. claimed", "Incl. reclamadas")}</th></tr>{rows}</table>'
+            f'<p class="small muted">{tt("Irradiance and kW_np", "Irradiancia y kW_np")}: {tt("SAMPLE irradiance until the site sensors are connected; kW_np = the site DC kWp.", "irradiancia de MUESTRA hasta conectar los sensores; kW_np = kWp DC del sitio.")}</p></div>'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Unavailability incidents", "Incidentes de indisponibilidad")}</h2><table class="t"><tr><th>#</th><th>{tt("Site / component", "Sitio / componente")}</th>'
+            f'<th class="n">DC kW</th><th>{tt("From / to", "Desde / hasta")}</th><th>{tt("Cause", "Causa")}</th></tr>{ir}</table></div>'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Exclusion register", "Registro de exclusiones")}</h2><table class="t"><tr><th>#</th><th>{tt("Where", "Dónde")}</th>'
+            f'<th>{tt("Category / reason", "Categoría / motivo")}</th><th>{tt("From / to", "Desde / hasta")}</th><th>{tt("Status", "Estado")}</th></tr>{er}</table></div>' + forms)
+    return page(tt("Availability", "Disponibilidad"), body, "reports", sample=True)
+
+
+def _float_or_none(v):
+    v = (v or "").strip()
+    return float(v.replace(",", "")) if v else None
+
+
+@app.post("/availability/incident")
+def availability_incident():
+    need("alarms_work")
+    c = db()
+    f = request.form
+    rg = reg()
+    s = rg.site(f.get("site", ""))
+    try:
+        eq = int(f["equipment"]) if (f.get("equipment") or "").strip().isdigit() else None
+        AV.add_incident(c, f.get("site", ""), f.get("component", ""), _float_or_none(f.get("dc_kw")), f.get("start", ""), f.get("end", ""),
+                        f.get("cause", ""), g.user["username"], eq, _ticket_id(c, f.get("ticket", "")), ip(),
+                        [x.code for x in rg.operating], s.kwp if s else 0.0)
+    except ValueError as ex:
+        return availability_page(f"Not recorded: {ex}", True)
+    return availability_page("Recorded. / Registrado.")
+
+
+@app.post("/availability/incident/<int:iid>/close")
+def availability_close(iid):
+    need("alarms_work")
+    try:
+        AV.close_incident(db(), iid, request.form.get("end", ""), g.user["username"], ip())
+    except ValueError as ex:
+        return availability_page(f"Not closed: {ex}", True)
+    return availability_page("Closed. / Cerrado.")
+
+
+@app.post("/availability/exclusion")
+def availability_exclusion():
+    need("alarms_work")
+    f = request.form
+    try:
+        inc = int(f["incident"]) if (f.get("incident") or "").strip().isdigit() else None
+        AV.claim_exclusion(db(), f.get("site", ""), f.get("category", ""), f.get("start", ""), f.get("end", ""), f.get("reason", ""),
+                           g.user["username"], inc, ip(), [x.code for x in reg().operating])
+    except ValueError as ex:
+        return availability_page(f"Not claimed: {ex}", True)
+    return availability_page("Claimed - waiting for Prologis. / Reclamada - esperando a Prologis.")
+
+
+@app.post("/availability/exclusion/<int:eid>/decide")
+def availability_decide(eid):
+    need("exclusion_decide")
+    try:
+        AV.decide_exclusion(db(), eid, request.form.get("ok") == "1", g.user["username"], request.form.get("note", ""), ip())
+    except ValueError as ex:
+        return availability_page(f"Not saved: {ex}", True)
+    return availability_page("Saved. / Guardado.")
+
+
+@app.get("/availability/annual")
+def availability_annual(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    today = today_mx()
+    g_ = float(AL.setting(c, "availability_guarantee") or 0.98)
+    tm = AV.terms(c)
+    rows = ""
+    op = rg.operating
+    for i, s in enumerate(op):
+        tr_ = tm.get(s.code)
+        if not tr_:
+            rows += f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code}</div></td><td colspan="8" class="muted small">{tt("Contract terms not set (effective date, kWh rate, annual fee).", "Términos del contrato sin fijar (fecha efectiva, tarifa kWh, cuota anual).")}</td></tr>'
+            continue
+        eff = dt.date.fromisoformat(tr_["effective_date"])
+        for a, b in AV.contract_years(eff, today)[-2:]:
+            upto = min(b, today)
+            sa, sb = dt.datetime.combine(a, dt.time()), dt.datetime.combine(upto, dt.time())
+            ra = AV.site_result(c, s, sa, sb, ("accepted",))
+            rc_ = AV.site_result(c, s, sa, sb, ("accepted", "claimed"))
+            days = (upto - a).days
+            me = sum(d.kwh for d in M.history(s, upto - dt.timedelta(days=1), days, i, len(op))) if days > 0 else 0.0
+            av = ra.availability
+            ld = bo = (0.0, 0.0, False)
+            if av is not None and tr_["kwh_rate"]:
+                ld = AV.liquidated_damages(av, g_, me, tr_["kwh_rate"], tr_["annual_fee"])
+                bo = AV.bonus(av, me, tr_["kwh_rate"], tr_["annual_fee"])
+            done = b <= today
+            due = AV.analysis_due(b)
+            rate_txt = "-" if not tr_["kwh_rate"] else f'{tr_["kwh_rate"]:.2f}'
+            rows += (f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code}</div></td><td class="small nw">{a:%d %b %Y} - {b - dt.timedelta(days=1):%d %b %Y}'
+                     f'<div class="muted">{tt("complete", "completo") if done else tt("running", "en curso") + f" ({days} d)"}</div></td>'
+                     f'<td class="n"><b>{_pct(av, 2)}</b><div class="small muted">{_pct(rc_.availability, 2)}</div></td><td class="n">{UI.num(me)}</td>'
+                     f'<td class="n">{rate_txt}</td>'
+                     f'<td class="n">{_mxn(ld[0]) if ld[0] else "-"}{" <span class=small>(" + tt("capped", "tope") + ")</span>" if ld[2] else ""}</td>'
+                     f'<td class="n">{_mxn(bo[0]) if bo[0] else "-"}{" <span class=small>(" + tt("capped", "tope") + ")</span>" if bo[2] else ""}</td>'
+                     f'<td class="small nw">{due:%d %b %Y}</td></tr>')
+    form = ""
+    if S.can(g.user["role"], "contract_edit"):
+        sopts = "".join(f'<option value="{s.code}">{UI.e(s.name)}</option>' for s in op)
+        form = (f'<div class="card form" style="margin-top:16px"><h2>{tt("Contract terms per site", "Términos del contrato por sitio")}</h2>'
+                f'<form method="post" action="/availability/terms">{csrf_field()}<div class="row"><div><label>{tt("Site", "Sitio")}</label><select name="site">{sopts}</select></div>'
+                f'<div><label>{tt("Effective date (YYYY-MM-DD)", "Fecha efectiva (AAAA-MM-DD)")}</label><input name="effective" required></div></div>'
+                f'<div class="row"><div><label>{tt("kWh rate for the availability guaranty (MXN/kWh, Addendum A)", "Tarifa kWh de la garantía de disponibilidad (MXN/kWh, Adenda A)")}</label><input name="rate" inputmode="decimal"></div>'
+                f'<div><label>{tt("Annual fees for the site (MXN, for the caps)", "Cuotas anuales del sitio (MXN, para los topes)")}</label><input name="fee" inputmode="decimal"></div></div>'
+                f'<div style="margin-top:10px"><button class="btn">{tt("Save", "Guardar")}</button></div></form></div>')
+    body = (_reports_head(tt, tt("Annual availability analysis", "Análisis anual de disponibilidad"),
+                          tt(f"Per contract year from each site's effective date; due by the end of the calendar quarter after each anniversary. Liquidated damages when below the {g_ * 100:g}% guarantee: kWh rate x (energy / (1 - D) - energy), capped at 20% of the annual fees; bonus above 98%: half of the same formula, capped at 10%. Amounts are indicative until the MSA is signed.",
+                             f"Por año de contrato desde la fecha efectiva de cada sitio; se entrega al cierre del trimestre siguiente a cada aniversario. Penalización bajo la garantía de {g_ * 100:g}%: tarifa kWh x (energía / (1 - D) - energía), tope 20% de las cuotas anuales; bono sobre 98%: la mitad de la misma fórmula, tope 10%. Montos indicativos hasta firmar el MSA."))
+            + flash(msg, err)
+            + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t"><tr><th>{tt("Site", "Sitio")}</th><th>{tt("Contract year", "Año de contrato")}</th>'
+            f'<th class="n">{tt("Availability (incl. claimed)", "Disponibilidad (incl. reclamadas)")}</th><th class="n">{tt("Measured kWh", "kWh medidos")}</th><th class="n">MXN/kWh</th>'
+            f'<th class="n">{tt("Liquidated damages", "Penalización")}</th><th class="n">{tt("Bonus", "Bono")}</th><th>{tt("Analysis due", "Análisis vence")}</th></tr>{rows}</table></div>' + form)
+    return page(tt("Annual analysis", "Análisis anual"), body, "reports", sample=True)
+
+
+@app.post("/availability/terms")
+def availability_terms():
+    need("contract_edit")
+    f = request.form
+    try:
+        AV.save_terms(db(), (f.get("site") or "").upper(), (f.get("effective") or "").strip(), _float_or_none(f.get("rate")),
+                      _float_or_none(f.get("fee")), g.user["username"], ip(), [x.code for x in reg().operating])
+    except ValueError as ex:
+        return availability_annual(f"Not saved: {ex}", True)
+    return availability_annual("Saved. / Guardado.")
 
 
 # ------------------------------------------------------------------ projects

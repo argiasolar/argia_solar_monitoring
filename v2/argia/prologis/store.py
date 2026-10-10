@@ -43,6 +43,8 @@ PERMS = {
     "assets_ack": {"manager", "admin"},                  # v320: Prologis acknowledges a denied warranty claim
     "alarms_work": {"operator", "admin"},                # v321: triage alarms, record the daily review, see the outbox
     "alarms_admin": {"admin"},                           # v321: alarm mail mode and the ARGIA desk addresses
+    "exclusion_decide": {"manager", "admin"},            # v323: Prologis accepts or rejects an availability exclusion
+    "contract_edit": {"admin"},                          # v323: effective date, kWh rate and annual fee per site
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -128,6 +130,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _alarms.ensure(c)
     from argia.prologis import monthly as _monthly     # v322: monthly report, design yield, HSE register
     _monthly.ensure(c)
+    from argia.prologis import availability as _avail  # v323: MSA availability, exclusions, contract terms
+    _avail.ensure(c)
     return c
 
 

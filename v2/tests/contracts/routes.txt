@@ -63,6 +63,8 @@ prologis_app  GET    /assets/import_template.csv
 prologis_app  GET    /assets/spares/
 prologis_app  GET    /assets/spares/report
 prologis_app  GET    /audit/
+prologis_app  GET    /availability/
+prologis_app  GET    /availability/annual
 prologis_app  GET    /brand/<name>
 prologis_app  GET    /docs/
 prologis_app  GET    /docs/<int:doc_id>/download
@@ -112,6 +114,11 @@ prologis_app  POST   /assets/spares/location
 prologis_app  POST   /assets/spares/min
 prologis_app  POST   /assets/spares/move
 prologis_app  POST   /assets/spares/part
+prologis_app  POST   /availability/exclusion
+prologis_app  POST   /availability/exclusion/<int:eid>/decide
+prologis_app  POST   /availability/incident
+prologis_app  POST   /availability/incident/<int:iid>/close
+prologis_app  POST   /availability/terms
 prologis_app  POST   /docs/upload
 prologis_app  POST   /login
 prologis_app  POST   /mfa

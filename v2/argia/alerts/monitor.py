@@ -215,7 +215,7 @@ def drift_alerts(report: Optional[dict], now: Optional[dt.datetime] = None) -> L
                          f"Last drift_check report is {'unreadable' if age_h is None else f'{age_h:.0f} h old'} "
                          f"(expected daily)."))
     lines = list(report.get("findings") or [])
-    conf = [l for l in lines if not l.split(":")[0].strip().startswith(("portal-", "old-", "backup-", "portfolio-", "timers-"))]
+    conf = [l for l in lines if not l.split(":")[0].strip().startswith(("portal-", "old-", "backup-", "portfolio-", "timers-", "prologis-"))]
     smoke = [l for l in lines if l not in conf]
     if conf:
         out.append(Alert("config-drift", SEV_WARN,

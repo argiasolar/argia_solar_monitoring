@@ -2,7 +2,8 @@
 # v292: ARGIA for Prologis - the customer platform at prologis.argia.com.mx.
 # Its OWN login (users, MFA, sessions, audit in /opt/argia/prologis/prologis.db),
 # separate from the portal's auth. Registry, files, brand and secret key live
-# only under /opt/argia/prologis (root-only, never in git).
+# only under /opt/argia/prologis (root-only, never in git) - since v319 an
+# encrypted LUKS volume (prologis_vault.sh).
 Description=ARGIA for Prologis (prologis.argia.com.mx)
 After=network.target
 Wants=network.target
@@ -17,6 +18,9 @@ Environment=ARGIA_PL_DB=/opt/argia/prologis/prologis.db
 Environment=ARGIA_PL_FILES=/opt/argia/prologis/files
 Environment=ARGIA_PL_REGISTRY=/opt/argia/prologis/registry.json
 Environment=ARGIA_PL_PORT=8520
+# v319: the data store is an encrypted volume opened by the office Pi; never
+# start on the bare mount point (prologis_vault.sh check)
+ExecStartPre=/bin/bash /opt/argia/bundle/prologis_vault.sh check
 ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py
 Restart=always
 RestartSec=3

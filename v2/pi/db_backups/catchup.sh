@@ -23,7 +23,8 @@ RETRY_SEC="${RETRY_SEC:-3600}"
 
 [ -f "$KEY" ] || exit 0           # not the office Pi (or not set up)
 
-newest=$(ls -1t "$BK_DIR"/argia_mont_*.dump 2>/dev/null | head -1)
+# v319: sealed (.dump.age) or plain
+newest=$(ls -1t "$BK_DIR"/argia_mont_*.dump* 2>/dev/null | head -1)
 if [ -n "$newest" ]; then
   age=$(( NOW - $(stat -c %Y "$newest") ))
 else

@@ -95,7 +95,7 @@ class TestWiring:
     def test_pull_backup_holds_a_lock(self):
         src = _read("pi/db_backups/pull_backup.sh")
         assert 'exec 9>"$BASE/.pull.lock"' in src and "flock -n 9" in src
-        assert src.index("flock -n 9") < src.index("sftp -q")                              # before any download
+        assert src.index("flock -n 9") < src.index("get backup_manifest_latest.json")      # before any download (v319: get())
 
     def test_catchup_runs_the_pull_with_bash(self):
         assert 'bash "$PULL"' in _read("pi/db_backups/catchup.sh")

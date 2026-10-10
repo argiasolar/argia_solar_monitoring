@@ -138,6 +138,12 @@ CU_OUT=$(bash "$(dirname "$0")/../db_backups/catchup.sh" 2>&1)
 [ -n "$CU_OUT" ] && echo "$CU_OUT"
 case "$CU_OUT" in *"pull OK"*) rm -f "$STATE_DIR/pi_status_at" ;; esac
 
+# v319: the Pi holds the key of the encrypted ARGIA for Prologis volume; when
+# prologis.argia.com.mx stops answering (e.g. after a server reboot) it sends
+# the key to the server's unlock-only forced command
+UL_OUT=$(bash "$(dirname "$0")/../prologis_vault/unlock.sh" 2>&1)
+[ -n "$UL_OUT" ] && echo "$UL_OUT"
+
 # v305.2: the Pi reports on itself to the server once an hour (pi_status.py:
 # cron, job logs, newest off-site backup, CFE heartbeat) - the server's health
 # job turns a silent Pi or a stale backup into a problem

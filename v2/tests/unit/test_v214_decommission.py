@@ -142,7 +142,7 @@ class TestPiSnapshot:
     def test_backup_writes_and_pi_pulls_the_snapshot(self):
         assert 'portfolio_export.py --out "$OUT/portfolio_latest.json"' in (BUNDLE / "db_backup.sh").read_text(encoding="utf-8")
         pull = (V2 / "pi/db_backups/pull_backup.sh").read_text(encoding="utf-8")
-        assert "get portfolio_latest.json $HOME/report_watch/portfolio.json" in pull
+        assert 'get portfolio_latest.json "$HOME/report_watch/portfolio.json"' in pull     # v319: via get()
 
     def test_pi_watchdog_probes_the_portal(self):
         rw = (V2 / "pi/report_watch/report_watch.sh").read_text(encoding="utf-8")

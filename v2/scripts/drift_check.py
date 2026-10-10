@@ -97,9 +97,14 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     # vhost stays as a 301 map but cannot be probed by name
 ]
 BACKUP_MAX_H = 26.0
-FRESH_FILES = [("backup-dump", "/root/argia_backups/argia_mont_latest.dump"),
-               ("backup-users", "/root/argia_backups/users_latest.db"),
-               ("portfolio-snapshot", "/root/argia_backups/portfolio_latest.json")]
+# v319: a backup is sealed (.age) once the recipients file exists - either form counts as fresh
+FRESH_FILES = [("backup-dump", ("/root/argia_backups/argia_mont_latest.dump.age", "/root/argia_backups/argia_mont_latest.dump")),
+               ("backup-users", ("/root/argia_backups/users_latest.db.age", "/root/argia_backups/users_latest.db")),
+               ("portfolio-snapshot", ("/root/argia_backups/portfolio_latest.json",))]
+BACKUP_DIR = "/root/argia_backups"
+BACKUP_RECIPIENTS = "/opt/argia/backup_recipients.txt"
+PL_CONTAINER = "/opt/argia/prologis.luks"
+PL_MOUNT = "/opt/argia/prologis"
 
 
 # ------------------------------------------------------------------ pure
@@ -222,11 +227,39 @@ def http_code(url: str, timeout: int = 20) -> Optional[int]:
         return None
 
 
-def file_age_h(path: str, now: Optional[float] = None) -> Optional[float]:
-    try:
-        return ((now or dt.datetime.now().timestamp()) - os.path.getmtime(path)) / 3600.0
-    except OSError:
-        return None
+def file_age_h(path, now: Optional[float] = None) -> Optional[float]:
+    """Age in hours of a file, or of the newest of several alternatives (v319)."""
+    paths = (path,) if isinstance(path, str) else tuple(path)
+    ages = []
+    for p in paths:
+        try:
+            ages.append(((now or dt.datetime.now().timestamp()) - os.path.getmtime(p)) / 3600.0)
+        except OSError:
+            pass
+    return min(ages) if ages else None
+
+
+def encryption_checks(names: Sequence[str], recipients_set: bool, container: bool, mounted: bool) -> List[dict]:
+    """v319: encryption at rest, as the questionnaire promises it. ``names`` = files
+    in the backup directory. Pure.
+    * backup-encrypted: recipients exist, and no plain dump / users db / Prologis
+      archive is left in the backup directory
+    * prologis-vault: the Prologis store is the encrypted volume, and it is mounted"""
+    plain = sorted(n for n in names if n.startswith(("argia_mont_", "users_", "prologis_"))
+                   and n.endswith((".dump", ".db", ".tar.gz")))
+    if not recipients_set:
+        enc = {"check": "backup-encrypted", "ok": False, "detail": "no backup recipients - backups are written in plain form"}
+    elif plain:
+        enc = {"check": "backup-encrypted", "ok": False, "detail": "plain files left: " + ", ".join(plain[:4])}
+    else:
+        enc = {"check": "backup-encrypted", "ok": True, "detail": "every backup sealed (age)"}
+    if not container:
+        vault = {"check": "prologis-vault", "ok": False, "detail": "the Prologis store is not on the encrypted volume yet"}
+    elif not mounted:
+        vault = {"check": "prologis-vault", "ok": False, "detail": "encrypted volume locked - the office Pi unlocks it"}
+    else:
+        vault = {"check": "prologis-vault", "ok": True, "detail": "encrypted volume mounted"}
+    return [enc, vault]
 
 
 def timers_inactive() -> List[str]:
@@ -333,6 +366,9 @@ def build_report(repo: str = REPO) -> dict:
     expected = [os.path.basename(d) for _, d in prs if d.startswith(BUNDLE_DIR + "/")]
     smoke: List[dict] = [judge_http(n, http_code(u)) for n, u, _ in SMOKE_HTTP]
     smoke += [judge_age(n, file_age_h(p)) for n, p in FRESH_FILES]
+    names = sorted(os.listdir(BACKUP_DIR)) if os.path.isdir(BACKUP_DIR) else []
+    smoke += encryption_checks(names, os.path.exists(BACKUP_RECIPIENTS) and os.path.getsize(BACKUP_RECIPIENTS) > 0,
+                               os.path.exists(PL_CONTAINER), os.path.ismount(PL_MOUNT))
     inactive = timers_inactive()
     smoke.append({"check": "timers-active", "ok": not inactive,
                   "detail": "inactive: " + ", ".join(inactive) if inactive else "all active"})

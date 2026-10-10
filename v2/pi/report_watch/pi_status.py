@@ -73,7 +73,8 @@ def build(now, files, crontab, git_head, disk_free_mb, hostname):
         "backup": {"newest": newest[0] if newest else None,
                    "age_h": round((now - newest[1]) / 3600.0, 1) if newest else None,
                    "daily_count": len(dumps), "weekly_count": len(files.get("weekly", [])),
-                   "pull_exec": files.get("pull_exec")},   # v309: is pull_backup.sh executable (cron runs it without bash)
+                   "pull_exec": files.get("pull_exec"),    # v309: is pull_backup.sh executable (cron runs it without bash)
+                   "sealed": bool(newest and newest[0].endswith(".age"))},   # v319: encrypted at rest
         "cfe_heartbeat": ({"age_h": round((now - hb[0]) / 3600.0, 1) if hb[0] else None, "writable": hb[1]}
                           if hb else None),
         "tails": files.get("tails", {}),          # the last lines of the CFE and backup logs, for diagnosis
@@ -97,8 +98,9 @@ def gather(now):
     cfe_logs = sorted(glob.glob(os.path.join(CFE, "logs", "daily_*.log")))
     if cfe_logs:
         logs["cfe_daily"] = (cfe_logs[-1], os.path.getmtime(cfe_logs[-1]), _last_line(cfe_logs[-1]))
-    dumps = [(os.path.basename(p), os.path.getmtime(p)) for p in glob.glob(os.path.join(BACKUPS, "daily", "argia_mont_*.dump"))]
-    weekly = [(os.path.basename(p), os.path.getmtime(p)) for p in glob.glob(os.path.join(BACKUPS, "weekly", "argia_mont_*.dump"))]
+    # v319: sealed copies end in .dump.age
+    dumps = [(os.path.basename(p), os.path.getmtime(p)) for p in glob.glob(os.path.join(BACKUPS, "daily", "argia_mont_*.dump*"))]
+    weekly = [(os.path.basename(p), os.path.getmtime(p)) for p in glob.glob(os.path.join(BACKUPS, "weekly", "argia_mont_*.dump*"))]
     hb = os.path.join(CFE, "state", "heartbeat.json")
     hb_info = ((os.path.getmtime(hb) if os.path.exists(hb) else None),
                os.access(hb, os.W_OK) if os.path.exists(hb) else os.access(os.path.dirname(hb), os.W_OK))

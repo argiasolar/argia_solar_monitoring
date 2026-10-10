@@ -12,6 +12,8 @@ log of every login, change, upload and download, and a data export.
     /tickets/         O&M tickets on the MSA response-time classes, and service orders
     /shop/            service shop: order cleaning, thermography, repairs... (v293)
     /admin/services/  services and prices, published or draft (admin)
+    /assets/          equipment register, warranty claims, spare parts and the
+                      quarterly inventory report (v320)
     /projects/        constructions and onboarding pipeline
     /docs/            documentation library per site and folder
     /security/        how the platform protects Prologis data
@@ -26,6 +28,7 @@ logo) lives only under /opt/argia/prologis on the server.
     python3 prologis_app.py --create-admin USER "Full name" EMAIL
     python3 prologis_app.py --seed-sample-tickets
     python3 prologis_app.py --seed-catalog FILE  add missing services from a JSON list (never overwrites)
+    python3 prologis_app.py --seed-parts FILE    add missing spare parts and minimums (never overwrites)
 """
 from __future__ import annotations
 
@@ -51,12 +54,14 @@ sys.path.insert(0, os.environ.get("ARGIA_V2_DIR", "/root/argia_v2/v2"))
 import argia_logo                                         # noqa: E402
 import prologis_ui as UI                                  # noqa: E402
 from plain_text import plain                              # noqa: E402
+from argia.prologis import assets as A                    # noqa: E402
 from argia.prologis import catalog as CAT                 # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
 from argia.prologis import totp as TOTP                   # noqa: E402
+from argia.prologis import xlsx as XL                     # noqa: E402
 
 DATA_DIR = os.environ.get("ARGIA_PL_DIR", "/opt/argia/prologis")
 FILES_DIR = os.environ.get("ARGIA_PL_FILES", os.path.join(DATA_DIR, "files"))
@@ -190,7 +195,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
     u = g.user or {}
     nav = [("/", tt("Overview", "Resumen"), "home"), ("/map/", tt("Map", "Mapa"), "map"),
            ("/sites/", tt("Sites", "Sitios"), "sites"), ("/tickets/", tt("Tickets", "Tickets"), "tickets"),
-           ("/shop/", tt("Services", "Servicios"), "shop"),
+           ("/shop/", tt("Services", "Servicios"), "shop"), ("/assets/", tt("Assets", "Activos"), "assets"),
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
@@ -579,6 +584,14 @@ def home():
         idx = R.STAGES.index(stage) if stage in R.STAGES else 0
         bars = "".join(f'<span class="{"done" if j < idx else ("now" if j == idx else "")}"></span>' for j in range(len(R.STAGES)))
         projs += f'<div style="margin-bottom:10px"><b>{UI.e(p.name)}</b> <span class="small muted">{UI.e(p.kind)} · {UI.e(stage)}</span><div class="stages">{bars}</div></div>'
+    an = asset_counts(c)
+    assets_card = (f'<div class="card" style="margin-top:16px"><h2>{tt("Assets", "Activos")}<span class="r"><a href="/assets/">{tt("Register", "Registro")} ›</a></span></h2>'
+                   + _denied_banner(c, tt)
+                   + f'<div class="legend small"><span><b>{an["components"]}</b>&nbsp;{tt("components registered", "componentes registrados")}</span>'
+                   f'<span><b>{an["expiring"]}</b>&nbsp;{tt("warranties expire within 90 days", "garantías vencen en 90 días")}</span>'
+                   f'<span><b>{an["cal_overdue"]}</b>&nbsp;{tt("calibrations overdue", "calibraciones vencidas")}</span>'
+                   f'<span><b>{an["claims_open"]}</b>&nbsp;<a href="/assets/claims/">{tt("open warranty claims", "reclamos de garantía abiertos")}</a></span>'
+                   f'<span><b>{an["below_min"]}</b>&nbsp;<a href="/assets/spares/">{tt("spare parts below minimum", "refacciones bajo mínimo")}</a></span></div></div>')
     body = f"""<div class="hero"><div class="glow"></div><div class="k">{UI.e(rg.portfolio.get("market", "Mexico City"))} · {tt("Rooftop solar portfolio", "Portafolio solar en techos")}</div>
 <h1>{tt("Good", "Buen")} {tt("morning" if now.hour < 12 else ("afternoon" if now.hour < 19 else "evening"), "día" if now.hour < 12 else ("tarde" if now.hour < 19 else "noche"))}{", " + UI.e((g.user or {}).get("name", "").split(" ")[0]) if (g.user or {}).get("name") else ""}.</h1>
 <div class="sub"><span class="live-dot"></span>{tt("Live", "En vivo")} · {now.strftime("%d %b %Y %H:%M")} · {k["operating"]} {tt("operating sites", "sitios operando")} · {UI.num(k["kwp"] / 1000, 2)} MWp {tt("under ARGIA care", "a cargo de ARGIA")}</div>
@@ -593,6 +606,7 @@ def home():
 <div class="grid g2"><div class="card"><h2>{tt("Where your energy is made", "Dónde se produce su energía")}<span class="r"><a href="/map/">{tt("Full map", "Mapa completo")} ›</a></span></h2>{map_block(rg, lv, "mini-map", projects=False)}</div>
 <div><div class="card"><h2>{tt("Open tickets", "Tickets abiertos")}<span class="r"><a href="/tickets/">{tt("All", "Todos")} ›</a></span></h2><table class="t">{trows}</table></div>
 <div class="card" style="margin-top:16px"><h2>{tt("Construction pipeline", "Avance de construcción")}<span class="r"><a href="/projects/">{tt("Projects", "Proyectos")} ›</a></span></h2>{projs or tt("No projects.", "Sin proyectos.")}</div></div></div>
+{assets_card}
 <script>setTimeout(function(){{location.reload()}},300000);</script>"""
     return page(tt("Overview", "Resumen"), body, "home", sample=True)
 
@@ -711,11 +725,20 @@ def site_page(code):
         or f'<tr><td class="muted">{tt("No tickets.", "Sin tickets.")}</td></tr>'
     drs = "".join(f'<tr><td><a href="/docs/{d["id"]}/download">{UI.e(d["name"])}</a></td><td class="small muted">{UI.e(d["folder"])}</td></tr>' for d in docs) \
         or f'<tr><td class="muted">{tt("No documents yet.", "Sin documentos aún.")}</td></tr>'
+    eqs = A.equipment(c, s.code)
+    by_cat: Dict[str, int] = {}
+    for r_ in eqs:
+        by_cat[r_["category"]] = by_cat.get(r_["category"], 0) + int(r_["qty"])
+    exp_n = sum(1 for r_ in eqs if A.warranty_state(r_["warranty_until"], today_mx()) in ("expiring", "expired"))
+    eq_html = ('<div class="legend small">' + "".join(f'<span><b>{q}</b>&nbsp;{UI.e(_lbl(A.CATEGORIES, k, tt))}</span>' for k, q in sorted(by_cat.items()))
+               + (f'<span class="pill s-warn">{exp_n} {tt("warranties expiring or expired", "garantías por vencer o vencidas")}</span>' if exp_n else "") + "</div>"
+               if eqs else f'<p class="small muted">{tt("Not registered yet - filled at onboarding.", "Aún sin registrar - se llena en el onboarding.")}</p>')
     body = f"""<div class="kick">{UI.e(s.park)} · {UI.e(s.city)}</div><h1 class="pt">{UI.e(s.name)}</h1>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px"><span class="chip">{s.code}</span><span class="chip">{UI.num(s.kwp, 1)} kWp</span><span class="chip">PTO {UI.e(s.pto)}</span>
 <span class="chip">{UI.e(s.monitoring)}</span><span class="chip">{UI.e(s.address)}</span></div>{live_cards}
 <div class="grid g2e"><div class="card"><h2>{tt("Tickets", "Tickets")}<span class="r"><a class="btn sm ghost" href="/shop/">{tt("Order a service", "Pedir servicio")}</a> <a class="btn sm" href="/tickets/new?site={s.code}">{tt("New", "Nuevo")}</a></span></h2><table class="t">{trs}</table></div>
-<div class="card"><h2>{tt("Documents", "Documentos")}<span class="r"><a href="/docs/?site={s.code}">{tt("Folder", "Carpeta")} ›</a></span></h2><table class="t">{drs}</table></div></div>"""
+<div class="card"><h2>{tt("Documents", "Documentos")}<span class="r"><a href="/docs/?site={s.code}">{tt("Folder", "Carpeta")} ›</a></span></h2><table class="t">{drs}</table></div></div>
+<div class="card" style="margin-top:16px"><h2>{tt("Equipment", "Equipos")}<span class="r"><a href="/assets/?site={s.code}">{tt("Register", "Registro")} ›</a></span></h2>{eq_html}</div>"""
     return page(s.name, body, "sites", sample=s.operating)
 
 
@@ -1359,6 +1382,646 @@ def service_remove(code):
     return redirect("/admin/services/")
 
 
+# ------------------------------------------------------------------ assets (v320)
+# Equipment register, warranty claims and spare parts (MSA Schedule A, Data &
+# Reporting and Maintenance & Repairs; proposal 4.6). Everyone signed in sees
+# them (Owner visibility); ARGIA operators and admins change them; a Prologis
+# manager acknowledges a denied warranty claim.
+def today_mx() -> dt.date:
+    return now_mx().date()
+
+
+def _lbl(pairs, key: str, tt) -> str:
+    return dict((k, tt(en, es)) for k, en, es in pairs).get(key, key)
+
+
+def _site_name(rg: R.Registry, code: str) -> str:
+    s = rg.site(code)
+    return s.name if s else code
+
+
+WARR_PILL = {"active": "s-ok", "expiring": "s-warn", "expired": "s-bad", "none": "s-off"}
+CAL_PILL = {"ok": "s-ok", "due_soon": "s-warn", "overdue": "s-bad", "unknown": "s-warn", "n/a": ""}
+CLAIM_PILL = {"DRAFT": "s-off", "SUBMITTED": "s-info", "APPROVED": "s-ok", "DENIED": "s-bad", "CLOSED": "s-off"}
+
+
+def warranty_pill(until: str, tt) -> str:
+    st = A.warranty_state(until, today_mx())
+    txt = {"active": tt("Warranty to", "Garantía a"), "expiring": tt("Expires", "Vence"),
+           "expired": tt("Expired", "Vencida"), "none": tt("No warranty date", "Sin fecha de garantía")}[st]
+    return f'<span class="pill {WARR_PILL[st]}">{txt}{" " + UI.e(until) if until else ""}</span>'
+
+
+def calib_pill(category: str, due: str, tt) -> str:
+    st = A.calib_state(category, due, today_mx())
+    if st == "n/a":
+        return ""
+    txt = {"ok": tt("Calibrated to", "Calibrado a"), "due_soon": tt("Calibration due", "Calibración vence"),
+           "overdue": tt("Calibration overdue", "Calibración vencida"), "unknown": tt("Calibration date missing", "Falta fecha de calibración")}[st]
+    return f'<span class="pill {CAL_PILL[st]}">{txt}{" " + UI.e(due) if due else ""}</span>'
+
+
+def asset_counts(c) -> Dict[str, int]:
+    """The numbers the overview, the tabs and the alerts share."""
+    today = today_mx()
+    eq = A.equipment(c)
+    w = [A.warranty_state(r["warranty_until"], today) for r in eq]
+    cal = [A.calib_state(r["category"], r["calib_due"], today) for r in eq]
+    cls = A.claims(c)
+    bal = A.balances(A.all_moves(c))
+    below = {p for (p, loc), mn in A.minimums(c).items() if bal.get((p, loc), 0.0) + 1e-9 < mn}
+    return {"components": len(eq), "expiring": w.count("expiring"), "expired": w.count("expired"),
+            "cal_overdue": cal.count("overdue"), "cal_soon": cal.count("due_soon") + cal.count("unknown"),
+            "claims_open": sum(1 for x in cls if x["status"] in A.CLAIM_OPEN),
+            "denied_unack": sum(1 for x in cls if A.needs_owner_ack(c, x)), "below_min": len(below)}
+
+
+def _assets_tabs(on: str, tt, n: Dict[str, int]) -> str:
+    tabs = [("eq", "/assets/", tt("Equipment register", "Registro de equipos"), n["components"]),
+            ("claims", "/assets/claims/", tt("Warranty claims", "Reclamos de garantía"), n["claims_open"]),
+            ("spares", "/assets/spares/", tt("Spare parts", "Refacciones"), n["below_min"]),
+            ("report", "/assets/spares/report", tt("Quarterly inventory report", "Reporte trimestral de inventario"), None)]
+    return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{UI.e(lbl)}{"" if v is None else f" <b>{v}</b>"}</a>'
+                                         for k, h, lbl, v in tabs) + "</div>"
+
+
+def _assets_head(tt, title: str, sub: str = "") -> str:
+    return (f'<div class="kick">{tt("Assets", "Activos")}</div><h1 class="pt">{UI.e(title)}</h1>'
+            + (f'<p class="muted small">{sub}</p>' if sub else ""))
+
+
+def _denied_banner(c, tt) -> str:
+    n = sum(1 for x in A.claims(c) if A.needs_owner_ack(c, x))
+    if not n:
+        return ""
+    return (f'<div class="flash err"><b>{n} {tt("warranty claim(s) denied by the supplier", "reclamo(s) de garantía rechazado(s) por el proveedor")}</b> - '
+            f'{tt("Prologis is notified here until a Prologis manager acknowledges each one.", "Prologis queda notificado aquí hasta que un gerente de Prologis acuse cada uno.")} '
+            f'<a href="/assets/claims/">{tt("Open the claims", "Ver los reclamos")} ›</a></div>')
+
+
+def _ticket_id(c, number: str) -> Optional[int]:
+    number = (number or "").strip().upper()
+    if not number:
+        return None
+    r = c.execute("SELECT id FROM tickets WHERE number=?", (number,)).fetchone()
+    if not r:
+        raise ValueError(f"no ticket {number}")
+    return int(r["id"])
+
+
+def _ticket_no(c, tid) -> str:
+    if not tid:
+        return ""
+    r = c.execute("SELECT number FROM tickets WHERE id=?", (tid,)).fetchone()
+    return r["number"] if r else ""
+
+
+@app.get("/assets/")
+def assets_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    site = (request.args.get("site") or "").upper()
+    cat = request.args.get("cat", "")
+    show_removed = request.args.get("removed") == "1"
+    rows = A.equipment(c, site, cat if cat in A.CAT_KEYS else "", include_removed=show_removed)
+    n = asset_counts(c)
+    edit = S.can(g.user["role"], "assets_edit")
+    tr = ""
+    for r in rows:
+        mm = " ".join(x for x in (r["make"], r["model"]) if x)
+        st = "" if r["status"] == "in_service" else f' <span class="pill {"s-bad" if r["status"] == "fault" else "s-off"}">{UI.e(_lbl(A.EQ_STATUSES, r["status"], tt))}</span>'
+        ed = f'<a class="btn sm ghost" href="/assets/eq/{r["id"]}">{tt("Edit", "Editar")}</a>' if edit else ""
+        tr += (f'<tr><td class="small muted">#{r["id"]}</td><td><b>{UI.e(_site_name(rg, r["site_code"]))}</b><div class="small muted">{UI.e(r["site_code"])}</div></td>'
+               f'<td>{UI.e(r["tag"] or "-")}<div class="small muted">{UI.e(_lbl(A.CATEGORIES, r["category"], tt))}</div></td>'
+               f'<td>{UI.e(mm or "-")}<div class="small muted">{UI.e(r["serial"] or "")}</div></td>'
+               f'<td class="n">{r["qty"]}</td><td class="n">{UI.num(r["dc_kw"], 2) if r["dc_kw"] is not None else "-"}</td>'
+               f'<td>{warranty_pill(r["warranty_until"], tt)}{calib_pill(r["category"], r["calib_due"], tt)}{st}</td><td>{ed}</td></tr>')
+    tr = tr or f'<tr><td class="muted" colspan="8">{tt("No equipment registered yet. The register is filled at onboarding from the as-built and commissioning documents (CSV import), and kept current after every repair.", "Aún no hay equipos registrados. El registro se llena en el onboarding con los planos as-built y la puesta en marcha (importación CSV) y se actualiza tras cada reparación.")}</td></tr>'
+    sopts = "".join(f'<option value="{s.code}" {"selected" if s.code == site else ""}>{UI.e(s.name)}</option>' for s in rg.sites)
+    copts = "".join(f'<option value="{k}" {"selected" if k == cat else ""}>{UI.e(tt(en, es))}</option>' for k, en, es in A.CATEGORIES)
+    dc = ""
+    if site and rg.site(site):
+        chk = A.dc_check(A.equipment(c, site), rg.site(site).kwp)
+        dc = (f'<p class="small">{tt("Registered module DC", "DC de módulos registrado")}: <b>{UI.num(chk[0], 1)} kW</b> = '
+              f'<b>{chk[1] * 100:.1f}%</b> {tt("of the site kWp", "del kWp del sitio")} ({UI.num(rg.site(site).kwp, 1)})'
+              + ("" if abs(chk[1] - 1) <= 0.02 else f' <span class="pill s-warn">{tt("check: differs by more than 2%", "revisar: difiere más de 2%")}</span>') + "</p>"
+              if chk else f'<p class="small muted">{tt("No module DC registered for this site yet - the availability calculation needs it.", "Aún sin DC de módulos para este sitio - el cálculo de disponibilidad lo necesita.")}</p>')
+    btns = (f'<a class="btn" href="/assets/eq/new">{tt("Add equipment", "Agregar equipo")}</a> <a class="btn ghost" href="/assets/import">{tt("Import CSV", "Importar CSV")}</a> ' if edit else "") + \
+        f'<a class="btn ghost" href="/assets/equipment.csv">{tt("Download CSV", "Descargar CSV")}</a>'
+    kp = (f'<div class="grid g3">'
+          f'<div class="card"><h2>{tt("Warranties", "Garantías")}</h2><div style="font-size:26px;font-weight:800;color:var(--deep)">{n["expiring"]} <small style="font-size:13px;color:var(--muted)">{tt("expire within 90 days", "vencen en 90 días")}</small></div><div class="small muted">{n["expired"]} {tt("expired", "vencidas")}</div></div>'
+          f'<div class="card"><h2>{tt("Meter and sensor calibration", "Calibración de medidores y sensores")}</h2><div style="font-size:26px;font-weight:800;color:var(--deep)">{n["cal_overdue"]} <small style="font-size:13px;color:var(--muted)">{tt("overdue", "vencidas")}</small></div><div class="small muted">{n["cal_soon"]} {tt("due within 30 days or without a date", "vencen en 30 días o sin fecha")}</div></div>'
+          f'<div class="card"><h2>{tt("Open warranty claims", "Reclamos abiertos")}</h2><div style="font-size:26px;font-weight:800;color:var(--deep)">{n["claims_open"]}</div><div class="small muted">{n["denied_unack"]} {tt("denied, awaiting Prologis acknowledgement", "rechazados, esperando acuse de Prologis")}</div></div></div>')
+    body = (_assets_head(tt, tt("Equipment register", "Registro de equipos"),
+                         tt("Serial numbers, warranties and calibration of every component, per site (MSA Schedule A, Data & Reporting).",
+                            "Números de serie, garantías y calibración de cada componente, por sitio (MSA Anexo A, Datos y Reportes)."))
+            + flash(msg, err) + _denied_banner(c, tt) + _assets_tabs("eq", tt, n) + kp
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">'
+            f'<form method="get" style="display:flex;gap:8px;flex-wrap:wrap"><select name="site" style="width:auto" onchange="this.form.submit()"><option value="">{tt("All sites", "Todos los sitios")}</option>{sopts}</select>'
+            f'<select name="cat" style="width:auto" onchange="this.form.submit()"><option value="">{tt("All categories", "Todas las categorías")}</option>{copts}</select>'
+            f'<label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" name="removed" value="1" style="width:auto" {"checked" if show_removed else ""} onchange="this.form.submit()">{tt("show removed", "ver retirados")}</label></form>'
+            f'<div style="margin-left:auto">{btns}</div></div>{dc}'
+            f'<table class="t"><tr><th>#</th><th>{tt("Site", "Sitio")}</th><th>{tt("Tag / category", "Etiqueta / categoría")}</th><th>{tt("Make, model / serial", "Marca, modelo / serie")}</th>'
+            f'<th class="n">{tt("Qty", "Cant.")}</th><th class="n">DC kW</th><th>{tt("Warranty / calibration / status", "Garantía / calibración / estado")}</th><th></th></tr>{tr}</table></div>')
+    return page(tt("Assets", "Activos"), body, "assets")
+
+
+def _eq_form(tt, rg, r: Optional[Dict] = None, msg: str = "") -> Response:
+    r = r or {}
+    eid = r.get("id")
+    sopts = "".join(f'<option value="{s.code}" {"selected" if s.code == r.get("site_code") else ""}>{UI.e(s.name)} ({s.code})</option>' for s in rg.sites)
+    copts = "".join(f'<option value="{k}" {"selected" if k == r.get("category") else ""}>{UI.e(tt(en, es))}</option>' for k, en, es in A.CATEGORIES)
+    stopts = "".join(f'<option value="{k}" {"selected" if k == (r.get("status") or "in_service") else ""}>{UI.e(tt(en, es))}</option>' for k, en, es in A.EQ_STATUSES)
+
+    def v(k):
+        x = r.get(k)
+        return "" if x is None else UI.e(str(x))
+    body = f"""<div class="card form"><div class="kick">{tt("Equipment register", "Registro de equipos")}</div><h1 class="pt">{tt("Edit equipment", "Editar equipo") + f" #{eid}" if eid else tt("Add equipment", "Agregar equipo")}</h1>{flash(msg, True)}
+<form method="post" action="/assets/eq/save">{csrf_field()}<input type="hidden" name="id" value="{eid or ""}">
+<div class="row"><div><label>{tt("Site", "Sitio")}</label><select name="site_code" required>{sopts}</select></div><div><label>{tt("Category", "Categoría")}</label><select name="category">{copts}</select></div></div>
+<div class="row"><div><label>{tt("Tag (as on the as-built, e.g. INV-01)", "Etiqueta (como en el as-built, ej. INV-01)")}</label><input name="tag" value="{v("tag")}" maxlength="60"></div><div><label>{tt("Status", "Estado")}</label><select name="status">{stopts}</select></div></div>
+<div class="row"><div><label>{tt("Make", "Marca")}</label><input name="make" value="{v("make")}" maxlength="60"></div><div><label>{tt("Model", "Modelo")}</label><input name="model" value="{v("model")}" maxlength="80"></div></div>
+<div class="row"><div><label>{tt("Serial number (one unit per row)", "Número de serie (una unidad por fila)")}</label><input name="serial" value="{v("serial")}" maxlength="80"></div><div><label>{tt("Quantity (rows without serial, e.g. modules)", "Cantidad (filas sin serie, ej. módulos)")}</label><input name="qty" value="{v("qty") or 1}" inputmode="numeric"></div></div>
+<div class="row"><div><label>{tt("DC nameplate behind it, kW", "DC nominal detrás, kW")}</label><input name="dc_kw" value="{v("dc_kw")}" inputmode="decimal"></div><div><label>AC kW</label><input name="ac_kw" value="{v("ac_kw")}" inputmode="decimal"></div></div>
+<div class="row"><div><label>{tt("Installed (YYYY-MM-DD)", "Instalado (AAAA-MM-DD)")}</label><input name="installed" value="{v("installed")}"></div><div><label>{tt("Warranty holder (manufacturer, EPC)", "Garante (fabricante, EPC)")}</label><input name="warranty_by" value="{v("warranty_by")}" maxlength="80"></div></div>
+<div class="row"><div><label>{tt("Warranty until (YYYY-MM-DD)", "Garantía hasta (AAAA-MM-DD)")}</label><input name="warranty_until" value="{v("warranty_until")}"></div><div><label>{tt("Next calibration (meters, sensors)", "Próxima calibración (medidores, sensores)")}</label><input name="calib_due" value="{v("calib_due")}"></div></div>
+<label>{tt("Notes (flash test file, known serial defect, ...)", "Notas (flash test, defecto de serie conocido, ...)")}</label><textarea name="notes">{v("notes")}</textarea>
+<div style="margin-top:14px"><button class="btn">{tt("Save", "Guardar")}</button> <a class="btn ghost" href="/assets/">{tt("Cancel", "Cancelar")}</a></div></form></div>"""
+    return page(tt("Equipment", "Equipo"), body, "assets")
+
+
+@app.get("/assets/eq/<eid>")
+def assets_eq_form(eid):
+    need("assets_edit")
+    tt = t()
+    rg = reg()
+    if eid == "new":
+        return _eq_form(tt, rg, {"site_code": request.args.get("site", "").upper()})
+    if not eid.isdigit():
+        abort(404)
+    r = A.equipment_row(db(), int(eid)) or abort(404)
+    return _eq_form(tt, rg, dict(r))
+
+
+@app.post("/assets/eq/save")
+def assets_eq_save():
+    need("assets_edit")
+    tt = t()
+    rg = reg()
+    f = request.form
+    eid = int(f["id"]) if (f.get("id") or "").isdigit() else None
+    d = {k: f.get(k, "") for k in A.EQ_FIELDS}
+    try:
+        A.save_equipment(db(), d, [s.code for s in rg.sites], g.user["username"], ip(), eid=eid)
+    except ValueError as ex:
+        return _eq_form(tt, rg, {**d, "id": eid}, str(ex))
+    return redirect(f"/assets/?site={d['site_code'].upper()}")
+
+
+@app.get("/assets/import")
+def assets_import(msg: str = "", errors: Optional[List[str]] = None):
+    need("assets_edit")
+    tt = t()
+    errs = "".join(f"<li>{UI.e(x)}</li>" for x in (errors or [])[:200])
+    more = f"<li>... {len(errors) - 200} {tt('more', 'más')}</li>" if errors and len(errors) > 200 else ""
+    body = f"""<div class="card form"><div class="kick">{tt("Equipment register", "Registro de equipos")}</div><h1 class="pt">{tt("Import from CSV", "Importar desde CSV")}</h1>{flash(msg, bool(errors))}
+{"<ul class='small'>" + errs + more + "</ul>" if errs else ""}
+<p class="small">{tt("One row per component. Columns (header row, any order)", "Una fila por componente. Columnas (fila de encabezado, cualquier orden)")}: <code>{", ".join(A.IMPORT_COLUMNS)}</code>.
+{tt("site and category are required; dates as YYYY-MM-DD; a row with a serial number is one unit. All or nothing: if any row has a problem, nothing is imported and every problem is listed. A serial number already in the register is refused, never overwritten.", "site y category son obligatorias; fechas AAAA-MM-DD; una fila con número de serie es una unidad. Todo o nada: si alguna fila tiene un problema no se importa nada y se listan todos. Un número de serie ya registrado se rechaza, nunca se sobrescribe.")}
+<a href="/assets/import_template.csv">{tt("Template", "Plantilla")}</a></p>
+<form method="post" action="/assets/import" enctype="multipart/form-data">{csrf_field()}<input type="file" name="file" accept=".csv" required>
+<div style="margin-top:12px"><button class="btn">{tt("Check and import", "Revisar e importar")}</button> <a class="btn ghost" href="/assets/">{tt("Cancel", "Cancelar")}</a></div></form></div>"""
+    return page(tt("Import", "Importar"), body, "assets")
+
+
+@app.get("/assets/import_template.csv")
+def assets_import_template():
+    need("assets_edit")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(A.IMPORT_COLUMNS)
+    w.writerow(["SITECODE", "inverter", "INV-01", "SolarEdge", "SE100K", "7E1234567-89", "1", "120.5", "100", "2025-03-01",
+                "SolarEdge", "2037-03-01", "", "example row - delete"])
+    return Response(buf.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=equipment_template.csv"})
+
+
+@app.post("/assets/import")
+def assets_import_post():
+    need("assets_edit")
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return assets_import("Choose a CSV file. / Elija un archivo CSV.", ["no file"])
+    raw = f.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        abort(413)
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+    c = db()
+    res = A.parse_import(text, [s.code for s in reg().sites], A.existing_serials(c))
+    if res.errors:
+        S.audit(c, g.user["username"], ip(), "equipment_import_refused", f.filename[:100], f"{len(res.errors)} problems")
+        return assets_import(f"Nothing imported: {len(res.errors)} problem(s). / No se importó nada: {len(res.errors)} problema(s).", res.errors)
+    n = A.import_equipment(c, res, g.user["username"], ip())
+    return assets_page(f"{n} rows imported. / {n} filas importadas.")
+
+
+@app.get("/assets/equipment.csv")
+def assets_equipment_csv():
+    c = db()
+    rows = A.equipment(c, include_removed=True)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    cols = ["id"] + list(A.EQ_FIELDS) + ["replaced_by", "created_by", "created_utc", "updated_by", "updated_utc"]
+    w.writerow(cols)
+    for r in rows:
+        w.writerow([r[k] for k in cols])
+    S.audit(c, g.user["username"], ip(), "equipment_export", "equipment.csv", f"{len(rows)} rows")
+    return Response(buf.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=prologis_equipment.csv"})
+
+
+# ---- warranty claims
+@app.get("/assets/claims/")
+def claims_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    show = request.args.get("show", "open")
+    rows = A.claims(c, open_only=(show == "open"))
+    n = asset_counts(c)
+    nowu = utc_now()
+    tr = ""
+    for cl in rows:
+        ack = f' <span class="pill s-bad">{tt("Prologis to acknowledge", "Pendiente acuse Prologis")}</span>' if A.needs_owner_ack(c, cl) else ""
+        td = A.turnaround_days(cl, nowu)
+        comp = (_mxn(cl["compensation_mxn"]) + (f' <span class="small muted">{tt("passed through", "transferido")} {UI.e(cl["passed_through"])}</span>' if cl["passed_through"]
+                                                 else f' <span class="pill s-warn">{tt("to pass through", "por transferir")}</span>')) if cl["compensation_mxn"] else "-"
+        tr += (f'<tr><td class="nw"><a href="/assets/claims/{cl["number"]}/"><b>{cl["number"]}</b></a></td>'
+               f'<td>{UI.e(cl["supplier"])}<div class="small muted">{UI.e(_site_name(rg, cl["site_code"]))}{" · " + UI.e(cl["supplier_ref"]) if cl["supplier_ref"] else ""}</div></td>'
+               f'<td><span class="pill {CLAIM_PILL[cl["status"]]}">{UI.e(_lbl(A.CLAIM_STATUSES, cl["status"], tt))}</span>{ack}</td>'
+               f'<td class="n">{"-" if td is None else f"{td:.0f} d"}</td><td class="n nw">{comp}</td><td class="small muted">{mx_time(cl["opened_utc"])}</td></tr>')
+    tr = tr or f'<tr><td class="muted" colspan="6">{tt("No warranty claims.", "Sin reclamos de garantía.")}</td></tr>'
+    form = ""
+    if S.can(g.user["role"], "assets_edit"):
+        sopts = "".join(f'<option value="{s.code}">{UI.e(s.name)} ({s.code})</option>' for s in rg.sites)
+        form = (f'<div class="card form" style="margin-top:16px"><h2>{tt("New warranty claim", "Nuevo reclamo de garantía")}</h2><form method="post" action="/assets/claims/new">{csrf_field()}'
+                f'<div class="row"><div><label>{tt("Site", "Sitio")}</label><select name="site">{sopts}</select></div><div><label>{tt("Supplier (manufacturer, EPC)", "Proveedor (fabricante, EPC)")}</label><input name="supplier" required maxlength="80"></div></div>'
+                f'<div class="row"><div><label>{tt("Equipment # (from the register, optional)", "Equipo # (del registro, opcional)")}</label><input name="equipment" inputmode="numeric"></div><div><label>{tt("Ticket (e.g. PL-0001, optional)", "Ticket (ej. PL-0001, opcional)")}</label><input name="ticket"></div></div>'
+                f'<label>{tt("Fault and evidence", "Falla y evidencia")}</label><textarea name="fault"></textarea><div style="margin-top:10px"><button class="btn">{tt("Open claim", "Abrir reclamo")}</button></div></form></div>')
+    other = "all" if show == "open" else "open"
+    body = (_assets_head(tt, tt("Warranty claims", "Reclamos de garantía"),
+                         tt("ARGIA prepares and follows every claim with the manufacturer or EPC; Prologis sees each step, every denial is flagged until a Prologis manager acknowledges it, and compensation is passed through.",
+                            "ARGIA prepara y da seguimiento a cada reclamo con el fabricante o EPC; Prologis ve cada paso, todo rechazo queda marcado hasta que un gerente de Prologis lo acusa, y la compensación se transfiere."))
+            + flash(msg, err) + _denied_banner(c, tt) + _assets_tabs("claims", tt, n)
+            + f'<div class="card" style="margin-top:10px;overflow-x:auto"><div style="text-align:right;margin-bottom:8px"><a class="btn sm ghost" href="?show={other}">{tt("Show all" if show == "open" else "Open only", "Ver todos" if show == "open" else "Solo abiertos")}</a></div>'
+            f'<table class="t"><tr><th>#</th><th>{tt("Supplier / site", "Proveedor / sitio")}</th><th>{tt("Status", "Estado")}</th><th class="n">{tt("With supplier", "Con proveedor")}</th>'
+            f'<th class="n">{tt("Compensation", "Compensación")}</th><th>{tt("Opened", "Abierto")}</th></tr>{tr}</table></div>{form}')
+    return page(tt("Warranty claims", "Reclamos de garantía"), body, "assets")
+
+
+@app.post("/assets/claims/new")
+def claims_new():
+    need("assets_edit")
+    c = db()
+    f = request.form
+    site = (f.get("site") or "").upper()
+    if not reg().site(site):
+        abort(400)
+    try:
+        eq = int(f["equipment"]) if (f.get("equipment") or "").strip().isdigit() else None
+        cl = A.open_claim(c, site, f.get("supplier", ""), f.get("fault", ""), g.user["username"], equipment_id=eq,
+                          ticket_id=_ticket_id(c, f.get("ticket", "")), ip=ip())
+    except ValueError as ex:
+        return claims_page(f"Not opened: {ex}", True)
+    return redirect(f"/assets/claims/{cl['number']}/")
+
+
+def _claim(number: str):
+    cl = A.claim(db(), number)
+    if not cl:
+        abort(404)
+    return cl
+
+
+@app.get("/assets/claims/<number>/")
+def claim_page(number, msg: str = ""):
+    tt = t()
+    rg = reg()
+    c = db()
+    cl = _claim(number)
+    eq = A.equipment_row(c, cl["equipment_id"]) if cl["equipment_id"] else None
+    tl = ""
+    for ev in A.claim_events(c, cl["id"]):
+        m = json.loads(ev["meta"] or "{}")
+        what = {"created": tt("opened the claim", "abrió el reclamo"), "comment": tt("commented", "comentó"),
+                "status": f'{tt("moved it to", "lo pasó a")} <b>{UI.e(_lbl(A.CLAIM_STATUSES, m.get("to", ""), tt))}</b>',
+                "owner_ack": f'<b>{tt("acknowledged the denial for Prologis", "acusó el rechazo por Prologis")}</b>',
+                "pass_through": f'{tt("passed the compensation through on", "transfirió la compensación el")} {UI.e(m.get("day", ""))}'}.get(ev["kind"], UI.e(ev["kind"]))
+        tl += (f'<div class="ev"><div class="small muted">{mx_time(ev["ts_utc"])} · <b>{UI.e(ev["username"])}</b> {what}</div>'
+               + (f"<div>{UI.e(ev['body'])}</div>" if ev["body"] else "") + "</div>")
+    role = g.user["role"]
+    acts = ""
+    if S.can(role, "assets_edit"):
+        btns = "".join(f'<button class="btn sm ghost" name="to" value="{x}">{UI.e(_lbl(A.CLAIM_STATUSES, x, tt))}</button> ' for x in A.CLAIM_TRANSITIONS[cl["status"]])
+        if btns:
+            acts += (f'<form method="post" action="/assets/claims/{number}/status">{csrf_field()}<label>{tt("Move to", "Mover a")}</label>'
+                     f'<input name="note" placeholder="{tt("note - the supplier reason is required for a denial", "nota - el motivo del proveedor es obligatorio en un rechazo")}">'
+                     f'<div class="row"><div><label>{tt("Supplier RMA / case number", "Número RMA / caso del proveedor")}</label><input name="ref" value="{UI.e(cl["supplier_ref"])}"></div>'
+                     f'<div><label>{tt("Compensation received, MXN (if approved)", "Compensación recibida, MXN (si se aprueba)")}</label><input name="comp" inputmode="decimal"></div></div>'
+                     f'<div style="margin-top:8px">{btns}</div></form>')
+        if cl["compensation_mxn"] and not cl["passed_through"]:
+            acts += (f'<form method="post" action="/assets/claims/{number}/pass" style="margin-top:12px">{csrf_field()}<label>{tt("Compensation passed through to Prologis on (YYYY-MM-DD)", "Compensación transferida a Prologis el (AAAA-MM-DD)")}</label>'
+                     f'<input name="day" value="{today_mx().isoformat()}"><input name="note" placeholder="{tt("credit note / invoice", "nota de crédito / factura")}"><div style="margin-top:8px"><button class="btn sm">{tt("Record", "Registrar")}</button></div></form>')
+    if A.needs_owner_ack(c, cl) and S.can(role, "assets_ack"):
+        acts += (f'<form method="post" action="/assets/claims/{number}/ack" style="margin-top:12px">{csrf_field()}<label>{tt("Prologis acknowledgement of the denial", "Acuse de Prologis del rechazo")}</label>'
+                 f'<input name="note" placeholder="{tt("comment (optional)", "comentario (opcional)")}"><div style="margin-top:8px"><button class="btn sm danger">{tt("Acknowledge", "Acusar recibo")}</button></div></form>')
+    acts += (f'<form method="post" action="/assets/claims/{number}/comment" style="margin-top:12px">{csrf_field()}<label>{tt("Comment / correspondence", "Comentario / correspondencia")}</label>'
+             f'<textarea name="body"></textarea><div style="margin-top:8px"><button class="btn sm">{tt("Add", "Agregar")}</button></div></form>')
+    td = A.turnaround_days(cl, utc_now())
+    eq_txt = (f'<span class="chip">#{eq["id"]} {UI.e(eq["tag"] or "")} {UI.e(eq["make"])} {UI.e(eq["model"])} {UI.e(eq["serial"])}</span>' if eq else "")
+    tk = _ticket_no(c, cl["ticket_id"])
+    chips = (f'<span class="pill {CLAIM_PILL[cl["status"]]}">{UI.e(_lbl(A.CLAIM_STATUSES, cl["status"], tt))}</span> {eq_txt}'
+             + (f' <a class="chip" href="/tickets/{tk}/">{tk}</a>' if tk else "")
+             + (f' <span class="chip">RMA {UI.e(cl["supplier_ref"])}</span>' if cl["supplier_ref"] else "")
+             + (f' <span class="chip">{tt("with supplier", "con proveedor")} {td:.0f} d</span>' if td is not None else "")
+             + (f' <span class="chip">{_mxn(cl["compensation_mxn"])}</span>' if cl["compensation_mxn"] else ""))
+    ack = (f'<p class="small">{tt("Denial acknowledged by", "Rechazo acusado por")} <b>{UI.e(cl["owner_ack_by"])}</b> {mx_time(cl["owner_ack_utc"])}</p>' if cl["owner_ack_utc"] else "")
+    body = f"""<div class="kick">{UI.e(_site_name(rg, cl["site_code"]))} · {cl["number"]}</div><h1 class="pt">{tt("Warranty claim", "Reclamo de garantía")} · {UI.e(cl["supplier"])}</h1>{flash(msg, True)}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">{chips}</div>{ack}
+<div class="grid g2"><div class="card"><h2>{tt("Fault", "Falla")}</h2><p>{UI.e(cl["fault"]) or "-"}</p><h2>{tt("Timeline", "Historial")}</h2><div class="tl">{tl}</div></div>
+<div class="card"><h2>{tt("Actions", "Acciones")}</h2><div class="small muted">{tt("Opened", "Abierto")} {mx_time(cl["opened_utc"])} · {tt("Submitted", "Enviado")} {mx_time(cl["submitted_utc"])} · {tt("Decided", "Resuelto")} {mx_time(cl["decided_utc"])} · {tt("Closed", "Cerrado")} {mx_time(cl["closed_utc"])}</div>{acts}</div></div>"""
+    return page(cl["number"], body, "assets")
+
+
+@app.post("/assets/claims/<number>/status")
+def claim_status(number):
+    need("assets_edit")
+    cl = _claim(number)
+    comp = _float(request.form.get("comp"))
+    try:
+        A.set_claim_status(db(), cl, request.form.get("to", ""), g.user["username"], request.form.get("note", ""),
+                           request.form.get("ref", ""), comp if request.form.get("to") == "APPROVED" else None, ip())
+    except ValueError as ex:
+        return claim_page(number, str(ex))
+    return redirect(f"/assets/claims/{number}/")
+
+
+@app.post("/assets/claims/<number>/ack")
+def claim_ack(number):
+    need("assets_ack")
+    try:
+        A.ack_denial(db(), _claim(number), g.user["username"], request.form.get("note", ""), ip())
+    except ValueError as ex:
+        return claim_page(number, str(ex))
+    return redirect(f"/assets/claims/{number}/")
+
+
+@app.post("/assets/claims/<number>/pass")
+def claim_pass(number):
+    need("assets_edit")
+    try:
+        A.record_pass_through(db(), _claim(number), (request.form.get("day") or "").strip(), g.user["username"],
+                              request.form.get("note", ""), ip())
+    except ValueError as ex:
+        return claim_page(number, str(ex))
+    return redirect(f"/assets/claims/{number}/")
+
+
+@app.post("/assets/claims/<number>/comment")
+def claim_comment(number):
+    need("comment")
+    cl = _claim(number)
+    body = (request.form.get("body") or "").strip()
+    if body:
+        c = db()
+        A.claim_event(c, cl["id"], g.user["username"], "comment", body)
+        S.audit(c, g.user["username"], ip(), "claim_comment", number)
+    return redirect(f"/assets/claims/{number}/")
+
+
+# ---- spare parts
+def _part_name(p, tt) -> str:
+    return tt(p["name_en"], p["name_es"] or p["name_en"])
+
+
+@app.get("/assets/spares/")
+def spares_page(msg: str = "", err: bool = False):
+    tt = t()
+    rg = reg()
+    c = db()
+    n = asset_counts(c)
+    locs = A.locations(c)
+    pts = A.parts(c)
+    moves = A.all_moves(c)
+    bal = A.balances(moves)
+    mins = A.minimums(c)
+    ser = A.serial_locations(moves)
+    head = "".join(f'<th class="n">{UI.e(lc["code"])}<div class="small muted" style="font-weight:400">{UI.e(lc["name"])}</div></th>' for lc in locs)
+    tr = ""
+    for p in pts:
+        cells = ""
+        for lc in locs:
+            q = bal.get((p["code"], lc["code"]), 0.0)
+            mn = mins.get((p["code"], lc["code"]))
+            low = mn is not None and q + 1e-9 < mn
+            cells += (f'<td class="n"><b style="color:{"var(--red, #b2443c)" if low else "inherit"}">{q:g}</b>'
+                      + (f'<span class="small muted"> / {mn:g}</span>' if mn is not None else "") + "</td>")
+        sl = sorted(s for (pc, s), loc in ser.items() if pc == p["code"] and loc)
+        sers = f'<div class="small muted">{UI.e(", ".join(sl[:12]))}{" ..." if len(sl) > 12 else ""}</div>' if sl else ""
+        own = f'<span class="pill s-off">{UI.e(p["owner"])}</span>'
+        tr += (f'<tr><td><b>{UI.e(p["code"])}</b> {own}<div>{UI.e(_part_name(p, tt))}</div><div class="small muted">{UI.e(" · ".join(x for x in (" ".join(y for y in (p["make"], p["model"]) if y), tt("by serial", "por serie") if p["serialized"] else "", p["unit"]) if x))}</div>{sers}</td>{cells}</tr>')
+    tr = tr or f'<tr><td class="muted" colspan="{len(locs) + 1}">{tt("No spare parts defined yet.", "Aún no hay refacciones definidas.")}</td></tr>'
+    recent = ""
+    for m in list(reversed(moves))[:40]:
+        where = f'{m["from_loc"] or "-"} › {m["to_loc"] or (m["site_code"] and _site_name(rg, m["site_code"])) or "-"}'
+        tk = _ticket_no(c, m["ticket_id"])
+        dmg = f' <span class="pill s-bad">{tt("damaged", "dañado")}</span>' if m["condition"] == "damaged" else ""
+        recent += (f'<tr><td class="small">{UI.e(m["day"])}</td><td>{UI.e(_lbl(A.MOVE_KINDS, m["kind"], tt))}{dmg}</td><td><b>{UI.e(m["part_code"])}</b>'
+                   f'{" · " + UI.e(m["serial"]) if m["serial"] else ""}</td><td class="n">{m["qty"]:g}</td><td class="small">{UI.e(where)}</td>'
+                   f'<td class="small">{f"<a href=/tickets/{tk}/>{tk}</a>" if tk else ""} {UI.e(m["note"])}</td><td class="small muted">{UI.e(m["username"])}</td></tr>')
+    recent = recent or f'<tr><td class="muted" colspan="7">{tt("No movements yet.", "Sin movimientos aún.")}</td></tr>'
+    forms = ""
+    if S.can(g.user["role"], "assets_edit"):
+        popts = "".join(f'<option value="{p["code"]}">{UI.e(p["code"])} - {UI.e(_part_name(p, tt))}</option>' for p in pts)
+        lopts = "".join(f'<option value="{lc["code"]}">{UI.e(lc["code"])}</option>' for lc in locs)
+        kopts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, en, es in A.MOVE_KINDS)
+        sopts = "".join(f'<option value="{s.code}">{UI.e(s.name)} ({s.code})</option>' for s in rg.sites)
+        catopts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, en, es in A.CATEGORIES)
+        oopts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, en, es in A.OWNERS)
+        forms = f"""<div class="grid g2e" style="margin-top:16px"><div class="card"><h2>{tt("Record a movement", "Registrar movimiento")}</h2>
+<form method="post" action="/assets/spares/move">{csrf_field()}<div class="row"><div><label>{tt("Movement", "Movimiento")}</label><select name="kind">{kopts}</select></div><div><label>{tt("Part", "Refacción")}</label><select name="part">{popts}</select></div></div>
+<div class="row"><div><label>{tt("From location", "Desde")}</label><select name="from"><option value=""></option>{lopts}</select></div><div><label>{tt("To location", "Hacia")}</label><select name="to"><option value=""></option>{lopts}</select></div></div>
+<div class="row"><div><label>{tt("Quantity", "Cantidad")}</label><input name="qty" value="1" inputmode="decimal"></div><div><label>{tt("Serial (serialized parts)", "Serie (refacciones por serie)")}</label><input name="serial"></div></div>
+<div class="row"><div><label>{tt("Site (issue / return)", "Sitio (salida / devolución)")}</label><select name="site"><option value=""></option>{sopts}</select></div><div><label>{tt("Ticket (e.g. PL-0001)", "Ticket (ej. PL-0001)")}</label><input name="ticket"></div></div>
+<div class="row"><div><label>{tt("Replaces equipment # (issue)", "Reemplaza equipo # (salida)")}</label><input name="replaces" inputmode="numeric"></div><div><label>{tt("Date", "Fecha")}</label><input name="day" value="{today_mx().isoformat()}"></div></div>
+<label><input type="checkbox" name="damaged" value="1" style="width:auto"> {tt("Received damaged (report to the EPC and Prologis)", "Recibido dañado (reportar al EPC y a Prologis)")}</label>
+<label>{tt("Note (inspection result, reason for an adjustment or scrapping)", "Nota (resultado de inspección, motivo de ajuste o baja)")}</label><input name="note" maxlength="1000">
+<div style="margin-top:10px"><button class="btn">{tt("Record", "Registrar")}</button></div></form></div>
+<div class="card"><h2>{tt("Parts, minimums and locations", "Refacciones, mínimos y ubicaciones")}</h2>
+<form method="post" action="/assets/spares/part">{csrf_field()}<div class="row"><div><label>{tt("Code", "Código")}</label><input name="code" required></div><div><label>{tt("Category", "Categoría")}</label><select name="category">{catopts}</select></div></div>
+<div class="row"><div><label>{tt("Name (EN)", "Nombre (EN)")}</label><input name="name_en" required></div><div><label>{tt("Name (ES)", "Nombre (ES)")}</label><input name="name_es"></div></div>
+<div class="row"><div><label>{tt("Make", "Marca")}</label><input name="make"></div><div><label>{tt("Model", "Modelo")}</label><input name="model"></div></div>
+<div class="row"><div><label>{tt("Owner", "Propietario")}</label><select name="owner">{oopts}</select></div><div><label>{tt("Unit", "Unidad")}</label><input name="unit" value="pc"></div></div>
+<label><input type="checkbox" name="serialized" value="1" style="width:auto"> {tt("Tracked by serial number", "Por número de serie")}</label>
+<div style="margin-top:8px"><button class="btn sm">{tt("Save part (same code = edit)", "Guardar (mismo código = editar)")}</button></div></form>
+<form method="post" action="/assets/spares/min" style="margin-top:14px">{csrf_field()}<div class="row"><div><label>{tt("Minimum stock: part", "Mínimo: refacción")}</label><select name="part">{popts}</select></div><div><label>{tt("at location", "en ubicación")}</label><select name="loc">{lopts}</select></div></div>
+<label>{tt("Minimum quantity", "Cantidad mínima")}</label><input name="min" inputmode="decimal"><div style="margin-top:8px"><button class="btn sm">{tt("Set minimum", "Fijar mínimo")}</button></div></form>
+<form method="post" action="/assets/spares/location" style="margin-top:14px">{csrf_field()}<div class="row"><div><label>{tt("New location code", "Código de ubicación")}</label><input name="code"></div><div><label>{tt("Name", "Nombre")}</label><input name="name"></div></div>
+<div style="margin-top:8px"><button class="btn sm ghost">{tt("Add location", "Agregar ubicación")}</button></div></form></div></div>"""
+    body = (_assets_head(tt, tt("Spare parts", "Refacciones"),
+                         tt("Critical spares in ARGIA's warehouse (never on site), serialized and tracked. Stock is the sum of recorded movements; shown as on hand / minimum.",
+                            "Refacciones críticas en el almacén de ARGIA (nunca en sitio), por serie y rastreadas. El inventario es la suma de los movimientos registrados; se muestra existencia / mínimo."))
+            + flash(msg, err) + _assets_tabs("spares", tt, n)
+            + f'<div class="card" style="margin-top:10px;overflow-x:auto"><table class="t"><tr><th>{tt("Part", "Refacción")}</th>{head}</tr>{tr}</table></div>{forms}'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Latest movements", "Últimos movimientos")}</h2><table class="t"><tr><th>{tt("Date", "Fecha")}</th><th>{tt("Movement", "Movimiento")}</th>'
+            f'<th>{tt("Part", "Refacción")}</th><th class="n">{tt("Qty", "Cant.")}</th><th>{tt("From › to", "De › a")}</th><th>{tt("Ticket / note", "Ticket / nota")}</th><th>{tt("By", "Por")}</th></tr>{recent}</table></div>')
+    return page(tt("Spare parts", "Refacciones"), body, "assets")
+
+
+@app.post("/assets/spares/move")
+def spares_move():
+    need("assets_edit")
+    c = db()
+    f = request.form
+    try:
+        rep = int(f["replaces"]) if (f.get("replaces") or "").strip().isdigit() else None
+        A.move(c, f.get("kind", ""), f.get("part", ""), _float(f.get("qty")) or 0, g.user["username"], f.get("from", ""), f.get("to", ""),
+               f.get("serial", ""), f.get("site", ""), _ticket_id(c, f.get("ticket", "")), f.get("note", ""),
+               "damaged" if f.get("damaged") else "ok", (f.get("day") or "").strip() or None, [s.code for s in reg().sites],
+               rep, ip(), today=today_mx())
+    except ValueError as ex:
+        return spares_page(f"Not recorded: {ex}", True)
+    return spares_page("Recorded. / Registrado.")
+
+
+@app.post("/assets/spares/part")
+def spares_part():
+    need("assets_edit")
+    try:
+        A.save_part(db(), {k: request.form.get(k, "") for k in A.PART_FIELDS if k != "active"} | {"active": "1"}, g.user["username"], ip())
+    except ValueError as ex:
+        return spares_page(f"Not saved: {ex}", True)
+    return spares_page("Saved. / Guardado.")
+
+
+@app.post("/assets/spares/min")
+def spares_min():
+    need("assets_edit")
+    q = _float(request.form.get("min"))
+    try:
+        if q is None:
+            raise ValueError("give a minimum")
+        A.set_min(db(), request.form.get("part", ""), request.form.get("loc", ""), q, g.user["username"], ip())
+    except ValueError as ex:
+        return spares_page(f"Not saved: {ex}", True)
+    return spares_page("Saved. / Guardado.")
+
+
+@app.post("/assets/spares/location")
+def spares_location():
+    need("assets_edit")
+    try:
+        A.add_location(db(), request.form.get("code", ""), request.form.get("name", ""), g.user["username"], ip=ip())
+    except ValueError as ex:
+        return spares_page(f"Not added: {ex}", True)
+    return spares_page("Added. / Agregada.")
+
+
+def _quarter_tables(c, q: str):
+    pts = A.parts(c, include_inactive=True)
+    locs = A.locations(c, include_inactive=True)
+    rows, rest, inq = A.quarter_report(A.all_moves(c), [p["code"] for p in pts], [(lc["code"], bool(lc["transit"])) for lc in locs],
+                                       A.minimums(c), q)
+    return {p["code"]: p for p in pts}, rows, rest, inq
+
+
+IN_KINDS = ("RECEIPT", "RETURN", "TRANSFER", "ADJUST_IN")
+
+
+def _signed(v: float, sign: str) -> str:
+    return f"{sign}{v:g}" if v else "0"
+
+OUT_KINDS = ("ISSUE", "TRANSFER", "ADJUST_OUT", "SCRAP")
+
+
+@app.get("/assets/spares/report")
+def spares_report():
+    tt = t()
+    rg = reg()
+    c = db()
+    q = (request.args.get("q") or A.quarter_of(today_mx())).upper()
+    try:
+        start, end = A.quarter_bounds(q)
+    except ValueError:
+        abort(400)
+    pmap, rows, rest, inq = _quarter_tables(c, q)
+    fmt = request.args.get("fmt", "")
+    hdr = ["part", "name", "owner", "location", "opening"] + [f"in_{k.lower()}" for k in IN_KINDS] + [f"out_{k.lower()}" for k in OUT_KINDS] + ["closing", "minimum", "below_minimum"]
+
+    def line(r):
+        p = pmap.get(r.part)
+        return ([r.part, p["name_en"] if p else "", p["owner"] if p else "", r.loc, r.opening] + [r.ins.get(k, 0.0) for k in IN_KINDS]
+                + [r.outs.get(k, 0.0) for k in OUT_KINDS] + [r.closing, "" if r.min_qty is None else r.min_qty, "yes" if r.below_min else ""])
+    if fmt in ("xlsx", "csv"):
+        mv = [["date", "movement", "part", "serial", "qty", "from", "to", "site", "ticket", "condition", "note", "by"]] + \
+             [[m["day"], m["kind"], m["part_code"], m["serial"], m["qty"], m["from_loc"], m["to_loc"], m["site_code"],
+               _ticket_no(c, m["ticket_id"]), m["condition"], m["note"], m["username"]] for m in inq]
+        rs = [["part", "name", "minimum_total", "closing_in_warehouses", "in_transit", "recommended_order"]] + \
+             [[x.part, pmap[x.part]["name_en"] if x.part in pmap else "", x.min_total, x.closing_total, x.transit, x.order_qty] for x in rest]
+        S.audit(c, g.user["username"], ip(), "inventory_report_export", q, fmt)
+        if fmt == "csv":
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(hdr)
+            w.writerows(line(r) for r in rows)
+            return Response(buf.getvalue(), mimetype="text/csv", headers={"Content-Disposition": f"attachment; filename=prologis_inventory_{q}.csv"})
+        data = XL.workbook([("Stock " + q, [hdr] + [line(r) for r in rows]), ("Movements", mv), ("Restocking", rs)])
+        return Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f"attachment; filename=prologis_inventory_{q}.xlsx"})
+    n = asset_counts(c)
+    qs = []
+    d = today_mx()
+    for _ in range(6):
+        qs.append(A.quarter_of(d))
+        d = A.quarter_bounds(A.quarter_of(d))[0] - dt.timedelta(days=1)
+    qopts = "".join(f'<option {"selected" if x == q else ""}>{x}</option>' for x in qs)
+    sr = ""
+    low_pill = '<span class="pill s-bad">' + tt("below minimum", "bajo mínimo") + "</span>"
+    for r in rows:
+        p = pmap.get(r.part)
+        sr += (f'<tr><td><b>{UI.e(r.part)}</b><div class="small muted">{UI.e(_part_name(p, tt) if p else "")}</div></td><td>{UI.e(r.loc)}</td><td class="n">{r.opening:g}</td>'
+               f'<td class="n">{_signed(sum(r.ins.values()), "+")}</td><td class="n">{_signed(sum(r.outs.values()), "-")}</td><td class="n"><b>{r.closing:g}</b></td>'
+               f'<td class="n">{"-" if r.min_qty is None else f"{r.min_qty:g}"}</td><td>{low_pill if r.below_min else ""}</td></tr>')
+    sr = sr or f'<tr><td class="muted" colspan="8">{tt("No stock and no movements in this quarter.", "Sin inventario ni movimientos en este trimestre.")}</td></tr>'
+    rr = "".join(f'<tr><td><b>{UI.e(x.part)}</b></td><td class="n">{x.min_total:g}</td><td class="n">{x.closing_total:g}</td><td class="n">{x.transit:g}</td>'
+                 f'<td class="n"><b>{x.order_qty:g}</b></td></tr>' for x in rest) or f'<tr><td class="muted" colspan="5">{tt("No minimums set.", "Sin mínimos fijados.")}</td></tr>'
+    by_kind: Dict[str, float] = {}
+    for m in inq:
+        by_kind[m["kind"]] = by_kind.get(m["kind"], 0.0) + m["qty"]
+    mk = " · ".join(f'{UI.e(_lbl(A.MOVE_KINDS, k, tt))} <b>{v:g}</b>' for k, v in sorted(by_kind.items())) or tt("none", "ninguno")
+    issued = "".join(f'<tr><td class="small">{UI.e(m["day"])}</td><td><b>{UI.e(m["part_code"])}</b>{" · " + UI.e(m["serial"]) if m["serial"] else ""}</td><td class="n">{m["qty"]:g}</td>'
+                     f'<td>{UI.e(_site_name(rg, m["site_code"]))}</td><td class="small">{_ticket_no(c, m["ticket_id"])}</td></tr>' for m in inq if m["kind"] == "ISSUE") \
+        or f'<tr><td class="muted" colspan="5">{tt("No parts issued to sites.", "Sin salidas a sitios.")}</td></tr>'
+    damaged = [m for m in inq if m["condition"] == "damaged"]
+    dm = ("".join(f'<li>{UI.e(m["day"])} · {UI.e(m["part_code"])} {m["qty"]:g} {UI.e(m["serial"])} - {UI.e(m["note"])}</li>' for m in damaged))
+    body = (_assets_head(tt, f'{tt("Quarterly inventory report", "Reporte trimestral de inventario")} · {q}',
+                         f'{start.isoformat()} - {end.isoformat()}. ' + tt("Opening + in - out = closing for every part and location; restocking brings each part back to its minimum, counting what is in transit.",
+                                                                         "Inicial + entradas - salidas = final por refacción y ubicación; la reposición regresa cada refacción a su mínimo, contando lo que está en tránsito."))
+            + _assets_tabs("report", tt, n)
+            + f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><form method="get"><select name="q" onchange="this.form.submit()">{qopts}</select></form>'
+            f'<a class="btn ghost" href="?q={q}&fmt=xlsx">{tt("Download spreadsheet", "Descargar hoja de cálculo")}</a> <a class="btn ghost" href="?q={q}&fmt=csv">CSV</a></div>'
+            f'<div class="card"><h2>{tt("Movements in the quarter", "Movimientos del trimestre")}</h2><p>{mk}</p>'
+            + (f'<p class="small"><b>{tt("Received damaged", "Recibido dañado")}:</b> {tt("counted in stock until scrapped or returned to the supplier.", "cuenta en el inventario hasta darlo de baja o devolverlo al proveedor.")}</p><ul class="small">{dm}</ul>' if damaged else "") + "</div>"
+            f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Stock by part and location", "Inventario por refacción y ubicación")}</h2><table class="t"><tr><th>{tt("Part", "Refacción")}</th><th>{tt("Location", "Ubicación")}</th>'
+            f'<th class="n">{tt("Opening", "Inicial")}</th><th class="n">{tt("In", "Entradas")}</th><th class="n">{tt("Out", "Salidas")}</th><th class="n">{tt("Closing", "Final")}</th><th class="n">{tt("Minimum", "Mínimo")}</th><th></th></tr>{sr}</table></div>'
+            f'<div class="grid g2e" style="margin-top:16px"><div class="card"><h2>{tt("Restocking recommendation", "Recomendación de reposición")}</h2><table class="t"><tr><th>{tt("Part", "Refacción")}</th><th class="n">{tt("Minimum", "Mínimo")}</th>'
+            f'<th class="n">{tt("In warehouses", "En almacenes")}</th><th class="n">{tt("In transit", "En tránsito")}</th><th class="n">{tt("Order", "Pedir")}</th></tr>{rr}</table></div>'
+            f'<div class="card"><h2>{tt("Issued to sites", "Salidas a sitios")}</h2><table class="t">{issued}</table></div></div>')
+    return page(tt("Inventory report", "Reporte de inventario"), body, "assets")
+
+
 # ------------------------------------------------------------------ projects
 @app.get("/projects/")
 def projects():
@@ -1583,6 +2246,10 @@ def export_zip():
                         ("documents.csv", "SELECT id,site_code,folder,name,size,sha256,mime,ticket_id,uploaded_by,uploaded_utc FROM documents WHERE deleted=0"),
                         ("order_lines.csv", "SELECT * FROM order_lines"),
                         ("catalog.csv", "SELECT * FROM catalog WHERE published=1"),
+                        ("equipment.csv", "SELECT * FROM equipment"), ("warranty_claims.csv", "SELECT * FROM warranty_claims"),
+                        ("warranty_claim_events.csv", "SELECT * FROM claim_events"), ("spare_parts.csv", "SELECT * FROM parts"),
+                        ("stock_locations.csv", "SELECT * FROM stock_locations"), ("stock_minimums.csv", "SELECT * FROM stock_min"),
+                        ("stock_movements.csv", "SELECT * FROM stock_moves"),
                         ("audit.csv", "SELECT * FROM audit"), ("users.csv", "SELECT username,name,email,org,role,disabled,created_utc,last_login_utc FROM users")):
             cur = c.execute(q)
             put(name, [d[0] for d in cur.description], [list(r) for r in cur.fetchall()])
@@ -1659,6 +2326,13 @@ def main(argv: List[str]) -> int:
         c = S.connect()
         n = S.seed_catalog(c, items, "seed")
         print(f"catalogue: {n} added, {len(items) - n} already present (never overwritten)")
+        return 0
+    if len(argv) >= 3 and argv[1] == "--seed-parts":
+        with open(argv[2], encoding="utf-8") as fh:
+            items = json.load(fh)
+        c = S.connect()
+        n = A.seed_parts(c, items, "seed")
+        print(f"spare parts: {n} added, {len(items) - n} already present (never overwritten)")
         return 0
     if len(argv) >= 2 and argv[1] == "--seed-sample-tickets":
         _seed_sample_tickets()

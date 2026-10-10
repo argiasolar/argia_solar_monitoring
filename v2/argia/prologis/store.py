@@ -1,5 +1,7 @@
 """SQLite store of the Prologis platform (v292): users, sessions, audit
-log, tickets, ticket timeline, documents, project state.
+log, tickets, ticket timeline, documents, project state (v320: the
+equipment register, warranty claims and spare parts live in assets.py,
+created here by connect()).
 
 One database file per customer (ARGIA_PL_DB, default
 /opt/argia/prologis/prologis.db), separate from the ARGIA portal's
@@ -37,6 +39,8 @@ PERMS = {
     "order": {"manager", "operator", "admin"},           # v293: place service orders
     "order_work": {"operator", "admin"},                 # confirm, schedule, price quotes, complete
     "catalog_edit": {"admin"},                           # services and prices
+    "assets_edit": {"operator", "admin"},                # v320: equipment register, warranty claims, spare parts
+    "assets_ack": {"manager", "admin"},                  # v320: Prologis acknowledges a denied warranty claim
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -116,6 +120,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
     _migrate(c)
+    from argia.prologis import assets as _assets       # v320: equipment, warranty claims, spares
+    _assets.ensure(c)
     return c
 
 

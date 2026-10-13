@@ -95,7 +95,7 @@ def vault_env(tmp_path):
     (mnt / "secret.key").write_bytes(os.urandom(32))
     env = dict(os.environ, PATH=f"{shims}:{os.environ['PATH']}", SHIM_STATE=str(state),
                PL_VAULT_CONTAINER=str(tmp_path / "prologis.luks"), PL_VAULT_MAPPER_DIR=str(mapper),
-               PL_VAULT_MNT=str(mnt), PL_VAULT_PLAIN_DIR=str(tmp_path), PL_VAULT_LOG=str(tmp_path / "vault.log"),
+               PL_VAULT_MNT=str(mnt), PL_VAULT_TMP_PARENT=str(tmp_path), PL_VAULT_PLAIN_DIR=str(tmp_path), PL_VAULT_LOG=str(tmp_path / "vault.log"),
                ARGIA_BACKUP_RECIPIENTS=str(tmp_path / "recipients.txt"))
     env.pop("SSH_ORIGINAL_COMMAND", None)
     return env, state, mnt

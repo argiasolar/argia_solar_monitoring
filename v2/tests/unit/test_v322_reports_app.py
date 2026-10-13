@@ -91,7 +91,10 @@ def test_draft_is_argia_only_then_published(env):
     h = v.get(f"/reports/{prev}/").get_data(as_text=True)
     _ok(h)
     assert "Portfolio stable" in h and "DRAFT" not in h and "Publish to Prologis" not in h
-    assert "Published on time" in v.get("/reports/").get_data(as_text=True)
+    # published today: on time only up to the deadline (10 days after month end). The test used to assume on time and
+    # broke every month after the 10th; deadline_state itself is pinned to dates in test_v322_monthly_core.
+    on_time = app_mod.today_mx() <= MR.deadline(prev)
+    assert ("Published on time" if on_time else "Published late") in v.get("/reports/").get_data(as_text=True)
     wb = openpyxl.load_workbook(io.BytesIO(v.get(f"/reports/{prev}/report.xlsx").data))
     assert "Portfolio" in wb.sheetnames and wb["Sites"].max_row == 8
     s = v.get(f"/reports/{prev}/TST001/").get_data(as_text=True)

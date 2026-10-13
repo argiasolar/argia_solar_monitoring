@@ -33,6 +33,8 @@ CONTAINER="${PL_VAULT_CONTAINER:-/opt/argia/prologis.luks}"
 MAPPER="${PL_VAULT_MAPPER:-argia_prologis}"
 MAPPER_DIR="${PL_VAULT_MAPPER_DIR:-/dev/mapper}"
 MNT="${PL_VAULT_MNT:-/opt/argia/prologis}"
+# where init stages the new volume; /mnt on the server (CI runners cannot write /mnt - tests point it at a temp dir)
+TMP_PARENT="${PL_VAULT_TMP_PARENT:-/mnt}"
 SIZE="${PL_VAULT_SIZE:-4G}"
 SERVICE="${PL_VAULT_SERVICE:-argia-prologis}"
 HEALTH_URL="${PL_VAULT_HEALTH:-http://127.0.0.1:8520/healthz}"
@@ -108,7 +110,7 @@ cmd_init() {
   read_key
   local stamp tmpmnt plain step=0
   stamp="$(date +%Y%m%d%H%M%S)"
-  tmpmnt="$(mktemp -d /mnt/argia_prologis_new.XXXX)"
+  tmpmnt="$(mktemp -d "$TMP_PARENT/argia_prologis_new.XXXX")"
   plain="$PLAIN_DIR/prologis_plain_rollback_$stamp"
 
   rollback() {

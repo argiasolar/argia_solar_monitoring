@@ -29,8 +29,10 @@ except ImportError:                          # never in production; keeps the mo
     LOGO_ALT = 'ARGIA'
 
 PORTAL_HOST = 'portal.argia.com.mx'
-ENGINE_URL = 'https://engine.sprinkler.agency/engine'
-AGS_URL = 'https://sprinkler.agency/argiagoldenstandard/ARGIA_Golden_Standard_Designer_Training_WHITE.html'
+# 13 Oct 2026 (Tomasz): the engine moved to engine.argia.com.mx (v3); the Golden Standard book is served by it
+# (login first; the engine sends a browser without a session to its login page and back to the book)
+ENGINE_URL = 'https://engine.argia.com.mx/'
+AGS_URL = 'https://engine.argia.com.mx/golden-standard'
 
 # plant code -> URL slug. Static on purpose: slugs are identifiers
 # (links, mails, the auth map) and must not move when a customer

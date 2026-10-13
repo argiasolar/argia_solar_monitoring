@@ -185,8 +185,11 @@ class TestV209:
             assert f'href="{dest}"' in body or f"'{dest}'" in body, dest
 
     def test_engine_and_ags_destinations(self):
-        assert C.ENGINE_URL == "https://engine.sprinkler.agency/engine"
-        assert C.AGS_URL.startswith("https://sprinkler.agency/argiagoldenstandard/")
+        # 13 Oct 2026: both tiles point to the v3 engine; nothing on the portal may send people to the old sprinkler.agency engine
+        assert C.ENGINE_URL == "https://engine.argia.com.mx/"
+        assert C.AGS_URL == "https://engine.argia.com.mx/golden-standard"
+        for f in ("portal_chrome.py", "portal_gen.py"):
+            assert "sprinkler.agency" not in (BUNDLE / f).read_text(encoding="utf-8"), f
         src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         assert "C.redirect_page(C.ENGINE_URL" in src and "C.redirect_page(C.AGS_URL" in src
 
@@ -233,7 +236,7 @@ class TestV210:
             assert '<img class="wmlogo" src="data:image/png;base64,' in C.header(section), section
 
     def test_engine_goes_to_its_engine_path(self):
-        assert C.ENGINE_URL == "https://engine.sprinkler.agency/engine"
+        assert C.ENGINE_URL == "https://engine.argia.com.mx/"
 
     def test_folder_row_cannot_scroll(self):
         tabs_rule = C.CSS[C.CSS.index(".tabs{"):C.CSS.index("}", C.CSS.index(".tabs{"))]

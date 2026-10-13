@@ -5,6 +5,7 @@ argia-archive-month  |  *-*-02 03:00:00 America/Mexico_City  |  archive_month_pg
 argia-archive  |  *-*-* 03:00:00 America/Mexico_City  |  telemetry_archive.py
 argia-ask  |  (service)  |  ask_app.py
 argia-auth  |  (service)  |  auth_app.py
+argia-board  |  (service)  |  board_app.py
 argia-cfe-ingest  |  *-*-* 09:15:00 America/Mexico_City  |  cfe_ingest.py
 argia-cfe-push  |  *-*-* 15:45:00 UTC  |  cfe_engine_push.py
 argia-cpa-gen  |  *:4/5  |  cpa_gen.py

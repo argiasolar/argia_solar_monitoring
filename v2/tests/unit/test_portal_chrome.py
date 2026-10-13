@@ -133,7 +133,7 @@ class TestWiring:
         # setup/* and ask/ are the live apps (nginx proxies them on the portal host too)
         src = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")
         for section, (_en, _es, subs) in C.SECTIONS.items():
-            if section in ("setup", "maintenance", "finance", "projects"):   # live apps behind nginx, not generated pages
+            if section in ("setup", "maintenance", "finance", "projects", "board"):   # live apps behind nginx, not generated pages (v325: board)
                 continue
             for s, _a, _b in subs:
                 rel = f"{section}/{s + '/' if s else ''}index.html"
@@ -144,6 +144,7 @@ class TestWiring:
         assert "location /setup/ {" in snippet and "location /ask/ {" in snippet and "location /account/ {" in snippet
         assert "location /maintenance/ {" in snippet
         assert "location /finance/ {" in snippet and "location /projects/ {" in snippet   # v244 fin app
+        assert "location /board/ {" in snippet   # v325 team board app
 
     def test_nginx_vhost_and_units(self):
         conf = (BUNDLE / "portal.argia.com.mx.conf").read_text(encoding="utf-8")

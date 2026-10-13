@@ -1,0 +1,28 @@
+[Unit]
+# v325: the Solar team board (/board/) - a Kanban board for the daily
+# stand-up. nginx proxies /board/ here behind the session login; the app
+# lets in the owners (ARGIA_BOARD_EMAILS, /opt/argia/auth/board_allow.txt -
+# Tomasz only while it is private) and the members they add on the
+# Members tab, and answers 403 to everyone else. Tables board_* in
+# PostgreSQL argia_mont (created on first start, idempotent).
+Description=ARGIA team board (/board/)
+After=network.target postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_BOARD_PORT=8516
+Environment=ARGIA_BOARD_EMAILS=tomasz.zemelka@argia.com.mx
+# more owners: one e-mail or username per line in this file, read live, no restart
+Environment=ARGIA_BOARD_ALLOW=/opt/argia/auth/board_allow.txt
+ExecStart=/usr/bin/python3 /opt/argia/bundle/board_app.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

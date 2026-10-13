@@ -59,6 +59,8 @@ PREFIX_AREA = {
     # while the modules are built); nginx only asks for a session
     '/finance/': ALL,
     '/projects/': ALL,
+    # v325: the Solar team board - board_app allow-lists owners and members
+    '/board/': ALL,
     '/financial/': 'financial',
     # invoice annexes carry PPA tariffs and revenue - same audience as
     # the financial report (v155, monthly-close feature 2026-09-01)

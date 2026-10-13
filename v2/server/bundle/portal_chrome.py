@@ -68,6 +68,9 @@ SECTIONS = {
         ('', 'Today', 'Hoy'), ('ar', 'Receivables', 'Cobrar'), ('ap', 'Payables', 'Pagar'), ('suppliers', 'Suppliers', 'Proveedores'),
         ('bank', 'Bank', 'Banco'), ('pl', 'P&L', 'Resultados'), ('costs', 'Cost centres', 'Centros de costo'), ('savio', 'Savio', 'Savio'), ('exceptions', 'Exceptions', 'Excepciones')]),
     'projects': ('Projects', 'Proyectos', [('', 'Portfolio', 'Portafolio')]),
+    # v325: the Solar team board (board_app) - the landing card stays hidden
+    # unless /board/me says allowed (#tile-board gets .boardok, like .finonly)
+    'board': ('Team board', 'Tablero del equipo', [('', 'Board', 'Tablero'), ('members', 'Members', 'Miembros')]),
 }
 
 
@@ -150,6 +153,7 @@ _ICONS = {
     'maint': '<path d="M14.5 5.5a4 4 0 0 0-5.3 5.1L4 15.8V20h4.2l5.2-5.2a4 4 0 0 0 5.1-5.3l-2.6 2.6-2.2-.6-.6-2.2z"/>',
     'finance': '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>',
     'projects': '<path d="M4 5h16v4H4zM4 11h10v4H4zM4 17h13v3H4z"/>',
+    'board': '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="11" rx="1.5"/><rect x="16" y="4" width="5" height="7" rx="1.5"/>',
     'print': '<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/>',
 }
 
@@ -221,7 +225,7 @@ header.ph{background:#fff;position:sticky;top:0;z-index:40}
 .umenu .seg{margin-left:auto}.wa{padding:1px 7px;border-radius:9px;font-size:11px;font-weight:600;background:#ecebf6;color:#4f4a94}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}.seg button,.seg a,.seg span{padding:7px 12px;font:600 12.5px inherit;font-family:inherit;color:var(--muted);border:0;border-right:1px solid var(--line);background:#fff;cursor:pointer}
 .seg>*:last-child{border-right:0}.seg .active,.seg .on{background:#e6f7f5;color:var(--deep)}
-.adminonly,.askonly{display:none}.finonly{display:none!important}
+.adminonly,.askonly{display:none}.finonly{display:none!important}#tile-board:not(.boardok){display:none!important}
 /* buttons */
 .btn{background:var(--teal);color:var(--deep);border:0;border-radius:8px;padding:11px 18px;font-weight:800;font-size:13px;letter-spacing:.03em;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-family:inherit}
 .btn2{background:#fff;color:var(--ink2);border:1px solid var(--line2);border-radius:8px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-family:inherit}
@@ -475,6 +479,9 @@ window.addEventListener('DOMContentLoaded',()=>{
   /* anything marked finance-or-projects but not tagged with an area stays for full grants only */
   if(ar.length>1)document.querySelectorAll('.finonly').forEach(function(x){x.classList.remove('finonly');});
  }).catch(()=>{});
+ /* v325: the team board card, only for the people on the board */
+ fetch('/board/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
+  var tb=document.getElementById('tile-board');if(d&&d.allowed&&tb)tb.classList.add('boardok');}).catch(()=>{});
  document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();location.href='/ask/';}});
 });
 /* v271: the ARGIA Home Screen app (/app/) has no browser bar and no back button. A portal page

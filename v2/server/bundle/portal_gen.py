@@ -116,6 +116,9 @@ def landing():
          'Efectivo, cobrar, pagar, excepciones, costo por proyecto.', ''),
         ('projects', 'Projects', 'Proyectos', '/projects/', 'Portfolio, milestones, budget, POs, margin, health.',
          'Portafolio, hitos, presupuesto, OC, margen, salud.', ''),
+        # v325: hidden (#tile-board until .boardok) unless /board/me says allowed
+        ('board', 'Team board', 'Tablero del equipo', '/board/', 'Daily stand-up: tasks, owners, blockers, comments.',
+         'Daily: tareas, responsables, bloqueos, comentarios.', ''),
     ]
     cards = ''.join(f'''
    <a href="{path}" id="tile-{key}" class="card dest{f' finonly area-{key}' if key in ('finance', 'projects') else ''}" style="padding:22px 24px 18px;display:flex;flex-direction:column;gap:10px;color:var(--ink);min-height:160px">

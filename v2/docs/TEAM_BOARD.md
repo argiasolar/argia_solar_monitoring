@@ -27,6 +27,18 @@ The chips **Blocked / Overdue / Stuck** filter the board to what the
 stand-up should talk about first. The board refreshes every 30 seconds
 (never in the middle of a drag or an unsaved edit).
 
+## Attachments (v326)
+
+On an open card: **Attach files**, drag files onto the comment box, or
+**paste a screenshot (Ctrl+V)**. Files post together with the comment
+(or alone). Images and PDFs open in the browser; other files download.
+
+- Allowed: PNG, JPG, GIF, WEBP, HEIC, PDF, TXT, CSV, XLSX, DOCX, PPTX, ZIP, KMZ, DWG, MP4.
+  Not allowed: SVG/HTML/scripts, and any executable whatever its name (same magic-byte check as v324).
+- 15 MB per file, 10 files per post. Viewers may attach too (attaching is commenting).
+- Stored in `/opt/argia/board_files/<card id>/` (0700 / 0600), listed in table `board_file`.
+- Not in the nightly backup yet (same as the maintenance ticket attachments).
+
 ## Who sees it
 
 | Role | How | May |
@@ -55,5 +67,4 @@ API (JSON; every POST needs the header `X-Argia-Board: 1`):
 ## Not in v325 (on purpose)
 
 - No e-mail notifications yet (only owners use it now; add when the team joins).
-- No attachments (use a Drive link in the description or a comment).
 - No sprints or burndown: the cadence is weekly (This week column) plus the daily stand-up.

@@ -18,6 +18,8 @@ Environment=ARGIA_BOARD_PORT=8516
 Environment=ARGIA_BOARD_EMAILS=tomasz.zemelka@argia.com.mx
 # more owners: one e-mail or username per line in this file, read live, no restart
 Environment=ARGIA_BOARD_ALLOW=/opt/argia/auth/board_allow.txt
+# v326: attachments and pasted screenshots, one folder per card (0700, files 0600)
+Environment=ARGIA_BOARD_FILES=/opt/argia/board_files
 ExecStart=/usr/bin/python3 /opt/argia/bundle/board_app.py
 Restart=always
 RestartSec=3

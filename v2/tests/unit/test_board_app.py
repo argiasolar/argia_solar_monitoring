@@ -33,10 +33,10 @@ def env(tmp_path):
     allow = tmp_path / "board_allow.txt"
     allow.write_text("# owners\n", encoding="utf-8")
     b = Board(MemStore())
-    A.app.config.update(TESTING=True, BOARD=b, STAFF=lambda: STAFF, ALLOW_FILE=str(allow),
+    A.app.config.update(TESTING=True, BOARD=b, STAFF=lambda: STAFF, ALLOW_FILE=str(allow), FILES_DIR=str(tmp_path / "files"),
                         OWNER_EMAILS={"tomasz.zemelka@argia.com.mx"}, OWNER_USERS=set())
     yield A.app.test_client(), b, allow
-    for k in ("BOARD", "STAFF", "ALLOW_FILE", "OWNER_EMAILS", "OWNER_USERS"):
+    for k in ("BOARD", "STAFF", "ALLOW_FILE", "OWNER_EMAILS", "OWNER_USERS", "FILES_DIR"):
         A.app.config.pop(k, None)
 
 
@@ -156,6 +156,79 @@ def test_seed_only_for_owner_and_only_once(env):
     assert n == 9 and post(c, "/board/api/seed", "tomasz").get_json()["added"] == 0
 
 
+# ------------------------------------------------------- attachments (v326)
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+
+def upload(c, cid, user, files, body="", csrf=True):
+    import io
+    data = {"body": body, "files": [(io.BytesIO(d), n) for n, d in files]}
+    return c.post(f"/board/api/cards/{cid}/files", data=data, content_type="multipart/form-data",
+                  headers={**as_(user), **(H if csrf else {})})
+
+
+def test_paste_a_screenshot_and_download_it(env):
+    c, b, _ = env
+    cid = post(c, "/board/api/cards", "tomasz", {"title": "SAG strings"}).get_json()["card"]["id"]
+    r = upload(c, cid, "tomasz", [("screenshot-20261013-120000.png", PNG), ("scope.pdf", b"%PDF-1.4")], "Inverter 3 alarm")
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()
+    assert d["card"]["files"] == 2 and [f["filename"] for f in d["files"]] == ["screenshot-20261013-120000.png", "scope.pdf"]
+    assert d["events"][-1]["kind"] == "comment" and d["events"][-1]["body"] == "Inverter 3 alarm"
+    fid = d["files"][0]["id"]
+    g = c.get(f"/board/api/cards/{cid}/files/{fid}", headers=as_("tomasz"))
+    assert g.status_code == 200 and g.data == PNG and g.mimetype == "image/png"
+    assert "inline" in g.headers.get("Content-Disposition", "inline") and "sandbox" in g.headers["Content-Security-Policy"]
+    assert g.headers["X-Content-Type-Options"] == "nosniff"
+    # the card endpoint lists the files; the board shows the count
+    assert len(c.get(f"/board/api/cards/{cid}", headers=as_("tomasz")).get_json()["files"]) == 2
+    assert c.get("/board/api/state", headers=as_("tomasz")).get_json()["cards"][0]["files"] == 2
+
+
+def test_office_files_download_instead_of_opening(env):
+    c, _, _ = env
+    cid = post(c, "/board/api/cards", "tomasz", {"title": "x"}).get_json()["card"]["id"]
+    fid = upload(c, cid, "tomasz", [("plan.xlsx", b"PK\x03\x04")]).get_json()["files"][0]["id"]
+    g = c.get(f"/board/api/cards/{cid}/files/{fid}", headers=as_("tomasz"))
+    assert g.headers["Content-Disposition"].startswith("attachment")
+
+
+def test_upload_rules(env):
+    c, b, _ = env
+    b.s.set_member("vit", "viewer", "tomasz")
+    cid = post(c, "/board/api/cards", "tomasz", {"title": "x"}).get_json()["card"]["id"]
+    assert upload(c, cid, "tomasz", [("a.png", PNG)], csrf=False).status_code == 403
+    assert upload(c, cid, "ghost", [("a.png", PNG)]).status_code == 403
+    assert upload(c, cid, "tomasz", [("tool.exe", b"MZ")]).status_code == 400
+    assert upload(c, cid, "tomasz", [("invoice.pdf", b"MZ\x90\x00")]).status_code == 400
+    assert upload(c, cid, "tomasz", [("x.svg", b"<svg onload=alert(1)>")]).status_code == 400
+    assert upload(c, cid, "tomasz", []).status_code == 400
+    assert upload(c, 999, "tomasz", [("a.png", PNG)]).status_code == 404
+    assert upload(c, cid, "vit", [("a.png", PNG)], "viewer screenshot").status_code == 200   # viewers may attach
+    assert c.get(f"/board/api/cards/{cid}/files/999", headers=as_("tomasz")).status_code == 404
+    assert c.get(f"/board/api/cards/{cid}/files/1", headers=as_("ghost")).status_code == 403
+
+
+def test_too_large_request_is_a_json_413(env):
+    c, _, _ = env
+    cid = post(c, "/board/api/cards", "tomasz", {"title": "x"}).get_json()["card"]["id"]
+    old = A.app.config["MAX_CONTENT_LENGTH"]
+    A.app.config["MAX_CONTENT_LENGTH"] = 1000
+    try:
+        r = upload(c, cid, "tomasz", [("a.png", PNG + b"0" * 2000)])
+    finally:
+        A.app.config["MAX_CONTENT_LENGTH"] = old
+    assert r.status_code == 413 and "15 MB" in r.get_json()["error"]
+
+
+def test_page_has_the_paste_and_attach_ui(env):
+    c, _, _ = env
+    h = c.get("/board/", headers=as_("tomasz")).get_data(as_text=True)
+    assert "addEventListener('paste'" in h and "/files'" in h and "f_files" in h and "screenshot-" in h
+    # v326 regression: the drawer is a scrolling flex column - without this the title textarea shrank to a sliver
+    assert ".dbody>*{flex-shrink:0}" in A.CSS
+
+
 # -------------------------------------------------------------------- pages
 def test_board_page_is_the_portal_page_with_safe_boot_data(env):
     c, b, _ = env
@@ -183,9 +256,11 @@ def test_members_tab_only_for_owners(env):
 # ------------------------------------------------------------------- wiring
 def test_wiring_nginx_systemd_auth_tile():
     ng = (BUNDLE / "nginx-argia_session.conf").read_text(encoding="utf-8")
-    assert "location /board/ {\n    proxy_pass http://127.0.0.1:8516;" in ng and "X-Remote-User $argia_user" in ng
+    assert "location /board/ {\n    client_max_body_size 160m;" in ng and "proxy_pass http://127.0.0.1:8516;" in ng
+    assert "X-Remote-User $argia_user" in ng
     unit = (BUNDLE / "argia-board.service").read_text(encoding="utf-8")
     assert "ARGIA_BOARD_PORT=8516" in unit and "ARGIA_BOARD_EMAILS=tomasz.zemelka@argia.com.mx" in unit and "board_app.py" in unit
+    assert "ARGIA_BOARD_FILES=/opt/argia/board_files" in unit
     import auth_core
     assert auth_core.area_for_path("/board/api/state") == auth_core.ALL
     gen = (BUNDLE / "portal_gen.py").read_text(encoding="utf-8")

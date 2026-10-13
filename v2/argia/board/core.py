@@ -58,10 +58,46 @@ MAX_ORDER = 500
 
 # what each role may do; 'owner' is everything
 _RIGHTS = {
-    'viewer': {'read', 'comment', 'watch'},
+    'viewer': {'read', 'comment', 'watch'},   # comment includes attaching files (v326)
     'editor': {'read', 'comment', 'watch', 'create', 'edit', 'move', 'archive'},
     'owner': {'read', 'comment', 'watch', 'create', 'edit', 'move', 'archive', 'members', 'seed'},
 }
+
+# v326: attachments and pasted screenshots. Images show inline; everything
+# else downloads. No SVG / HTML / scripts (they could run in the portal's
+# origin), and no executable whatever its name (same magic bytes as v324).
+IMAGE_EXT = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp'}
+FILE_EXT = {'.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.zip': 'application/zip', '.kmz': 'application/vnd.google-earth.kmz', '.dwg': 'application/acad',
+            '.mp4': 'video/mp4', '.heic': 'image/heic'}
+MAX_FILE = 15 * 1024 * 1024
+MAX_FILES_PER_POST = 10
+
+
+def check_upload(filename, data: bytes):
+    """(safe filename, extension, mime, inline) or Invalid. Pure."""
+    import os
+    import re
+    name = os.path.basename(str(filename or '').replace('\\', '/')).strip()
+    name = re.sub(r'[^A-Za-z0-9._ ()+-]', '_', name)[:120].strip(' .') or 'file'
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in IMAGE_EXT and ext not in FILE_EXT:
+        raise Invalid(f'File type {ext or "(none)"} is not allowed. Images, PDF, Office, CSV, TXT, ZIP, KMZ, DWG, MP4.')
+    if not data:
+        raise Invalid(f'{name} is empty.')
+    if len(data) > MAX_FILE:
+        raise Invalid(f'{name} is larger than 15 MB.')
+    from argia.prologis.scan import executable_kind
+    kind = executable_kind(data[:8])
+    if kind:
+        raise Invalid(f'{name} is a {kind}; executables are refused.')
+    if ext in IMAGE_EXT:
+        return name, ext, IMAGE_EXT[ext], ext != '.heic'
+    return name, ext, FILE_EXT[ext], False
+
 
 EDITABLE = ('title', 'description', 'assignee', 'process', 'priority', 'due', 'blocked', 'blocked_reason')
 

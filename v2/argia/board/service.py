@@ -94,6 +94,51 @@ class Board:
         self.s.set_watcher(card_id, actor, True)
         return self.card(card_id)
 
+    def attach(self, actor: str, card_id: int, uploads, files_dir: str, body='') -> Dict:
+        """A comment with files (or files alone). ``uploads`` = [(filename, bytes)].
+        Everything is checked before anything is written; a file lands on disk
+        under files_dir/<card id>/<random>.<ext> (0600) and is registered only
+        after the write succeeded."""
+        import os
+        import uuid
+        self.card(card_id)
+        uploads = list(uploads or [])
+        if len(uploads) > C.MAX_FILES_PER_POST:
+            raise C.Invalid(f'At most {C.MAX_FILES_PER_POST} files at once.')
+        checked = [(C.check_upload(name, data), data) for name, data in uploads]
+        text = C.clean_text(body, C.MAX_COMMENT)
+        if not checked and not text:
+            raise C.Invalid('Write something or add a file first.')
+        ev = self.s.add_event(card_id, actor, 'comment' if text else 'attachment', text,
+                              {'files': [chk[0] for chk, _ in checked]} if checked else {})
+        d = os.path.join(files_dir, str(int(card_id)))
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        for (name, ext, mime, _inline), data in checked:
+            stored = uuid.uuid4().hex + ext
+            path = os.path.join(d, stored)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'wb') as fh:
+                fh.write(data)
+            self.s.add_file(card_id, ev, name, stored, len(data), mime, actor)
+        self.s.set_watcher(card_id, actor, True)
+        return self.card(card_id)
+
+    def file(self, card_id: int, file_id: int, files_dir: str):
+        """(row, absolute path) of one attachment of a live card, or NotFound."""
+        import os
+        self.card(card_id)
+        for f in self.s.files(card_id):
+            if int(f['id']) == int(file_id):
+                path = os.path.join(files_dir, str(int(card_id)), os.path.basename(f['stored_as']))
+                if not os.path.isfile(path):
+                    raise NotFound(file_id)
+                return f, path
+        raise NotFound(file_id)
+
+    def files(self, card_id: int) -> List[Dict]:
+        self.card(card_id)
+        return [{k: v for k, v in f.items() if k != 'stored_as'} for f in self.s.files(card_id)]
+
     def watch(self, actor: str, card_id: int, username: str, on: bool,
               people: Optional[Iterable[str]] = None) -> Dict:
         self.card(card_id)

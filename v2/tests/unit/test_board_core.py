@@ -80,5 +80,25 @@ def test_overdue_and_number():
     assert C.card_number(5) == 'SB-0005'
 
 
+@pytest.mark.parametrize("name,data,ok", [
+    ("shot.png", b"\x89PNG...", ("shot.png", ".png", "image/png", True)),
+    ("Photo.JPEG", b"\xff\xd8\xff", ("Photo.JPEG", ".jpeg", "image/jpeg", True)),
+    ("C:\\Users\\me\\scope v2.pdf", b"%PDF", ("scope v2.pdf", ".pdf", "application/pdf", False)),
+    ("odd<name>.csv", b"a,b", ("odd_name_.csv", ".csv", "text/csv", False)),
+    ("x.heic", b"....ftypheic", ("x.heic", ".heic", "image/heic", False)),
+])
+def test_check_upload_accepts(name, data, ok):
+    assert C.check_upload(name, data) == ok
+
+
+@pytest.mark.parametrize("name,data", [
+    ("a.exe", b"MZ"), ("a.svg", b"<svg/>"), ("a.html", b"<html>"), ("noext", b"x"), ("a.png", b""),
+    ("a.pdf", b"MZ\x90"), ("a.png", b"\x7fELF"), ("a.txt", b"#!/bin/sh"), ("a.zip", b"\xcf\xfa\xed\xfe"),
+])
+def test_check_upload_refuses(name, data):
+    with pytest.raises(C.Invalid):
+        C.check_upload(name, data)
+
+
 def test_processes_match_the_process_map():
     assert C.PROCESS_KEYS == ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'M1', 'E1', 'E2', 'E3', 'E4', 'E5']

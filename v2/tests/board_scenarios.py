@@ -139,5 +139,37 @@ def s_seed_once(b):
     assert {c['col'] for c in b.cards()} <= set(C.COL_KEYS)
 
 
+def s_attachments(b):
+    import os
+    import tempfile
+    d = tempfile.mkdtemp(prefix="board_files_")
+    c = b.create('tomasz', {'title': 'With files'}, PEOPLE)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 100
+    got = b.attach('arturo', c['id'], [("screenshot 13/10.png", png), ("../../etc/notes.pdf", b"%PDF-1.4 x")], d, 'See screenshot')
+    assert got['files'] == 2 and got['comments'] == 1 and 'arturo' in got['watchers']
+    fl = b.files(c['id'])
+    assert [f['filename'] for f in fl] == ['10.png', 'notes.pdf'] and 'stored_as' not in fl[0]
+    ev = b.history(c['id'])[-1]
+    assert ev['kind'] == 'comment' and ev['meta'] == {'files': ['10.png', 'notes.pdf']} and fl[0]['event_id'] == ev['id']
+    row, path = b.file(c['id'], fl[0]['id'], d)
+    assert open(path, 'rb').read() == png and os.path.dirname(path) == os.path.join(d, str(c['id']))
+    assert oct(os.stat(path).st_mode & 0o777) == '0o600'
+    # files alone -> an 'attachment' event
+    b.attach('tomasz', c['id'], [("plan.xlsx", b"PK\x03\x04data")], d)
+    assert b.history(c['id'])[-1]['kind'] == 'attachment' and b.card(c['id'])['files'] == 3
+    # refused before anything is written: one bad file stops the whole post
+    for bad in ([("x.exe", b"MZ..")], [("report.pdf", b"MZ\x90\x00")], [("a.svg", b"<svg/>")], [("e.png", b"")],
+                [("big.png", b"0" * (C.MAX_FILE + 1))], [("ok.png", png)] * (C.MAX_FILES_PER_POST + 1), []):
+        with pytest.raises(C.Invalid):
+            b.attach('tomasz', c['id'], bad, d, '')
+    assert b.card(c['id'])['files'] == 3 and len(os.listdir(os.path.join(d, str(c['id'])))) == 3
+    with pytest.raises(NotFound):
+        b.file(c['id'], 99999, d)
+    b.archive('tomasz', c['id'])
+    with pytest.raises(NotFound):
+        b.file(c['id'], fl[0]['id'], d)
+
+
 SCENARIOS = [s_create_and_list, s_text_survives_quoting, s_edit_records_events, s_blocked_needs_reason,
-             s_move_and_reorder, s_bad_moves_refused, s_comments_watchers_archive, s_members, s_seed_once]
+             s_move_and_reorder, s_bad_moves_refused, s_comments_watchers_archive, s_members, s_seed_once,
+             s_attachments]

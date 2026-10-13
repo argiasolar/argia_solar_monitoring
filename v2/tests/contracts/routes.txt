@@ -15,6 +15,7 @@ auth_app  POST   /logout
 auth_app  POST   /session/lang
 board_app  GET    /board/
 board_app  GET    /board/api/cards/<int:cid>
+board_app  GET    /board/api/cards/<int:cid>/files/<int:fid>
 board_app  GET    /board/api/state
 board_app  GET    /board/healthz
 board_app  GET    /board/me
@@ -23,6 +24,7 @@ board_app  POST   /board/api/cards
 board_app  POST   /board/api/cards/<int:cid>
 board_app  POST   /board/api/cards/<int:cid>/archive
 board_app  POST   /board/api/cards/<int:cid>/comment
+board_app  POST   /board/api/cards/<int:cid>/files
 board_app  POST   /board/api/cards/<int:cid>/move
 board_app  POST   /board/api/cards/<int:cid>/watch
 board_app  POST   /board/api/members

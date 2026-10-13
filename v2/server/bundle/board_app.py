@@ -30,7 +30,7 @@ import os
 import sys
 from typing import Dict, List, Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -43,7 +43,9 @@ from argia.board.service import Board, NotFound, decorate   # noqa: E402
 from argia.board.store import PgStore            # noqa: E402
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
+# v326: up to 10 files of 15 MB in one post (nginx client_max_body_size 160m for /board/)
+app.config['MAX_CONTENT_LENGTH'] = C.MAX_FILES_PER_POST * C.MAX_FILE + 1024 * 1024
+FILES_DIR = os.environ.get('ARGIA_BOARD_FILES', '/opt/argia/board_files')
 
 OWNER_EMAILS = {e.strip().lower() for e in os.environ.get('ARGIA_BOARD_EMAILS', 'tomasz.zemelka@argia.com.mx').split(',') if e.strip()}
 OWNER_USERS = {u.strip().lower() for u in os.environ.get('ARGIA_BOARD_USERS', '').split(',') if u.strip()}
@@ -200,7 +202,45 @@ def api_card(cid):
     who, err = _guard('read')
     if err:
         return err
-    return _run(lambda: jsonify({'card': _card_json(board().card(cid)), 'events': board().history(cid)}))
+    return _run(lambda: jsonify({'card': _card_json(board().card(cid)), 'events': board().history(cid),
+                                 'files': board().files(cid)}))
+
+
+def files_dir() -> str:
+    return app.config.get('FILES_DIR', FILES_DIR)
+
+
+@app.post('/board/api/cards/<int:cid>/files')
+def api_files(cid):
+    """v326: a comment with attachments (multipart: body + files). Pasted
+    screenshots arrive here as ordinary PNG files."""
+    who, err = _guard('comment', write=True)
+    if err:
+        return err
+    ups = [(f.filename, f.read()) for f in request.files.getlist('files') if f and f.filename]
+    return _run(lambda: jsonify({'card': _card_json(board().attach(who[0], cid, ups, files_dir(), request.form.get('body', ''))),
+                                 'events': board().history(cid), 'files': board().files(cid)}))
+
+
+@app.get('/board/api/cards/<int:cid>/files/<int:fid>')
+def api_file(cid, fid):
+    who, err = _guard('read')
+    if err:
+        return err
+    try:
+        row, path = board().file(cid, fid, files_dir())
+    except NotFound:
+        return _err('That file does not exist (any more).', 404)
+    inline = row['mime'] in ('image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf')
+    r = send_file(path, mimetype=row['mime'], as_attachment=not inline, download_name=row['filename'], max_age=0)
+    r.headers['X-Content-Type-Options'] = 'nosniff'
+    r.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
+    return r
+
+
+@app.errorhandler(413)
+def too_big(_e):
+    return _err('Too much at once: at most 10 files of 15 MB each.', 413)
 
 
 @app.post('/board/api/cards')
@@ -453,6 +493,12 @@ CSS = r'''
 .ev.sys{color:var(--muted);font-size:12.5px}
 .dmsg{font-size:12.5px;min-height:1em}.dmsg.bad{color:#c2554e}.dmsg.ok{color:var(--teal2)}
 .drow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dbody>*{flex-shrink:0}
+.cbox{border-radius:10px;display:flex;flex-direction:column}.cbox textarea{width:100%}.cbox.drop{outline:2px dashed var(--teal);outline-offset:3px}
+.pend{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.pchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:8px;padding:3px 4px 3px 3px;font-size:12px;max-width:100%}
+.pchip img{width:36px;height:36px;object-fit:cover;border-radius:5px}.pchip button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px}
+.atts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}.thumb img{max-width:220px;max-height:160px;border-radius:8px;border:1px solid var(--line);display:block}
+.fchip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line2);border-radius:8px;padding:5px 9px;font-size:12.5px;overflow-wrap:anywhere}
 .mtab{width:100%;border-collapse:collapse;margin-top:6px}.mtab td{padding:8px 6px;border-bottom:1px solid var(--line)}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--deep);color:#fff;padding:9px 16px;border-radius:9px;font-size:13px;z-index:90}
 .toast.bad{background:#c2554e}
@@ -530,7 +576,7 @@ function cardHtml(c,over){
  var age=(c.col!=='done'&&c.col!=='backlog'&&c.days>0)?'<span class="age '+(c.aging||'')+'" title="'+esc(tt('Days in this column','Días en esta columna'))+'">'+c.days+'d</span>':'';
  var pri=c.priority==='high'?'<span class="pri-high" title="'+esc(tt('High priority','Prioridad alta'))+'">&#9650;</span>':c.priority==='low'?'<span class="pri-low" title="'+esc(tt('Low priority','Prioridad baja'))+'">&#9660;</span>':'';
  var proc=c.process?'<span class="proc" title="'+esc(PROC[c.process]?tt(PROC[c.process].en,PROC[c.process].es):'')+'">'+esc(c.process)+'</span>':'';
- var cm=c.comments?'<span title="'+esc(tt('Comments','Comentarios'))+'">&#128172; '+c.comments+'</span>':'';
+ var cm=(c.comments?'<span title="'+esc(tt('Comments','Comentarios'))+'">&#128172; '+c.comments+'</span>':'')+(c.files?' <span title="'+esc(tt('Attachments','Adjuntos'))+'">&#128206; '+c.files+'</span>':'');
  return '<div class="bc'+(c.blocked?' blocked':'')+(over?' overwip':'')+(can('move')?'':' ro')+'" data-id="'+c.id+'" tabindex="0" role="button" aria-label="'+esc(c.number+' '+c.title)+'">'+
   '<div class="meta">'+pri+'<span class="num">'+esc(c.number)+'</span>'+proc+due+age+'</div>'+
   '<div class="t">'+esc(c.title)+'</div>'+
@@ -668,9 +714,16 @@ function closeCard(){if(dirty&&!window.confirm(tt('Discard your changes?','¿Des
 document.getElementById('dclose').onclick=closeCard;scrim.onclick=closeCard;
 function when(ts){var d=new Date(ts);if(isNaN(d))return ts;return d.toLocaleString(lang()==='es'?'es-MX':'en-GB',{timeZone:'America/Mexico_City',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}
 function colName(k){var c=COLS.filter(function(x){return x.key===k;})[0];return c?tt(c.en,c.es):k;}
+var FILES=[];
+function fsize(n){return n>1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' kB';}
+function filesHtml(e){var fs=FILES.filter(function(f){return f.event_id===e.id;});if(!fs.length)return '';
+ return '<div class="atts">'+fs.map(function(f){var u='/board/api/cards/'+open+'/files/'+f.id;
+  return /^image\/(png|jpeg|gif|webp)$/.test(f.mime)?'<a class="thumb" href="'+u+'" target="_blank" rel="noopener"><img src="'+u+'" alt="'+esc(f.filename)+'" loading="lazy"></a>'
+   :'<a class="fchip" href="'+u+'" target="_blank" rel="noopener">&#128206; '+esc(f.filename)+' <span class="muted">'+fsize(f.size)+'</span></a>';}).join('')+'</div>';}
 function evHtml(e){
  var who='<span class="who">'+esc(nm(e.actor))+'</span><span class="when">'+esc(when(e.ts))+'</span>',m=e.meta||{},t='';
- if(e.kind==='comment')return '<div class="ev">'+av(e.actor)+'<div class="bd">'+who+'<div class="txt">'+esc(e.body)+'</div></div></div>';
+ if(e.kind==='comment')return '<div class="ev">'+av(e.actor)+'<div class="bd">'+who+'<div class="txt">'+esc(e.body)+'</div>'+filesHtml(e)+'</div></div>';
+ if(e.kind==='attachment')return '<div class="ev">'+av(e.actor)+'<div class="bd">'+who+' '+esc(tt('added files','agregó archivos'))+filesHtml(e)+'</div></div>';
  if(e.kind==='created')t=tt('created the card','creó la tarjeta');
  else if(e.kind==='moved')t=tt('moved it','la movió')+': '+colName(m.from)+' &rarr; '+colName(m.to);
  else if(e.kind==='assigned')t=tt('assigned it to','la asignó a')+' '+esc(nm(m.to));
@@ -684,7 +737,13 @@ function evHtml(e){
  return '<div class="ev sys">'+av(e.actor)+'<div class="bd">'+who+' '+t+'</div></div>';
 }
 function opt(v,label,sel){return '<option value="'+esc(v)+'"'+(v===sel?' selected':'')+'>'+esc(label)+'</option>';}
-function drawCard(c,events){
+var PEND=[];
+function pendDraw(){var p=document.getElementById('pend');if(!p)return;p.innerHTML=PEND.map(function(f,i){var img=/^image\//.test(f.type)?'<img src="'+URL.createObjectURL(f)+'" alt="">':'&#128206;';return '<span class="pchip">'+img+'<span>'+esc(f.name)+' <span class="muted">'+fsize(f.size)+'</span></span><button type="button" data-unpend="'+i+'" aria-label="remove">&times;</button></span>';}).join('');
+ p.querySelectorAll('[data-unpend]').forEach(function(b){b.onclick=function(){PEND.splice(+b.dataset.unpend,1);pendDraw();};});}
+function addFiles(list){[].slice.call(list||[]).forEach(function(f){PEND.push(f);});dirty=true;pendDraw();}
+function stamp(){var d=new Date(),z=function(n){return (n<10?'0':'')+n;};return d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+z(d.getHours())+z(d.getMinutes())+z(d.getSeconds());}
+function drawCard(c,events,files){
+ FILES=files||[];PEND=[];
  var ro=!can('edit'),dis=ro?' disabled':'';
  document.getElementById('dnum').textContent=c.number+(c.days?' · '+c.days+(lang()==='es'?' días en ':' days in ')+colName(c.col):'');
  var people=opt('',tt('Unassigned','Sin asignar'),c.assignee||'')+S.people.map(function(p){return opt(p.username,p.name,c.assignee);}).join('');
@@ -709,7 +768,8 @@ function drawCard(c,events){
   '<div><div class="kicker" style="margin-bottom:6px">'+tx('Watchers','Seguidores')+'</div><div class="wlist">'+(wl||'<span class="muted">-</span>')+
    (can('watch')&&wadd?'<select id="wadd"><option value="">'+esc(tt('+ Add watcher','+ Agregar seguidor'))+'</option>'+wadd+'</select>':'')+'</div></div>'+
   '<div class="tl"><div class="kicker">'+tx('Comments and history','Comentarios e historial')+'</div>'+
-   (can('comment')?'<textarea id="f_comment" maxlength="4000" placeholder="'+esc(tt('Write a comment. Ctrl+Enter to post.','Escribe un comentario. Ctrl+Enter para publicar.'))+'" style="min-height:70px"></textarea><div class="drow"><button type="button" class="bbtn ghost" id="dcomm">'+tx('Post comment','Publicar comentario')+'</button></div>':'')+
+   (can('comment')?'<div id="cbox" class="cbox"><textarea id="f_comment" maxlength="4000" placeholder="'+esc(tt('Write a comment. Paste a screenshot (Ctrl+V) or drop files here. Ctrl+Enter to post.','Escribe un comentario. Pega una captura (Ctrl+V) o suelta archivos aquí. Ctrl+Enter para publicar.'))+'" style="min-height:70px"></textarea><div id="pend" class="pend"></div></div>'+
+    '<div class="drow"><button type="button" class="bbtn ghost" id="dcomm">'+tx('Post comment','Publicar comentario')+'</button><button type="button" class="bbtn ghost" id="dattach">&#128206; '+tx('Attach files','Adjuntar archivos')+'</button><input type="file" id="f_files" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.txt,.csv,.xlsx,.docx,.pptx,.zip,.kmz,.dwg,.mp4"></div>':'')+
    '<div id="evs">'+events.slice().reverse().map(evHtml).join('')+'</div></div>';
  dirty=false;
  ['f_title','f_assignee','f_process','f_priority','f_due','f_blocked','f_blocked_reason','f_description'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){dirty=true;});el.addEventListener('change',function(){dirty=true;});}});
@@ -717,7 +777,11 @@ function drawCard(c,events){
  var sv=document.getElementById('dsave');if(sv)sv.onclick=function(){save(c);};
  var fc=document.getElementById('f_col');if(fc)fc.onchange=function(){moveTo(c,fc.value);};
  var cm=document.getElementById('dcomm'),ct=document.getElementById('f_comment');
- if(cm){cm.onclick=function(){comment(c,ct);};ct.addEventListener('keydown',function(e){if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){comment(c,ct);}});}
+ if(cm){cm.onclick=function(){comment(c,ct);};ct.addEventListener('keydown',function(e){if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){comment(c,ct);}});
+  var fi=document.getElementById('f_files');document.getElementById('dattach').onclick=function(){fi.click();};fi.onchange=function(){addFiles(fi.files);fi.value='';};
+  dbody.addEventListener('paste',function(e){var it=(e.clipboardData&&e.clipboardData.items)||[],got=[];for(var i=0;i<it.length;i++){if(it[i].kind==='file'){var f=it[i].getAsFile();if(f){var ext=(f.type.split('/')[1]||'png').replace('jpeg','jpg');got.push(new File([f],/^image\//.test(f.type)&&(!f.name||f.name==='image.png')?'screenshot-'+stamp()+'.'+ext:f.name,{type:f.type}));}}}if(got.length){e.preventDefault();addFiles(got);ct.focus();}});
+  var cb=document.getElementById('cbox');['dragenter','dragover'].forEach(function(k){cb.addEventListener(k,function(e){e.preventDefault();cb.classList.add('drop');});});['dragleave','drop'].forEach(function(k){cb.addEventListener(k,function(e){e.preventDefault();cb.classList.remove('drop');});});
+  cb.addEventListener('drop',function(e){if(e.dataTransfer&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files);});}
  var wa=document.getElementById('wadd');if(wa)wa.onchange=function(){if(wa.value)watch(c,wa.value,true);};
  dbody.querySelectorAll('[data-unwatch]').forEach(function(b){b.onclick=function(){watch(c,b.dataset.unwatch,false);};});
  var ar=document.getElementById('darch');if(ar)ar.onclick=function(){
@@ -726,7 +790,7 @@ function drawCard(c,events){
 }
 function openCard(id){
  open=id;drawer.hidden=false;scrim.hidden=false;dbody.innerHTML='<div class="muted">...</div>';
- api('GET','/board/api/cards/'+id).then(function(d){if(open!==id)return;upsert(d.card);drawCard(d.card,d.events);}).catch(function(x){toast(x.message,true);closeCard();});
+ api('GET','/board/api/cards/'+id).then(function(d){if(open!==id)return;upsert(d.card);drawCard(d.card,d.events,d.files);}).catch(function(x){toast(x.message,true);closeCard();});
 }
 function msg(t,bad){var m=document.getElementById('dmsg');if(m){m.className='dmsg '+(bad?'bad':'ok');m.textContent=t;}}
 function save(c){
@@ -740,8 +804,14 @@ function moveTo(c,col){
  var order=sorted(S.cards.filter(function(x){return x.col===col&&x.id!==c.id;})).map(function(x){return x.id;});order.push(c.id);
  api('POST','/board/api/cards/'+c.id+'/move',{col:col,order:order}).then(function(d){upsert(d.card);render();openCard(c.id);}).catch(function(x){msg(x.message,true);});
 }
-function comment(c,ta){var v=ta.value.trim();if(!v)return;ta.disabled=true;
- api('POST','/board/api/cards/'+c.id+'/comment',{body:v}).then(function(d){upsert(d.card);render();var keep=dirty;drawCard(d.card,d.events);dirty=keep;}).catch(function(x){ta.disabled=false;toast(x.message,true);});}
+function comment(c,ta){var v=ta.value.trim();if(!v&&!PEND.length)return;ta.disabled=true;
+ var done=function(d){upsert(d.card);render();PEND=[];var keep=false;drawCard(d.card,d.events,d.files);dirty=keep;};
+ if(!PEND.length){api('POST','/board/api/cards/'+c.id+'/comment',{body:v}).then(function(d){d.files=FILES;done(d);}).catch(function(x){ta.disabled=false;toast(x.message,true);});return;}
+ var fd=new FormData();fd.append('body',v);PEND.forEach(function(f){fd.append('files',f,f.name);});
+ document.getElementById('dcomm').disabled=true;
+ fetch('/board/api/cards/'+c.id+'/files',{method:'POST',credentials:'same-origin',headers:{'X-Argia-Board':'1'},body:fd})
+  .then(function(r){return r.json().catch(function(){return {};}).then(function(d){if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;});})
+  .then(done).catch(function(x){ta.disabled=false;var b=document.getElementById('dcomm');if(b)b.disabled=false;toast(x.message,true);});}
 function watch(c,u,on){api('POST','/board/api/cards/'+c.id+'/watch',{username:u,on:on}).then(function(d){upsert(d.card);openCard(c.id);}).catch(function(x){toast(x.message,true);});}
 
 /* keep the board fresh for the stand-up screen: every 30 s, never mid-drag or mid-edit */

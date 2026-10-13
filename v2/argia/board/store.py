@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS board_event (
     meta    jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS idx_board_event_card ON board_event (card_id, ts);
+CREATE TABLE IF NOT EXISTS board_file (
+    id          serial PRIMARY KEY,
+    card_id     int  NOT NULL REFERENCES board_card(id) ON DELETE CASCADE,
+    event_id    int  REFERENCES board_event(id) ON DELETE SET NULL,
+    filename    text NOT NULL,
+    stored_as   text NOT NULL,
+    size        int  NOT NULL,
+    mime        text NOT NULL,
+    uploaded_by text NOT NULL DEFAULT '',
+    ts          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_board_file_card ON board_file (card_id);
 CREATE TABLE IF NOT EXISTS board_member (
     username text PRIMARY KEY,
     role     text NOT NULL CHECK (role IN ('editor','viewer')),
@@ -91,7 +103,8 @@ _CARD_SELECT = ("SELECT c.id, c.title, c.description, c.col, c.position, c.assig
                 " c.due, c.blocked, c.blocked_reason, c.archived, c.created_by, c.created_at, c.updated_at,"
                 " c.col_since, c.done_at,"
                 " (SELECT coalesce(json_agg(w.username ORDER BY w.username), '[]'::json) FROM board_watcher w WHERE w.card_id = c.id) AS watchers,"
-                " (SELECT count(*) FROM board_event e WHERE e.card_id = c.id AND e.kind = 'comment') AS comments"
+                " (SELECT count(*) FROM board_event e WHERE e.card_id = c.id AND e.kind = 'comment') AS comments,"
+                " (SELECT count(*) FROM board_file f WHERE f.card_id = c.id) AS files"
                 " FROM board_card c")
 
 
@@ -155,9 +168,19 @@ class PgStore:
         stmts.append('COMMIT;')
         self._run('\n'.join(stmts))
 
-    def add_event(self, card_id: int, actor: str, kind: str, body: str = '', meta: Optional[Dict] = None) -> None:
-        self._run(f"INSERT INTO board_event (card_id, actor, kind, body, meta) VALUES ({int(card_id)}, {q(actor)},"
-                  f" {q(kind)}, {q(body or '')}, {q(json.dumps(meta or {}, ensure_ascii=False))}::jsonb);")
+    def add_event(self, card_id: int, actor: str, kind: str, body: str = '', meta: Optional[Dict] = None) -> int:
+        out = self._run(f"INSERT INTO board_event (card_id, actor, kind, body, meta) VALUES ({int(card_id)}, {q(actor)},"
+                        f" {q(kind)}, {q(body or '')}, {q(json.dumps(meta or {}, ensure_ascii=False))}::jsonb) RETURNING id;")
+        return int(out.strip().splitlines()[0])
+
+    def add_file(self, card_id: int, event_id: int, filename: str, stored_as: str, size: int, mime: str, actor: str) -> int:
+        out = self._run(f"INSERT INTO board_file (card_id, event_id, filename, stored_as, size, mime, uploaded_by) VALUES"
+                        f" ({int(card_id)}, {int(event_id)}, {q(filename)}, {q(stored_as)}, {int(size)}, {q(mime)}, {q(actor)}) RETURNING id;")
+        return int(out.strip().splitlines()[0])
+
+    def files(self, card_id: int) -> List[Dict]:
+        return self._list(f"SELECT id, event_id, filename, stored_as, size, mime, uploaded_by, ts FROM board_file"
+                          f" WHERE card_id = {int(card_id)} ORDER BY id")
 
     def events(self, card_id: int) -> List[Dict]:
         return self._list(f"SELECT id, ts, actor, kind, body, meta FROM board_event WHERE card_id = {int(card_id)} ORDER BY ts, id")
@@ -188,6 +211,8 @@ class MemStore:
         self.watchers: set = set()
         self.ev: List[Dict] = []
         self.mem: Dict[str, Dict] = {}
+        self.fl: List[Dict] = []
+        self._fid = 0
         self._id = 0
         self._eid = 0
         self.clock: Optional[Callable[[], str]] = None
@@ -202,6 +227,7 @@ class MemStore:
         r = copy.deepcopy(c)
         r['watchers'] = sorted(u for cid, u in self.watchers if cid == c['id'])
         r['comments'] = sum(1 for e in self.ev if e['card_id'] == c['id'] and e['kind'] == 'comment')
+        r['files'] = sum(1 for f in self.fl if f['card_id'] == c['id'])
         return r
 
     def list_cards(self, done_window_days: int) -> List[Dict]:
@@ -253,10 +279,20 @@ class MemStore:
             if o and o['col'] == col:
                 o['position'] = float(i + 1)
 
-    def add_event(self, card_id: int, actor: str, kind: str, body: str = '', meta: Optional[Dict] = None) -> None:
+    def add_event(self, card_id: int, actor: str, kind: str, body: str = '', meta: Optional[Dict] = None) -> int:
         self._eid += 1
         self.ev.append({'id': self._eid, 'card_id': int(card_id), 'ts': self._ts(), 'actor': actor, 'kind': kind,
                         'body': body or '', 'meta': copy.deepcopy(meta or {})})
+        return self._eid
+
+    def add_file(self, card_id: int, event_id: int, filename: str, stored_as: str, size: int, mime: str, actor: str) -> int:
+        self._fid += 1
+        self.fl.append({'id': self._fid, 'card_id': int(card_id), 'event_id': int(event_id), 'filename': filename,
+                        'stored_as': stored_as, 'size': int(size), 'mime': mime, 'uploaded_by': actor, 'ts': self._ts()})
+        return self._fid
+
+    def files(self, card_id: int) -> List[Dict]:
+        return [{k: v for k, v in f.items() if k != 'card_id'} for f in self.fl if f['card_id'] == int(card_id)]
 
     def events(self, card_id: int) -> List[Dict]:
         return [{k: v for k, v in e.items() if k != 'card_id'} for e in self.ev if e['card_id'] == int(card_id)]

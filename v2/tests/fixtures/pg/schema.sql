@@ -2160,3 +2160,130 @@ CREATE VIEW demo.loss_daily AS
    FROM ((public.loss_daily l
      JOIN public.plant p ON ((p.plant_key = l.plant_key)))
      LEFT JOIN demo.ppa_tariff_month m ON (((m.year = (EXTRACT(year FROM l.prod_date))::integer) AND (m.month = (EXTRACT(month FROM l.prod_date))::integer))));
+
+-- v326 (2026-10-13): the team board tables, from pg_dump on pio06 (board_card, board_event, board_file, board_member, board_watcher)
+CREATE TABLE public.board_card (
+    id integer NOT NULL,
+    title text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    col text DEFAULT 'backlog'::text NOT NULL,
+    "position" double precision DEFAULT 0 NOT NULL,
+    assignee text DEFAULT ''::text NOT NULL,
+    process text DEFAULT ''::text NOT NULL,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    due date,
+    blocked boolean DEFAULT false NOT NULL,
+    blocked_reason text DEFAULT ''::text NOT NULL,
+    archived boolean DEFAULT false NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    col_since timestamp with time zone DEFAULT now() NOT NULL,
+    done_at timestamp with time zone,
+    CONSTRAINT board_card_col_check CHECK ((col = ANY (ARRAY['backlog'::text, 'todo'::text, 'doing'::text, 'review'::text, 'done'::text]))),
+    CONSTRAINT board_card_priority_check CHECK ((priority = ANY (ARRAY['high'::text, 'normal'::text, 'low'::text])))
+);
+
+CREATE SEQUENCE public.board_card_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.board_card_id_seq OWNED BY public.board_card.id;
+
+CREATE TABLE public.board_event (
+    id integer NOT NULL,
+    card_id integer NOT NULL,
+    ts timestamp with time zone DEFAULT now() NOT NULL,
+    actor text DEFAULT ''::text NOT NULL,
+    kind text NOT NULL,
+    body text DEFAULT ''::text NOT NULL,
+    meta jsonb DEFAULT '{}'::jsonb NOT NULL
+);
+
+CREATE SEQUENCE public.board_event_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.board_event_id_seq OWNED BY public.board_event.id;
+
+CREATE TABLE public.board_file (
+    id integer NOT NULL,
+    card_id integer NOT NULL,
+    event_id integer,
+    filename text NOT NULL,
+    stored_as text NOT NULL,
+    size integer NOT NULL,
+    mime text NOT NULL,
+    uploaded_by text DEFAULT ''::text NOT NULL,
+    ts timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE SEQUENCE public.board_file_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.board_file_id_seq OWNED BY public.board_file.id;
+
+CREATE TABLE public.board_member (
+    username text NOT NULL,
+    role text NOT NULL,
+    added_by text DEFAULT ''::text NOT NULL,
+    added_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT board_member_role_check CHECK ((role = ANY (ARRAY['editor'::text, 'viewer'::text])))
+);
+
+CREATE TABLE public.board_watcher (
+    card_id integer NOT NULL,
+    username text NOT NULL
+);
+
+ALTER TABLE ONLY public.board_card ALTER COLUMN id SET DEFAULT nextval('public.board_card_id_seq'::regclass);
+
+ALTER TABLE ONLY public.board_event ALTER COLUMN id SET DEFAULT nextval('public.board_event_id_seq'::regclass);
+
+ALTER TABLE ONLY public.board_file ALTER COLUMN id SET DEFAULT nextval('public.board_file_id_seq'::regclass);
+
+ALTER TABLE ONLY public.board_card
+    ADD CONSTRAINT board_card_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.board_event
+    ADD CONSTRAINT board_event_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.board_file
+    ADD CONSTRAINT board_file_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.board_member
+    ADD CONSTRAINT board_member_pkey PRIMARY KEY (username);
+
+ALTER TABLE ONLY public.board_watcher
+    ADD CONSTRAINT board_watcher_pkey PRIMARY KEY (card_id, username);
+
+CREATE INDEX idx_board_card_col ON public.board_card USING btree (archived, col, "position");
+
+CREATE INDEX idx_board_event_card ON public.board_event USING btree (card_id, ts);
+
+CREATE INDEX idx_board_file_card ON public.board_file USING btree (card_id);
+
+ALTER TABLE ONLY public.board_event
+    ADD CONSTRAINT board_event_card_id_fkey FOREIGN KEY (card_id) REFERENCES public.board_card(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.board_file
+    ADD CONSTRAINT board_file_card_id_fkey FOREIGN KEY (card_id) REFERENCES public.board_card(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.board_file
+    ADD CONSTRAINT board_file_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.board_event(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.board_watcher
+    ADD CONSTRAINT board_watcher_card_id_fkey FOREIGN KEY (card_id) REFERENCES public.board_card(id) ON DELETE CASCADE;

@@ -254,9 +254,16 @@ class TestDailySummary:
         assert gto["status"] == "maintenance" and gto["cls"] == "warn"
 
     def test_critical_alert_flags_plant(self):
-        d = _mkdata(alerts=[("recon-fail:GTO1:2026-09-01", "CRITICAL")])
+        d = _mkdata(alerts=[("inverter_relative:GTO1:SN2", "CRITICAL")])
         gto = [r for r in d["rows"] if r["key"] == "GTO1"][0]
         assert gto["status"] == "issues" and gto["cls"] == "bad"
+
+    def test_internal_critical_does_not_flag_plant(self):
+        # v327: recon-fail is the administrator's (not listed in this mail),
+        # so it must not mark the plant either
+        d = _mkdata(alerts=[("recon-fail:GTO1:2026-09-01", "CRITICAL")])
+        gto = [r for r in d["rows"] if r["key"] == "GTO1"][0]
+        assert gto["status"] != "issues" and gto["cls"] != "bad"
 
     def test_issues_keep_ppa_plants_only(self):
         # v217: infrastructure is the administrator's (alert mailer), not

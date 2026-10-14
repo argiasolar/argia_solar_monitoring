@@ -328,12 +328,18 @@ class TestServerBackup:
 # ------------------------------------------------------------------ Pi pull
 def pull_env(tmp_path, served: pathlib.Path, recipients=None):
     sftp = tmp_path / "fake_sftp"
+    # v327: behaves like OpenSSH sftp reading commands from stdin - a missing
+    # remote file is reported on stderr and the exit code is still 0 (the
+    # v319 fake exited 1, which hid the bug that stopped the pulls 9-13 Oct);
+    # only an unreachable server (no served dir) exits non-zero
     sftp.write_text(f'''#!/bin/bash
+[ -d "{served}" ] || {{ echo "ssh: connect to host: Connection timed out" >&2; exit 255; }}
 while read -r verb src dst; do
   [ "$verb" = get ] || continue
   case "$src" in *\\**) for f in {served}/$src; do [ -f "$f" ] && cp "$f" "$dst"; done ;;
-    *) [ -f "{served}/$src" ] || exit 1; cp "{served}/$src" "$dst" ;; esac
+    *) if [ -f "{served}/$src" ]; then cp "{served}/$src" "$dst"; else echo "File $src not found." >&2; fi ;; esac
 done
+exit 0
 ''')
     sftp.chmod(0o755)
     home = tmp_path / "home"
@@ -376,6 +382,26 @@ class TestPiPull:
         r = run_pull(penv)
         assert r.returncode == 1 and "does not match the server manifest" in r.stdout
         assert not list((base / "daily").glob("argia_mont_*"))
+
+    def test_plain_backups_pull_when_no_sealed_file_exists(self, tmp_path):
+        """v327 regression: the server has no .age files until the keys are set
+        up; real sftp exits 0 for the missing .age, so the pull must look at
+        the file, not the exit code (9-13 Oct: 'age file without the age header')."""
+        env, out, fake = backup_env(tmp_path)
+        assert run_backup(env).returncode == 0
+        assert not list(out.glob("*.age"))
+        penv, base = pull_env(tmp_path, out)
+        r = run_pull(penv)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "age header" not in r.stdout and "pull OK argia_mont_20261010.dump (" in r.stdout
+        assert (base / "daily" / "argia_mont_20261010.dump").read_bytes() == fake.read_bytes()
+        assert (base / "daily" / "users_20261010.db").exists()
+
+    def test_an_unreachable_server_is_reported_as_such(self, tmp_path):
+        penv, base = pull_env(tmp_path, tmp_path / "no_such_server")
+        r = run_pull(penv)
+        assert r.returncode == 1 and "backup pull FAILED (sftp)" in r.stdout
+        assert not list((base / "daily").glob("*"))
 
     def test_plain_backups_still_pull_and_old_copies_are_sealed_when_keys_exist(self, tmp_path):
         ids, pubs = identities(tmp_path, 1)

@@ -619,8 +619,13 @@ def summarize(plants, today_map, inv_counts, yday_map, mtd_map,
         inv_total = inv_counts.get(key, 0)
         mtd_kwh, paired, exp = mtd_map.get(key, (0.0, 0.0, 0.0))
         vs_exp = 100.0 * paired / exp if exp > 0 else None
+        # v327: internal flags (sensor drift, reconciliation, failed jobs) are the
+        # administrator's and are not listed in this mail (v217) - so they must
+        # not turn a plant to "check" either: on 13 Oct three plants read
+        # "check" with nothing under Open issues, all from satellite-drift
         plant_alerts = [(a[0], a[1]) for a in alerts
-                        if subscriptions.alert_plant(a[0]) == key]
+                        if subscriptions.alert_plant(a[0]) == key
+                        and not subscriptions.is_internal(a[0])]
         if key in maint:
             status, cls = "maintenance", "warn"
         elif kwh <= 0.0:

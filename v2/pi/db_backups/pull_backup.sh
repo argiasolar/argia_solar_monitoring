@@ -42,10 +42,17 @@ alert() {
   echo "$(date -Is) ALERT: $1"
 }
 
-get() {  # get REMOTE LOCAL - one sftp fetch, quiet
+get() {  # get REMOTE LOCAL - one sftp fetch, quiet; true only when the file arrived
+  # v327: OpenSSH sftp reading commands from stdin exits 0 even when the
+  # remote file does not exist - so the exit code alone said "got
+  # argia_mont_latest.dump.age" (not there before the keys are set up), the
+  # header check then failed and no backup was kept from 9 to 13 Oct. The
+  # file itself is the proof: removed first, non-empty after.
+  rm -f "$2"
   "$SFTP" -q -i "$KEY" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=25 "$SRV" >/dev/null 2>&1 <<EOF
 get $1 $2
 EOF
+  [ -s "$2" ]
 }
 
 is_sealed() { head -c 21 "$1" 2>/dev/null | grep -q "age-encryption.org/v1"; }

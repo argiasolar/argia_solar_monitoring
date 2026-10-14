@@ -183,6 +183,20 @@ class TestEveningMail:
         return dpm, dpm.summarize(plants, {"NL1": (3000.0, 5.0, 4), "MEX1": (2400.0, 5.0, 6)}, {"NL1": 4, "MEX1": 6},
                                   {}, {}, alerts, [], dt.date(2026, 10, 2), "19:00")
 
+    def test_internal_flags_do_not_make_a_plant_need_attention(self):
+        """v327: 13 Oct - Vitalmex, Quimica Coyoacan and Holiday Inn read
+        'check' with no open issue listed: satellite-drift (pyranometer vs
+        satellite) is an administrator flag, not a plant problem."""
+        dpm, d = self._data([("satellite-drift:NL1", "WARNING", None, None),
+                             ("recon-fail:NL1:2026-10-01", "WARNING", None, None),
+                             ("satellite-drift:MEX1", "WARNING", None, None),
+                             ("inverter_relative:MEX1:SN2", "WARNING", None, {"message": "76% of peers"})])
+        rows = {r["key"]: r for r in d["rows"]}
+        assert rows["NL1"]["status"] == "OK"
+        assert rows["MEX1"]["status"] == "check"                           # a real inverter warning still counts
+        assert dpm.mail_subject(d).endswith("1 plant(s) need attention")
+        assert len(d["issues"]) == 1
+
     def test_ticketed_issues_are_not_repeated_the_plant_names_the_ticket(self):
         t = {"message": "derating", "ticket": "In hand: TK-NL1-0001 · In progress", "ticket_no": "TK-NL1-0001"}
         alerts = [("inverter_temp_high:NL1:SN1", "CRITICAL", None, t),

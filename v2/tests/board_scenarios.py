@@ -153,7 +153,8 @@ def s_attachments(b):
     assert ev['kind'] == 'comment' and ev['meta'] == {'files': ['10.png', 'notes.pdf']} and fl[0]['event_id'] == ev['id']
     row, path = b.file(c['id'], fl[0]['id'], d)
     assert open(path, 'rb').read() == png and os.path.dirname(path) == os.path.join(d, str(c['id']))
-    assert oct(os.stat(path).st_mode & 0o777) == '0o600'
+    if os.name != "nt":                    # v327: Windows has no POSIX modes (laptop gate)
+        assert oct(os.stat(path).st_mode & 0o777) == '0o600'
     # files alone -> an 'attachment' event
     b.attach('tomasz', c['id'], [("plan.xlsx", b"PK\x03\x04data")], d)
     assert b.history(c['id'])[-1]['kind'] == 'attachment' and b.card(c['id'])['files'] == 3

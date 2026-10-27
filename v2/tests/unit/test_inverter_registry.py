@@ -15,7 +15,7 @@ V2 = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(V2 / "scripts"))
 import inverter_registry as IR  # noqa: E402
 
-FLEET = {"GTO1", "GTO2", "MEX1", "MEX2", "MEX3", "NL1", "NL2", "QRO1", "SLP1", "SLP2", "TAM1"}
+FLEET = {"GTO1", "GTO2", "GTO3", "MEX1", "MEX2", "MEX3", "NL1", "NL2", "QRO1", "SLP1", "SLP2", "SLP3", "TAM1"}
 
 
 @pytest.fixture(scope="module")

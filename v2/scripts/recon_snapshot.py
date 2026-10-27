@@ -21,6 +21,7 @@ import sys
 from typing import Dict, List, Optional, Set, Tuple
 
 from argia.core.config import PlantConfig, load_portfolio
+from argia.core.normalize import growatt_site_ids
 from argia.core.sheets import open_sheets
 from argia.core.time_utils import MX_TZ
 from argia.recon import backfill as B
@@ -94,14 +95,17 @@ def snap_growatt(plants: List[PlantConfig], snap_date: str
                                   None, None, None, f"login failed: {e}")
                 for p in plants]
     for p in plants:
-        pid = (p.site_id or p.weather_plant_id or "").strip()
-        if not pid:
+        # v328: one monitored plant may be several Growatt plants
+        # (site_id "id1,id2") - its counters are the sum of the parts
+        pids = growatt_site_ids(p.site_id or p.weather_plant_id or "")
+        if not pids:
             out.append(C.CounterSnapshot(p.plant_key, "GROWATT", snap_date,
                                          None, None, None, "no plant id"))
             continue
         try:
-            day, month, life = C.growatt_counters(
-                client.get_max_total_data(pid))
+            day, month, life = C.sum_counters(
+                [C.growatt_counters(client.get_max_total_data(pid))
+                 for pid in pids])
             out.append(C.CounterSnapshot(p.plant_key, "GROWATT", snap_date,
                                          day, month, life))
         except Exception as e:  # noqa: BLE001

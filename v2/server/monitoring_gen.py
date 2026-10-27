@@ -132,6 +132,11 @@ REF_LINKS = {
             'ARGIA_SOLAR_ref_Tetra_Pak_ES.pdf',
     'TAM1': '/monitoring/assets/refs/'
             'ARGIA_ref_Ryder_Nuevo_Laredo_ES.pdf',
+    # v328: Teneria Panamericana and Holiday Inn Quijote, both languages
+    'GTO3': '/monitoring/assets/refs/'
+            'ARGIA_ref_Teneria_Panamericana_Leon_ES.pdf',
+    'SLP3': '/monitoring/assets/refs/'
+            'ARGIA_ref_Holiday_Inn_Quijote_SLP_ES.pdf',
     'GTO1': 'https://argia.com.mx/es/references/-guanajuato-taigene',
     'GTO2': 'https://argia.com.mx/es/references/'
             '-san-miguel-de-allende-hirschmann-automotive',

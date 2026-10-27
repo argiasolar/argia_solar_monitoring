@@ -33,7 +33,7 @@ except Exception:  # noqa: BLE001
 OUTROOT = sys.argv[1] if len(sys.argv) > 1 else '/www/hosting/portal.argia.com.mx/www'   # v214: the portal root
 DB = 'argia_mont'
 PPA = ['GTO1', 'MEX1', 'MEX2', 'NL1', 'SLP1', 'SLP2']
-CAPEX = ['GTO2', 'QRO1', 'NL2', 'MEX3', 'TAM1']
+CAPEX = ['GTO2', 'QRO1', 'NL2', 'MEX3', 'TAM1', 'GTO3', 'SLP3']
 LAAS = ['LGTO1', 'LOAX1']
 FX_FALLBACK = 17.98  # projected USD/MXN per v1 NOTES
 
@@ -73,6 +73,10 @@ plants = {r[0]: {'customer': r[1], 'brand': r[2], 'kwp': f(r[3]), 'portfolio': r
                      "coalesce(tariff_mxn_per_kwh,0), coalesce(om_cost_monthly_mxn,0), "
                      "coalesce(pr_baseline,0), coalesce(investment_mxn,0), "
                      "coalesce(sla_target,0) FROM plant;")}
+# v328: a plant listed here but not (yet) in the plant table is left out,
+# never a KeyError that stops every page (code ships before the plant row)
+PPA[:] = [k for k in PPA if k in plants]
+CAPEX[:] = [k for k in CAPEX if k in plants]
 
 # v288: demo.argia.com.mx (demo_gen / demo_annexes set ARGIA_INSTANCE=demo)
 # reads the demo views, where every plant is PPA: the fleet lists follow the

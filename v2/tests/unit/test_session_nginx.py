@@ -131,10 +131,10 @@ class TestTheWayIn:
 
 
 class TestEveryProtectedPathStillServes:
-    def test_all_eleven_plants_have_a_location(self):
+    def test_all_thirteen_plants_have_a_location(self):
         locs = locations(NEW)
         for p in ("gto1", "mex1", "mex2", "nl1", "slp1", "slp2",
-                  "gto2", "qro1", "nl2", "mex3", "tam1"):
+                  "gto2", "qro1", "nl2", "mex3", "tam1", "gto3", "slp3"):
             assert f"/{p}/" in locs, p
 
     def test_the_shared_areas_have_a_location(self):
@@ -150,7 +150,7 @@ class TestEveryProtectedPathStillServes:
         # service, so they need no location of their own any more
         folded = {"/monitoring/gto2/", "/monitoring/qro1/",
                   "/monitoring/nl2/", "/monitoring/mex3/",
-                  "/monitoring/tam1/",
+                  "/monitoring/tam1/", "/monitoring/gto3/", "/monitoring/slp3/",
                   "/monitoring/capex/", "/monitoring/assets/"}
         assert (old - new) <= folded, f"dropped: {(old - new) - folded}"
 

@@ -64,7 +64,7 @@ PORTFOLIOS_ENV = "ARGIA_MAIL_PORTFOLIOS"
 DEFAULT_PORTFOLIOS = "PPA"
 """v204 (Tomasz 2026-09-05: "exclude the CAPEX plants from the mailing
 lists"): alerts about a plant are mailed only when its portfolio is in
-this comma list. CAPEX plants (GTO2, QRO1, NL2, MEX3, TAM1) stay in the
+this comma list. CAPEX plants (GTO2, QRO1, NL2, MEX3, TAM1, GTO3, SLP3) stay in the
 ledger and on the portal; nobody is paged about them. Infrastructure
 alerts and the PORTFOLIO digest are not plant alerts and always pass."""
 

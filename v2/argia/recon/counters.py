@@ -52,6 +52,22 @@ def growatt_counters(fixture_or_response: Any
     return total.e_today_kwh, None, total.e_total_kwh
 
 
+def sum_counters(parts: Sequence[Tuple[Optional[float], Optional[float],
+                                       Optional[float]]]
+                 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """v328: (daily, monthly, lifetime) of a plant spread over several
+    vendor plants = the field-wise sum of its parts. A field is None as
+    soon as one part lacks it - a partial sum would read as lost energy."""
+    if not parts:
+        return None, None, None
+    out = []
+    for i in range(3):
+        vals = [p[i] for p in parts]
+        out.append(None if any(v is None for v in vals)
+                   else round(sum(vals), 3))
+    return out[0], out[1], out[2]
+
+
 # ---------------------------------------------------------------------------
 # Huawei - one getStationRealKpi item's dataItemMap.
 # ---------------------------------------------------------------------------

@@ -47,8 +47,35 @@ def months_between(d0: dt.date, d1: dt.date):
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
 
+def sum_captures(caps: list) -> dict:
+    """v328: one capture from several (same keys, element-wise sum) - a
+    project Growatt shows as two plants. A day one part does not know
+    (None) stays unknown in the sum."""
+    if len(caps) == 1:
+        return caps[0]
+    out: dict = {}
+    for k in caps[0]:
+        if k == "captured_utc":
+            continue
+        rows = [c[k] for c in caps]
+        n = max(len(r) for r in rows)
+        out[k] = []
+        for i in range(n):
+            vals = [r[i] if i < len(r) else 0.0 for r in rows]
+            out[k].append(None if any(v is None for v in vals)
+                          else round(sum(float(v) for v in vals), 3))
+    out["captured_utc"] = max(c.get("captured_utc", "") for c in caps)
+    return out
+
+
 def fetch_growatt_capture(site_id: str, d0: dt.date, d1: dt.date) -> dict:
-    """{'YYYY-MM': [day kWh...], 'year_YYYY': [12 month kWh], 'captured_utc'}."""
+    """{'YYYY-MM': [day kWh...], 'year_YYYY': [12 month kWh], 'captured_utc'}.
+    v328: ``site_id`` may list several Growatt plants ("id1,id2"); the
+    capture is then their sum."""
+    from argia.core.normalize import growatt_site_ids
+    ids = growatt_site_ids(site_id)
+    if len(ids) > 1:
+        return sum_captures([fetch_growatt_capture(i, d0, d1) for i in ids])
     from argia.vendors.growatt_web import GrowattWebClient
     from argia.vendors.growatt_web_parser import parse_energy_series
     user = os.environ.get("GROWATT_USERNAME", "").strip()

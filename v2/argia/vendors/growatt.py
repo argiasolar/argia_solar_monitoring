@@ -33,6 +33,7 @@ separate concern handled by argia.meteo.growatt_irradiance (stage 4).
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import logging
 import time
@@ -41,7 +42,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from argia.core.config import InverterConfig, PlantConfig
-from argia.core.normalize import normalize_sn, pick, safe_float
+from argia.core.normalize import growatt_site_ids, normalize_sn, pick, safe_float
 from argia.core.time_utils import MX_TZ, now_utc
 from argia.vendors.base import InverterSnapshot, normalize_status
 from argia.vendors.growatt_web import (
@@ -123,7 +124,25 @@ class GrowattClient:
         Returns None on any failure (orchestrator treats None as
         per-plant error and writes PARTIAL status - see test_orchestrator
         regression for the MEX2/None contract).
+
+        v328: a plant spread over several Growatt plants (site_id
+        "id1,id2") is the sum of its parts - and unknown (None) when
+        any part is unknown, never a partial sum that would read as a
+        loss.
         """
+        ids = growatt_site_ids(plant.site_id)
+        if len(ids) > 1:
+            total = 0.0
+            for pid in ids:
+                part = self.fetch_day_kwh(
+                    dataclasses.replace(plant, site_id=pid), date_iso)
+                if part is None:
+                    LOG.warning("%s: Growatt plant %s has no day energy for "
+                                "%s - the plant total is unknown",
+                                plant.plant_key, pid, date_iso)
+                    return None
+                total += part
+            return round(total, 3)
         if self._api_token:
             try:
                 value = self._fetch_day_kwh_open_api(plant, date_iso)
@@ -162,6 +181,19 @@ class GrowattClient:
         """
         if not inverters:
             return []
+
+        # v328: a plant spread over several Growatt plants - ask each
+        # part for the plant's inverters, keep one snapshot per SN
+        ids = growatt_site_ids(plant.site_id)
+        if len(ids) > 1:
+            seen: Dict[str, InverterSnapshot] = {}
+            for pid in ids:
+                for snap in self.fetch_inverter_snapshots(
+                        dataclasses.replace(plant, site_id=pid), inverters):
+                    seen.setdefault(snap.inverter_sn, snap)
+                if len(seen) >= len(inverters):
+                    break
+            return list(seen.values())
 
         if self._api_token:
             try:

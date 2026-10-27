@@ -41,6 +41,7 @@ SLUGS = {
     'GTO1': 'taigene', 'GTO2': 'hirschmann', 'MEX1': 'sag', 'MEX2': 'vitalmex',
     'MEX3': 'sms', 'NL1': 'plastic-omnium', 'NL2': 'budenheim', 'QRO1': 'tetra-pak',
     'SLP1': 'quimica-coyoacan', 'SLP2': 'holiday-inn-express', 'TAM1': 'ryder',
+    'GTO3': 'teneria-panamericana', 'SLP3': 'holiday-inn-quijote',
     'LOAX1': 'grupo-modelo', 'LGTO1': 'pirelli',
 }
 CODE_OF_SLUG = {v: k for k, v in SLUGS.items()}

@@ -64,6 +64,20 @@
       "JNMAE5X00K": {"label": "Inverter 2", "vendor_label": "Inversor 2"},
       "JNMAE7D007": {"label": "Inverter 3", "vendor_label": "Inversor 3"},
       "JNMAE5X00L": {"label": "Inverter 4", "vendor_label": "Inversor 4"}
+    },
+    "GTO3": {
+      "JGMNFZC00H": {"label": "Inverter 1", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; station 319 (Growatt plant 11234539, ShineMaster DYDDF54020)"},
+      "JGMPG1X004": {"label": "Inverter 2", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; station 319 (Growatt plant 11234539, ShineMaster DYDDF54020)"},
+      "JGMPG1X006": {"label": "Inverter 3", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; station 319 (Growatt plant 11234539, ShineMaster DYDDF54020)"},
+      "JGMNFZC008": {"label": "Inverter 4", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; station 426 (Growatt plant 11234544, ShineMaster DYDDF5402M)"},
+      "JGMNFZC009": {"label": "Inverter 5", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; station 426 (Growatt plant 11234544, ShineMaster DYDDF5402M)"},
+      "JGMNFZC00K": {"label": "Inverter 6", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; station 426 (Growatt plant 11234544, ShineMaster DYDDF5402M)"}
+    },
+    "SLP3": {
+      "JMMPG3E00B": {"label": "Inverter 1", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; ShineMaster DYDDF5400M"},
+      "JMMPG3E00F": {"label": "Inverter 2", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; ShineMaster DYDDF5400M"},
+      "JMMPG1700H": {"label": "Inverter 3", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; ShineMaster DYDDF5K04X"},
+      "JMMPG1V00B": {"label": "Inverter 4", "vendor_label": "", "note": "no alias on the Growatt portal - numbering is ours, unverified on site; ShineMaster DYDDF5K04X"}
     }
   }
 }

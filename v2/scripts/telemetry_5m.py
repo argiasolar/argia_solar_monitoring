@@ -48,6 +48,7 @@ from argia.core.config import (
     load_portfolio,
 )
 from argia.core.sheets import SheetsClient, open_sheets
+from argia.core.normalize import growatt_site_ids
 from argia.core.time_utils import now_mx, now_utc
 from argia.orchestrator import RunResult, TAB_SYNC, new_run_id
 from argia.core.job_log import sheet_joblog_enabled
@@ -265,6 +266,27 @@ def _fetch_weather_for_plant(
 # ============================================================
 
 
+def degraded_today_energy(plant: PlantConfig, token_client) -> Optional[float]:
+    """The plant's own today energy from the token API (v328).
+
+    It asked for ``plant.weather_plant_id`` until v328 - the plant that
+    hosts the irradiance sensor, which for a plant that borrows another
+    plant's sensor (Budenheim and Ryder use Plastic Omnium's, Teneria
+    Panamericana uses Taigene's) is ANOTHER plant: its energy would have
+    been cached as this plant's. Now the plant's own Growatt id(s),
+    summed; unknown when any part is unknown."""
+    ids = growatt_site_ids(plant.site_id)
+    if not ids:
+        return None
+    total = 0.0
+    for pid in ids:
+        part = token_client.plant_today_energy(pid)
+        if part is None:
+            return None
+        total += part
+    return round(total, 3)
+
+
 def _process_growatt_plant(
     plant: PlantConfig,
     inverters: List[InverterConfig],
@@ -318,7 +340,7 @@ def _process_growatt_plant(
     # token (v1's proven route) and cache it for tomorrow's kpi-eod.
     # Errors stand as counted: the run stays PARTIAL, honestly.
     if not plant_rows and errors and token_client is not None:
-        kwh = token_client.plant_today_energy(plant.weather_plant_id)
+        kwh = degraded_today_energy(plant, token_client)
         if kwh is not None and kwh > 0:
             growatt_token.cache_energy(date_iso, plant.plant_key, kwh)
             log.info("[%s] degraded mode: today_energy=%.1f kWh via "

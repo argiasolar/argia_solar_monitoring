@@ -29,8 +29,10 @@ import sqlite3
 import time
 
 PLANTS = ['gto1', 'mex1', 'mex2', 'nl1', 'slp1', 'slp2',
-          'gto2', 'qro1', 'nl2', 'mex3', 'tam1']
+          'gto2', 'qro1', 'nl2', 'mex3', 'tam1', 'gto3', 'slp3']
 AREAS = ['financial'] + PLANTS + ['capex', 'monitoring']
+# v328: the CAPEX plants, one list (it was spelled out twice)
+CAPEX_PLANTS = ('gto2', 'qro1', 'nl2', 'mex3', 'tam1', 'gto3', 'slp3')
 
 # Areas that are not in AREAS but that a path can demand.
 ALL = 'all'          # any signed-in user
@@ -79,7 +81,7 @@ for _p in PLANTS:
 # an owner reaches their own live page and nothing else.  PPA plants
 # are NOT listed here: they fall through to '/monitoring/', which is
 # internal-only, exactly as before.
-for _p in ('gto2', 'qro1', 'nl2', 'mex3', 'tam1'):
+for _p in CAPEX_PLANTS:
     PREFIX_AREA[f'/monitoring/{_p}/'] = _p
 
 # portal.argia.com.mx (v208): the same grants behind the new paths.
@@ -109,7 +111,7 @@ for _code, _slug in _SLUGS.items():
     _p = _code.lower()
     if _p in PLANTS:
         PREFIX_AREA[f'/report/{_slug}/'] = _p
-        if _p in ('gto2', 'qro1', 'nl2', 'mex3', 'tam1'):
+        if _p in CAPEX_PLANTS:
             PREFIX_AREA[f'/monitoring/{_slug}/'] = _p
 
 

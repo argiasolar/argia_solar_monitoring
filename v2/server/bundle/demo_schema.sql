@@ -26,7 +26,8 @@ DROP VIEW IF EXISTS demo.loss_daily, demo.contract_monthly, demo.plant,
 CREATE VIEW demo.name_map AS
 SELECT v.plant_key, v.n FROM (VALUES
     ('GTO1', 1), ('GTO2', 2), ('MEX1', 3), ('MEX2', 4), ('MEX3', 5),
-    ('NL1', 6), ('NL2', 7), ('QRO1', 8), ('SLP1', 9), ('SLP2', 10), ('TAM1', 11)
+    ('NL1', 6), ('NL2', 7), ('QRO1', 8), ('SLP1', 9), ('SLP2', 10), ('TAM1', 11),
+    ('GTO3', 12), ('SLP3', 13)
 ) AS v(plant_key, n);
 
 -- per month: the PPA tariff weighted by the PPA plants' measured kWh

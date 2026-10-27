@@ -47,7 +47,7 @@ LEGACY_HTPASSWD = '/opt/argia/.htpasswd'
 NGINX_GROUP = os.environ.get('ARGIA_NGINX_GROUP', 'www-data')
 
 PLANTS = ['gto1', 'mex1', 'mex2', 'nl1', 'slp1', 'slp2',
-          'gto2', 'qro1', 'nl2', 'mex3', 'tam1']
+          'gto2', 'qro1', 'nl2', 'mex3', 'tam1', 'gto3', 'slp3']
 AREAS = ['financial'] + PLANTS + ['capex', 'monitoring']
 AREA_LABEL = {'financial': 'Financial Report', 'capex': 'CAPEX overview',
               'monitoring': 'Live monitoring portal',

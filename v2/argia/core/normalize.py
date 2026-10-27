@@ -188,6 +188,35 @@ def looks_like_growatt_site_id(value: Any) -> bool:
     return bool(re.fullmatch(r"\d{6,12}", normalize_text(value)))
 
 
+def growatt_site_ids(value: Any) -> List[str]:
+    """
+    The Growatt plant id(s) of one monitored plant (v328).
+
+    One project can sit in more than one Growatt plant: Teneria
+    Panamericana is one 960 kWp site whose two inverter stations each
+    have their own ShineMaster, so Growatt shows it as two plants
+    (11234539 + 11234544). ``plant.site_id`` then holds both ids,
+    separated by commas; every plant-level Growatt call is made per id
+    and summed. A single id gives a one-element list, so every existing
+    plant behaves exactly as before.
+
+    Examples:
+        >>> growatt_site_ids("10069072")
+        ['10069072']
+        >>> growatt_site_ids("11234539, 11234544")
+        ['11234539', '11234544']
+        >>> growatt_site_ids("11234539,11234539")
+        ['11234539']
+        >>> growatt_site_ids("")
+        []
+    """
+    out: List[str] = []
+    for tok in re.split(r"[,;+\s]+", normalize_text(value)):
+        if tok and tok not in out:
+            out.append(tok)
+    return out
+
+
 def looks_like_huawei_station_code(value: Any) -> bool:
     """
     Huawei FusionSolar station codes start with ``NE=``.

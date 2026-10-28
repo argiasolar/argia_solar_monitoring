@@ -8,8 +8,9 @@ data, shown to prospects under invented names:
   plants are priced at the fleet's kWh-weighted PPA tariff of each month);
 * every customer logo is the ARGIA SOLAR logo (grey, black on mouse-over);
 * only the landing page, /report/ (overview, PPA, plant performance, one
-  page per plant), /monitoring/ and /map/ exist - no financial report, no
-  invoices, no app, no Ask ARGIA, no setup, no account page;
+  page per plant), /monitoring/, /map/ and /savings/ (v332: the solar +
+  battery savings video for sales meetings, EN and ES) exist - no financial
+  report, no invoices, no app, no Ask ARGIA, no setup, no account page;
 * it is a separate site with its own login (nginx, one shared account in
   /opt/argia/demo/demo.htpasswd) - nothing of the portal login is used, so
   the pages have no user menu and no log-out.
@@ -51,6 +52,29 @@ DEMO_ROOT = '/www/hosting/demo.argia.com.mx/www'
 PORTAL_ROOT = os.environ.get('ARGIA_PORTAL_ROOT', '/www/hosting/portal.argia.com.mx/www')
 DEMO_PHOTOS = os.environ.get('ARGIA_DEMO_PHOTOS', '/opt/argia/demo/photos')   # v280: demo-only photo swaps
 DEMO_ANNEXES = os.environ.get('ARGIA_DEMO_ANNEXES', '/opt/argia/demo/annexes')  # v288: demo_annexes.py output
+# v332 (Tomasz, 28 Oct): the 40 s solar + battery savings video for sales
+# meetings, one per language. Server-only files (savings_en.mp4, savings_es.mp4
+# and their posters savings_en.jpg / savings_es.jpg), never in git; copied
+# into the demo at every run. No file = the page says the video is being prepared.
+DEMO_VIDEOS = os.environ.get('ARGIA_DEMO_VIDEOS', '/opt/argia/demo/videos')
+VIDEO_FILE_RE = re.compile(r'^savings_(en|es)\.(mp4|jpg)$')
+VIDEO_DIR = 'assets/video'
+# chapter starts in the video (both languages cut alike: measured 28 Oct 2026)
+SAVINGS_CHAPTERS = [
+    (0, 'Charge at a lower price', 'Carga a menor precio'),
+    (5, 'The sun powers your plant', 'El sol alimenta tu planta'),
+    (10, 'Store surplus solar', 'Almacena excedentes solares'),
+    (18, 'Get ready for peak hours', 'Prepárate para la hora punta'),
+    (22, 'Shift energy, shave the peak', 'Desplaza energía, recorta picos'),
+    (29, 'The grid keeps you connected', 'La red te mantiene conectado'),
+    (32, 'Annual savings with ARGIA', 'Ahorro anual con ARGIA'),
+]
+# the example's own numbers, as the video shows them
+SAVINGS_FACTS = [
+    ('43%', '43%', 'lower electricity bill in this example', 'menos en la factura eléctrica en este ejemplo'),
+    ('600 → 430 kW', '600 → 430 kW', 'peak demand taken from the grid', 'demanda pico tomada de la red'),
+    ('MXN 3.83 M', '3.83 M MXN', 'saving per year with solar + battery', 'de ahorro al año con solar + batería'),
+]
 ANNEX_FILE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*\.pdf$')
 ANNEX_GROUPS = [
     ('daily', 'Daily performance report', 'Reporte diario de desempeño',
@@ -144,7 +168,7 @@ def demo_title(rel, text):
     """v281: every tab says DEMO first - 'DEMO - Reports - ARGIA',
     'DEMO - Live Monitoring - ARGIA SOLAR 3', 'DEMO - Map - ARGIA' (v288 names). Pure."""
     sec = rel.split('/')[0]
-    label = {'report': 'Reports', 'monitoring': 'Live Monitoring', 'map': 'Map'}.get(sec)
+    label = {'report': 'Reports', 'monitoring': 'Live Monitoring', 'map': 'Map', 'savings': 'Solar + Battery'}.get(sec)
     if not label:
         title = 'DEMO - ARGIA'
     else:
@@ -164,7 +188,54 @@ DEMO_CSS = '''
 .pcard:hover .clogo,tr:hover .clogo,.clogo:hover{opacity:1}
 .logocard .clogo,.clogo.color{opacity:.32;height:auto!important;width:150px}
 .logocard:hover .clogo{opacity:1}
+/* v332: the savings video - landing card and /savings/ */
+.feat{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);overflow:hidden;margin-top:16px;background:#071012;border-color:#12312e;color:#e7f2f1;text-decoration:none}
+.feat .fimg{position:relative;aspect-ratio:16/9;background:#071012}
+.feat .fimg img{display:block;width:100%;height:100%;object-fit:cover}
+.feat .fplay,.vplay{display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(5,177,169,.94);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.feat .fplay{position:absolute;left:50%;top:50%;width:64px;height:64px;transform:translate(-50%,-50%);transition:transform .15s}
+.feat:hover .fplay{transform:translate(-50%,-50%) scale(1.08)}
+.feat .ftxt{padding:26px 30px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+.feat .kicker{color:#5fd6cf}.feat .ftitle{font-weight:800;font-size:24px;line-height:1.15;color:#fff}
+.feat .fblurb{font-size:14px;color:#b8cfcc}.feat .fcta{display:inline-flex;align-items:center;gap:8px;font-weight:700;color:#5fd6cf}
+.vstage{position:relative;border-radius:16px;overflow:hidden;background:#071012;aspect-ratio:16/9;box-shadow:0 22px 50px -22px rgba(5,59,56,.6),0 0 0 1px rgba(5,59,56,.25)}
+.vstage video{display:block;width:100%;height:100%;background:#071012}
+.vplay{position:absolute;left:50%;top:50%;width:92px;height:92px;transform:translate(-50%,-50%);border:0;cursor:pointer;transition:transform .15s}
+.vplay:hover{transform:translate(-50%,-50%) scale(1.06)}.vstage.playing .vplay{display:none}
+.vbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}.vbar .sp{flex:1}
+.vbar .lbl{font-size:12.5px;color:var(--muted);font-weight:600}
+.vbar .seg button.on,.vbar .btn2.on{background:#e6f7f5;color:var(--deep);border-color:#9bdcd7}
+.vbar .seg button[disabled]{opacity:.35;cursor:not-allowed}
+.chaps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-top:14px}
+.chap{position:relative;text-align:left;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px 13px;cursor:pointer;font-family:inherit;overflow:hidden;display:flex;flex-direction:column;gap:4px}
+.chap .tm{font:600 11px ui-monospace,Menlo,Consolas,monospace;color:var(--muted)}
+.chap .ct{font-size:12.5px;font-weight:700;color:var(--deep);line-height:1.25}
+.chap::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:calc(var(--p,0) * 100%);background:var(--teal)}
+.chap.done::after{width:100%;background:#b9e6e2}.chap.on{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal)}
+.chap:hover{border-color:#9bdcd7}
+.svfacts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}
+.svfact{padding:16px 18px}.svfact .v{font-size:26px;font-weight:800;color:var(--deep);font-variant-numeric:tabular-nums}.svfact .d{font-size:13px;color:var(--ink2)}
+.svnote{font-size:12px;color:var(--muted);margin-top:12px}
+.svkeys kbd{font:600 11px ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:#fff;color:var(--ink2)}
+@media(max-width:1000px){.chaps{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:800px){.feat{grid-template-columns:1fr}.svfacts{grid-template-columns:1fr}}
+@media(max-width:640px){.chaps{display:flex;overflow-x:auto;scroll-snap-type:x mandatory}.chap{flex:0 0 62%;scroll-snap-align:start}.vplay{width:66px;height:66px}.svkeys{display:none}
+ .psec{display:none}.phrow{flex-wrap:wrap;row-gap:8px;height:auto;min-height:60px;padding-top:8px;padding-bottom:8px}.demolang button{padding:5px 9px}}
 '''
+
+# v332: elements with data-src-en / data-src-es follow the page language
+# (the poster on the landing card); the savings page listens to 'argia:lang'
+DEMO_JS = '''<script>
+(function(){
+ var base=window.setLang;
+ function swap(l){
+  document.querySelectorAll('img[data-src-en]').forEach(function(e){
+   var s=(l==='es'&&e.dataset.srcEs)?e.dataset.srcEs:e.dataset.srcEn;if(e.getAttribute('src')!==s)e.setAttribute('src',s);});
+  document.dispatchEvent(new CustomEvent('argia:lang',{detail:l}));
+ }
+ if(typeof base==='function'){window.setLang=function(l,s){base(l,s);swap(l);};}
+})();
+</script>'''
 
 
 # ------------------------------------------------------------------ pure
@@ -417,6 +488,27 @@ def annexes_page(PG, items, generated):
     return C.page('Annexes', body, 'report', 'annexes')
 
 
+def copy_videos(src, out):
+    """v332: savings_<en|es>.mp4 / .jpg from the server-only folder into
+    assets/video/ (nothing else from there). Hard link when the folder is
+    on the same disk (no 8 MB copy every 5 minutes), else a copy. -> count"""
+    if not os.path.isdir(src):
+        return 0
+    n = 0
+    for fn in sorted(os.listdir(src)):
+        sp = os.path.join(src, fn)
+        if not VIDEO_FILE_RE.match(fn) or not os.path.isfile(sp) or os.path.islink(sp):
+            continue
+        dp = os.path.join(out, VIDEO_DIR, fn)
+        os.makedirs(os.path.dirname(dp), exist_ok=True)
+        try:
+            os.link(sp, dp)
+        except OSError:
+            shutil.copy2(sp, dp)
+        n += 1
+    return n
+
+
 def copy_assets(src_root, out):
     n = 0
     for sub, rx in ASSET_GLOBS:
@@ -439,6 +531,7 @@ def copy_assets(src_root, out):
                     os.makedirs(os.path.join(out, sub), exist_ok=True)
                     shutil.copy2(os.path.join(DEMO_PHOTOS, fn), os.path.join(out, sub, fn))
                     n += 1
+    n += copy_videos(DEMO_VIDEOS, out)
     import demo_brand
     os.makedirs(os.path.join(out, 'assets', 'demo'), exist_ok=True)
     with open(os.path.join(out, LOGO_PATH.lstrip('/')), 'wb') as fh:
@@ -490,6 +583,8 @@ def configure(PG):
         'monitoring': ('Live Monitoring', 'Monitoreo en vivo',
                        [s for s in C.SECTIONS['monitoring'][2] if s[0] not in ('capex', 'ppa')]),
         'map': ('Map', 'Mapa', []),
+        # v332: the savings video for sales meetings
+        'savings': ('Solar + Battery', 'Solar + Batería', []),
     }
     # the header: no Ask ARGIA button, no user menu (the demo has its own
     # browser sign-in, no portal session, no account page, no log-out)
@@ -515,14 +610,156 @@ def configure(PG):
     assert ctrl_k in C.JS, 'chrome JS changed: the Ctrl-K jump to /ask/ was not found'
     C.JS = C.JS.replace(ctrl_k, '')
     C.CSS = C.CSS + DEMO_CSS
+    C.JS = C.JS + DEMO_JS
+    C._ICONS.setdefault('play', '<path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>')
+    C._ICONS.setdefault('expand', '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')
+    C._ICONS.setdefault('restart', '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/>')
+    C._ICONS.setdefault('loop', '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>')
     # the overview revenue tile is PPA + LaaS on the portal; the demo has PPA only
     rt = PG.revenue_tile
     PG.revenue_tile = lambda on, rev, rev_ppa, rev_laas, _rt=rt: _rt('ppa', rev_ppa, rev_ppa, 0.0)
     return keys, demo_names
 
 
-def landing(PG):
-    """The demo front door: three tiles, no fleet data, no Ask bar."""
+def video_files(out):
+    """{lang: {'mp4': url or '', 'jpg': url or ''}} for the savings videos
+    copied into ``out`` (only languages that have the mp4). Pure apart from
+    the directory listing."""
+    have = {}
+    for lang in ('en', 'es'):
+        mp4 = os.path.join(out, VIDEO_DIR, f'savings_{lang}.mp4')
+        if os.path.isfile(mp4):
+            jpg = os.path.join(out, VIDEO_DIR, f'savings_{lang}.jpg')
+            have[lang] = {'mp4': f'/{VIDEO_DIR}/savings_{lang}.mp4',
+                          'jpg': f'/{VIDEO_DIR}/savings_{lang}.jpg' if os.path.isfile(jpg) else ''}
+    return have
+
+
+def _pick(have, lang, kind):
+    """The file for ``lang``, else the other language's (one video still works). Pure."""
+    other = 'es' if lang == 'en' else 'en'
+    return (have.get(lang) or {}).get(kind) or (have.get(other) or {}).get(kind) or ''
+
+
+def savings_card(PG, have):
+    """v332: the landing card for the savings video (only when a video exists)."""
+    if not have:
+        return ''
+    t, ico = PG.t, PG.ico
+    pen, pes = _pick(have, 'en', 'jpg'), _pick(have, 'es', 'jpg')
+    img = (f'<img src="{pen}" data-src-en="{pen}" data-src-es="{pes}" alt="" loading="lazy">' if pen else '')
+    langs = ' / '.join(l.upper() for l in ('en', 'es') if l in have)
+    return f'''
+<a href="/savings/" id="feature-savings" class="card feat">
+ <div class="fimg">{img}<span class="fplay">{ico("play", 26, "#fff")}</span></div>
+ <div class="ftxt">
+  <div class="kicker">{t("For client meetings · 40 s video", "Para reuniones con clientes · video de 40 s")} · {langs}</div>
+  <div class="ftitle">{t("Solar + battery savings", "Ahorro con solar + batería")}</div>
+  <div class="fblurb">{t("One illustrative day of an industrial plant: how solar and a battery cut the CFE bill, chapter by chapter.", "Un día ilustrativo de una planta industrial: cómo la energía solar y una batería reducen la factura de CFE, capítulo por capítulo.")}</div>
+  <div class="fcta">{t("Open the video", "Abrir el video")} {ico("arrow", 16)}</div>
+ </div>
+</a>'''
+
+
+def savings_page(PG, have):
+    """/savings/ (v332): the savings video, EN or ES, with chapters, full
+    screen and keyboard control for presenting."""
+    C, t, ico = PG.C, PG.t, PG.ico
+    head = f'''<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+ <div class="kicker">{t("Solar + battery · illustrative 24-hour example", "Solar + batería · ejemplo ilustrativo de 24 horas")}</div>
+ <h1 class="pt">{t("How solar and a battery generate savings", "Cómo la energía solar y una batería generan ahorros")}</h1>
+ <div class="muted" style="font-size:15px;max-width:760px">{t("A 40-second walk through one day of an industrial plant. Click a chapter to stop on any moment during the meeting.", "Un recorrido de 40 segundos por un día de una planta industrial. Haz clic en un capítulo para detenerte en cualquier momento de la reunión.")}</div>
+</div>'''
+    if not have:
+        body = head + f'''<div class="card" style="margin-top:20px;padding:28px" id="savings-missing"><b>{t("The video is being prepared.", "El video está en preparación.")}</b> <span class="muted">{t("Check again later today.", "Vuelve a revisar más tarde.")}</span></div>'''
+        return C.page('Solar + Battery', body, 'savings')
+    first = 'en' if 'en' in have else 'es'
+    src_en, src_es = _pick(have, 'en', 'mp4'), _pick(have, 'es', 'mp4')
+    pos_en, pos_es = _pick(have, 'en', 'jpg'), _pick(have, 'es', 'jpg')
+    poster = _pick(have, first, 'jpg')
+    starts = [s for s, _en, _es in SAVINGS_CHAPTERS]
+    chips = ''.join(
+        f'<button type="button" class="chap" data-i="{i}"><span class="tm">0:{s:02d}</span><span class="ct">{t(en, es)}</span></button>'
+        for i, (s, en, es) in enumerate(SAVINGS_CHAPTERS))
+    langbtns = ''.join(
+        f'<button type="button" class="vlang" data-l="{l}"{"" if l in have else " disabled"}>{l.upper()}</button>'
+        for l in ('en', 'es'))
+    facts = ''.join(
+        f'<div class="card svfact"><div class="v" data-en="{html.escape(ven)}" data-es="{html.escape(ves)}">{html.escape(ven)}</div>'
+        f'<div class="d">{t(den, des)}</div></div>' for ven, ves, den, des in SAVINGS_FACTS)
+    body = head + f'''
+<div class="vstage" id="vstage" style="margin-top:20px">
+ <video id="sv" playsinline preload="metadata" controls{f' poster="{poster}"' if poster else ''}
+  data-src-en="{src_en}" data-src-es="{src_es}" data-poster-en="{pos_en}" data-poster-es="{pos_es}"
+  data-chapters="{html.escape(str(starts))}"><source src="{_pick(have, first, 'mp4')}" type="video/mp4"></video>
+ <button type="button" class="vplay" id="vplay" aria-label="Play">{ico("play", 34, "#fff")}</button>
+</div>
+<div class="vbar">
+ <span class="lbl">{t("Video language", "Idioma del video")}</span><span class="seg" id="vlangs">{langbtns}</span>
+ <button type="button" class="btn2" id="vrestart">{ico("restart", 15)} {t("From the start", "Desde el inicio")}</button>
+ <button type="button" class="btn2" id="vloop" aria-pressed="false">{ico("loop", 15)} {t("Loop", "Repetir")}</button>
+ <button type="button" class="btn2" id="vfull">{ico("expand", 15)} {t("Full screen", "Pantalla completa")}</button>
+ <span class="sp"></span>
+ <span class="svkeys muted" style="font-size:12px"><kbd>Space</kbd> {t("play / pause", "reproducir / pausa")} · <kbd>F</kbd> {t("full screen", "pantalla completa")} · <kbd>←</kbd> <kbd>→</kbd> {t("chapters", "capítulos")}</span>
+</div>
+<div class="chaps" id="chaps">{chips}</div>
+<div class="svfacts">{facts}</div>
+<div class="svnote">{t("Illustrative simulation: assumed prices, not current CFE rates, excluding VAT. A real proposal is calculated from the plant's own bills and load profile.", "Simulación ilustrativa: precios supuestos, no tarifas vigentes de CFE, sin IVA. Una propuesta real se calcula con los recibos y el perfil de carga de la propia planta.")}</div>
+<script>
+(function(){{
+ var v=document.getElementById('sv'),st=document.getElementById('vstage');if(!v)return;
+ var CH=JSON.parse(v.dataset.chapters),chips=[].slice.call(document.querySelectorAll('.chap')),cur=null;
+ function mark(){{document.querySelectorAll('.vlang').forEach(function(b){{b.classList.toggle('on',b.dataset.l===cur);}});}}
+ function setVid(l){{
+  var key=l==='es'?'Es':'En',src=v.dataset['src'+key];
+  if(!src||cur===l){{if(!cur&&src)cur=l;mark();return;}}
+  var t=cur?v.currentTime:0,playing=cur&&!v.paused,p=v.dataset['poster'+key];
+  if(cur===null&&v.currentSrc&&v.currentSrc.indexOf(src)>=0){{cur=l;mark();return;}}
+  cur=l;if(p)v.poster=p;v.src=src;v.load();
+  if(t>0||playing){{v.addEventListener('loadedmetadata',function(){{try{{v.currentTime=t;}}catch(e){{}}if(playing)v.play().catch(function(){{}});}},{{once:true}});}}
+  mark();
+ }}
+ document.addEventListener('argia:lang',function(e){{setVid(e.detail);}});
+ document.querySelectorAll('.vlang').forEach(function(b){{b.addEventListener('click',function(){{setVid(b.dataset.l);}});}});
+ function at(t){{var i=0;CH.forEach(function(s,k){{if(t>=s-0.05)i=k;}});return i;}}
+ function go(i){{i=Math.max(0,Math.min(CH.length-1,i));v.currentTime=CH[i]+0.01;if(v.paused)v.play().catch(function(){{}});}}
+ chips.forEach(function(c,i){{c.addEventListener('click',function(){{go(i);}});}});
+ v.addEventListener('timeupdate',function(){{
+  var i=at(v.currentTime),end=i+1<CH.length?CH[i+1]:(v.duration||40),f=Math.max(0,Math.min(1,(v.currentTime-CH[i])/(end-CH[i])));
+  chips.forEach(function(c,k){{c.classList.toggle('on',k===i);c.classList.toggle('done',k<i);if(k!==i)c.style.removeProperty('--p');}});
+  chips[i].style.setProperty('--p',f);
+ }});
+ ['play','playing'].forEach(function(n){{v.addEventListener(n,function(){{st.classList.add('playing');}});}});
+ ['pause','ended'].forEach(function(n){{v.addEventListener(n,function(){{st.classList.remove('playing');}});}});
+ document.getElementById('vplay').addEventListener('click',function(){{v.play().catch(function(){{}});}});
+ function full(){{
+  if(document.fullscreenElement){{document.exitFullscreen();return;}}
+  if(v.requestFullscreen){{v.requestFullscreen().catch(function(){{}});}}else if(v.webkitEnterFullscreen){{v.webkitEnterFullscreen();}}
+ }}
+ document.getElementById('vfull').addEventListener('click',full);
+ document.getElementById('vrestart').addEventListener('click',function(){{go(0);}});
+ var lp=document.getElementById('vloop');
+ lp.addEventListener('click',function(){{v.loop=!v.loop;lp.classList.toggle('on',v.loop);lp.setAttribute('aria-pressed',v.loop?'true':'false');}});
+ document.querySelectorAll('.chap,.vlang,#vrestart,#vloop').forEach(function(b){{b.addEventListener('click',function(){{b.blur();}});}});
+ document.addEventListener('keydown',function(e){{
+  if(e.target.closest&&e.target.closest('input,textarea,select'))return;
+  var k=e.key,onBtn=e.target.closest&&e.target.closest('button');
+  if((k===' '||k==='Enter')&&onBtn)return;                 /* a focused button keeps its own Space / Enter */
+  if(k===' '||k==='k'){{e.preventDefault();if(v.paused)v.play().catch(function(){{}});else v.pause();}}
+  else if(k==='f'||k==='F'){{full();}}
+  else if(k==='ArrowRight'){{e.preventDefault();go(at(v.currentTime)+1);}}
+  else if(k==='ArrowLeft'){{e.preventDefault();var i=at(v.currentTime);go(v.currentTime-CH[i]>1.5?i:i-1);}}
+  else if(/^[1-7]$/.test(k)){{go(+k-1);}}
+ }});
+ setVid(document.documentElement.lang==='es'?'es':'en');
+}})();
+</script>'''
+    return C.page('Solar + Battery', body, 'savings')
+
+
+def landing(PG, have=None):
+    """The demo front door: three tiles, no fleet data, no Ask bar
+    (v332: plus the savings video card when the video is on the server)."""
     C, MG, t, ico = PG.C, PG.MG, PG.t, PG.ico
     now = MG.NOW_MX
     h = now.hour
@@ -550,7 +787,7 @@ def landing(PG):
  <h1 class="pt" style="font-size:34px">{t(g_en, g_es)}<span id="gname"></span>.</h1>
  <div class="muted" style="font-size:15px">{t("Where would you like to go?", "¿A dónde quieres ir?")}</div>
 </div>
-<div class="grid g3" style="margin-top:28px;gap:16px">{cards}</div>
+<div class="grid g3" style="margin-top:28px;gap:16px">{cards}</div>{savings_card(PG, have or {})}
 <footer class="pf mono muted" style="padding:32px 0 0"><span>ARGIA · Zapopan, MX · {DEMO_HOST}</span></footer>'''
     return C.page('Portal', body, None)
 
@@ -558,8 +795,9 @@ def landing(PG):
 def write_pages(PG, keys):
     """The demo's page list - a strict subset of portal_gen.main()."""
     C, MG, name = PG.C, PG.MG, PG.name
+    have = video_files(PG.OUTROOT)
     pages = [
-        ('index.html', landing(PG)),
+        ('index.html', landing(PG, have)),
         ('report/index.html', PG.report_overview()),
         ('report/plants/index.html', PG.plant_cards()),
         ('report/annexes/index.html', annexes_page(PG, *copy_annexes(DEMO_ANNEXES, PG.OUTROOT))),
@@ -569,6 +807,7 @@ def write_pages(PG, keys):
         ('monitoring/losses/index.html', PG.monitoring_losses()),
         ('monitoring/recon/reconciliation.csv', MG.recon_csv(MG.RECON_M, MG.RECON_D)),
         ('map/index.html', PG.map_page()),
+        ('savings/index.html', savings_page(PG, have)),
     ]
     for k in keys:
         s = C.slug(k)

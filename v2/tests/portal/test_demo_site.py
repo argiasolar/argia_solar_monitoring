@@ -110,8 +110,14 @@ def demo(pg_env, tmp_path_factory):
     swap.mkdir()
     (swap / "gto1.jpg").write_bytes(b"\xff\xd8demo-swap")
     (swap / "notes.txt").write_text("TAIGENE")    # not a photo name: ignored
+    vids = tmp / "demo_videos"                 # v332: the savings videos (server-only on pio06)
+    vids.mkdir()
+    for n in ("savings_en.mp4", "savings_es.mp4", "savings_en.jpg", "savings_es.jpg"):
+        (vids / n).write_bytes(b"\x00\x00\x00\x18ftypisom-" + n.encode())
+    (vids / "draft_TAIGENE.mp4").write_bytes(b"x")   # not a savings_<lang> name: never copied
     rc, so, se = run_demo(pg_env, out, _portal_root(tmp), extra_env={"ARGIA_DEMO_PHOTOS": str(swap),
-                                                                     "ARGIA_DEMO_ANNEXES": str(ann)})
+                                                                     "ARGIA_DEMO_ANNEXES": str(ann),
+                                                                     "ARGIA_DEMO_VIDEOS": str(vids)})
     assert rc == 0, so + se
     return out, so, tmp
 
@@ -128,7 +134,7 @@ def text(out, rel):
 LINK = re.compile(r"""(?:href|src)=["'](/[^"'#?]*)""")
 EM = chr(0x2014)
 ALLOWED_TOP = {"index.html", "favicon.png",
-               "report", "monitoring", "map", "assets", "portfolio"}
+               "report", "monitoring", "map", "assets", "portfolio", "savings"}
 # what the demo must NEVER contain
 FORBIDDEN = ("report/financial/", "report/invoices/", "report/capex/", "monitoring/capex/",
              "app/", "engine/", "ags/", "invoices/", "setup/", "finance/", "projects/", "ask/")
@@ -314,7 +320,8 @@ class TestArgiaSolar:
 
     def test_every_tab_title_starts_with_demo(self, demo):
         out, _, _ = demo
-        want = {"report": "DEMO - Reports - ARGIA", "monitoring": "DEMO - Live Monitoring - ARGIA", "map": "DEMO - Map - ARGIA"}
+        want = {"report": "DEMO - Reports - ARGIA", "monitoring": "DEMO - Live Monitoring - ARGIA", "map": "DEMO - Map - ARGIA",
+                "savings": "DEMO - Solar + Battery - ARGIA"}
         for k, p in pages(out).items():
             if not k.endswith(".html"):
                 continue
@@ -520,3 +527,38 @@ class TestSafety:
             assert sorted(all_files(out)) == before          # the last good demo stays online
         finally:
             _apply_demo_schema(pg_env)
+
+
+class TestSavingsVideo:
+    """v332 (Tomasz, 28 Oct): the solar + battery savings video, EN and ES,
+    on the demo for sales meetings."""
+
+    def test_the_page_and_both_videos_are_published(self, demo):
+        out, _, tmp = demo
+        s = markup(out / "savings/index.html")
+        assert '<source src="/assets/video/savings_en.mp4" type="video/mp4">' in s
+        assert 'data-src-es="/assets/video/savings_es.mp4"' in s
+        for n in ("savings_en.mp4", "savings_es.mp4", "savings_en.jpg", "savings_es.jpg"):
+            assert (out / "assets/video" / n).read_bytes() == (tmp / "demo_videos" / n).read_bytes(), n
+        assert sorted(p.name for p in (out / "assets/video").iterdir()) == [
+            "savings_en.jpg", "savings_en.mp4", "savings_es.jpg", "savings_es.mp4"]
+
+    def test_the_landing_page_opens_it_and_keeps_the_three_tiles(self, demo):
+        out, _, _ = demo
+        s = markup(out / "index.html")
+        assert 'href="/savings/" id="feature-savings"' in s
+        assert 'data-src-es="/assets/video/savings_es.jpg"' in s
+        assert re.findall(r'<a href="(/[a-z]+/)" id="tile-', s) == ["/report/", "/monitoring/", "/map/"]
+
+    def test_the_page_is_a_demo_page(self, demo):
+        out, _, _ = demo
+        s = text(out, "savings/index.html")
+        assert "<title>DEMO - Solar + Battery - ARGIA</title>" in s
+        head = s.split("</header>", 1)[0]
+        assert '<span class="demotag hdr">DEMO</span>' in head
+        assert '<span data-en="Solar + Battery" data-es="Solar + Batería">Solar + Battery</span>' in head
+        assert s.count('class="lang-btn"') == 2 and "setLang('es')" in s
+        assert "img[data-src-en]" in s                     # the language hook rides on every page
+
+    def test_the_videos_are_never_in_the_repo(self):
+        assert not list(V2.rglob("savings_*.mp4")) and not list(V2.parent.rglob("ARGIA_Annual_*.mp4"))

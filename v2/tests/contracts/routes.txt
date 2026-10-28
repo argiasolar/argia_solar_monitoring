@@ -115,6 +115,7 @@ prologis_app  GET    /shop/<code>
 prologis_app  GET    /shop/cart
 prologis_app  GET    /sites/
 prologis_app  GET    /sites/<code>/
+prologis_app  GET    /sites/<code>/photo.jpg
 prologis_app  GET    /tickets/
 prologis_app  GET    /tickets/<number>/
 prologis_app  GET    /tickets/new

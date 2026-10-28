@@ -102,6 +102,10 @@ PUBLIC = {"login", "login_post", "healthz", "brand", "lang", "favicon", "about"}
 ABOUT_FILE = os.environ.get("ARGIA_PL_ABOUT", os.path.join(DATA_DIR, "public", "about.html"))
 ABOUT_CSP = ("default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; "
              "script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# v334: one picture per site (aerial view or roof photo), server-only:
+# PHOTO_DIR/<SITE CODE>.jpg, shown in the map popup to signed-in users.
+PHOTO_DIR = os.environ.get("ARGIA_PL_PHOTO_DIR", os.path.join(DATA_DIR, "photos"))
+
 # v333: the solar potential layer of the map - a server-only picture (pvout.png)
 # and its description (pvout.json: bounds [[south, west], [north, east]], the
 # colour stops, labels, attribution), made once from PVGIS / Global Solar Atlas
@@ -501,13 +505,32 @@ def mx_time(ts_utc: str) -> str:
 MAP_COL = {"producing": UI.LIME, "night": "#7f8c8a", "inverter_fault": UI.RED, "comm_loss": UI.AMBER, "pre_pto": UI.SKY}
 
 
+def site_photo(code: str) -> Optional[str]:
+    """The site's picture file, or None. Only registry codes reach the disk,
+    so a URL can never name another file."""
+    site = reg().site(code)
+    if not site or not re.match(r"^[A-Za-z0-9_-]{1,40}$", site.code):
+        return None
+    f = os.path.join(PHOTO_DIR, site.code + ".jpg")
+    return f if os.path.isfile(f) else None
+
+
+@app.get("/sites/<code>/photo.jpg")
+def site_photo_file(code):
+    f = site_photo(code)
+    if not f:
+        abort(404)
+    return send_file(f, mimetype="image/jpeg", max_age=86400)
+
+
 def _map_points(rg: R.Registry, lv: Dict[str, M.LiveState], projects: bool) -> List[Dict]:
     pts = []
     for s in rg.sites:
         st = lv[s.code]
         pts.append({"lat": s.lat, "lon": s.lon, "c": MAP_COL.get(st.status, "#999"), "code": s.code, "name": s.name,
                     "kwp": s.kwp, "kw": st.kw_now, "kwh": st.kwh_today, "st": st.status, "approx": s.geo_approx,
-                    "url": f"/sites/{s.code}/", "g": "op" if s.operating else "pre", "sub": s.city})
+                    "url": f"/sites/{s.code}/", "g": "op" if s.operating else "pre", "sub": s.city,
+                    "ph": f"/sites/{s.code}/photo.jpg" if site_photo(s.code) else ""})
     if projects:
         for p in rg.projects:
             if p.lat is not None and not rg.site(p.site_code):
@@ -630,7 +653,7 @@ P.forEach(function(p){if(p.g===g.dataset.g)apply(p.code,!g.checked);});refresh()
                     ensure_ascii=False)
     return f"""<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>.leaflet-control-layers label{{display:flex;align-items:center;gap:6px;margin:2px 0;font-weight:500;font-size:12.5px;color:#1d2a35}}.leaflet-control-layers input{{width:auto;margin:0;padding:0;height:auto}}.leaflet-control-layers-separator{{margin:5px 0}}
-.mpop table{{border-collapse:collapse;margin:6px 0;width:100%}}.mpop td{{padding:2px 0;border-bottom:1px solid #eef0f2;font-size:12.5px}}.mpop td.n{{text-align:right;padding-left:14px}}</style>
+.mpop img.ph{{display:block;width:100%;height:120px;object-fit:cover;border-radius:6px;margin:0 0 8px;background:#eef0f2}}.mpop table{{border-collapse:collapse;margin:6px 0;width:100%}}.mpop td{{padding:2px 0;border-bottom:1px solid #eef0f2;font-size:12.5px}}.mpop td.n{{text-align:right;padding-left:14px}}</style>
 <div id="map" class="{h_cls}"></div><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 {status}{legend}
 <script>(function(){{var P={json.dumps(pts)};var m=L.map('map',{{scrollWheelZoom:false}});var MK={{}};
@@ -644,11 +667,11 @@ function esc(s){{return String(s).replace(/[&<>"]/g,function(c){{return {{'&':'&
 function pop(p){{var r=function(k,v){{return '<tr><td>'+k+'</td><td class="n"><b>'+v+'</b></td></tr>';}},t='';
  if(p.kw!=null){{t+=r(LB.now,n0(p.kw)+' kW')+r(LB.today,n0(p.kwh)+' kWh');}}
  if(p.x){{t+=r(LB.e30,n0(p.x.e30/1000,1)+' MWh')+r(LB.pr,(p.x.pr*100).toFixed(1)+' %')+r(LB.av,(p.x.av*100).toFixed(2)+' %')+r(LB.tk,p.x.tk);}}
- return '<div class="mpop"><b>'+esc(p.name)+'</b><div class="small muted">'+esc(p.code)+' · '+n0(p.kwp)+' kWp · '+esc(LB.st[p.st]||p.st.replace('_',' '))+'</div>'
+ return '<div class="mpop">'+(p.ph?'<img class="ph" src="'+p.ph+'" alt="">':'')+'<b>'+esc(p.name)+'</b><div class="small muted">'+esc(p.code)+' · '+n0(p.kwp)+' kWp · '+esc(LB.st[p.st]||p.st.replace('_',' '))+'</div>'
   +(t?'<table>'+t+'</table>':'')+(p.approx?'<div class="small muted"><i>'+LB.approx+'</i></div>':'')+'<a href="'+p.url+'">'+LB.open+' ›</a></div>';}}
 P.forEach(function(p){{var r=Math.max(7,Math.min(16,Math.sqrt(p.kwp||100)/2.2));
 var mk=L.circleMarker([p.lat,p.lon],{{radius:r,color:'#fff',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m);MK[p.code]=mk;
-mk.bindPopup(pop(p),{{minWidth:220}});}});
+mk.bindPopup(pop(p),{{minWidth:240,maxWidth:280}});}});
 function fitAll(){{var b=[];P.forEach(function(p){{if(p.g!=='epc')b.push([p.lat,p.lon]);}});if(!b.length)P.forEach(function(p){{b.push([p.lat,p.lon]);}});
 if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:13}});}}
 {js_sel}}})();</script>"""

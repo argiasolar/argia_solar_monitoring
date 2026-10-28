@@ -218,3 +218,8 @@ Under the intraday chart of each PPA plant page: "Strings on the plant layout". 
 - **Files** (server-only, optional): `/opt/argia/prologis/map/pvout.png` (the picture) and `pvout.json` (`bounds` [[south, west], [north, east]], `stops` [[value, "#rrggbb"], ...] at least two, `unit`, `label_en`/`label_es`, `note_en`/`note_es`, `attribution`). Override the folder with `ARGIA_PL_MAP_DIR`. No files or a description that makes no sense = no layer, the map works as before.
 - Shown only on `/map/` (switch it on and off with the layer button), with a colour legend; the picture needs the login (`/map/pvout.png`). The overview mini map stays plain. Labels and attribution are shown as plain text.
 - Source: PVGIS (EU JRC) yearly yield of 1 kWp; for Mexico the Global Solar Atlas PVOUT (World Bank / Solargis, CC BY 4.0) can be used the same way.
+- v334: the installed layers are clipped to the country border (transparent outside, so the layer never ends in the middle of the map). Made with `render_country.py` (project doc folder prologis_cz_manual_src) from a PVGIS grid and the Natural Earth border.
+
+## Site pictures on the map (v334)
+- **Files** (server-only, optional): `/opt/argia/prologis/photos/<SITE CODE>.jpg` (override `ARGIA_PL_PHOTO_DIR`), e.g. an aerial view or a roof photo, about 640 x 400 px. Shown at the top of the site's popup on the map; served to signed-in users only at `/sites/<code>/photo.jpg`. Only registry site codes are looked up; no file = no picture, the popup works as before.
+- Add one: `install -m 600 roof.jpg /opt/argia/prologis/photos/<SITE CODE>.jpg` (no restart).

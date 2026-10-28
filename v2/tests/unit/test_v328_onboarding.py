@@ -380,3 +380,74 @@ class TestNewPlantsAreEverywhereAPlantMustBe:
         # station 319 is inverters 1-3, station 426 is 4-6 (numbering ours, noted)
         assert all("319" in p["GTO3"][sn]["note"] for sn in ("JGMNFZC00H", "JGMPG1X004", "JGMPG1X006"))
         assert all("426" in p["GTO3"][sn]["note"] for sn in ("JGMNFZC008", "JGMNFZC009", "JGMNFZC00K"))
+
+
+def _png_pixels(data):
+    """Tiny PNG decoder for the tests (8-bit palette or RGB, no interlace):
+    width, height, rows of (r, g, b). Pillow is not a test dependency."""
+    import struct
+    import zlib
+    pos, idat, plte = 8, b"", None
+    while pos < len(data):
+        n, typ = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if typ == b"IHDR":
+            w, h, depth, ctype, _c, _f, inter = struct.unpack(">IIBBBBB", body)
+        elif typ == b"PLTE":
+            plte = [tuple(body[i:i + 3]) for i in range(0, n, 3)]
+        elif typ == b"IDAT":
+            idat += body
+        pos += 12 + n
+    assert depth == 8 and ctype in (2, 3) and inter == 0, (depth, ctype, inter)
+    bpp = 3 if ctype == 2 else 1
+    raw, stride, rows, prev = zlib.decompress(idat), w * bpp, [], bytearray(w * bpp)
+    for y in range(h):
+        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for x in range(stride):
+            a = line[x - bpp] if x >= bpp else 0
+            b, c = prev[x], (prev[x - bpp] if x >= bpp else 0)
+            if f == 1:
+                line[x] = (line[x] + a) & 255
+            elif f == 2:
+                line[x] = (line[x] + b) & 255
+            elif f == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        prev = line
+        rows.append([tuple(line[i:i + 3]) for i in range(0, stride, 3)] if ctype == 2
+                    else [plte[v] for v in line])
+    return w, h, rows
+
+
+class TestV3281ClientLogos:
+    """v328.1 - the customers' logos (Tomasz, 28 Oct): a real PNG, 160 px
+    high (the 80 px @2x convention), on a clean white background - the
+    Holiday Inn source carried a baked-in grey transparency checkerboard."""
+
+    @staticmethod
+    def _logo(pk):
+        import base64
+        logos = _load(f"logos_{pk}", BUNDLE / "argia_client_logos.py")
+        name, uri = logos.CLIENT_LOGOS[pk]
+        assert uri.startswith("data:image/png;base64,")
+        return name, base64.b64decode(uri.split(",", 1)[1])
+
+    @pytest.mark.parametrize("pk,name", [("GTO3", "TENERIA PANAMERICANA"), ("SLP3", "HOLIDAY INN")])
+    def test_logo_is_a_real_png_on_white(self, pk, name):
+        got, data = self._logo(pk)
+        assert got == name
+        w, h, rows = _png_pixels(data)
+        assert h == 160 and w > 100
+        corners = [rows[0][0], rows[0][-1], rows[-1][0], rows[-1][-1]]
+        assert all(min(c) >= 250 for c in corners), corners
+        colored = sum(1 for r in rows for p in r if max(p) - min(p) > 40)
+        assert colored > 0.05 * w * h            # a logo, not a blank tile
+
+    def test_no_checkerboard_left_in_the_holiday_inn_logo(self):
+        _n, data = self._logo("SLP3")
+        w, h, rows = _png_pixels(data)
+        greys = sum(1 for r in rows for (a, b, c) in r
+                    if 215 <= a <= 245 and abs(a - b) <= 4 and abs(b - c) <= 4)
+        assert greys < 0.01 * w * h, greys

@@ -678,6 +678,15 @@ if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:13}});}}
 
 
 
+def greeting(hour: int, tt) -> str:
+    """v335: 'Good afternoon' / 'Buenas tardes' (plural in Spanish). Pure."""
+    if hour < 12:
+        return tt("Good morning", "Buenos días")
+    if hour < 19:
+        return tt("Good afternoon", "Buenas tardes")
+    return tt("Good evening", "Buenas noches")
+
+
 # ------------------------------------------------------------------ pages
 @app.get("/")
 def home():
@@ -728,7 +737,7 @@ def home():
                    f'<span><b>{an["claims_open"]}</b>&nbsp;<a href="/assets/claims/">{tt("open warranty claims", "reclamos de garantía abiertos")}</a></span>'
                    f'<span><b>{an["below_min"]}</b>&nbsp;<a href="/assets/spares/">{tt("spare parts below minimum", "refacciones bajo mínimo")}</a></span></div></div>')
     body = f"""<div class="hero"><div class="glow"></div><div class="k">{UI.e(rg.portfolio.get("market", "Mexico City"))} · {tt("Rooftop solar portfolio", "Portafolio solar en techos")}</div>
-<h1>{tt("Good", "Buen")} {tt("morning" if now.hour < 12 else ("afternoon" if now.hour < 19 else "evening"), "día" if now.hour < 12 else ("tarde" if now.hour < 19 else "noche"))}{", " + UI.e((g.user or {}).get("name", "").split(" ")[0]) if (g.user or {}).get("name") else ""}.</h1>
+<h1>{greeting(now.hour, tt)}{", " + UI.e((g.user or {}).get("name", "").split(" ")[0]) if (g.user or {}).get("name") else ""}.</h1>
 <div class="sub"><span class="live-dot"></span>{tt("Live", "En vivo")} · {now.strftime("%d %b %Y %H:%M")} · {k["operating"]} {tt("operating sites", "sitios operando")} · {UI.num(k["kwp"] / 1000, 2)} MWp {tt("under ARGIA care", "a cargo de ARGIA")}</div>
 <div class="kpis"><div class="kpi"><div class="l">{tt("Power now", "Potencia ahora")}</div><div class="v" id="kw">{UI.num(k["kw_now"] / 1000, 2)}<small>MW</small></div><div class="d">{tt("of", "de")} {UI.num(k["kwp_operating"] / 1000, 2)} MWp</div></div>
 <div class="kpi"><div class="l">{tt("Energy today", "Energía hoy")}</div><div class="v" id="kwh">{UI.num(k["kwh_today"] / 1000, 2)}<small>MWh</small></div><div class="d">{tt("so far", "hasta ahora")}</div></div>

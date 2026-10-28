@@ -41,6 +41,7 @@ PERMS = {
     "catalog_edit": {"admin"},                           # services and prices
     "assets_edit": {"operator", "admin"},                # v320: equipment register, warranty claims, spare parts
     "assets_ack": {"manager", "admin"},                  # v320: Prologis acknowledges a denied warranty claim
+    "pm_edit": {"operator", "admin"},                    # v333: maintenance plan - tasks, planned and done dates
     "alarms_work": {"operator", "admin"},                # v321: triage alarms, record the daily review, see the outbox
     "alarms_admin": {"admin"},                           # v321: alarm mail mode and the ARGIA desk addresses
     "exclusion_decide": {"manager", "admin"},            # v323: Prologis accepts or rejects an availability exclusion

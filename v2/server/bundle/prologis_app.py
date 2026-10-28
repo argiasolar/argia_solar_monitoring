@@ -25,9 +25,11 @@ log of every login, change, upload and download, and a data export.
     /security/        how the platform protects Prologis data
     /admin/users/     user management (admin)   /audit/  audit log
     /export.zip       full data export (manager, admin)
-    /about            the product manual, PUBLIC: no login (v331). A single
-                      self-contained HTML file kept server-only (it carries the
-                      offer's prices), served as is; 404 until it is installed.
+    /about            the product manual (v331): no platform login, but nginx asks for
+                      the readers' own HTTP Basic login (v333). A single self-contained
+                      HTML file kept server-only (it carries the offer's prices).
+    /maintenance/     preventive maintenance and cleaning plan: year planner, month
+                      calendar, tasks, iCalendar export (v333)
 
 Metering is labelled SAMPLE until Prologis grants SolarEdge access
 (argia.prologis.metering). Customer data (registry, database, files,
@@ -47,10 +49,12 @@ import csv
 import datetime as dt
 import hashlib
 import hmac
+import html
 import io
 import json
 import mimetypes
 import os
+import re
 import sys
 import time
 import zipfile
@@ -75,6 +79,7 @@ from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import scan as SC                     # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
+from argia.prologis import maintplan as PM            # noqa: E402  (v333)
 from argia.prologis import totp as TOTP                   # noqa: E402
 from argia.prologis import xlsx as XL                     # noqa: E402
 
@@ -97,6 +102,11 @@ PUBLIC = {"login", "login_post", "healthz", "brand", "lang", "favicon", "about"}
 ABOUT_FILE = os.environ.get("ARGIA_PL_ABOUT", os.path.join(DATA_DIR, "public", "about.html"))
 ABOUT_CSP = ("default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; "
              "script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# v333: the solar potential layer of the map - a server-only picture (pvout.png)
+# and its description (pvout.json: bounds [[south, west], [north, east]], the
+# colour stops, labels, attribution), made once from PVGIS / Global Solar Atlas
+# data for the customer's region. No files = no layer.
+MAP_DIR = os.environ.get("ARGIA_PL_MAP_DIR", os.path.join(DATA_DIR, "map"))
 # v300: the browser-tab icon - the Prologis globe (server-only files, first
 # one present wins; none = 404 and the browser shows its default)
 FAVICONS = {"favicon.png": ("prologis_favicon.png", "prologis_mark.png"),
@@ -217,7 +227,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
     u = g.user or {}
     nav = [("/", tt("Overview", "Resumen"), "home"), ("/map/", tt("Map", "Mapa"), "map"),
            ("/sites/", tt("Sites", "Sitios"), "sites"), ("/tickets/", tt("Tickets", "Tickets"), "tickets"),
-           ("/shop/", tt("Services", "Servicios"), "shop"), ("/assets/", tt("Assets", "Activos"), "assets"),
+           ("/maintenance/", tt("Maintenance", "Mantenimiento"), "maint"), ("/shop/", tt("Services", "Servicios"), "shop"), ("/assets/", tt("Assets", "Activos"), "assets"),
            ("/alarms/", tt("Alarms", "Alarmas"), "alarms"), ("/reports/", tt("Reports", "Reportes"), "reports"),
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
@@ -512,7 +522,37 @@ def _legend_groups(tt) -> List[tuple]:
             ("epc", tt("EPC projects", "Proyectos EPC"), UI.DEEP)]
 
 
-def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", projects: bool = True, mode: str = "list") -> str:
+def pvout_layer() -> Optional[Dict]:
+    """The solar potential layer description, or None (no files, or a
+    description that does not make sense - then the map simply has no layer)."""
+    try:
+        if not os.path.isfile(os.path.join(MAP_DIR, "pvout.png")):
+            return None
+        with open(os.path.join(MAP_DIR, "pvout.json"), encoding="utf-8") as fh:
+            d = json.load(fh)
+        (s_, w_), (n_, e_) = d["bounds"]
+        if not (-90 <= float(s_) < float(n_) <= 90 and -180 <= float(w_) < float(e_) <= 180):
+            return None
+        stops = [[float(v), str(c)] for v, c in d.get("stops") or []]
+        if len(stops) < 2 or any(not re.match(r"^#[0-9a-fA-F]{6}$", c) for _v, c in stops):
+            return None
+        return {"bounds": [[float(s_), float(w_)], [float(n_), float(e_)]], "stops": stops,
+                "unit": str(d.get("unit", "kWh/kWp")), "label_en": str(d.get("label_en", "Solar potential")),
+                "label_es": str(d.get("label_es", "Potencial solar")), "note_en": str(d.get("note_en", "")),
+                "note_es": str(d.get("note_es", "")), "attribution": str(d.get("attribution", ""))}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+@app.get("/map/pvout.png")
+def map_pvout():
+    if pvout_layer() is None:
+        abort(404)
+    return send_file(os.path.join(MAP_DIR, "pvout.png"), mimetype="image/png", max_age=86400)
+
+
+def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", projects: bool = True, mode: str = "list",
+              extra: Optional[Dict[str, Dict]] = None) -> str:
     """The Leaflet map with a legend of every plant, name and size.
     mode "list": the legend only names them (overview). mode "select": each
     plant and each group has a tick box; unticked plants leave the map and
@@ -520,7 +560,11 @@ def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", proje
     this browser (localStorage, per-viewer convenience only)."""
     tt = t()
     pts = _map_points(rg, lv, projects)
+    for p in pts:                                       # v333: the popup card's numbers (map page)
+        if extra and p["code"] in extra:
+            p["x"] = extra[p["code"]]
     sel = mode == "select"
+    pv = pvout_layer() if sel else None
     groups = ""
     for g_key, g_name, g_col in _legend_groups(tt):
         rows = [p for p in pts if p["g"] == g_key]
@@ -540,10 +584,19 @@ def map_block(rg: R.Registry, lv: Dict[str, M.LiveState], h_cls: str = "", proje
     note = (f'<p class="muted small" style="margin:8px 0 0">{tt("Tick or untick sites or a whole group - the tiles above total the selection, and the choice is remembered in this browser.", "Marque o desmarque sitios o un grupo completo - los mosaicos de arriba suman la selección, y la elección se recuerda en este navegador.")}</p>'
             if sel else "")
     legend = f'<div class="plegend{" sel" if sel else ""}">{groups}</div>{note}'
+    pv_legend = ""
+    if pv:
+        lo, hi = pv["stops"][0][0], pv["stops"][-1][0]
+        grad = ", ".join(f'{c} {(v - lo) / (hi - lo) * 100:.0f}%' for v, c in pv["stops"])
+        pv_legend = (f'<div class="small pvleg" style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+                     f'<b>{UI.e(tt(pv["label_en"], pv["label_es"]))}</b><span class="muted">{UI.num(lo, 0)}</span>'
+                     f'<span style="display:inline-block;width:220px;height:10px;border-radius:5px;background:linear-gradient(90deg,{grad})"></span>'
+                     f'<span class="muted">{UI.num(hi, 0)} {UI.e(pv["unit"])}</span>'
+                     f'<span class="muted">{UI.e(tt(pv["note_en"], pv["note_es"]))} · {tt("switch it on or off with the layer button on the map", "actívela o desactívela con el botón de capas del mapa")}</span></div>')
     status = (f'<div class="legend small" style="margin-top:8px"><span><i style="background:{UI.LIME}"></i>{tt("Producing", "Produciendo")}</span>'
               f'<span><i style="background:{UI.RED}"></i>{tt("Inverter fault", "Falla de inversor")}</span><span><i style="background:{UI.AMBER}"></i>{tt("Communication loss", "Sin comunicación")}</span>'
               f'<span><i style="background:#7f8c8a"></i>{tt("Night", "Noche")}</span><span><i style="background:{UI.SKY}"></i>{tt("Before PTO", "Antes de PTO")}</span>'
-              + (f'<span><i style="background:{UI.DEEP}"></i>{tt("EPC project", "Proyecto EPC")}</span>' if projects else "") + "</div>")
+              + (f'<span><i style="background:{UI.DEEP}"></i>{tt("EPC project", "Proyecto EPC")}</span>' if projects else "") + "</div>" + pv_legend)
     js_sel = ""
     if sel:
         js_sel = """var KEY='pl_map_hide_v1',HID={};try{var s=localStorage.getItem(KEY);HID=s?JSON.parse(s)||{}:{};}catch(e){HID={};}
@@ -561,16 +614,41 @@ document.querySelectorAll('.gtog').forEach(function(g){g.addEventListener('chang
 P.forEach(function(p){if(p.g===g.dataset.g)apply(p.code,!g.checked);});refresh();});});refresh();"""
     else:
         js_sel = "fitAll();"
+    pv_js = ""
+    if pv:
+        # off until the reader switches it on (at site zoom it would only tint the streets).
+        # Leaflet shows the layer name and the attribution as HTML: both go in as plain text
+        # (&copy; in the file is fine, it is decoded first), and nothing can close the script
+        pv_js = (f"OV[{json.dumps(UI.e(html.unescape(tt(pv['label_en'], pv['label_es']))))}]=L.imageOverlay('/map/pvout.png',{json.dumps(pv['bounds'])},"
+                 f"{{opacity:.55,attribution:{json.dumps(UI.e(html.unescape(pv['attribution'])))}}});").replace("</", "<\\/")
+    lb = json.dumps({"now": tt("Generating now", "Generando ahora"), "today": tt("Today", "Hoy"), "e30": tt("Last 30 days", "Últimos 30 días"),
+                     "pr": tt("Performance ratio 30 d", "Performance ratio 30 d"), "av": tt("Availability 30 d", "Disponibilidad 30 d"),
+                     "tk": tt("Open tickets", "Tickets abiertos"), "open": tt("Open the site", "Abrir el sitio"),
+                     "approx": tt("approximate location", "ubicación aproximada"),
+                     "st": {"producing": tt("producing", "produciendo"), "night": tt("night", "noche"),
+                            "inverter_fault": tt("inverter fault", "falla de inversor"), "comm_loss": tt("communication loss", "sin comunicación")}},
+                    ensure_ascii=False)
     return f"""<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>.leaflet-control-layers label{{display:flex;align-items:center;gap:6px;margin:2px 0;font-weight:500;font-size:12.5px;color:#1d2a35}}.leaflet-control-layers input{{width:auto;margin:0;padding:0;height:auto}}.leaflet-control-layers-separator{{margin:5px 0}}
+.mpop table{{border-collapse:collapse;margin:6px 0;width:100%}}.mpop td{{padding:2px 0;border-bottom:1px solid #eef0f2;font-size:12.5px}}.mpop td.n{{text-align:right;padding-left:14px}}</style>
 <div id="map" class="{h_cls}"></div><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 {status}{legend}
 <script>(function(){{var P={json.dumps(pts)};var m=L.map('map',{{scrollWheelZoom:false}});var MK={{}};
 var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}}).addTo(m);
 var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}});
-L.control.layers({{'Streets':st,'Satellite':sat}}).addTo(m);
+var OV={{}};{pv_js}
+L.control.layers({{'Streets':st,'Satellite':sat}},OV).addTo(m);
+var LB={lb};
+function n0(v,d){{return Number(v).toLocaleString('en-US',{{minimumFractionDigits:d||0,maximumFractionDigits:d||0}});}}
+function esc(s){{return String(s).replace(/[&<>"]/g,function(c){{return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c];}});}}
+function pop(p){{var r=function(k,v){{return '<tr><td>'+k+'</td><td class="n"><b>'+v+'</b></td></tr>';}},t='';
+ if(p.kw!=null){{t+=r(LB.now,n0(p.kw)+' kW')+r(LB.today,n0(p.kwh)+' kWh');}}
+ if(p.x){{t+=r(LB.e30,n0(p.x.e30/1000,1)+' MWh')+r(LB.pr,(p.x.pr*100).toFixed(1)+' %')+r(LB.av,(p.x.av*100).toFixed(2)+' %')+r(LB.tk,p.x.tk);}}
+ return '<div class="mpop"><b>'+esc(p.name)+'</b><div class="small muted">'+esc(p.code)+' · '+n0(p.kwp)+' kWp · '+esc(LB.st[p.st]||p.st.replace('_',' '))+'</div>'
+  +(t?'<table>'+t+'</table>':'')+(p.approx?'<div class="small muted"><i>'+LB.approx+'</i></div>':'')+'<a href="'+p.url+'">'+LB.open+' ›</a></div>';}}
 P.forEach(function(p){{var r=Math.max(7,Math.min(16,Math.sqrt(p.kwp||100)/2.2));
 var mk=L.circleMarker([p.lat,p.lon],{{radius:r,color:'#fff',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m);MK[p.code]=mk;
-mk.bindPopup('<b>'+p.name+'</b><br>'+p.code+' · '+Math.round(p.kwp)+' kWp<br>'+(p.kw!=null?('Now: '+Math.round(p.kw)+' kW · today '+Math.round(p.kwh)+' kWh<br>'):'')+p.st.replace('_',' ')+(p.approx?'<br><i>approximate location</i>':'')+'<br><a href="'+p.url+'">Open</a>');}});
+mk.bindPopup(pop(p),{{minWidth:220}});}});
 function fitAll(){{var b=[];P.forEach(function(p){{if(p.g!=='epc')b.push([p.lat,p.lon]);}});if(!b.length)P.forEach(function(p){{b.push([p.lat,p.lon]);}});
 if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:13}});}}
 {js_sel}}})();</script>"""
@@ -691,7 +769,9 @@ set('st_av',k.operating?f(k.availability_30d*100,2):'-');set('st_pr',k.operating
 set('st_tk',tkn);set('st_tk_d',k.alerts+' '+LB.alerts);}};}})();</script>"""
     body = (f'<div class="kick">{tt("Portfolio map", "Mapa del portafolio")}</div><h1 class="pt">{len(rg.sites)} {tt("rooftops", "techos")} · {UI.num(rg.kwp_total / 1000, 2)} MWp</h1>'
             f'<p class="muted small">{tt("Locations are approximate (industrial park level) until exact coordinates are captured at onboarding.", "Ubicaciones aproximadas (a nivel parque industrial) hasta registrar coordenadas exactas en el onboarding.")}</p>'
-            + tiles + script + '<div style="margin-top:14px">' + map_block(rg, lv, mode="select") + "</div>")
+            + tiles + script + '<div style="margin-top:14px">' + map_block(rg, lv, mode="select", extra={
+                r["code"]: {"e30": r["e30"], "pr": (r["e30"] / r["irr_kwp"]) if r["irr_kwp"] else 0.0, "av": r["av"], "tk": r["tk"]}
+                for r in rows if r["op"]}) + "</div>")
     return page(tt("Map", "Mapa"), body, "map", sample=True)
 
 
@@ -3278,6 +3358,283 @@ def _seed_sample_tickets() -> None:
             S.set_status(c, tk, stp, "argia-sample", "", ts=ts)
             tk = c.execute("SELECT * FROM tickets WHERE id=?", (tk["id"],)).fetchone()
     print(f"seeded {len(plan)} sample tickets")
+
+
+# ------------------------------------------------------------- v333: maintenance plan
+PM_ABBR = {"cleaning": "CL", "thermography": "TH", "inspection": "IN", "electrical": "EL", "inverter": "INV", "roof": "RF", "other": "OT"}
+PM_CSS = """<style>
+.grid.g4{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:980px){.grid.g4{grid-template-columns:1fr 1fr}}
+.pmlegend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;margin:10px 0 0}.pmlegend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+.pmc{display:inline-flex;align-items:center;gap:3px;font:700 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#fff;border-radius:5px;padding:4px 6px;margin:2px;white-space:nowrap}
+.pmc.due{background:#fff!important;border:1.5px solid currentColor}.pmc.done{opacity:.55}.pmc.overdue{box-shadow:0 0 0 2px #d64545}
+.pmyear{border-collapse:collapse;width:100%;min-width:980px}.pmyear th,.pmyear td{border:1px solid #e6e9ec;padding:6px;vertical-align:top}
+.pmyear th{background:#f6f7f8;font-size:12px;text-align:center}.pmyear td.site{min-width:190px;background:#fbfbfc}.pmyear td.now{background:#f1fbf9}
+.pmcal{border-collapse:collapse;width:100%;table-layout:fixed;min-width:760px}.pmcal th{font-size:12px;color:var(--muted);padding:6px;text-align:left}
+.pmcal td{border:1px solid #e6e9ec;height:108px;vertical-align:top;padding:6px}.pmcal td.out{background:#f7f8f9}.pmcal td.today{box-shadow:inset 0 0 0 2px var(--teal,#05b1a9)}
+.pmcal .d{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px}.pmcal .ev{display:block;font-size:11.5px;line-height:1.3;border-radius:5px;padding:3px 6px;margin-bottom:3px;color:#fff;overflow-wrap:anywhere}
+.pmcal .ev.due{background:#fff!important;border:1.5px solid currentColor}.pmcal .ev.done{opacity:.55;text-decoration:line-through}.pmcal .ev.overdue{box-shadow:0 0 0 2px #d64545}
+</style>"""
+
+
+def _pm_label(kind: str, tt) -> str:
+    en, es, _c = PM.KINDS.get(kind, PM.KINDS["other"])
+    return tt(en, es)
+
+
+def _pm_status(st: str, tt) -> str:
+    cls = {"done": "s-ok", "planned": "s-info", "overdue": "s-bad", "due": "s-off"}[st]
+    return f'<span class="pill {cls}">{UI.e(tt(*PM.STATUS_TEXT[st]))}</span>'
+
+
+def _pm_tabs(on: str, tt, today: dt.date) -> str:
+    tabs = [("year", "/maintenance/", tt("Year plan", "Plan anual")),
+            ("month", f"/maintenance/month?m={today:%Y-%m}", tt("Calendar", "Calendario")),
+            ("tasks", "/maintenance/tasks", tt("Tasks and rhythm", "Tareas y frecuencia"))]
+    return ('<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{UI.e(lbl)}</a>' for k, h, lbl in tabs)
+            + f'<a class="tab" href="/maintenance/plan.ics" style="margin-left:auto">{tt("Add to my calendar (.ics)", "Agregar a mi calendario (.ics)")}</a></div>')
+
+
+def _pm_legend(tt) -> str:
+    kinds = "".join(f'<span><i style="background:{c}"></i>{UI.e(tt(en, es))} <b class="muted">{PM_ABBR[k]}</b></span>'
+                    for k, (en, es, c) in PM.KINDS.items())
+    marks = (f'<span><span class="pmc due" style="color:#4a5d73">AB</span> {tt("due", "pendiente")}</span>'
+             f'<span><span class="pmc" style="background:#4a5d73">AB</span> {tt("planned", "programado")}</span>'
+             f'<span><span class="pmc done" style="background:#4a5d73">AB ✓</span> {tt("done", "hecho")}</span>'
+             f'<span><span class="pmc overdue" style="background:#4a5d73">AB</span> {tt("overdue", "vencido")}</span>')
+    return f'<div class="pmlegend">{kinds}</div><div class="pmlegend">{marks}</div>'
+
+
+def _pm_chip(o, tt, site_name: str, cls: str = "pmc") -> str:
+    col = PM.KINDS.get(o.kind, PM.KINDS["other"])[2]
+    style = f"color:{col}" if o.status == PM.DUE else f"background:{col}"
+    tip = f"{PM.title_of(o.title, o.kind, tt.lang)} · {site_name} · {tt('due', 'vence')} {o.due:%d %b %Y}" + (f" · {tt('planned', 'programado')} {o.planned:%d %b}" if o.planned else "") \
+        + (f" · {tt('done', 'hecho')} {o.done:%d %b}" if o.done else "")
+    label = PM_ABBR.get(o.kind, "OT") + (" ✓" if o.status == PM.DONE else "")
+    return f'<span class="{cls} {o.status}" style="{style}" title="{UI.e(tip)}">{UI.e(label)}</span>'
+
+
+def _pm_tiles(sm: Dict[str, int], tt) -> str:
+    def tile(lbl, v, sub, bad=False):
+        return (f'<div class="card"><h2>{lbl}</h2><div style="font-size:28px;font-weight:800;color:{"#b42318" if bad and v else "var(--deep)"}">{v}</div>'
+                f'<div class="small muted">{sub}</div></div>')
+    return ('<div class="grid g4">' + tile(tt("Overdue", "Vencidas"), sm["overdue"], tt("due date passed, not done", "fecha vencida, sin hacer"), True)
+            + tile(tt("Next 30 days", "Próximos 30 días"), sm["next30"], tt("due or planned", "pendientes o programadas"))
+            + tile(tt("Planned", "Programadas"), sm["planned"], tt("with a date agreed with the site", "con fecha acordada con el sitio"))
+            + tile(tt("Done this year", "Hechas este año"), sm["done_year"], tt("with the date it was done", "con la fecha en que se hizo")) + "</div>")
+
+
+def _pm_head(tt, title: str, sub: str) -> str:
+    return (f'<div class="kick">{tt("Maintenance", "Mantenimiento")}</div><h1 class="pt">{UI.e(title)}</h1>'
+            f'<p class="muted small">{sub}</p>')
+
+
+def _pm_all(c, rg, start: dt.date, end: dt.date, today: dt.date):
+    return PM.occurrences(PM.tasks(c), PM.visits(c), [s.code for s in rg.operating], start, end, today)
+
+
+@app.get("/maintenance/")
+def maint_year(msg: str = "", err: bool = False):
+    tt = t()
+    rg, c = reg(), db()
+    today = now_mx().date()
+    try:
+        year = int(request.args.get("y") or today.year)
+    except ValueError:
+        year = today.year
+    year = min(max(year, today.year - 5), today.year + 5)
+    occ = _pm_all(c, rg, dt.date(year, 1, 1), dt.date(year, 12, 31), today)
+    occ_year = [o for o in occ if o.day.year == year]
+    sm = PM.summary(_pm_all(c, rg, dt.date(today.year, 1, 1), today + dt.timedelta(days=60), today), today)
+    months = [dt.date(year, m, 1) for m in range(1, 13)]
+    mnames = [tt(d.strftime("%b"), ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")[d.month - 1]) for d in months]
+    head = "".join(f'<th>{UI.e(n)}</th>' for n in mnames)
+    rows = ""
+    for s_ in rg.operating:
+        cells = ""
+        for d in months:
+            here = [o for o in occ_year if o.site_code == s_.code and o.day.month == d.month]
+            now_c = " now" if (d.year, d.month) == (today.year, today.month) else ""
+            cells += f'<td class="{now_c.strip()}">' + "".join(_pm_chip(o, tt, s_.name) for o in here) + "</td>"
+        rows += f'<tr><td class="site"><a href="/sites/{s_.code}/"><b>{UI.e(s_.name)}</b></a><div class="small muted">{s_.code} · {UI.num(s_.kwp, 0)} kWp</div></td>{cells}</tr>'
+    if not rows:
+        rows = f'<tr><td colspan="13" class="muted">{tt("No operating site yet.", "Aún no hay sitios en operación.")}</td></tr>'
+    if not PM.tasks(c, active_only=True):
+        rows += (f'<tr><td colspan="13" class="muted">{tt("No plan yet: the O&M team adds the recurring tasks (cleaning, thermography, inspections, inverter service) under Tasks and rhythm.", "Aún sin plan: el equipo de O&M agrega las tareas recurrentes (limpieza, termografía, inspecciones, servicio de inversores) en Tareas y frecuencia.")}</td></tr>')
+    nav = (f'<div style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><a class="btn sm ghost" href="/maintenance/?y={year - 1}">‹ {year - 1}</a>'
+           f'<b style="font-size:16px">{year}</b><a class="btn sm ghost" href="/maintenance/?y={year + 1}">{year + 1} ›</a></div>')
+    # the next 60 days: what to prepare, with the O&M team's actions
+    edit = S.can(g.user["role"], "pm_edit")
+    soon = [o for o in _pm_all(c, rg, today - dt.timedelta(days=400), today + dt.timedelta(days=60), today) if o.status != PM.DONE]
+    ag = ""
+    for o in soon[:60]:
+        sname = _site_name(rg, o.site_code)
+        act = ""
+        if edit:
+            act = (f'<form method="post" action="/maintenance/visit" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">{csrf_field()}'
+                   f'<input type="hidden" name="task" value="{o.task_id}"><input type="hidden" name="site" value="{UI.e(o.site_code)}">'
+                   f'<input type="hidden" name="due" value="{o.due.isoformat()}"><input type="hidden" name="back" value="/maintenance/?y={year}">'
+                   f'<input type="date" name="planned" value="{o.planned.isoformat() if o.planned else ""}" style="width:auto" title="{tt("planned date", "fecha programada")}">'
+                   f'<button class="btn sm ghost" name="act" value="plan">{tt("Plan", "Programar")}</button>'
+                   f'<button class="btn sm" name="act" value="done">{tt("Done today", "Hecho hoy")}</button></form>')
+        ag += (f'<tr><td class="nw"><b>{o.day:%d %b %Y}</b><div class="small muted">{tt("due", "vence")} {o.due:%d %b}</div></td>'
+               f'<td><b>{UI.e(sname)}</b><div class="small muted">{UI.e(o.site_code)}</div></td>'
+               f'<td>{_pm_chip(o, tt, sname)} {UI.e(PM.title_of(o.title, o.kind, tt.lang))}<div class="small muted">{(UI.e(_pm_label(o.kind, tt)) + " · ") if o.title else ""}{o.duration_days} {tt("day(s)", "día(s)")}</div></td>'
+               f'<td>{_pm_status(o.status, tt)}</td><td>{act}</td></tr>')
+    ag = ag or f'<tr><td colspan="5" class="muted">{tt("Nothing due in the next 60 days.", "Nada pendiente en los próximos 60 días.")}</td></tr>'
+    body = (PM_CSS + _pm_head(tt, tt("Preventive maintenance and cleaning", "Mantenimiento preventivo y limpieza"),
+                              tt("Every recurring job per rooftop on one plan: module cleaning, thermography, inspections, electrical tests, inverter service. The O&M team plans the date with the site and records when it is done; the visit report goes to the documents.",
+                                 "Cada trabajo recurrente por techo en un plan: limpieza de módulos, termografía, inspecciones, pruebas eléctricas, servicio de inversores. El equipo de O&M programa la fecha con el sitio y registra cuándo se hizo; el reporte de la visita va a los documentos."))
+            + flash(msg, err) + _pm_tabs("year", tt, today) + _pm_tiles(sm, tt)
+            + f'<div class="card" style="margin-top:16px"><h2>{tt("Year plan", "Plan anual")}</h2>{nav}<div style="overflow-x:auto"><table class="pmyear"><tr><th>{tt("Site", "Sitio")}</th>{head}</tr>{rows}</table></div>{_pm_legend(tt)}</div>'
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><h2>{tt("Next 60 days and overdue", "Próximos 60 días y vencidas")}</h2>'
+            f'<table class="t"><tr><th>{tt("Date", "Fecha")}</th><th>{tt("Site", "Sitio")}</th><th>{tt("Task", "Tarea")}</th><th>{tt("Status", "Estado")}</th><th></th></tr>{ag}</table></div>')
+    return page(tt("Maintenance", "Mantenimiento"), body, "maint")
+
+
+@app.get("/maintenance/month")
+def maint_month():
+    tt = t()
+    rg, c = reg(), db()
+    today = now_mx().date()
+    try:
+        y, m = (int(x) for x in (request.args.get("m") or f"{today:%Y-%m}").split("-"))
+        first = dt.date(y, m, 1)
+    except ValueError:
+        first = today.replace(day=1)
+    weeks = PM.month_grid(first.year, first.month)
+    start, end = first, PM.add_months(first, 1) - dt.timedelta(days=1)
+    occ = [o for o in _pm_all(c, rg, start, end, today) if start <= o.day <= end]
+    by_day: Dict[dt.date, list] = {}
+    for o in occ:
+        by_day.setdefault(o.day, []).append(o)
+    dn = [tt(*x) for x in (("Mon", "lun"), ("Tue", "mar"), ("Wed", "mié"), ("Thu", "jue"), ("Fri", "vie"), ("Sat", "sáb"), ("Sun", "dom"))]
+    trs = ""
+    for w in weeks:
+        trs += "<tr>"
+        for d in w:
+            if d is None:
+                trs += '<td class="out"></td>'
+                continue
+            evs = "".join(_pm_chip(o, tt, _site_name(rg, o.site_code), "ev").replace(
+                f'>{UI.e(PM_ABBR.get(o.kind, "OT") + (" ✓" if o.status == PM.DONE else ""))}<',
+                f'>{UI.e(PM_ABBR.get(o.kind, "OT"))} · {UI.e(_site_name(rg, o.site_code))}<') for o in by_day.get(d, []))
+            trs += f'<td class="{"today" if d == today else ""}"><div class="d">{d.day}</div>{evs}</td>'
+        trs += "</tr>"
+    mname = tt(first.strftime("%B %Y"), f'{("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")[first.month - 1]} {first.year}')
+    prev_, next_ = PM.add_months(first, -1), PM.add_months(first, 1)
+    nav = (f'<div style="display:flex;gap:8px;align-items:center;margin:0 0 10px"><a class="btn sm ghost" href="/maintenance/month?m={prev_:%Y-%m}">‹</a>'
+           f'<b style="font-size:16px">{UI.e(mname)}</b><a class="btn sm ghost" href="/maintenance/month?m={next_:%Y-%m}">›</a>'
+           f'<span class="small muted" style="margin-left:auto">{len(occ)} {tt("jobs this month", "trabajos este mes")}</span></div>')
+    body = (PM_CSS + _pm_head(tt, tt("Calendar", "Calendario"), tt("The jobs of the month on the day they are planned (or due, while no date is agreed). Hover a job for its details.", "Los trabajos del mes en el día programado (o de vencimiento, mientras no haya fecha acordada). Pase el cursor sobre un trabajo para ver el detalle."))
+            + _pm_tabs("month", tt, today)
+            + f'<div class="card" style="margin-top:16px">{nav}<div style="overflow-x:auto"><table class="pmcal"><tr>{"".join(f"<th>{UI.e(x)}</th>" for x in dn)}</tr>{trs}</table></div>{_pm_legend(tt)}</div>')
+    return page(tt("Maintenance", "Mantenimiento"), body, "maint")
+
+
+@app.get("/maintenance/tasks")
+def maint_tasks(msg: str = "", err: bool = False):
+    tt = t()
+    rg, c = reg(), db()
+    today = now_mx().date()
+    edit = S.can(g.user["role"], "pm_edit")
+    trs = ""
+    for r in PM.tasks(c):
+        nxt = [o for o in PM.occurrences([dict(r, active=1)], PM.visits(c), [s.code for s in rg.operating], today, today + dt.timedelta(days=800), today)
+               if o.status != PM.DONE]
+        nd = min((o.day for o in nxt), default=None)
+        tog = ""
+        if edit:
+            tog = (f'<form method="post" action="/maintenance/tasks/{r["id"]}/active">{csrf_field()}<input type="hidden" name="on" value="{0 if r["active"] else 1}">'
+                   f'<button class="btn sm ghost">{tt("Pause", "Pausar") if r["active"] else tt("Resume", "Reanudar")}</button></form>')
+        col = PM.KINDS.get(r["kind"], PM.KINDS["other"])[2]
+        trs += (f'<tr{" class=muted" if not r["active"] else ""}><td><span class="pmc" style="background:{col}">{PM_ABBR.get(r["kind"], "OT")}</span> <b>{UI.e(PM.title_of(r["title"], r["kind"], tt.lang))}</b>'
+                f'<div class="small muted">{" · ".join(UI.e(x) for x in ((_pm_label(r["kind"], tt) if r["title"] else ""), r["notes"]) if x)}</div></td>'
+                f'<td>{UI.e(_site_name(rg, r["site_code"])) if r["site_code"] else tt("Every operating site", "Todos los sitios en operación")}</td>'
+                f'<td>{tt("every", "cada")} {r["every_months"]} {tt("months", "meses")}</td><td class="nw">{r["first_due"]}</td>'
+                f'<td class="nw">{nd.isoformat() if nd and r["active"] else "-"}</td><td class="n">{r["duration_days"]}</td><td>{tog}</td></tr>')
+    trs = trs or f'<tr><td colspan="7" class="muted">{tt("No task yet.", "Aún no hay tareas.")}</td></tr>'
+    form = ""
+    if edit:
+        kopts = "".join(f'<option value="{k}">{UI.e(tt(en, es))}</option>' for k, (en, es, _c) in PM.KINDS.items())
+        sopts = f'<option value="">{tt("Every operating site", "Todos los sitios en operación")}</option>' + "".join(
+            f'<option value="{s_.code}">{UI.e(s_.name)}</option>' for s_ in rg.sites)
+        fopts = "".join(f'<option value="{n}" {"selected" if n == 6 else ""}>{n}</option>' for n in PM.FREQUENCIES)
+        form = (f'<div class="card" style="margin-top:16px"><h2>{tt("Add a recurring task", "Agregar una tarea recurrente")}</h2>'
+                f'<form method="post" action="/maintenance/tasks" class="form">{csrf_field()}<div class="row">'
+                f'<div><label>{tt("Kind", "Tipo")}</label><select name="kind">{kopts}</select></div>'
+                f'<div><label>{tt("Title (optional)", "Título (opcional)")}</label><input name="title" maxlength="120"></div></div><div class="row">'
+                f'<div><label>{tt("Site", "Sitio")}</label><select name="site">{sopts}</select></div>'
+                f'<div><label>{tt("Every (months)", "Cada (meses)")}</label><select name="every">{fopts}</select></div>'
+                f'<div><label>{tt("First due", "Primer vencimiento")}</label><input type="date" name="first" required></div>'
+                f'<div><label>{tt("Days on site", "Días en sitio")}</label><input type="number" name="days" min="1" max="30" value="1"></div></div>'
+                f'<label>{tt("Notes", "Notas")}</label><input name="notes" maxlength="500">'
+                f'<div style="margin-top:12px"><button class="btn">{tt("Add", "Agregar")}</button></div></form></div>')
+    body = (PM_CSS + _pm_head(tt, tt("Tasks and rhythm", "Tareas y frecuencia"), tt("The recurring jobs the plan is made of. Pausing a task keeps its history; the plan rebuilds itself from these rows.", "Los trabajos recurrentes que forman el plan. Pausar una tarea conserva su historial; el plan se reconstruye a partir de estas filas."))
+            + flash(msg, err) + _pm_tabs("tasks", tt, today)
+            + f'<div class="card" style="margin-top:16px;overflow-x:auto"><table class="t"><tr><th>{tt("Task", "Tarea")}</th><th>{tt("Site", "Sitio")}</th><th>{tt("Rhythm", "Frecuencia")}</th>'
+            f'<th>{tt("First due", "Primer vencimiento")}</th><th>{tt("Next", "Siguiente")}</th><th class="n">{tt("Days", "Días")}</th><th></th></tr>{trs}</table></div>' + form)
+    return page(tt("Maintenance", "Mantenimiento"), body, "maint")
+
+
+@app.post("/maintenance/tasks")
+def maint_task_add():
+    need("pm_edit")
+    tt = t()
+    rg, c = reg(), db()
+    f = request.form
+    try:
+        tid = PM.add_task(c, f.get("site", ""), f.get("kind", ""), f.get("title", ""), int(f.get("every") or 0), f.get("first", ""),
+                          int(f.get("days") or 1), f.get("notes", ""), g.user["username"], [s_.code for s_ in rg.sites])
+    except (PM.PlanError, ValueError) as e:
+        return maint_tasks(str(e), True)
+    S.audit(c, g.user["username"], ip(), "pm_task_add", str(tid), f"{f.get('kind')} every {f.get('every')} m from {f.get('first')} site={f.get('site') or 'all'}")
+    return maint_tasks(tt("Task added - it is on the plan now.", "Tarea agregada - ya está en el plan."))
+
+
+@app.post("/maintenance/tasks/<int:tid>/active")
+def maint_task_active(tid: int):
+    need("pm_edit")
+    c = db()
+    on = request.form.get("on") == "1"
+    try:
+        PM.set_active(c, tid, on)
+    except PM.PlanError:
+        abort(404)
+    S.audit(c, g.user["username"], ip(), "pm_task_" + ("resume" if on else "pause"), str(tid))
+    return redirect("/maintenance/tasks")
+
+
+@app.post("/maintenance/visit")
+def maint_visit():
+    need("pm_edit")
+    c = db()
+    f = request.form
+    today = now_mx().date()
+    back = f.get("back", "/maintenance/")
+    if not back.startswith("/maintenance/"):
+        back = "/maintenance/"
+    act = f.get("act", "plan")
+    try:
+        if act == "done":
+            PM.record(c, int(f.get("task") or 0), f.get("site", ""), f.get("due", ""), g.user["username"], done=today.isoformat(), today=today)
+        else:
+            PM.record(c, int(f.get("task") or 0), f.get("site", ""), f.get("due", ""), g.user["username"], planned=f.get("planned", ""), today=today)
+    except (PM.PlanError, ValueError) as e:
+        return maint_year(str(e), True)
+    S.audit(c, g.user["username"], ip(), "pm_" + ("done" if act == "done" else "plan"), f"{f.get('task')}/{f.get('site')}/{f.get('due')}",
+            f.get("planned", "") if act != "done" else today.isoformat())
+    return redirect(back)
+
+
+@app.get("/maintenance/plan.ics")
+def maint_ics():
+    tt = t()
+    rg, c = reg(), db()
+    today = now_mx().date()
+    occ = _pm_all(c, rg, today - dt.timedelta(days=31), today + dt.timedelta(days=366), today)
+    body = PM.ics(occ, {s_.code: s_.name for s_ in rg.sites}, request.host or "prologis.argia.com.mx", tt.lang)
+    S.audit(c, g.user["username"], ip(), "pm_ics", "plan.ics", f"{len(occ)} events")
+    return Response(body, mimetype="text/calendar", headers={"Content-Disposition": 'attachment; filename="maintenance-plan.ics"'})
 
 
 def main(argv: List[str]) -> int:

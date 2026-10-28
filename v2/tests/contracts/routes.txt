@@ -93,7 +93,12 @@ prologis_app  GET    /healthz
 prologis_app  GET    /lang/<code>
 prologis_app  GET    /login
 prologis_app  GET    /logout
+prologis_app  GET    /maintenance/
+prologis_app  GET    /maintenance/month
+prologis_app  GET    /maintenance/plan.ics
+prologis_app  GET    /maintenance/tasks
 prologis_app  GET    /map/
+prologis_app  GET    /map/pvout.png
 prologis_app  GET    /mfa
 prologis_app  GET    /password
 prologis_app  GET    /projects/
@@ -139,6 +144,9 @@ prologis_app  POST   /availability/incident/<int:iid>/close
 prologis_app  POST   /availability/terms
 prologis_app  POST   /docs/upload
 prologis_app  POST   /login
+prologis_app  POST   /maintenance/tasks
+prologis_app  POST   /maintenance/tasks/<int:tid>/active
+prologis_app  POST   /maintenance/visit
 prologis_app  POST   /mfa
 prologis_app  POST   /password
 prologis_app  POST   /projects/<pid>

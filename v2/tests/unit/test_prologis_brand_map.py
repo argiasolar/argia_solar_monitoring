@@ -93,7 +93,7 @@ def test_css_reversed_logo_has_no_white_chip():
 def test_map_opens_on_streets(env, path):
     app_mod, pw, _ = env
     h = _signed_in(app_mod, pw).get(path).get_data(as_text=True)
-    js = re.search(r"var st=L\.tileLayer\(.*?L\.control\.layers\(\{'Streets':st,'Satellite':sat\}\)", h, flags=re.S)
+    js = re.search(r"var st=L\.tileLayer\(.*?L\.control\.layers\(\{'Streets':st,'Satellite':sat\},OV\)", h, flags=re.S)   # v333: + overlays (solar layer)
     assert js, "street layer must be defined first and listed first"
     assert "World_Street_Map" in js.group(0).split("var sat=")[0] and ".addTo(m);\nvar sat=" in js.group(0)
     sat_def = js.group(0).split("var sat=")[1].split(";\n")[0]

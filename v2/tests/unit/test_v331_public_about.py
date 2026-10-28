@@ -1,6 +1,10 @@
-"""v331 - the public product manual at prologis.argia.com.mx/about.
+"""v331 - the product manual at prologis.argia.com.mx/about.
 
-Tomasz, 28 Oct 2026: the manual must open for anyone with the link, no login.
+Tomasz, 28 Oct 2026: the manual opens without a platform account (v331);
+the same day (v333) he asked for it to be password protected: nginx now asks
+for the readers' own HTTP Basic login before a request reaches the app (see
+test_v333_maintenance_map_about.TestAboutLogin). The app itself still needs
+no platform session for it.
 The page itself is server-only (it carries the offer's prices); these tests
 use a stand-in file. What they pin:
 

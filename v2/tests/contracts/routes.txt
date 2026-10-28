@@ -62,6 +62,8 @@ maint_app  POST   /t/<number>/priority
 maint_app  POST   /t/<number>/resolution
 maint_app  POST   /t/<number>/status
 prologis_app  GET    /
+prologis_app  GET    /about
+prologis_app  GET    /about/
 prologis_app  GET    /admin/services/
 prologis_app  GET    /admin/services/<code>
 prologis_app  GET    /admin/users/

@@ -199,3 +199,10 @@ Under the intraday chart of each PPA plant page: "Strings on the plant layout". 
 - **Security page**: claims "Encryption at rest" only while `/opt/argia/prologis` is a mounted volume.
 - **Web logs 12 months**: the vhost writes to `/var/log/argia-prologis/` (outside the 14-day nginx glob); `/etc/logrotate.d/argia-prologis` (from `argia-prologis.logrotate`) rotates daily and keeps 400.
 - **SBOM and known vulnerabilities**: `argia-sbom.timer` (Mondays 04:40) writes `/root/argia_logs/sbom_server.json` (CycloneDX 1.5: every Debian package and the job venv's Python distributions, subject = deployed commit). CI `.github/workflows/v2-security.yml` (weekly, on demand, on requirement changes) runs pip-audit on `requirements.lock` (fails on a finding) and keeps a CycloneDX SBOM of the pinned requirements as an artifact (400 days). v324 itself fixed the first finding: urllib3 2.7.0 -> 2.8.0.
+
+## Public product manual for ARGIA for Prologis (v331)
+- **Where**: `https://prologis.argia.com.mx/about` (also `/about/`). Anyone with the link can read it: no login, no session cookie. Every other page still needs the login (pinned by `tests/unit/test_v331_public_about.py`).
+- **The file**: `/opt/argia/prologis/public/about.html` (on the encrypted volume; override `ARGIA_PL_ABOUT`). One self-contained HTML document (screenshots and fonts embedded, EN/CZ switch). It carries the offer's prices, so it is **server-only, never in this repo**. Missing file = 404.
+- **Update**: copy the new file over the old one (`install -m 644 about.html /opt/argia/prologis/public/about.html`); no restart. Served with `Cache-Control: no-cache`, so readers get the new version on their next visit.
+- **Headers**: its own CSP (`default-src 'none'`, images and fonts only as data:, inline style and script) - the page cannot load anything from the network; plus the usual `X-Frame-Options DENY`, `nosniff`, and the vhost's `noindex` and HSTS.
+- **Take it offline**: delete or rename the file (the link then answers 404).

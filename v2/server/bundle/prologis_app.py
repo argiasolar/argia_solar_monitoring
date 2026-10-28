@@ -25,6 +25,9 @@ log of every login, change, upload and download, and a data export.
     /security/        how the platform protects Prologis data
     /admin/users/     user management (admin)   /audit/  audit log
     /export.zip       full data export (manager, admin)
+    /about            the product manual, PUBLIC: no login (v331). A single
+                      self-contained HTML file kept server-only (it carries the
+                      offer's prices), served as is; 404 until it is installed.
 
 Metering is labelled SAMPLE until Prologis grants SolarEdge access
 (argia.prologis.metering). Customer data (registry, database, files,
@@ -86,7 +89,14 @@ SECURE_COOKIE = os.environ.get("ARGIA_PL_INSECURE_COOKIE", "") != "1"
 MAX_UPLOAD = 50 * 1024 * 1024
 ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".dwg", ".dxf", ".xlsx", ".xls", ".csv", ".docx",
                ".doc", ".pptx", ".zip", ".txt", ".kmz", ".mp4", ".heic"}
-PUBLIC = {"login", "login_post", "healthz", "brand", "lang", "favicon"}
+PUBLIC = {"login", "login_post", "healthz", "brand", "lang", "favicon", "about"}
+# v331: the public product manual (Tomasz, 28 Oct: "available to anyone without a
+# need to login"). Server-only file, never in the public repo; the page is one
+# self-contained document (images and fonts embedded), so its own CSP allows
+# nothing from the network at all.
+ABOUT_FILE = os.environ.get("ARGIA_PL_ABOUT", os.path.join(DATA_DIR, "public", "about.html"))
+ABOUT_CSP = ("default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; "
+             "script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 # v300: the browser-tab icon - the Prologis globe (server-only files, first
 # one present wins; none = 404 and the browser shows its default)
 FAVICONS = {"favicon.png": ("prologis_favicon.png", "prologis_mark.png"),
@@ -179,7 +189,7 @@ def _headers(r):
     r.headers["X-Content-Type-Options"] = "nosniff"
     r.headers["X-Frame-Options"] = "DENY"
     r.headers["Referrer-Policy"] = "same-origin"
-    r.headers["Content-Security-Policy"] = (
+    r.headers["Content-Security-Policy"] = ABOUT_CSP if request.endpoint == "about" else (
         "default-src 'self'; img-src 'self' data: https://server.arcgisonline.com https://cdnjs.cloudflare.com; "
         "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
         "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; frame-ancestors 'none'")
@@ -272,6 +282,18 @@ def favicon():
         if os.path.exists(p):
             return send_file(p, mimetype="image/png", max_age=86400)
     abort(404)
+
+
+@app.get("/about", endpoint="about")
+@app.get("/about/", endpoint="about")
+def about():
+    """The product manual for anyone with the link (v331). No session is
+    read or set; the file is sent byte for byte (no rewriting)."""
+    if not os.path.isfile(ABOUT_FILE):
+        abort(404)
+    r = send_file(ABOUT_FILE, mimetype="text/html", max_age=0, conditional=True)
+    r.headers["Cache-Control"] = "no-cache"
+    return r
 
 
 @app.get("/lang/<code>")

@@ -348,3 +348,23 @@ class TestHistorySourceConfidence:
         assert _confidence_from_irradiance(
             self._ir(IrradianceSource.SHINEMASTER_HISTORY, 300), False) \
             is Confidence.NONE   # no energy -> still NONE
+
+
+class TestImpossiblePrIsNeverStored:
+    """v329: PR 7,234 (frozen sensor, 26 Oct 2026) overflowed numeric(6,4)."""
+
+    def test_pr_above_the_store_limit_is_none_with_a_note(self):
+        res = compute_plant_pr(
+            plant_key="MEX2", date_iso="2026-10-26", kwp_dc=609.84, kwp_ac=450.0,
+            energy_per_inverter={"A": _energy(2206.0)},
+            irradiance=_irradiance(0.0005), inverter_count_expected=1,
+            module_temp_c=30.0)
+        assert res.pr is None and res.pr_stc is None
+        assert "not stored" in res.notes
+
+    def test_a_high_but_possible_pr_is_kept_and_flagged(self):
+        res = compute_plant_pr(
+            plant_key="X", date_iso="2026-10-26", kwp_dc=100.0, kwp_ac=80.0,
+            energy_per_inverter={"A": _energy(650.0)},
+            irradiance=_irradiance(5.0), inverter_count_expected=1)
+        assert res.pr == 1.3 and "implausible" in res.notes and "not stored" not in res.notes

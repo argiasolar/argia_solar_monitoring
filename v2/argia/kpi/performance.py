@@ -50,6 +50,10 @@ LOG = logging.getLogger("argia.kpi.performance")
 # coefficients are available (see PlantConfig - no gamma field yet).
 GAMMA_PMAX_DEFAULT = -0.0035
 
+# v329: a PR above this is not a measurement (the plant would have made
+# more than twice what the sun allowed) - it is never written.
+PR_STORE_MAX = 2.0
+
 # Standard Test Conditions reference (cell) temperature.
 T_STC_C = 25.0
 
@@ -254,6 +258,11 @@ def compute_plant_pr(
                 )
             elif pr < 0:
                 notes.append(f"PR={pr:.2f} negative; energy reading suspect")
+            if pr > PR_STORE_MAX or pr < 0:
+                # v329: physically impossible - keep it in the note, never
+                # in the PR column (26 Oct 2026: PR 7,234 overflowed it)
+                notes.append(f"PR={pr:.2f} not stored (outside 0..{PR_STORE_MAX})")
+                pr = None
     elif kwp_dc <= 0:
         notes.append("PR=None: kwp_dc is 0 or missing in Plants tab")
     elif irradiance.kwh_m2 is None:

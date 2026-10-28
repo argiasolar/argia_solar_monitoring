@@ -353,3 +353,57 @@ class TestHybridChoice:
         result = daily_irradiance_for_plant(rows, lat=19.4, date_iso="2026-05-14")
         assert result.source == IrradianceSource.NONE
         assert result.kwh_m2 is None
+
+
+# ============================================================
+# v329 - a sensor the plant's own energy contradicts (26 Oct 2026)
+# ============================================================
+
+class TestSensorContradicted:
+    def _irr(self, v, src=None, n=300):
+        return IrradianceDay(kwh_m2=v, source=src or IrradianceSource.SHINEMASTER_HISTORY, samples_used=n)
+
+    def test_frozen_sensor_is_contradicted(self):
+        from argia.kpi.irradiance import sensor_contradicted
+        # Vitalmex 26 Oct: 2,206 kWh on 609.84 kWp with 0.001 kWh/m2
+        assert sensor_contradicted(self._irr(0.001), 2206.0, 609.84) > 3000
+
+    def test_sound_day_is_not(self):
+        from argia.kpi.irradiance import sensor_contradicted
+        assert sensor_contradicted(self._irr(4.82), 2131.0, 609.84) is None   # PR 0.72
+        assert sensor_contradicted(self._irr(5.0), 3200.0, 609.84) is None    # PR 1.05, the fleet's best
+
+    def test_limit_is_strict(self):
+        from argia.kpi.irradiance import SENSOR_PR_LIMIT, sensor_contradicted
+        assert sensor_contradicted(self._irr(1.0), SENSOR_PR_LIMIT * 100.0, 100.0) is None
+        assert sensor_contradicted(self._irr(1.0), SENSOR_PR_LIMIT * 100.0 + 1, 100.0) is not None
+
+    def test_zero_irradiance_with_energy(self):
+        import math
+        from argia.kpi.irradiance import sensor_contradicted
+        assert math.isinf(sensor_contradicted(self._irr(0.0), 500.0, 100.0))
+
+    def test_nothing_proves_a_fault_without_energy_or_a_measurement(self):
+        from argia.kpi.irradiance import IrradianceSource, sensor_contradicted
+        assert sensor_contradicted(self._irr(0.001), 0.0, 100.0) is None
+        assert sensor_contradicted(self._irr(0.001), None, 100.0) is None
+        assert sensor_contradicted(self._irr(0.001), 500.0, 0.0) is None
+        assert sensor_contradicted(self._irr(0.001, IrradianceSource.CLOUD_COVER_MODEL), 500.0, 100.0) is None
+        assert sensor_contradicted(self._irr(None), 500.0, 100.0) is None
+
+    def test_checked_falls_back_to_the_cloud_model(self):
+        from argia.kpi.irradiance import IrradianceSource, checked_irradiance
+        model = self._irr(4.1, IrradianceSource.CLOUD_COVER_MODEL, 1)
+        use, msg = checked_irradiance(self._irr(0.001), 2206.0, 609.84, lambda: model)
+        assert use is model and "sensor fault" in msg and "4.1" in msg
+
+    def test_checked_leaves_pr_blank_when_the_model_has_nothing(self):
+        from argia.kpi.irradiance import IrradianceSource, checked_irradiance
+        use, msg = checked_irradiance(self._irr(0.001), 2206.0, 609.84, lambda: None)
+        assert use.kwh_m2 is None and use.source == IrradianceSource.NONE and "left blank" in msg
+
+    def test_checked_keeps_a_sound_sensor_and_never_calls_the_model(self):
+        from argia.kpi.irradiance import checked_irradiance
+        irr = self._irr(4.82)
+        use, msg = checked_irradiance(irr, 2131.0, 609.84, lambda: (_ for _ in ()).throw(AssertionError("called")))
+        assert use is irr and msg is None

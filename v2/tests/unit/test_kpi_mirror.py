@@ -84,3 +84,31 @@ def test_upsert_sql_quotes_and_empty():
     sql = build_upsert_sql(normalize_rows(
         [_rec(status_note="it's fine")], date_key))
     assert "it''s fine" in sql
+
+
+class TestV329ValuesThatDoNotFitTheirColumn:
+    """26 Oct 2026: one PR of 7,234 made PostgreSQL reject the WHOLE fleet
+    upsert ('numeric field overflow'). Such a value is now NULL; the rest of
+    the row and every other plant are written."""
+
+    def test_fit_numeric(self):
+        import math
+        from argia.store.kpi_mirror import fit_numeric
+        assert fit_numeric("pr", 0.83) == 0.83
+        assert fit_numeric("pr", 7234.75) is None
+        assert fit_numeric("pr", 99.9999) == 99.9999
+        assert fit_numeric("pr", 100.0) is None
+        assert fit_numeric("availability", -150.0) is None
+        assert fit_numeric("energy_kwh", math.nan) is None
+        assert fit_numeric("energy_kwh", math.inf) is None
+        assert fit_numeric("design_kwh", 1e12) == 1e12          # unbounded column
+
+    def test_normalize_drops_only_the_bad_cell(self):
+        from argia.store.kpi_mirror import normalize_rows
+        rows = normalize_rows([{"date_iso": "2026-10-26", "plant_key": "MEX2",
+                                "energy_kwh": "2206.0", "pr": "7234.75", "pr_stc": "nan"}],
+                              lambda d: d)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.get("pr") is None and r.get("pr_stc") is None
+        assert r.get("energy_kwh") == 2206.0

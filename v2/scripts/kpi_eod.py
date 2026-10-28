@@ -78,7 +78,9 @@ from argia.kpi import (
     compute_plant_pr,
     read_day_bundle,
 )
-from argia.kpi.irradiance import daily_irradiance_for_plant
+from argia.kpi.energy import sum_inverter_energies
+from argia.kpi.irradiance import (checked_irradiance, daily_irradiance_for_plant,
+                                  estimate_irradiance_from_clouds)
 from argia.kpi.performance import (
     GAMMA_PMAX_DEFAULT,
     irradiance_weighted_module_temp,
@@ -350,6 +352,14 @@ def main(argv=None) -> int:
                          irr.kwh_m2 or 0.0, irr.source.value,
                          irr.samples_used)
                 irr = dense
+        # v329: a sensor the plant's own energy contradicts is a sensor
+        # fault (26 Oct: frozen 13 W/m2 -> PR 7,234 -> the run aborted for
+        # every plant). Use the cloud model instead, or leave PR blank.
+        irr, sensor_warning = checked_irradiance(
+            irr, sum_inverter_energies(energy_by_inv), plant.kwp_dc,
+            lambda: estimate_irradiance_from_clouds(rows, plant.lat, date_iso))
+        if sensor_warning:
+            log.warning("[%s] %s", plant.plant_key, sensor_warning)
         module_temp = irradiance_weighted_module_temp(
             (r.module_temp_c, r.irradiance_wm2) for r in rows
         )
@@ -628,5 +638,22 @@ def main(argv=None) -> int:
     return 0
 
 
+CRASH_EXIT = 70
+"""v329: argia-kpi declares SuccessExitStatus=1 (rc 1 = a partial day, by
+design), and Python exits 1 on an uncaught exception too - so the 26 Oct
+crash was reported as success. A crash now exits 70 (EX_SOFTWARE): the unit
+fails and the failed-unit alert sees it."""
+
+
+def run(argv=None) -> int:
+    try:
+        return main(argv)
+    except SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001 - logged, then a distinct exit code
+        LOG.critical("kpi_eod crashed - no KPI written for the day", exc_info=True)
+        return CRASH_EXIT
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())

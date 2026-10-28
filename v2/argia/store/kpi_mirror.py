@@ -16,6 +16,7 @@ is the BILLING control):
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 # Substring, not prefix: provenance notes come in two flavors ("energy
@@ -114,13 +115,35 @@ def normalize_rows(records: List[Dict[str, Any]],
                     row[dst] = None
             elif dst in NUMERIC:
                 try:
-                    row[dst] = float(s)
+                    row[dst] = fit_numeric(dst, float(s), pk, d)
                 except ValueError:
                     row[dst] = None
             else:
                 row[dst] = s
         out.append(row)
     return out
+
+
+# v329: the bounded numeric columns of daily_production (precision, scale)
+# -> the largest absolute value they hold. A value that does not fit made
+# PostgreSQL reject the WHOLE fleet upsert (26 Oct 2026: one PR of 7,234 ->
+# "numeric field overflow" -> no KPI for any plant). It is dropped to NULL
+# with a warning instead; the rest of the row and the fleet are written.
+NUMERIC_LIMITS = {"pr": 100.0, "pr_stc": 100.0, "availability": 100.0,
+                  "avail_coverage": 100.0, "cloud_cover_pct": 10000.0,
+                  "irradiance_kwh_m2": 10000.0, "energy_kwh": 1e9,
+                  "billable_kwh": 1e9, "expected_kwh": 1e9}
+
+
+def fit_numeric(col: str, v: float, plant_key: str = "", day: Any = "") -> Optional[float]:
+    """``v`` if it is finite and fits ``col``; else None (logged). PURE."""
+    import math
+    lim = NUMERIC_LIMITS.get(col)
+    if not math.isfinite(v) or (lim is not None and abs(v) >= lim):
+        logging.getLogger("argia.store.kpi_mirror").warning(
+            "%s %s: %s=%r does not fit the column - stored as NULL", plant_key, day, col, v)
+        return None
+    return v
 
 
 def _lit(v: Any) -> str:

@@ -322,6 +322,55 @@ def estimate_irradiance_from_clouds(
     )
 
 
+# ---------- sensor plausibility (v329) ----------
+
+# The highest PR the fleet ever reached on a sound sensor day is 1.05
+# (Jul-Oct 2026, 13 plants, ~1,300 plant-days). Above SENSOR_PR_LIMIT the
+# measured irradiance cannot explain the energy the plant made: the sensor
+# is wrong, not the plant (26 Oct 2026: the SMS ShineMaster read a frozen
+# 13 W/m2 all day -> 0.001 kWh/m2 -> PR 7,234 for Vitalmex, which overflowed
+# the PR column and aborted the KPI run for the whole fleet).
+SENSOR_PR_LIMIT = 1.2
+
+MEASURED = (IrradianceSource.SHINEMASTER, IrradianceSource.SHINEMASTER_HISTORY)
+
+
+def sensor_contradicted(irr: IrradianceDay, energy_kwh: Optional[float],
+                        kwp_dc: Optional[float]) -> Optional[float]:
+    """The PR the measured irradiance implies, when it is impossible
+    (> SENSOR_PR_LIMIT, or energy on a zero-irradiance day); else None.
+    Only a measured value can be contradicted; no energy proves nothing."""
+    if irr.source not in MEASURED or irr.kwh_m2 is None:
+        return None
+    if not energy_kwh or energy_kwh <= 0 or not kwp_dc or kwp_dc <= 0:
+        return None
+    if irr.kwh_m2 <= 0:
+        return float("inf")
+    implied = energy_kwh / (kwp_dc * irr.kwh_m2)
+    return implied if implied > SENSOR_PR_LIMIT else None
+
+
+def checked_irradiance(irr: IrradianceDay, energy_kwh: Optional[float],
+                       kwp_dc: Optional[float], fallback) -> Tuple[IrradianceDay, Optional[str]]:
+    """(irradiance to use, warning or None). A sensor value the plant's
+    own energy contradicts is replaced by ``fallback()`` (the cloud-cover
+    model, LOW confidence) - or by no irradiance at all when the model has
+    nothing, so PR stays blank instead of absurd. PURE apart from calling
+    ``fallback``."""
+    implied = sensor_contradicted(irr, energy_kwh, kwp_dc)
+    if implied is None:
+        return irr, None
+    alt = fallback()
+    use = alt if alt is not None and alt.kwh_m2 is not None and alt.kwh_m2 > 0 else \
+        IrradianceDay(kwh_m2=None, source=IrradianceSource.NONE, samples_used=0)
+    shown = "inf" if math.isinf(implied) else f"{implied:.2f}"
+    msg = (f"sensor irradiance {irr.kwh_m2} kWh/m2 ({irr.source.value}) cannot explain "
+           f"{energy_kwh:.1f} kWh (implied PR {shown} > {SENSOR_PR_LIMIT}) - sensor fault; "
+           + (f"cloud model {use.kwh_m2} kWh/m2 used" if use.kwh_m2 is not None
+              else "no fallback, irradiance and PR left blank"))
+    return use, msg
+
+
 # ---------- hybrid entry point ----------
 
 

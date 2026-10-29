@@ -92,8 +92,28 @@ class Registry:
         return sum(s.kwp for s in self.sites)
 
 
+MX_BOUNDS = ((14.0, -118.0), (33.0, -86.0))     # [[south, west], [north, east]]
+
+
+def region_bounds(data: dict):
+    """v337: the area the sites must lie in. Mexico unless the registry says
+    "bounds": [[south, west], [north, east]] (a portfolio in other countries)."""
+    b = data.get("bounds")
+    if b is None:
+        return MX_BOUNDS
+    (s_, w_), (n_, e_) = b
+    s_, w_, n_, e_ = float(s_), float(w_), float(n_), float(e_)
+    if not (-90 <= s_ < n_ <= 90 and -180 <= w_ < e_ <= 180):
+        raise ValueError("bounds must be [[south, west], [north, east]] inside -90..90 / -180..180")
+    return (s_, w_), (n_, e_)
+
+
 def parse(data: dict) -> Registry:
     errs: List[str] = []
+    try:
+        (b_s, b_w), (b_n, b_e) = region_bounds(data)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"registry: {e}") from None
     sites: List[Site] = []
     seen = set()
     for i, r in enumerate(data.get("sites") or []):
@@ -113,8 +133,9 @@ def parse(data: dict) -> Registry:
             errs.append(f"site {s.code}: status must be operating or pre_pto")
         if not (0 < s.kwp < 100000):
             errs.append(f"site {s.code}: kwp out of range")
-        if not (14 <= s.lat <= 33 and -118 <= s.lon <= -86):
-            errs.append(f"site {s.code}: coordinates outside Mexico")
+        if not (b_s <= s.lat <= b_n and b_w <= s.lon <= b_e):
+            mx = (b_s, b_w, b_n, b_e) == (*MX_BOUNDS[0], *MX_BOUNDS[1])
+            errs.append(f"site {s.code}: coordinates outside " + ("Mexico" if mx else "the registry bounds"))
         seen.add(s.code)
         sites.append(s)
     projects: List[Project] = []

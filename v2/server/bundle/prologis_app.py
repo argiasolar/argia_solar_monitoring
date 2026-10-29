@@ -111,6 +111,52 @@ PHOTO_DIR = os.environ.get("ARGIA_PL_PHOTO_DIR", os.path.join(DATA_DIR, "photos"
 # colour stops, labels, attribution), made once from PVGIS / Global Solar Atlas
 # data for the customer's region. No files = no layer.
 MAP_DIR = os.environ.get("ARGIA_PL_MAP_DIR", os.path.join(DATA_DIR, "map"))
+
+# v337: the same platform for another client (irritec.argia.com.mx). A
+# server-only client.json next to the data says who the client is and how the
+# pages word things: {"name": "Irritec", "replace": [["from", "to"], ...]}.
+# Every page (not the /about manual, not downloads) gets the pairs applied in
+# order, then "Prologis" -> name. No file = the Prologis platform unchanged.
+CLIENT_FILE = os.environ.get("ARGIA_PL_CLIENT", os.path.join(DATA_DIR, "client.json"))
+_CLIENT_CACHE: Dict[str, object] = {"mtime": None, "cfg": None}
+
+
+def client_cfg() -> Optional[Dict]:
+    """The client description, or None (no file, or one that does not make
+    sense - then the pages stay exactly as they are). Re-read when it changes."""
+    try:
+        mt = os.path.getmtime(CLIENT_FILE)
+    except OSError:
+        _CLIENT_CACHE.update(mtime=None, cfg=None)
+        return None
+    if _CLIENT_CACHE["mtime"] == mt:
+        return _CLIENT_CACHE["cfg"]
+    cfg = None
+    try:
+        with open(CLIENT_FILE, encoding="utf-8") as fh:
+            d = json.load(fh)
+        name = str(d.get("name") or "").strip()
+        pairs = d.get("replace") or []
+        ok = (re.match(r"^[A-Za-z0-9 .&'-]{2,40}$", name) and isinstance(pairs, list) and len(pairs) <= 500
+              and all(isinstance(x, list) and len(x) == 2 and all(isinstance(y, str) for y in x) and x[0] for x in pairs))
+        if ok:
+            cfg = {"name": name, "replace": [(a, b) for a, b in pairs]}
+    except (OSError, ValueError, TypeError):
+        cfg = None
+    _CLIENT_CACHE.update(mtime=mt, cfg=cfg)
+    return cfg
+
+
+def client_text(html: str) -> str:
+    """Pure apart from the cached file: the page in the client's words."""
+    cfg = client_cfg()
+    if not cfg:
+        return html
+    for a, b in cfg["replace"]:
+        html = html.replace(a, b)
+    if cfg["name"] != "Prologis":
+        html = html.replace("PROLOGIS", cfg["name"].upper()).replace("Prologis", cfg["name"])
+    return html
 # v300: the browser-tab icon - the Prologis globe (server-only files, first
 # one present wins; none = 404 and the browser shows its default)
 FAVICONS = {"favicon.png": ("prologis_favicon.png", "prologis_mark.png"),
@@ -198,7 +244,7 @@ def _guard():
 @app.after_request
 def _headers(r):
     if r.mimetype == "text/html" and not r.direct_passthrough:
-        r.set_data(plain(r.get_data(as_text=True)))
+        r.set_data(client_text(plain(r.get_data(as_text=True))))
     r.headers.setdefault("Cache-Control", "no-store")
     r.headers["X-Content-Type-Options"] = "nosniff"
     r.headers["X-Frame-Options"] = "DENY"

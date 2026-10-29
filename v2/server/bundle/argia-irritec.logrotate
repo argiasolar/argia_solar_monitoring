@@ -1,0 +1,17 @@
+# v337: ARGIA for Irritec web logs kept 12 months, as for Prologis (VSQ / policy: access logs
+# retained one year). The vhost writes to /var/log/argia-irritec/, outside
+# the /var/log/nginx/*.log glob of /etc/logrotate.d/nginx (14 days).
+# Deployed to /etc/logrotate.d/argia-irritec.
+/var/log/argia-irritec/*.log {
+	daily
+	missingok
+	rotate 400
+	compress
+	delaycompress
+	notifempty
+	create 0640 www-data adm
+	sharedscripts
+	postrotate
+		invoke-rc.d nginx rotate >/dev/null 2>&1
+	endscript
+}

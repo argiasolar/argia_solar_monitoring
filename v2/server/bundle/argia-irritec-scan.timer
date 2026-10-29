@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA for Irritec upload malware scan every 5 minutes (v337)
+[Timer]
+OnCalendar=*:4/5
+RandomizedDelaySec=20
+Persistent=true
+[Install]
+WantedBy=timers.target

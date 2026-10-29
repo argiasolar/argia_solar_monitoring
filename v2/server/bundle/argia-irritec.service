@@ -1,0 +1,27 @@
+[Unit]
+# v337: ARGIA for Irritec - the same platform as ARGIA for Prologis
+# (prologis_app.py), second instance on 127.0.0.1:8521 with its own data,
+# users, MFA and audit log in /opt/argia/irritec (root-only, never in git).
+# Client name and wording: /opt/argia/irritec/client.json.
+Description=ARGIA for Irritec (irritec.argia.com.mx)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_PL_DIR=/opt/argia/irritec
+Environment=ARGIA_PL_DB=/opt/argia/irritec/irritec.db
+Environment=ARGIA_PL_FILES=/opt/argia/irritec/files
+Environment=ARGIA_PL_REGISTRY=/opt/argia/irritec/registry.json
+Environment=ARGIA_PL_PORT=8521
+ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

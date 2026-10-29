@@ -1,0 +1,16 @@
+[Unit]
+# v337: ARGIA for Irritec upload malware scan (as Prologis).
+Description=ARGIA for Irritec upload malware scan (v337)
+After=argia-irritec.service
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_PL_DIR=/opt/argia/irritec
+Environment=ARGIA_PL_DB=/opt/argia/irritec/irritec.db
+Environment=ARGIA_PL_FILES=/opt/argia/irritec/files
+Environment=ARGIA_PL_REGISTRY=/opt/argia/irritec/registry.json
+UMask=0077
+Nice=10
+ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py --scan-uploads

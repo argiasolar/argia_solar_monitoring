@@ -21,6 +21,9 @@ argia-fin  |  (service)  |  fin_app.py
 argia-finmail-monthly  |  *-*-01 23:59:00 America/Mexico_City  |  financial_mail.py
 argia-finmail-weekly  |  Fri *-*-* 23:59:00 America/Mexico_City  |  financial_mail.py
 argia-invoice  |  *-*-01 07:30:00 America/Mexico_City  |  invoice_publish.py
+argia-irritec-alarms  |  *:3/5  |  prologis_app.py
+argia-irritec-scan  |  *:4/5  |  prologis_app.py
+argia-irritec  |  (service)  |  prologis_app.py
 argia-kpi  |  *-*-* 06:00:00 America/Mexico_City  |  kpi_eod.py
 argia-mailer  |  *-*-* *:07/30:00  |  alert_mailer.py
 argia-maint  |  (service)  |  maint_app.py

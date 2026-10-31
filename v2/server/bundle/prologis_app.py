@@ -38,6 +38,8 @@ logo) lives only under /opt/argia/prologis on the server.
     python3 prologis_app.py                     serve
     python3 prologis_app.py --create-admin USER "Full name" EMAIL
     python3 prologis_app.py --seed-sample-tickets
+    python3 prologis_app.py --seed-sample-handover   sample handover checklists (never overwrites real rows)
+    python3 prologis_app.py --clear-sample-handover  remove them
     python3 prologis_app.py --seed-catalog FILE  add missing services from a JSON list (never overwrites)
     python3 prologis_app.py --seed-parts FILE    add missing spare parts and minimums (never overwrites)
     python3 prologis_app.py --alarm-run [ISO]    one alarm engine pass (the 5-minute timer; ISO = MX time, tests)
@@ -73,6 +75,7 @@ from argia.prologis import alarms as AL                   # noqa: E402
 from argia.prologis import assets as A                    # noqa: E402
 from argia.prologis import availability as AV             # noqa: E402
 from argia.prologis import catalog as CAT                 # noqa: E402
+from argia.prologis import handover as HO                # noqa: E402
 from argia.prologis import metering as M                  # noqa: E402
 from argia.prologis import monthly as MR                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
@@ -282,11 +285,13 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
-    users_link = (f'<a href="/admin/users/" class="{"on" if on == "users" else ""}">{tt("Users", "Usuarios")}</a> · '
+    # v338: the account links fold into one menu under the user's name, so the main menu fits on one line
+    users_link = (f'<a href="/admin/users/" class="{"on" if on == "users" else ""}">{tt("Users", "Usuarios")}</a>'
                   if S.can(u.get("role", ""), "users") else "")
-    who = (f'<div class="who">{UI.e(u.get("name") or u.get("username", ""))} · {users_link}'
-           f'<a href="/lang/{other}">{other.upper()}</a> · <a href="/security/">{tt("Security", "Seguridad")}</a>'
-           f' · <a href="/logout">{tt("Sign out", "Salir")}</a></div>')
+    who = (f'<div class="who"><a href="/lang/{other}" title="{tt("Español", "English")}">{other.upper()}</a>'
+           f'<details class="um"><summary>{UI.e(u.get("name") or u.get("username", ""))}</summary><div class="menu">{users_link}'
+           f'<a href="/security/" class="{"on" if on == "security" else ""}">{tt("Security", "Seguridad")}</a>'
+           f'<a href="/logout">{tt("Sign out", "Salir")}</a></div></details></div>')
     banner = (f'<div class="sample">{tt("SAMPLE DATA - simulated production until Prologis grants ARGIA access to the SolarEdge / Hark accounts. Sites, sizes and locations are real.", "DATOS DE MUESTRA - producción simulada hasta que Prologis otorgue a ARGIA acceso a SolarEdge / Hark. Sitios, tamaños y ubicaciones son reales.")}</div>'
               if sample else "")
     pl = _logo()
@@ -877,7 +882,7 @@ def sites():
         rows += (f'<tr><td><a href="/sites/{s.code}/"><b>{UI.e(s.name)}</b></a><div class="small muted">{s.code} · {UI.e(s.city)}</div></td>'
                  f'<td>{UI.status_pill(x.status, tt)}</td><td class="n">{UI.num(s.kwp, 0)}</td><td class="n">{UI.num(x.kw_now)}</td>'
                  f'<td class="n">{UI.num(x.kwh_today)}</td>{extra}</tr>')
-    body = f"""<div class="kick">{tt("Sites", "Sitios")}</div><h1 class="pt">{tt("Every rooftop, live", "Cada techo, en vivo")}</h1>
+    body = f"""<div class="kick">{tt("Sites", "Sitios")}</div><h1 class="pt">{tt("Every rooftop, live", "Cada techo, en vivo")}</h1>{_sites_tabs("list", tt)}
 <div class="card" style="margin-top:12px;overflow-x:auto"><table class="t"><tr><th>{tt("Site", "Sitio")}</th><th>{tt("Status", "Estado")}</th><th class="n">kWp</th><th class="n">kW {tt("now", "ahora")}</th>
 <th class="n">kWh {tt("today", "hoy")}</th><th class="n">MWh 30 d</th><th class="n">{tt("Yield", "Rendimiento")} kWh/kWp·d</th><th class="n">PR 30 d</th><th class="n">{tt("Avail.", "Disp.")} 30 d</th></tr>{rows}</table></div>"""
     return page(tt("Sites", "Sitios"), body, "sites", sample=True)
@@ -930,8 +935,129 @@ def site_page(code):
 <span class="chip">{UI.e(s.monitoring)}</span><span class="chip">{UI.e(s.address)}</span></div>{live_cards}
 <div class="grid g2e"><div class="card"><h2>{tt("Tickets", "Tickets")}<span class="r"><a class="btn sm ghost" href="/shop/">{tt("Order a service", "Pedir servicio")}</a> <a class="btn sm" href="/tickets/new?site={s.code}">{tt("New", "Nuevo")}</a></span></h2><table class="t">{trs}</table></div>
 <div class="card"><h2>{tt("Documents", "Documentos")}<span class="r"><a href="/docs/?site={s.code}">{tt("Folder", "Carpeta")} ›</a></span></h2><table class="t">{drs}</table></div></div>
-<div class="card" style="margin-top:16px"><h2>{tt("Equipment", "Equipos")}<span class="r"><a href="/assets/?site={s.code}">{tt("Register", "Registro")} ›</a></span></h2>{eq_html}</div>"""
+<div class="card" style="margin-top:16px"><h2>{tt("Equipment", "Equipos")}<span class="r"><a href="/assets/?site={s.code}">{tt("Register", "Registro")} ›</a></span></h2>{eq_html}</div>
+{_ho_card(c, s, tt)}"""
     return page(s.name, body, "sites", sample=s.operating)
+
+
+# ------------------------------------------------------------- v338: site handover from Prologis to ARGIA
+def _sites_tabs(on: str, tt) -> str:
+    tabs = [("list", "/sites/", tt("Sites", "Sitios")), ("handover", "/sites/handover/", tt("Handover", "Entrega"))]
+    return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{UI.e(lbl)}</a>' for k, h, lbl in tabs) + "</div>"
+
+
+def _ho_bar(pct: float) -> str:
+    return f'<div class="hbar" title="{pct * 100:.0f}%"><i style="width:{pct * 100:.1f}%"></i></div>'
+
+
+def _ho_stage(stage: str, tt) -> str:
+    en, es, cls = HO.STAGES[stage]
+    return f'<span class="pill {cls}">{UI.e(tt(en, es))}</span>'
+
+
+def _ho_card(c, s, tt) -> str:
+    sm = HO.summary(HO.items(c, s.code), today_mx())
+    cats = "".join(f'<span><b>{d}/{n}</b>&nbsp;{UI.e(tt(en, es))}</span>' for (cat, en, es) in HO.CATEGORIES for d, n in [sm["by_cat"][cat]])
+    warn = ((f' <span class="pill s-bad">{sm["blocked"]} {tt("blocked", "bloqueados")}</span>' if sm["blocked"] else "")
+            + (f' <span class="pill s-warn">{sm["overdue"]} {tt("overdue", "vencidos")}</span>' if sm["overdue"] else ""))
+    return (f'<div class="card" style="margin-top:16px"><h2>{tt("Handover from Prologis", "Entrega de Prologis")} {_ho_stage(sm["stage"], tt)}{warn}'
+            f'<span class="r"><a href="/sites/{s.code}/handover">{tt("Checklist", "Lista")} ›</a></span></h2>'
+            f'<div style="display:flex;gap:14px;align-items:center"><div style="flex:1">{_ho_bar(sm["pct"])}</div><b>{sm["pct"] * 100:.0f}%</b>'
+            f'<span class="small muted">{sm["done"]}/{sm["total"]}</span></div><div class="legend small" style="margin-top:8px">{cats}</div></div>')
+
+
+@app.get("/sites/handover/")
+def handover_portfolio():
+    tt = t()
+    rg, c = reg(), db()
+    today = today_mx()
+    rows, n_stage, sample, blocked, overdue = "", {k: 0 for k in HO.STAGES}, False, 0, 0
+    for s in sorted(rg.sites, key=lambda x: (not x.operating, x.park, x.code)):
+        sm = HO.summary(HO.items(c, s.code), today)
+        n_stage[sm["stage"]] += 1
+        sample = sample or sm["sample"]
+        blocked += sm["blocked"]
+        overdue += sm["overdue"]
+        cells = "".join(
+            f'<td class="n"><span class="pill {"s-ok" if n and d == n else ("s-info" if d else "s-off")}">{d}/{n}</span></td>'
+            for cat, *_ in HO.CATEGORIES for d, n in [sm["by_cat"][cat]])
+        flags = ((f' <span class="pill s-bad">{sm["blocked"]}&nbsp;{tt("blocked", "bloq.")}</span>' if sm["blocked"] else "")
+                 + (f' <span class="pill s-warn">{sm["overdue"]}&nbsp;{tt("overdue", "vencidos")}</span>' if sm["overdue"] else ""))
+        rows += (f'<tr><td><a href="/sites/{s.code}/handover"><b>{UI.e(s.name)}</b></a><div class="small muted">{s.code} · {UI.e(s.city)}</div></td>'
+                 f'<td>{_ho_stage(sm["stage"], tt)}{flags}</td><td style="min-width:150px">{_ho_bar(sm["pct"])}</td>'
+                 f'<td class="n"><b>{sm["pct"] * 100:.0f}%</b></td>{cells}<td class="small muted nw">{UI.e(sm["last"][:10])}</td></tr>')
+    heads = "".join(f'<th class="n">{UI.e(tt(en, es))}</th>' for _, en, es in HO.CATEGORIES)
+    tiles = "".join(f'<div class="kpi"><div class="l">{UI.e(tt(en, es))}</div><div class="v">{n_stage[k]}</div></div>' for k, (en, es, _) in HO.STAGES.items())
+    tiles += (f'<div class="kpi"><div class="l">{tt("Blocked items", "Puntos bloqueados")}</div><div class="v">{blocked}</div></div>'
+              f'<div class="kpi"><div class="l">{tt("Overdue items", "Puntos vencidos")}</div><div class="v">{overdue}</div></div>')
+    note = (f'<p class="small muted" style="margin-top:8px"><span class="pill s-warn">{tt("SAMPLE", "MUESTRA")}</span> '
+            f'{tt("Sample handover data, to show the module. Any real update replaces it.", "Datos de entrega de muestra, para mostrar el módulo. Cualquier actualización real los reemplaza.")}</p>' if sample else "")
+    body = f"""<div class="kick">{tt("Sites", "Sitios")}</div><h1 class="pt">{tt("Handover from Prologis", "Entrega de Prologis")}</h1>{_sites_tabs("handover", tt)}
+<p class="muted" style="max-width:980px">{tt("Where each site stands in the takeover: documents received, joint walkthrough, measurements, data access and the signed protocols. Open a site for its checklist.", "Dónde está cada sitio en la entrega: documentos recibidos, recorrido conjunto, mediciones, acceso a datos y actas firmadas. Abra un sitio para ver su lista.")}</p>{note}
+<div class="hero" style="padding:16px 20px"><div class="kpis" style="margin-top:0">{tiles}</div></div>
+<div class="card" style="margin-top:16px;overflow-x:auto"><table class="t"><tr><th>{tt("Site", "Sitio")}</th><th>{tt("Stage", "Etapa")}</th><th>{tt("Progress", "Avance")}</th><th class="n">%</th>{heads}<th>{tt("Last update", "Última actualización")}</th></tr>{rows}</table></div>"""
+    return page(tt("Handover", "Entrega"), body, "sites")
+
+
+@app.get("/sites/<code>/handover")
+def handover_site(code, msg: str = "", err: bool = False):
+    tt = t()
+    rg, c = reg(), db()
+    s = rg.site(code) or abort(404)
+    today = today_mx()
+    its = HO.items(c, s.code)
+    sm = HO.summary(its, today)
+    edit = S.can(g.user["role"], "handover_edit")
+    opts = lambda cur: "".join(f'<option value="{k}"{" selected" if k == cur else ""}>{UI.e(tt(en, es))}</option>' for k, (en, es, _) in HO.STATUSES.items())
+    cards = ""
+    for cat, cen, ces in HO.CATEGORIES:
+        d, n = sm["by_cat"][cat]
+        trs = ""
+        for i in (x for x in its if x["cat"] == cat):
+            en, es, cls = HO.STATUSES[i["status"]]
+            late = i["status"] not in (HO.DONE, HO.NA) and i["due"] and i["due"] < today.isoformat()
+            late_pill = f' <span class="pill s-warn">{tt("overdue", "vencido")}</span>'
+            who = tt(*HO.WHO[i["who"]])
+            meta = (f'<div class="small muted">{UI.e(i["updated_by"])} · {UI.e(i["updated_utc"][:16])}'
+                    f'{" · " + tt("sample", "muestra") if i["sample"] else ""}</div>' if i["updated_utc"] else "")
+            if edit:
+                ctl = (f'<form method="post" action="/sites/{s.code}/handover" class="hof" id="f-{i["key"]}">{csrf_field()}'
+                       f'<input type="hidden" name="item" value="{i["key"]}"><select name="status" aria-label="{tt("Status", "Estado")}">{opts(i["status"])}</select>'
+                       f'<input type="date" name="due" value="{UI.e(i["due"])}" aria-label="{tt("Due", "Fecha límite")}">'
+                       f'<input type="text" name="note" maxlength="{HO.NOTE_MAX}" value="{UI.e(i["note"])}" placeholder="{tt("Note", "Nota")}" aria-label="{tt("Note", "Nota")}">'
+                       f'<button class="btn sm" type="submit">{tt("Save", "Guardar")}</button></form>')
+            else:
+                ctl = (f'<span class="small">{UI.e(i["due"])}</span> <span class="small muted">{UI.e(i["note"])}</span>')
+            trs += (f'<tr id="i-{i["key"]}"><td>{UI.e(tt(i["en"], i["es"]))}{meta}</td><td class="nw small">{UI.e(who)}</td>'
+                    f'<td class="nw"><span class="pill {cls}">{UI.e(tt(en, es))}</span>{late_pill if late else ""}</td><td>{ctl}</td></tr>')
+        link = (f'<span class="r"><a href="/docs/?site={s.code}">{tt("Document folder", "Carpeta de documentos")} ›</a></span>' if cat == "docs" else "")
+        cards += (f'<div class="card" style="margin-top:16px"><h2>{UI.e(tt(cen, ces))} <span class="pill {"s-ok" if n and d == n else "s-info" if d else "s-off"}">{d}/{n}</span>{link}</h2>'
+                  f'<div style="overflow-x:auto"><table class="t hot"><colgroup><col style="width:34%"><col style="width:8%"><col style="width:13%"><col></colgroup>'
+                  f'<tr><th>{tt("Item", "Punto")}</th><th>{tt("Delivers", "Entrega")}</th><th>{tt("Status", "Estado")}</th>'
+                  f'<th>{tt("Due date and note", "Fecha límite y nota")}</th></tr>{trs}</table></div></div>')
+    flash = f'<div class="flash{" err" if err else ""}">{UI.e(msg)}</div>' if msg else ""
+    body = f"""<div class="kick"><a href="/sites/handover/">{tt("Handover", "Entrega")}</a> · {UI.e(s.park)}</div><h1 class="pt">{UI.e(s.name)}</h1>{flash}
+<div class="card" style="margin-top:12px"><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">{_ho_stage(sm["stage"], tt)}
+<div style="flex:1;min-width:200px">{_ho_bar(sm["pct"])}</div><b style="font-size:20px">{sm["pct"] * 100:.0f}%</b><span class="muted">{sm["done"]}/{sm["total"]} {tt("items done", "puntos hechos")}</span>
+{f'<span class="pill s-bad">{sm["blocked"]} {tt("blocked", "bloqueados")}</span>' if sm["blocked"] else ""}{f'<span class="pill s-warn">{sm["overdue"]} {tt("overdue", "vencidos")}</span>' if sm["overdue"] else ""}
+<a class="btn sm ghost" href="/sites/{s.code}/">{tt("Site page", "Página del sitio")} ›</a></div>
+<p class="small muted" style="margin:10px 0 0">{tt("Prologis delivers the documents, the data access and the spare parts; ARGIA records the walkthrough and the measurements; both sides agree the punch list and sign the protocol. Every change is in the audit log.", "Prologis entrega los documentos, el acceso a datos y las refacciones; ARGIA registra el recorrido y las mediciones; ambas partes acuerdan los pendientes y firman el acta. Cada cambio queda en la bitácora de auditoría.")}</p></div>{cards}"""
+    return page(f'{tt("Handover", "Entrega")} · {s.name}', body, "sites")
+
+
+@app.post("/sites/<code>/handover")
+def handover_set(code):
+    need("handover_edit")
+    rg, c = reg(), db()
+    s = rg.site(code) or abort(404)
+    f = request.form
+    try:
+        HO.set_item(c, s.code, f.get("item", ""), f.get("status", ""), f.get("due", ""), f.get("note", ""),
+                    g.user["username"], [x.code for x in rg.sites])
+    except (HO.HandoverError, ValueError) as e:
+        return handover_site(code, str(e), True)
+    S.audit(c, g.user["username"], ip(), "handover_item", f"{s.code}/{f.get('item')}", f"{f.get('status')} due={f.get('due', '')}")
+    return redirect(f"/sites/{s.code}/handover#i-{f.get('item')}")
 
 
 # ------------------------------------------------------------------ tickets
@@ -3769,6 +3895,16 @@ def main(argv: List[str]) -> int:
         return 0
     if len(argv) >= 2 and argv[1] == "--seed-sample-tickets":
         _seed_sample_tickets()
+        return 0
+    if len(argv) >= 2 and argv[1] in ("--seed-sample-handover", "--clear-sample-handover"):
+        c = S.connect()
+        if argv[1] == "--clear-sample-handover":
+            print(f"sample handover rows removed: {HO.clear_sample(c)}")
+        else:
+            rg = reg()
+            codes = [x.code for x in sorted(rg.sites, key=lambda x: (not x.operating, x.park, x.code))]
+            print(f"sample handover rows written: {HO.seed_sample(c, codes, today_mx())} (real rows are never overwritten)")
+        c.close()
         return 0
     os.makedirs(FILES_DIR, mode=0o700, exist_ok=True)
     reg()                                    # fail fast on a bad registry

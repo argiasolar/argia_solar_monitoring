@@ -224,6 +224,16 @@ Under the intraday chart of each PPA plant page: "Strings on the plant layout". 
 - **Files** (server-only, optional): `/opt/argia/prologis/photos/<SITE CODE>.jpg` (override `ARGIA_PL_PHOTO_DIR`), e.g. an aerial view or a roof photo, about 640 x 400 px. Shown at the top of the site's popup on the map; served to signed-in users only at `/sites/<code>/photo.jpg`. Only registry site codes are looked up; no file = no picture, the popup works as before.
 - Add one: `install -m 600 roof.jpg /opt/argia/prologis/photos/<SITE CODE>.jpg` (no restart).
 
+## Site handover from Prologis (v338)
+- **What**: Sites > Handover (`/sites/handover/`, every site with its stage, progress and the five steps) and one checklist per site (`/sites/<code>/handover`), also linked from each site page. 21 fixed items in five steps: documentation, physical walkthrough, measurements and tests, monitoring and data, protocols and sign-off; each says who delivers it (Prologis, ARGIA, both). Code: `argia/prologis/handover.py`; table `handover_items` (only recorded items are stored; no row = to do).
+- **Status**: to do, in progress, done, blocked, not applicable. Progress = done / (items - not applicable). Stage: not started, in progress, handed over (every applicable item done). Blocked and overdue (due date passed, not done) items are counted on both pages.
+- **Who edits**: Prologis managers, ARGIA operators and admins (`handover_edit`); viewers read only. Every change is an audit row `handover_item`.
+- **Sample data** (to show the module): `python3 prologis_app.py --seed-sample-handover` (with the instance's env, as for `--create-admin`) writes sample rows only where nothing is recorded; they are labelled SAMPLE. A real edit of an item replaces its sample row. Remove the rest: `--clear-sample-handover`.
+
+## Header (v338)
+- One menu line from 1200 px wide (below that it wraps to two lines, never hides links); the page uses up to 1920 px. The account links (Users, Security, Sign out) are in the menu under the user's name; the language switch stays visible.
+- The Prologis logo is 44 px high so its capitals are as tall as the ARGIA mark (22 px). Irritec keeps 32 px through three CSS pairs in its `client.json`.
+
 ## ARGIA for Irritec: irritec.argia.com.mx (v337)
 - **What**: the same platform as ARGIA for Prologis (`prologis_app.py`), a second instance for Irritec (irrigation manufacturer, plants in Italy, Spain, Mexico, USA, Brazil and branches worldwide). `argia-irritec.service` on 127.0.0.1:8521; own data, users, MFA, audit log, files and secret key in `/opt/argia/irritec` (root-only, never in git): `irritec.db`, `registry.json`, `client.json`, `brand/`, `map/`, `photos/`, `public/about.html`. Nothing is shared with Prologis.
 - **Client wording** (`client.json`): `{"name": "Irritec", "replace": [["from", "to"], ...]}`. Every page gets the pairs in order, then "Prologis" becomes the name; the pairs also carry the Irritec colours (the CSS variables) and the software-only wording. Edit the file, no restart (re-read when it changes). A broken file is ignored and the pages show the Prologis wording, so check after editing: `curl -s https://irritec.argia.com.mx/login | grep -c Prologis` gives `0`.

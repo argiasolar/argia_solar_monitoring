@@ -86,7 +86,7 @@ def test_brand_route_serves_only_known_files(env):
 def test_css_reversed_logo_has_no_white_chip():
     import prologis_ui as UI
     css = UI.CSS.replace("\n", "")
-    assert ".brand img.pl.rev{height:32px;background:none" in css
+    assert ".brand img.pl.rev{height:44px;background:none" in css            # v338: Prologis capitals as tall as ARGIA
 
 
 @pytest.mark.parametrize("path", ["/map/", "/"])

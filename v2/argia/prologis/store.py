@@ -46,6 +46,7 @@ PERMS = {
     "alarms_admin": {"admin"},                           # v321: alarm mail mode and the ARGIA desk addresses
     "exclusion_decide": {"manager", "admin"},            # v323: Prologis accepts or rejects an availability exclusion
     "contract_edit": {"admin"},                          # v323: effective date, kWh rate and annual fee per site
+    "handover_edit": {"manager", "operator", "admin"},   # v338: site handover checklist (Prologis delivers documents, ARGIA the rest)
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -135,6 +136,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _avail.ensure(c)
     from argia.prologis import scan as _scan           # v324: malware scan status of uploads
     _scan.ensure(c)
+    from argia.prologis import handover as _handover   # v338: site handover checklist
+    _handover.ensure(c)
     return c
 
 

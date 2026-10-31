@@ -115,7 +115,9 @@ prologis_app  GET    /shop/<code>
 prologis_app  GET    /shop/cart
 prologis_app  GET    /sites/
 prologis_app  GET    /sites/<code>/
+prologis_app  GET    /sites/<code>/handover
 prologis_app  GET    /sites/<code>/photo.jpg
+prologis_app  GET    /sites/handover/
 prologis_app  GET    /tickets/
 prologis_app  GET    /tickets/<number>/
 prologis_app  GET    /tickets/new
@@ -159,6 +161,7 @@ prologis_app  POST   /security/privacy
 prologis_app  POST   /shop/add
 prologis_app  POST   /shop/cart/remove
 prologis_app  POST   /shop/checkout
+prologis_app  POST   /sites/<code>/handover
 prologis_app  POST   /tickets/<number>/approve
 prologis_app  POST   /tickets/<number>/comment
 prologis_app  POST   /tickets/<number>/eta

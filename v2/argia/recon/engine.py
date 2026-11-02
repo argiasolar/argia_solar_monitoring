@@ -25,7 +25,21 @@ from typing import List, Optional
 DAILY_PASS_PCT = 1.0
 DAILY_REVIEW_PCT = 3.0
 MONTHLY_PASS_PCT = 0.5
+"""select_billing: the portal month is replaced by the Σ of the inverter
+counters only when the counters prove more than this much above it."""
 MONTHLY_REVIEW_PCT = 1.5
+CLOSE_PASS_PCT = 0.05
+"""v341: an AUTO-close needs the independent counters to agree within
+this much (lifetime register vs the portal month). October 2026, all six
+PPA plants: 0.000-0.010 %. At the old 0.5 % a Growatt month whose nightly
+snapshots missed 0.3 % of late uploads auto-closed 217 kWh short (black-
+swan scenario S12). Above it the month waits for a person (REVIEW)."""
+DAILY_TABLE_TOL_KWH = 2.0
+"""v341: the daily table (daily_production, what the annex shows day by
+day) must add up to the billed month within this many kWh, or the month
+is not auto-closed. Covers the vendors' own rounding (Growatt 0.1 kWh per
+day = 1.55 kWh a month; Huawei's dailies vs its month counter: Vitalmex
+Oct 2026 0.45 kWh)."""
 # Below this interval completeness the interval sum is expected to
 # undercount - CHECK 1 then informs, it does not fail the close.
 COMPLETENESS_MIN_PCT = 95.0
@@ -250,7 +264,9 @@ def monthly_close(interval_sum_kwh: Optional[float],
                   daily_days: int,
                   days_in_month: int,
                   daily_ref_sum_kwh: Optional[float] = None,
-                  daily_ref_days: int = 0) -> MonthlyClose:
+                  daily_ref_days: int = 0,
+                  daily_table_sum_kwh: Optional[float] = None,
+                  daily_table_days: Optional[int] = None) -> MonthlyClose:
     """Run the four checks for one plant-month and pick the billing value.
 
     Status: PASS when every computable counter-vs-counter check is inside
@@ -259,6 +275,12 @@ def monthly_close(interval_sum_kwh: Optional[float],
     gaps, or when billing had to fall back below the counter sources.
     CHECK 1 (interval vs counters) informs - with low completeness an
     interval undercount is expected and must not fail the close.
+
+    v341 (Tomasz 2026-11-02, "it is not possible that we have overflow of
+    any energy or mxn between months"): ``daily_table_sum_kwh`` is the Σ
+    of the month's daily_production energy (the annex day table). An
+    auto-close needs it to cover every day and add up to the billed month
+    within DAILY_TABLE_TOL_KWH.
     """
     notes: List[str] = []
     ld = lifetime_delta(lifetime_start_kwh, lifetime_end_kwh)
@@ -309,10 +331,15 @@ def monthly_close(interval_sum_kwh: Optional[float],
         status = STATUS_FAIL
         notes.append("counter sources disagree beyond "
                      f"{MONTHLY_REVIEW_PCT:g}% - investigate before billing")
-    elif any(abs(c) > MONTHLY_PASS_PCT for c in hard_checks):
+    elif any(abs(c) > CLOSE_PASS_PCT for c in hard_checks):
         status = STATUS_REVIEW
-        notes.append("counter sources agree only within "
-                     f"{MONTHLY_REVIEW_PCT:g}%")
+        notes.append("counter sources differ by "
+                     + ", ".join(f"{c:+.3f}%" for c in hard_checks)
+                     + f" (auto-close needs {CLOSE_PASS_PCT:g}%) - late uploads or lost "
+                     "energy; confirm the month on the vendor portal")
+    elif billing <= 0:
+        status = STATUS_REVIEW
+        notes.append("the month bills 0 kWh - confirm the plant really produced nothing")
     elif basis == BASIS_INTERVAL:
         status = STATUS_REVIEW
         notes.append("billing fell back to the INTERVAL sum - no vendor "
@@ -321,6 +348,11 @@ def monthly_close(interval_sum_kwh: Optional[float],
         status = STATUS_REVIEW
         notes.append("single counter source (Σ daily) - no independent "
                      "cross-check possible")
+    elif not hard_checks and c3 is None:
+        # v341: inverter counters alone, or the lifetime delta alone - one
+        # source is never enough to bill without a person
+        status = STATUS_REVIEW
+        notes.append(f"single source ({basis}) - no independent cross-check possible")
     else:
         status = STATUS_PASS
 
@@ -330,6 +362,17 @@ def monthly_close(interval_sum_kwh: Optional[float],
         if status == STATUS_PASS and basis == BASIS_DAILY_SUM:
             status = STATUS_REVIEW
     if c3 is not None:
+        if abs(c3) > CLOSE_PASS_PCT and status == STATUS_PASS:
+            # v341: billed on the Σ of the daily references, which must match
+            # the lifetime register. BELOW it: energy the month is not billing
+            # (black-swan S28: vendor down and one inverter unread the same
+            # day). ABOVE it: a vendor daily glitch raised a reference (fuzz:
+            # a x3 day billed 4,288 kWh the inverters never counted).
+            status = STATUS_REVIEW
+            notes.append(f"Σ daily references {c3:+.3f}% against the lifetime register "
+                         f"(auto-close needs {CLOSE_PASS_PCT:g}%) - "
+                         + ("days without full inverter data" if c3 < 0
+                            else "a vendor day above what the inverters counted"))
         if abs(c3) > MONTHLY_REVIEW_PCT:
             notes.append(f"CHECK3 Σ inverter-counter references vs lifetime "
                          f"delta {c3:+.2f}% - "
@@ -358,10 +401,24 @@ def monthly_close(interval_sum_kwh: Optional[float],
         elif abs(c1) > MONTHLY_REVIEW_PCT:
             notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}% - telemetry "
                          "pipeline losing data despite good completeness")
-            if status == STATUS_PASS:
+            # v341: our 5-min telemetry is analytics; when the lifetime
+            # register already confirms the billed month, it cannot hold
+            # an invoice (black-swan S06/S07: one inverter unread for days)
+            if status == STATUS_PASS and ld is None:
                 status = STATUS_REVIEW
         else:
             notes.append(f"CHECK1 interval vs Σdaily {c1:+.2f}%")
+
+    if daily_table_sum_kwh is not None and billing is not None:
+        gap = daily_table_sum_kwh - billing
+        short_days = (daily_table_days is not None and daily_table_days < days_in_month)
+        if short_days:
+            notes.append(f"daily table covers {daily_table_days}/{days_in_month} days")
+        if abs(gap) > DAILY_TABLE_TOL_KWH:
+            notes.append(f"daily table adds up to {daily_table_sum_kwh:,.1f} kWh, the month bills "
+                         f"{billing:,.1f} ({gap:+,.1f}) - align the days before invoicing")
+        if status == STATUS_PASS and (short_days or abs(gap) > DAILY_TABLE_TOL_KWH):
+            status = STATUS_REVIEW
 
     return MonthlyClose(interval_sum_kwh, vendor_daily_sum_kwh,
                         vendor_monthly_kwh, ld, completeness_pct,
@@ -421,3 +478,41 @@ def with_lifetime_catchup(r: DailyRecon, catchup_kwh: Optional[float]) -> DailyR
     status = STATUS_REVIEW if r.status == STATUS_PASS else r.status
     from dataclasses import replace
     return replace(r, status=status, note=note)
+
+
+# ---------------------------------------------------------------------------
+# v341: month to date, every night - the three ledgers must agree
+# ---------------------------------------------------------------------------
+MTD_OK = "OK"
+
+
+def mtd_check(table_kwh: Optional[float], table_days: int, days_elapsed: int,
+              vendor_kwh: Optional[float], lifetime_kwh: Optional[float]) -> tuple[str, str]:
+    """Tomasz 2026-11-02: "I cannot manually find issues between inverters
+    and our data specially that we are using reconciliation every day".
+    Each night, for the month so far: our daily table, the vendor portal
+    (month counter, else Σ of its dailies) and the lifetime register must
+    tell the same story, within the auto-close band. Whatever does not is
+    REVIEW now - not on the 1st. Pure."""
+    notes: List[str] = []
+    if table_days < days_elapsed:
+        notes.append(f"daily table has {table_days}/{days_elapsed} days")
+
+    def off(a, b):
+        if a is None or b is None:
+            return None
+        gap = a - b
+        band = max(DAILY_TABLE_TOL_KWH, abs(b) * CLOSE_PASS_PCT / 100.0)
+        return gap if abs(gap) > band else 0.0
+    t_l, v_l, t_v = off(table_kwh, lifetime_kwh), off(vendor_kwh, lifetime_kwh), off(table_kwh, vendor_kwh)
+    if lifetime_kwh is not None:
+        if t_l:
+            notes.append(f"daily table {t_l:+,.1f} kWh against the lifetime register")
+        if v_l:
+            notes.append(f"vendor portal {v_l:+,.1f} kWh against the lifetime register")
+    elif t_v:
+        notes.append(f"daily table {t_v:+,.1f} kWh against the vendor portal (no lifetime register)")
+    if table_kwh is None:
+        notes.append("no daily table")
+    return (STATUS_REVIEW if notes else MTD_OK), "; ".join(notes)
+

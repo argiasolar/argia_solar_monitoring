@@ -122,5 +122,6 @@ def test_main_passes_the_cutoff_only_in_invoice_mode(monkeypatch, tmp_path, argv
         return {}
     monkeypatch.setattr(ria, "build_annex_data", fake_build)
     monkeypatch.setattr(ria, "render_annex_html", lambda payload, gen, default_ym=None: "<html></html>")
+    monkeypatch.setattr(ria, "invoice_violations", lambda *a: [])       # v341 gate: tested on its own
     assert ria.main(argv + ["--out-dir", str(tmp_path)]) == 0
     assert seen == [expect]

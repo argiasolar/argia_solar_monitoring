@@ -161,8 +161,14 @@ def test_close_interval_gap_does_not_fail_close():
 
 def test_close_interval_loss_with_good_completeness_is_flagged():
     # Interval lost 5% while completeness says 100% -> pipeline bug.
+    # v341: flagged in the note; it holds the month only when no lifetime
+    # register confirms the billed month (our telemetry is not billing).
     mc = monthly_close(95000.0, 100000.0, 100010.0,
                        0.0, 100005.0, 100.0, 31, 31)
+    assert mc.status == STATUS_PASS
+    assert "losing data" in mc.note
+    mc = monthly_close(95000.0, 100000.0, 100010.0,
+                       None, None, 100.0, 31, 31)
     assert mc.status == STATUS_REVIEW
     assert "losing data" in mc.note
 
@@ -241,10 +247,16 @@ def test_close_check3_flags_a_lifetime_delta_above_the_references():
                        daily_ref_sum_kwh=96000.0, daily_ref_days=31)
     assert mc.billing_basis == BASIS_DAILY_REF and mc.billing_kwh == 96000.0
     assert mc.status == STATUS_REVIEW and "CHECK3" in mc.note and "days without inverter data" in mc.note
-    # references above the lifetime delta = vendor upload gaps: informational
+    # v341: references ABOVE the lifetime delta are no longer waved through -
+    # a vendor day glitch raises a reference; the month waits for a person
     mc = monthly_close(98000.0, None, None, 100000.0, 198542.2, 99.0, 0, 31,
                        daily_ref_sum_kwh=100500.0, daily_ref_days=31)
-    assert mc.status == STATUS_PASS and "vendor upload gaps; counters kept" in mc.note
+    assert mc.status == STATUS_REVIEW and "vendor upload gaps; counters kept" in mc.note
+    assert "above what the inverters counted" in mc.note
+    # within the auto-close band it still closes
+    mc = monthly_close(98000.0, None, None, 100000.0, 198542.2, 99.0, 0, 31,
+                       daily_ref_sum_kwh=98560.0, daily_ref_days=31)
+    assert mc.status == STATUS_PASS
 
 
 # ----------------------------------------------------------- v339: October 2026, the real figures

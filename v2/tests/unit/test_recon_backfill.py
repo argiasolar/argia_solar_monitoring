@@ -178,4 +178,5 @@ class TestInverterCounterRule:
         assert "reference_kwh=EXCLUDED.reference_kwh" in snap
         close = (V2 / "scripts" / "recon_close.py").read_text(encoding="utf-8")
         assert "greatest(interval_kwh, vendor_daily_kwh)" in close
-        assert 's.get("ref_sum"), s.get("ref_days", 0))' in close
+        assert 's.get("ref_sum"), s.get("ref_days", 0),' in close
+        assert 'daily_table_sum_kwh=s.get("table_sum")' in close          # v341

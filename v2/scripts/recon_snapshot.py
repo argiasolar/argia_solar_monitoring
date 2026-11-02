@@ -352,6 +352,58 @@ def reconcile_day(date_iso: str, brand_by_plant: Dict[str, str],
     return len(values)
 
 
+MTD_ENSURE_SQL = (
+    "CREATE TABLE IF NOT EXISTS reconciliation_mtd ("
+    " plant_key text NOT NULL, ref_month date NOT NULL, as_of date NOT NULL,"
+    " table_kwh numeric(14,3), table_days int, vendor_kwh numeric(14,3), lifetime_kwh numeric(14,3),"
+    " status text NOT NULL, note text, checked_at timestamptz DEFAULT now(),"
+    " PRIMARY KEY (plant_key, ref_month));")
+
+
+def month_to_date(as_of: dt.date, plants: List[str], dry_run: bool) -> int:
+    """v341: the month so far, every night - daily table vs vendor portal vs
+    lifetime register (engine.mtd_check). Stored in reconciliation_mtd, one
+    row per plant and month (the latest night wins). Returns REVIEW count."""
+    first = as_of.replace(day=1)
+    prev_last = first - dt.timedelta(days=1)
+    rng = f"BETWEEN DATE '{first}' AND DATE '{as_of}'"
+    table = {r[0]: (_f(r[1]), int(_f(r[2]) or 0)) for r in psql_rows(
+        "SELECT plant_key, sum(energy_kwh), count(DISTINCT prod_date) FILTER (WHERE energy_kwh IS NOT NULL)"
+        f" FROM daily_production WHERE prod_date {rng} GROUP BY 1;") if len(r) >= 3}
+    vsum = {r[0]: _f(r[1]) for r in psql_rows(
+        f"SELECT plant_key, sum(daily_kwh) FROM vendor_counter_snapshot WHERE snap_date {rng} GROUP BY 1;")
+        if len(r) >= 2}
+    latest = {r[0]: (_f(r[1]), _f(r[2])) for r in psql_rows(
+        "SELECT DISTINCT ON (plant_key) plant_key, monthly_kwh, lifetime_kwh FROM vendor_counter_snapshot"
+        f" WHERE snap_date {rng} ORDER BY plant_key, snap_date DESC;") if len(r) >= 3}
+    start = {r[0]: _f(r[1]) for r in psql_rows(
+        "SELECT DISTINCT ON (plant_key) plant_key, lifetime_kwh FROM vendor_counter_snapshot"
+        f" WHERE snap_date BETWEEN DATE '{prev_last.replace(day=1)}' AND DATE '{prev_last}'"
+        " AND lifetime_kwh IS NOT NULL ORDER BY plant_key, snap_date DESC;") if len(r) >= 2}
+    values, n_review = [], 0
+    for pk in sorted(plants):
+        t_kwh, t_days = table.get(pk, (None, 0))
+        month_ctr, life_end = latest.get(pk, (None, None))
+        vendor = month_ctr if month_ctr is not None else vsum.get(pk)
+        life = E.lifetime_delta(start.get(pk), life_end)
+        status, note = E.mtd_check(t_kwh, t_days, as_of.day, vendor, life)
+        n_review += status != E.MTD_OK
+        (LOG.warning if status != E.MTD_OK else LOG.info)(
+            "MTD %s %s..%s: table %s vendor %s lifetime %s -> %s %s", pk, first, as_of,
+            t_kwh, vendor, life, status, note)
+        values.append(f"({_txt(pk)}, DATE '{first}', DATE '{as_of}', {_num(t_kwh)}, {t_days},"
+                      f" {_num(vendor)}, {_num(life)}, {_txt(status)}, {_txt(note)})")
+    if values and not dry_run:
+        psql_exec(MTD_ENSURE_SQL)
+        psql_exec("INSERT INTO reconciliation_mtd (plant_key, ref_month, as_of, table_kwh, table_days,"
+                  " vendor_kwh, lifetime_kwh, status, note) VALUES\n" + ",\n".join(values) +
+                  "\nON CONFLICT (plant_key, ref_month) DO UPDATE SET as_of=EXCLUDED.as_of,"
+                  " table_kwh=EXCLUDED.table_kwh, table_days=EXCLUDED.table_days,"
+                  " vendor_kwh=EXCLUDED.vendor_kwh, lifetime_kwh=EXCLUDED.lifetime_kwh,"
+                  " status=EXCLUDED.status, note=EXCLUDED.note, checked_at=now();")
+    return n_review
+
+
 RECON_DAILY_ENSURE_SQL = (
     "ALTER TABLE reconciliation_daily"
     " ADD COLUMN IF NOT EXISTS reference_kwh numeric(12,3),"
@@ -544,6 +596,15 @@ def main(argv=None) -> int:
             psql_exec(B.build_billable_resync_sql())
         except RuntimeError as e:
             LOG.warning("billable resync failed (recon unaffected): %s", e)
+
+    # v341: month to date - the three ledgers must agree every night, not on the 1st
+    if dates:
+        try:
+            n = month_to_date(dt.date.fromisoformat(dates[0]),
+                              [p.plant_key for p in portfolio.financial_plants()], args.dry_run)
+            LOG.info("month to date: %d PPA plant(s) need a look", n)
+        except Exception as e:  # noqa: BLE001
+            LOG.warning("month-to-date check failed (recon unaffected): %s", e)
 
     # AGS-701 R2: weather-normalized PR_STC wherever module temperature
     # was measured (whole telemetry window - heals late KPI arrivals)

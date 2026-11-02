@@ -320,7 +320,7 @@ def invoices_page():
         closes = {(r[0], r[1]): (r[2], r[3] == 't') for r in RG.q(
             "SELECT plant_key, to_char(ref_month, 'YYYY-MM'), status, closed_at IS NOT NULL"
             " FROM reconciliation_monthly;") if len(r) >= 4}
-        blocked = IP.blocked_reasons(months, closes)
+        blocked = IP.blocked_reasons(months, closes, IP.all_held(OLD_INVOICES_DIR, months))
     except Exception:                                 # noqa: BLE001
         blocked = {}
     body = IP.index_body(months, blocked_now=blocked, records=invoice_records(),

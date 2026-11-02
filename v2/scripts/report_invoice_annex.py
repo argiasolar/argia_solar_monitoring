@@ -72,6 +72,87 @@ def month_window(ym: str) -> Period:
     return Period.from_iso("%s-01" % ym, "%s-%02d" % (ym, monthrange(y, m)[1]))
 
 
+def month_books(ym: str):
+    """{plant: {"close": {...}, "daily_sum": x, "daily_days": n}} from
+    PostgreSQL for the invariant gate; None off-server (no PG: the annex
+    rules still run, the books rules cannot)."""
+    try:
+        from argia.store import pg_mirror
+        if not pg_mirror.enabled():
+            return None
+        from argia.store.pgq import psql_rows
+        out = {}
+        for r in psql_rows(
+                "SELECT plant_key, billing_kwh, closed_at IS NOT NULL FROM reconciliation_monthly"
+                f" WHERE ref_month = DATE '{ym}-01';"):
+            if len(r) >= 3 and r[0]:
+                out.setdefault(r[0], {})["close"] = {
+                    "kwh": float(r[1]) if r[1] not in ("", None) else None, "closed": r[2] == "t"}
+        for r in psql_rows(
+                "SELECT plant_key, sum(energy_kwh), count(DISTINCT prod_date) FILTER (WHERE energy_kwh IS NOT NULL)"
+                f" FROM daily_production WHERE prod_date BETWEEN DATE '{ym}-01' AND DATE '{_month_end_iso(ym)}'"
+                " GROUP BY 1;"):
+            if len(r) >= 3 and r[0]:
+                b = out.setdefault(r[0], {})
+                b["daily_sum"] = float(r[1]) if r[1] not in ("", None) else None
+                b["daily_days"] = int(float(r[2] or 0))
+        return out
+    except Exception as e:  # noqa: BLE001
+        LOG.error("books unreadable for the invoice gate (%s) - every invoice HELD", e)
+        return {"__unreadable__": str(e)}
+
+
+def invoice_violations(ym: str, payload: dict, books, pk: str) -> list:
+    """Every invariant for one plant's invoice annex. ``books`` None =
+    off-server: annex rules only. Pure."""
+    from argia.finance import invariants as INV
+    if books is None:
+        return INV.check_annex(payload, ym, payload.get("kwp"))
+    if "__unreadable__" in books:
+        return [INV.Violation("BOOKS", "reconciliation / daily table unreadable: " + books["__unreadable__"])]
+    b = books.get(pk, {})
+    return INV.check_invoice(ym, payload, b.get("close"), b.get("daily_sum"), b.get("daily_days", 0))
+
+
+HELD_DIR = "_held"
+
+
+def hold_previous(out_dir: str, base: str) -> None:
+    """A held invoice must not leave an older copy published: move this
+    plant's html / pdf for the month out of the served folder."""
+    import shutil
+    for ext in (".html", ".pdf"):
+        src = os.path.join(out_dir, base + ext)
+        if os.path.exists(src):
+            os.makedirs(os.path.join(out_dir, HELD_DIR), exist_ok=True)
+            shutil.move(src, os.path.join(out_dir, HELD_DIR, base + ext))
+            LOG.error("moved the previous %s%s out of the published folder", base, ext)
+
+
+def report_path(out_dir: str, ym: str) -> str:
+    return os.path.join(out_dir, "invariants_%s.json" % ym.replace("-", ""))
+
+
+def write_report(out_dir: str, ym: str, report: dict) -> None:
+    """{factura_name: [violation, ...]} - [] = every rule holds. Read by
+    the invoices index to say why a closed plant has no invoice."""
+    import json
+    path = report_path(out_dir, ym)
+    merged = {}
+    try:                                   # a single-plant run keeps the others' results
+        with open(path, encoding="utf-8") as f:
+            merged = (json.load(f) or {}).get("plants") or {}
+    except (OSError, ValueError):
+        pass
+    merged.update(report)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"ym": ym, "checked_at": now_mx().strftime("%Y-%m-%d %H:%M MX"), "plants": merged},
+                  f, indent=1, ensure_ascii=False)
+    held = sorted(k for k, v in report.items() if v)
+    LOG.info("invariants %s: %d checked, %d held%s", ym, len(report), len(held),
+             (" (" + ", ".join(held) + ")") if held else "")
+
+
 def _setup_logging(level: str = "INFO") -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -182,6 +263,9 @@ def main(argv=None) -> int:
                         "board first)", pk, ym)
     if not plants:
         LOG.warning("no plants matched - nothing to render")
+        if mode == "invoice" and blocked and args.out_dir:
+            write_report(args.out_dir, ym, {FACTURA_NAME.get(pk, pk): [
+                f"CLOSED: the {ym} reconciliation is not closed"] for pk in blocked})
         return 2
 
     out_dir = args.out_dir or tempfile.mkdtemp(prefix="argia_annex_")
@@ -192,6 +276,11 @@ def main(argv=None) -> int:
     # {} degrades to atoms with a logged warning
     history_all = load_invoicing_overview(window.start.year)
 
+    books = month_books(ym) if mode == "invoice" else None
+    report = {}
+    if mode == "invoice":
+        for pk in blocked:
+            report[FACTURA_NAME.get(pk, pk)] = [f"CLOSED: the {ym} reconciliation is not closed"]
     rendered = []
     for pk in plants:
         try:
@@ -209,11 +298,26 @@ def main(argv=None) -> int:
         else:
             base = "annex_%s_%d" % (pk.lower(), window.start.year)
         path = os.path.join(out_dir, base + ".html")
+        if mode == "invoice":
+            # v341: the arithmetic gate - one broken rule, no invoice
+            try:
+                bad = invoice_violations(ym, payload, books, pk)
+            except Exception as e:  # noqa: BLE001 - a check that cannot run holds the invoice
+                from argia.finance.invariants import Violation
+                bad = [Violation("ERROR", f"the checks could not run: {e!r}")]
+            report[FACTURA_NAME.get(pk, pk)] = [str(v) for v in bad]
+            if bad:
+                for v in bad:
+                    LOG.error("[%s] %s INVOICE HELD - %s", pk, ym, v)
+                hold_previous(out_dir, base)
+                continue
         with open(path, "w", encoding="utf-8") as f:
             f.write(html)
         LOG.info("[%s] rendered %s (%d KiB)", pk, path, len(html) // 1024)
         rendered.append((pk, path))
 
+    if mode == "invoice":
+        write_report(out_dir, ym, report)
     if not rendered:
         return 2
 

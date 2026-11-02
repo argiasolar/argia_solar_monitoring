@@ -207,7 +207,35 @@ def record_invoicing(ym, names, history, out_dir=None):
     return rows
 
 
-def blocked_reasons(months, closes):
+def held_reasons(out_dir, ym):
+    """{factura_name: first broken rule} from the month's invariant report
+    (report_invoice_annex.write_report). {} when there is none."""
+    import json as _json
+    path = os.path.join(out_dir, "invariants_%s.json" % ym.replace("-", ""))
+    try:
+        with open(path, encoding="utf-8") as f:
+            plants = (_json.load(f) or {}).get("plants") or {}
+    except (OSError, ValueError):
+        return {}
+    # "not closed" keeps its own wording in blocked_reasons
+    return {n: v[0] for n, v in plants.items() if v and not str(v[0]).startswith("CLOSED:")}
+
+
+def held_names(out_dir, ym):
+    return set(held_reasons(out_dir, ym))
+
+
+def all_held(out_root, months):
+    """{ym: {factura_name: reason}} for every published month folder."""
+    out = {}
+    for ym in months:
+        h = held_reasons(os.path.join(out_root, ym), ym)
+        if h:
+            out[ym] = h
+    return out
+
+
+def blocked_reasons(months, closes, held=None):
     """{ym: [(factura_name, why)]} - the PPA plants with no annex for a
     published month, and why (the reconciliation is not closed). PURE.
     ``closes``: {(plant_key, ym): (status, closed)}.
@@ -221,6 +249,11 @@ def blocked_reasons(months, closes):
             if name in have:
                 continue
             status, closed = closes.get((pk, ym), (None, False))
+            why_held = (held or {}).get(ym, {}).get(name)
+            if why_held:
+                out.setdefault(ym, []).append(
+                    (name, f"HELD: the invoice failed the arithmetic check - {why_held}"))
+                continue
             if closed:
                 continue
             why_en = (f"Not invoiced: the {ym} reconciliation is {status} and not closed - "
@@ -230,7 +263,7 @@ def blocked_reasons(months, closes):
     return out
 
 
-def blocked_now(months):
+def blocked_now(months, out_root=None):
     """blocked_reasons() with the closes read from PostgreSQL ({} off-server)."""
     try:
         from argia.store import pg_mirror
@@ -243,7 +276,7 @@ def blocked_now(months):
     except Exception as e:                             # noqa: BLE001
         LOG.warning("closes unreadable for the index: %s", e)
         return {}
-    return blocked_reasons(months, closes)
+    return blocked_reasons(months, closes, all_held(out_root, months) if out_root else None)
 
 
 def all_records():
@@ -292,6 +325,14 @@ def push_to_drive(ym, out_dir):
                           "application/pdf")
             n += 1
         LOG.info("drive push: %d PDF(s) -> Invoicing/%s", n, ym)
+        # v341: a HELD invoice must not stay in Drive from an earlier run -
+        # it goes to the Drive trash (recoverable for 30 days)
+        for name in sorted(held_names(out_dir, ym)):
+            fid = d.find_file(folder, "factura_%s_%s.pdf" % (name, ym.replace("-", "")))
+            if fid:
+                d.trash_file(fid)
+                LOG.error("drive: factura_%s_%s.pdf moved to the Drive trash - the invoice is HELD", name,
+                          ym.replace("-", ""))
         return n
     except Exception as e:                             # noqa: BLE001
         LOG.error("drive push failed (publish unaffected): %s", e)
@@ -580,7 +621,7 @@ def main(argv=None) -> int:
         record_invoicing(ym, set(published), history_by_year[year], out_dir)
 
     from argia.core.time_utils import now_mx as _now
-    idx = render_index(scan_months(args.out_root), blocked_now=blocked_now(scan_months(args.out_root)),
+    idx = render_index(scan_months(args.out_root), blocked_now=blocked_now(scan_months(args.out_root), args.out_root),
                        records=all_records(),
                        zips=month_zips(args.out_root),
                        generated_at=_now().strftime("%Y-%m-%d %H:%M MX"))

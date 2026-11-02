@@ -55,7 +55,8 @@ def month_inputs(first: dt.date, last: dt.date) -> Dict[str, dict]:
         return out.setdefault(pk, {
             "interval_sum": None, "daily_sum": None, "daily_days": 0,
             "monthly": None, "life_start": None, "life_end": None,
-            "completeness": None, "ref_sum": None, "ref_days": 0})
+            "completeness": None, "ref_sum": None, "ref_days": 0,
+            "table_sum": None, "table_days": 0})
 
     # v206: Σ of the daily references (inverter counters; vendor plant
     # daily only where higher). Rows written before v206 have no
@@ -94,6 +95,18 @@ def month_inputs(first: dt.date, last: dt.date) -> Dict[str, dict]:
         s = slot(r[0])
         s["monthly"] = _f(r[1])
         s["life_end"] = _f(r[2])
+
+    # v341: the daily table the annex shows day by day must add up to the
+    # billed month (engine.DAILY_TABLE_TOL_KWH), or the month is not auto-closed
+    for r in psql_rows(
+            "SELECT plant_key, sum(energy_kwh),"
+            " count(DISTINCT prod_date) FILTER (WHERE energy_kwh IS NOT NULL)"
+            " FROM daily_production"
+            f" WHERE prod_date BETWEEN DATE '{first}' AND DATE '{last}'"
+            " GROUP BY 1;"):
+        s = slot(r[0])
+        s["table_sum"] = _f(r[1])
+        s["table_days"] = int(_f(r[2]) or 0)
 
     prev_first = (first - dt.timedelta(days=1)).replace(day=1)
     for r in psql_rows(
@@ -134,7 +147,9 @@ def close_month(ref_month: str, dry_run: bool) -> int:
             s.get("interval_sum"), s.get("daily_sum"), s.get("monthly"),
             s.get("life_start"), s.get("life_end"), s.get("completeness"),
             s.get("daily_days", 0), days,
-            s.get("ref_sum"), s.get("ref_days", 0))
+            s.get("ref_sum"), s.get("ref_days", 0),
+            daily_table_sum_kwh=s.get("table_sum"),
+            daily_table_days=s.get("table_days", 0))
         auto_close = mc.status == E.STATUS_PASS
         LOG.info("=== %s %s: %s basis=%s billing=%s\n    %s", ref_month, pk,
                  mc.status, mc.billing_basis, mc.billing_kwh, mc.note)

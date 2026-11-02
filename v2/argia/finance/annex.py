@@ -145,10 +145,17 @@ def _client_logo(pk):
 
 def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
                      plant_key: str, window: Period,
-                     history: Optional[Dict] = None) -> Dict:
+                     history: Optional[Dict] = None,
+                     data_until: Optional[str] = None) -> Dict:
     """Assemble the embedded dataset for one plant over ``window`` (the
     range the picker can select within, e.g. a calendar year).
-    ``history`` is this plant's slice of Invoicing_Overview."""
+    ``history`` is this plant's slice of Invoicing_Overview.
+
+    ``data_until`` (ISO date, v340): an invoice carries no data after the
+    last day of the invoiced month. The day axis still runs to the end of
+    the window (the chart keeps January to December), but later days are
+    empty atoms and later history months are dropped. Tomasz, 2 Nov 2026:
+    "remove the november consumption from the October month"."""
     pk = plant_key.upper()
     plant = portfolio.plants.get(pk) or portfolio.plants.get(plant_key)
     if plant is None:
@@ -183,6 +190,8 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
             continue
         if not d_iso or not window.contains_iso(d_iso):
             continue
+        if data_until and d_iso > data_until:
+            continue                       # after the invoiced month
         energy = safe_float(get(row, "energy_kwh"))
         billable = safe_float(get(row, "billable_kwh"))
         # deemed straight from the stamped billable - never recomputed
@@ -215,6 +224,10 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
             tariff_by_month[ym] = tariff(cursor.year, cursor.month)
         cursor += _one_day()
 
+    hist = dict(history or {})
+    if data_until:
+        hist = {k: v for k, v in hist.items() if str(k)[:7] <= data_until[:7]}
+
     return {
         "plant_key": pk,
         "client": plant.customer or pk,
@@ -228,7 +241,8 @@ def build_annex_data(sheets: SheetsClient, portfolio: Portfolio,
         "co2_factor_by_year": co2reg.factors_by_year(pk),
         "co2_factor_label": co2reg.label(pk),
         "co2_factor_contracted": pk in co2reg.PLANT_OVERRIDE,
-        "history": history or {},
+        "history": hist,
+        "data_until": data_until,
     }
 
 

@@ -42,6 +42,13 @@ from argia.finance.income import Period
 LOG = logging.getLogger("argia.report.invoice_annex")
 
 
+def _month_end_iso(ym: str) -> str:
+    """Last calendar day of YYYY-MM as ISO. Pure."""
+    import calendar
+    y, m = int(ym[:4]), int(ym[5:7])
+    return "%04d-%02d-%02d" % (y, m, calendar.monthrange(y, m)[1])
+
+
 def _year_window(year: int) -> Period:
     return Period.from_iso("%04d-01-01" % year, "%04d-12-31" % year)
 
@@ -162,6 +169,10 @@ def main(argv=None) -> int:
         window = _year_window(year)
         mode = "annex"
 
+    # v340: an invoice shows nothing after the invoiced month (rendered on
+    # 2 Nov, the October invoices had carried 1-2 Nov production)
+    data_until = _month_end_iso(ym) if mode == "invoice" else None
+
     plants = _target_plants(portfolio, args)
     if mode == "invoice":
         plants, blocked = reconciliation_gate(ym, plants)
@@ -185,7 +196,8 @@ def main(argv=None) -> int:
     for pk in plants:
         try:
             payload = build_annex_data(sheets, portfolio, pk, window,
-                                       history=history_all.get(pk))
+                                       history=history_all.get(pk),
+                                       data_until=data_until)
             html = render_annex_html(payload, generated_at,
                                      default_ym=ym)
         except Exception as e:  # noqa: BLE001

@@ -163,6 +163,7 @@ def invoice_annexes(keys, demo_names, today):
     """One invoice annex per plant for the month just closed (no
     reconciliation gate: these are examples)."""
     import base64
+    import calendar
     import demo_brand
     from argia.core.config import load_portfolio
     from argia.core.sheets import open_sheets
@@ -180,7 +181,8 @@ def invoice_annexes(keys, demo_names, today):
     y, m = int(ym[:4]), int(ym[5:])
     out = []
     for k in keys:
-        payload = build_annex_data(sheets, portfolio, k, window, history=history.get(k))
+        payload = build_annex_data(sheets, portfolio, k, window, history=history.get(k),
+                                   data_until='%04d-%02d-%02d' % (y, m, calendar.monthrange(y, m)[1]))
         payload['client_logo'] = logo                     # never the customer's logo
         payload['factura_name'] = slug_name(demo_names[k])
         html = render_annex_html(payload, generated, default_ym=ym)

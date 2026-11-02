@@ -269,3 +269,69 @@ def test_calendar_pure_helpers(sa):
     assert s["agreed"] == 1859.0 and s["reissue"] is True
     s = sa.calendar_summary(days, ev, {"produced": 61035.0, "penalty": 1859.0, "amount": 127171.67})
     assert s["reissue"] is False
+
+
+# ------------------------------------------------------------ v343: names + recalculate button
+def test_customer_names_beside_the_codes(sa, psql):
+    assert sa.short_customer("SAG PPA roof (CDMX, MEX)") == "SAG"
+    assert sa.short_customer("HOLIDAY INN EXPRESS, Turistica Arizona PPA roof (SLP, SLP)") == \
+        "HOLIDAY INN EXPRESS, Turistica Arizona"
+    assert sa.short_customer("") == ""
+    assert sa.plabel("mex1", {"mex1": "SAG"}) == "SAG (MEX1)" and sa.plabel("mex1", {}) == "MEX1"
+    names = sa.plant_names()
+    assert names and any(pk in sa.ppa_plants() for pk in names)
+    page = sa.app.test_client().get("/plants/calendar?plant=nl1&month=2026-10", headers=ADMIN).get_data(as_text=True)
+    for pk, n in names.items():
+        if pk in sa.ppa_plants():
+            assert f"{n} ({pk.upper()})" in page, (pk, n)
+
+
+def test_recalculate_preview_then_apply(sa, monkeypatch):
+    calls = []
+
+    class R:
+        def __init__(self, out, rc=0):
+            self.stdout, self.stderr, self.returncode = out, "", rc
+
+    def fake(args, timeout):
+        calls.append(args)
+        if args[-1] == "dry":
+            return R("2026-10: plant | ...\n  NL1 |  0.0 -> 1,859.0 | ...   CHANGES\ndry run - nothing written (add --apply)\n")
+        return R("Running as unit: argia-reissue-202610-1.service\n")
+    monkeypatch.setattr(sa, "_sh", fake)
+    back = "/setup/plants/calendar?plant=nl1&month=2026-10"
+    page = post(sa, "/plants/calendar/reissue", {"month": "2026-10", "back": back}).get_data(as_text=True)
+    assert calls[-1][-2:] == ["2026-10", "dry"]
+    assert "NL1 |  0.0 -&gt; 1,859.0" in page and 'name="confirm"' in page and "Apply" in page
+    r = post(sa, "/plants/calendar/reissue/apply", {"month": "2026-10", "back": back})   # no confirm tick
+    assert len(calls) == 1 and "not+confirmed" in r.headers["Location"].replace("%20", "+")
+    r = post(sa, "/plants/calendar/reissue/apply", {"month": "2026-10", "back": back, "confirm": "yes"})
+    assert calls[-1][0] == "systemd-run" and calls[-1][-3:] == [sa.REISSUE_SH, "2026-10", "apply"]
+    assert any(a.startswith("ARGIA_ACTOR=tomasz") for a in calls[-1])
+    assert r.status_code == 303 and r.headers["Location"].startswith(back + "&m=")
+
+
+def test_recalculate_refuses_a_failed_preview_and_bad_input(sa, monkeypatch):
+    class R:
+        stdout, stderr, returncode = "Traceback ...", "", 1
+    monkeypatch.setattr(sa, "_sh", lambda args, timeout: R())
+    page = post(sa, "/plants/calendar/reissue", {"month": "2026-10"}).get_data(as_text=True)
+    assert "did not finish cleanly" in page and 'name="confirm"' not in page
+    r = post(sa, "/plants/calendar/reissue", {"month": "2026-13"})
+    assert "invalid+month" in r.headers["Location"].replace("%20", "+")
+    r = post(sa, "/plants/calendar/reissue", {"month": "2026-10"}, headers=PLAIN)
+    assert r.status_code != 303 or "calendar" not in r.headers.get("Location", "")
+
+
+def test_recalculate_log_shows_the_newest_run_of_the_month(sa, tmp_path, monkeypatch):
+    log = ("=== 2026-11-02 10:00:00 reissue 2026-10 dry by tomasz\nold\n=== done rc=0\n"
+           "=== 2026-11-02 11:00:00 reissue 2026-09 apply by tomasz\nsep\n=== done rc=0\n"
+           "=== 2026-11-02 12:00:00 reissue 2026-10 apply by tomasz\nregister updated: MEX1, NL1\n")
+    assert sa.log_block(log, "2026-10").endswith("register updated: MEX1, NL1")
+    assert sa.log_block(log, "2026-08") == ""
+    f = tmp_path / "reissue.log"
+    f.write_text(log)
+    monkeypatch.setattr(sa, "REISSUE_LOG", str(f))
+    assert "RUNNING" in sa.reissue_status("2026-10")
+    f.write_text(log + "=== done rc=0\n")
+    assert "RUNNING" not in sa.reissue_status("2026-10") and "register updated" in sa.reissue_status("2026-10")

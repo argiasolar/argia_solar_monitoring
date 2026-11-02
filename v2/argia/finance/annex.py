@@ -385,7 +385,7 @@ def _render_annex_html(payload: Dict, generated_at: str,
 <style>
 :root{{--bg:#fafafa;--card:#fff;--ink:#1f1e1b;--muted:#6b6a64;
 --line:#e0e0da;--blue:#4C9BE8;--blued:#185FA5;--green:#0E8A6D;
---amber:#E8A13D;--grey:#C9C9C2}}
+--amber:#E8A13D;--grey:#C9C9C2;--comp:#F2B705}}
 *{{box-sizing:border-box}}
 @page{{size:A4 landscape;margin:7mm}}
 body{{margin:0;background:var(--bg);color:var(--ink);
@@ -453,7 +453,8 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
     <div class="card"><div class="lab">Tarifa ARGIA</div>
       <div class="val" id="c_tar"> - </div></div>
     <div class="card"><div class="lab">Energía Producida</div>
-      <div class="val" id="c_prod"> - </div></div>
+      <div class="val" id="c_prod"> - </div>
+      <div class="fnote" id="c_comp"></div></div>
     <div class="card co2"><div class="lab">CO₂ Emisiones
       Evitadas</div><div class="val" id="c_co2"> - </div>
       <div class="fnote" id="c_co2f"></div></div>
@@ -463,6 +464,8 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
     <div class="leg">
      <span><span class="k" style="background:var(--blue)"></span>
       Energía generada kWh</span>
+     <span id="leg_comp_d" style="display:none"><span class="k" style="background:var(--comp)"></span>
+      Energía compensada kWh</span>
      <span><span class="kl" style="border-color:var(--amber)"></span>
       Energía teórica</span>
      <span><span class="kl" style="border-color:var(--green)"></span>
@@ -479,6 +482,8 @@ body{{background:#fff}}.sec,.card{{break-inside:avoid}}
     <div class="leg">
      <span><span class="k" style="background:var(--blue)"></span>
       Energía generada kWh</span>
+     <span id="leg_comp_a" style="display:none"><span class="k" style="background:var(--comp)"></span>
+      Energía compensada kWh</span>
      <span><span class="k" style="background:var(--grey)"></span>
       Energía expectativa kWh</span>
      <span><span class="kl" style="border-color:var(--amber)"></span>
@@ -538,7 +543,8 @@ function dailyChart(rows){{
   const iw=W-PL-PR, ih=H-PT-PB;
   let max=0;
   rows.forEach(r=>{{["bar","theo","design"].forEach(k=>{{
-    if(r[k]!=null && r[k]>max) max=r[k];}});}});
+    if(r[k]!=null && r[k]>max) max=r[k];}});
+    const st=(r.bar||0)+(r.comp||0); if(st>max) max=st;}});
   max = max>0 ? max*1.12 : 1;
   const n=rows.length||1;
   const bw=Math.max(2, iw/n*0.62);
@@ -556,7 +562,10 @@ function dailyChart(rows){{
     const pts=cp.map((p,i)=>p||`${{x(i)}},${{yc(0)}}`).join(" ");
     s+=`<polygon points="${{PL}},${{yc(0)}} ${{pts}} ${{W-PR}},${{yc(0)}}" fill="var(--grey)" opacity="0.45"/>`;}}
   rows.forEach((r,i)=>{{ if(r.bar!=null){{
-    s+=`<rect x="${{x(i)-bw/2}}" y="${{y(r.bar)}}" width="${{bw}}" height="${{PT+ih-y(r.bar)}}" fill="var(--blue)"/>`;}}}});
+    s+=`<rect x="${{x(i)-bw/2}}" y="${{y(r.bar)}}" width="${{bw}}" height="${{PT+ih-y(r.bar)}}" fill="var(--blue)"/>`;}}
+    if(r.comp>0){{                                // v343: compensated energy on top of what was measured
+      const b=r.bar||0;
+      s+=`<rect x="${{x(i)-bw/2}}" y="${{y(b+r.comp)}}" width="${{bw}}" height="${{y(b)-y(b+r.comp)}}" fill="var(--comp)"/>`;}}}});
   [["theo","var(--amber)"],["design","var(--green)"]].forEach(([k,col])=>{{
     const pts=rows.map((r,i)=> r[k]!=null ? `${{x(i)}},${{y(r[k])}}`:null).filter(Boolean).join(" ");
     if(pts) s+=`<polyline points="${{pts}}" fill="none" stroke="${{col}}" stroke-width="1.7"/>`;}});
@@ -572,7 +581,7 @@ function annualChart(rows){{
   const iw=W-PL-PR, ih=H-PT-PB;
   let maxK=0, maxP=0;
   rows.forEach(r=>{{
-    if(r.measured>maxK) maxK=r.measured;
+    if(r.measured+r.deemed>maxK) maxK=r.measured+r.deemed;
     if(r.expected!=null && r.expected>maxK) maxK=r.expected;
     if(r.amount!=null && r.amount>maxP) maxP=r.amount;}});
   maxK=maxK>0?maxK*1.15:1; maxP=maxP>0?maxP*1.15:1;
@@ -591,6 +600,8 @@ function annualChart(rows){{
       s+=`<rect x="${{x(i)+1}}" y="${{y(r.expected)}}" width="${{bw}}" height="${{PT+ih-y(r.expected)}}" fill="var(--grey)"/>`;
     if(r.measured>0)
       s+=`<rect x="${{x(i)-bw-1}}" y="${{y(r.measured)}}" width="${{bw}}" height="${{PT+ih-y(r.measured)}}" fill="var(--blue)"/>`;
+    if(r.deemed>0)
+      s+=`<rect x="${{x(i)-bw-1}}" y="${{y(r.measured+r.deemed)}}" width="${{bw}}" height="${{y(r.measured)-y(r.measured+r.deemed)}}" fill="var(--comp)"/>`;
   }});
   const pts=rows.map((r,i)=> r.amount!=null&&r.amount>0 ? `${{x(i)}},${{yp(r.amount)}}`:null).filter(Boolean).join(" ");
   if(pts) s+=`<polyline points="${{pts}}" fill="none" stroke="var(--amber)" stroke-width="2"/>`;
@@ -606,6 +617,8 @@ function drawMonth(ym){{
   document.getElementById("c_tar").innerHTML=r.tariff!=null?
     "$"+r.tariff.toLocaleString("es-MX",{{maximumFractionDigits:4,minimumFractionDigits:2}}):" - ";
   document.getElementById("c_prod").innerHTML=kwh0(r.measured);
+  document.getElementById("c_comp").innerHTML=r.deemed>0?
+    "+ "+kwh0(r.deemed)+" compensada = "+kwh0(r.billable)+" facturada":"";
   document.getElementById("c_co2").innerHTML=
     Math.round(r.co2).toLocaleString("es-MX")+" kg";
   const cf=(D.co2_factor_by_year||{{}})[ym.slice(0,4)]??D.co2_factor;
@@ -616,8 +629,9 @@ function drawMonth(ym){{
   D.days.forEach((d,i)=>{{ if(d.slice(0,7)!==ym) return;
     const a=D.atoms[i];
     rows.push({{label:d.slice(8), bar:a[AI.measured], theo:a[AI.theo],
-      design:a[AI.design], cloud:a[AI.cloud]}});
+      design:a[AI.design], cloud:a[AI.cloud], comp:a[AI.deemed]||0}});
   }});
+  document.getElementById("leg_comp_d").style.display=rows.some(r=>r.comp>0)?"":"none";
   document.getElementById("chart_gen").innerHTML=dailyChart(rows);
 }}
 
@@ -635,6 +649,7 @@ function drawAnnual(){{
   document.getElementById("annual_foot").innerHTML=
     `<tr><td>Total general</td><td>${{kwh0(tm)}}</td><td>${{kwh0(td)}}</td><td>${{money(ta)}}</td></tr>`;
   document.getElementById("chart_annual").innerHTML=annualChart(out);
+  document.getElementById("leg_comp_a").style.display=out.some(r=>r.deemed>0)?"":"none";
 }}
 
 (function init(){{

@@ -927,6 +927,7 @@ def maintenance_card():
         return ('<div class="card"><p class="note">maintenance events '
                 f'unavailable: {html.escape(str(e)[:200])}</p></div>')
     trs = []
+    names = plant_names()
     for ln in raw.splitlines():
         r = ln.split('\t')
         if len(r) < 9:
@@ -954,13 +955,13 @@ def maintenance_card():
         badge = (f'<span class="pill">approved: {html.escape(appr)}</span>' if appr
                  else '<span class="pill" style="background:#fdf0dc;color:#a05c00">DRAFT - not billable</span>')
         trs.append(
-            f'<tr><td>{html.escape(pk)}</td><td>{html.escape(st)}</td>'
+            f'<tr><td>{html.escape(plabel(pk, names))}</td><td>{html.escape(st)}</td>'
             f'<td>{html.escape(en) or "<i>ongoing</i>"}</td>'
             f'<td>{html.escape(cat)}{("<br><b>" + html.escape(dk) + " kWh</b>") if dk else ""}</td>'
             f'<td>{html.escape(ct)}{(" · " + html.escape(cost) + " MXN") if cost else ""}</td>'
             f'<td>{html.escape(note[:40])}</td><td>{badge}</td>'
             f'<td>{"".join(acts)}</td></tr>')
-    plant_opts = ''.join(f'<option value="{p}">{p.upper()}</option>' for p in PLANTS)
+    plant_opts = ''.join(f'<option value="{p}">{html.escape(plabel(p, names))}</option>' for p in PLANTS)
     cat_opts = ''.join(f'<option value="{c}">{c}</option>' for c in MAINT_CATEGORIES)
     ct_opts = '<option value=""></option>' + ''.join(
         f'<option value="{c}">{c}</option>' for c in MAINT_COST_TYPES)
@@ -1035,6 +1036,38 @@ def _num(v):
         return float(v) if str(v).strip() != '' else None
     except ValueError:
         return None
+
+
+def plant_names():
+    """{plant_key lower: customer name} from the plant table ("SAG PPA roof
+    (CDMX, MEX)" -> "SAG"); {} if unreadable. v343, Tomasz 2026-11-02:
+    "the name of customers have to be there not only the codes like MEX1"."""
+    try:
+        out = {}
+        for ln in psql("SELECT lower(plant_key), coalesce(customer,'') FROM plant;").splitlines():
+            r = ln.split('\t')
+            if len(r) >= 2 and r[1].strip():
+                out[r[0].strip()] = short_customer(r[1])
+        return out
+    except RuntimeError:
+        return {}
+
+
+def short_customer(customer):
+    """'HOLIDAY INN EXPRESS, Turistica Arizona PPA roof (SLP, SLP)' ->
+    'HOLIDAY INN EXPRESS, Turistica Arizona'. Pure."""
+    c = (customer or '').strip()
+    for cut in (' PPA', ' CAPEX', ' ('):
+        i = c.find(cut)
+        if i > 0:
+            c = c[:i]
+    return c.strip()
+
+
+def plabel(pk, names):
+    """'SAG (MEX1)' - the customer first, the code after; the code alone without a name. Pure."""
+    n = (names or {}).get((pk or '').lower())
+    return f'{n} ({pk.upper()})' if n else (pk or '').upper()
 
 
 def ppa_plants():
@@ -1147,8 +1180,10 @@ def _fmt(v, nd=1):
 
 def calendar_page(pk, ym, day=None, msg=''):
     plants = ppa_plants()
+    names = plant_names()
     if pk not in plants:
         pk = plants[0]
+    who = html.escape(plabel(pk, names))
     days, events, reg = calendar_data(pk, ym)
     summ = calendar_summary(days, events, reg)
     by_day = {}
@@ -1181,9 +1216,9 @@ def calendar_page(pk, ym, day=None, msg=''):
     rows = ''.join('<tr>' + ''.join(cells[i:i + 7]) + '</tr>' for i in range(0, len(cells), 7))
     head = '<tr>' + ''.join(f'<th data-en="{en}" data-es="{es}">{en}</th>' for en, es in WEEKDAYS) + '</tr>'
     tabs = ''.join(f'<a class="ptab{" on" if p == pk else ""}" href="/setup/plants/calendar?plant={p}&month={ym}">'
-                   f'{p.upper()}</a>' for p in plants)
+                   f'{html.escape(plabel(p, names))}</a>' for p in plants)
     nav = (f'<a class="btn" href="/setup/plants/calendar?plant={pk}&month={shift_month(ym, -1)}">&lt;</a> '
-           f'<b style="font-size:17px">{ym}</b> '
+           f'<b style="font-size:17px">{who} · {ym}</b> '
            f'<a class="btn" href="/setup/plants/calendar?plant={pk}&month={shift_month(ym, 1)}">&gt;</a>')
     inv = ''
     if summ['invoiced']:
@@ -1192,8 +1227,9 @@ def calendar_page(pk, ym, day=None, msg=''):
                f' = MXN {_fmt(r["amount"], 2)}</p>')
         if summ['reissue']:
             inv += (f'<p class="warn">The approved customer events of {ym} now total {_fmt(summ["agreed"])} kWh'
-                    f' compensated, the invoice has {_fmt(r["penalty"])}. Re-issue the month on the server:'
-                    f' <code>invoice_reissue.py --month {ym}</code> (dry run first, then --apply).</p>')
+                    f' compensated, the invoice has {_fmt(r["penalty"])}. Recalculate the invoices of {ym}.</p>')
+        inv += reissue_button(ym, base, summ['reissue'])
+        inv += reissue_status(ym)
     elif summ['pending_days']:
         inv = ('<p class="note">Approved events reach the daily table in tonight\'s reconciliation run'
                f' ({_fmt(summ["on_days"])} kWh on the days now, {_fmt(summ["agreed"])} agreed).</p>')
@@ -1207,7 +1243,7 @@ def calendar_page(pk, ym, day=None, msg=''):
         basis = {'weather': 'irradiance at the site', 'peers': 'the neighbouring plants'}.get(v.get('basis', ''), '')
         cat_opts = ''.join(f'<option value="{c}"{" selected" if c == "customer" else ""}>{c}</option>'
                            for c in MAINT_CATEGORIES)
-        form = f'''<div class="card" id="form"><h2>{pk.upper()} {iso} - new event</h2>
+        form = f'''<div class="card" id="form"><h2>{who} {iso} - new event</h2>
 <p class="note">Measured {_fmt(v.get("energy"))} kWh. Platform estimate of the energy lost:
  <b>{_fmt(est)} kWh</b>{(" (from " + basis + ")") if basis else ""}. The compensated kWh is what goes on the invoice
  for a customer event - pre-filled with the estimate, change it to the figure agreed with the customer.</p>
@@ -1247,11 +1283,115 @@ p.warn{background:#fce8e6;color:#a50e0e;padding:8px 10px;border-radius:8px}</sty
 <table class="calg">{head}{rows}</table>
 <p class="note">Green = compensated energy on the daily table (billable = measured + compensated). Orange "lost" =
  the platform's estimate where nothing was logged. Click "+ event" on any day, past ones included.</p></div>{form}
-<div class="card"><h2>Events touching {ym}</h2><table><tr><th>#</th><th>Start MX</th><th>End MX</th><th>Category</th>
+<div class="card"><h2>{who}: events touching {ym}</h2><table><tr><th>#</th><th>Start MX</th><th>End MX</th><th>Category</th>
 <th>kWh</th><th>Note</th><th>Status</th><th></th></tr>{ev_rows}</table></div>''')
     return page(body, msg=msg, title=('PPA calendar', 'Calendario PPA'),
                 sub=('Customer events per plant and day - compensated energy goes on the invoice',
                      'Eventos del cliente por planta y día - la energía compensada va a la factura'))
+
+
+# ---------------------------------------------------------------------------
+# v343: "There should be a button to recalculate invoices" (Tomasz 2026-11-02).
+# Two steps, both server-side: a dry run shows every plant's before/after,
+# then Apply starts scripts/invoice_reissue.py --apply in the background
+# (pi/reissue.sh: daily table, register, annexes, PDFs, Drive, index, then
+# every invoice rule). One run at a time (flock); everything is logged.
+# ---------------------------------------------------------------------------
+REISSUE_SH = os.environ.get('ARGIA_REISSUE_SH', '/root/argia_v2/v2/pi/reissue.sh')
+REISSUE_LOG = os.environ.get('ARGIA_REISSUE_LOG', '/root/argia_logs/reissue.log')
+
+
+def _sh(args, timeout):
+    """subprocess seam (tests replace it)."""
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+
+
+def reissue_button(ym, back, urgent):
+    red = ' style="background:#c5221f;color:#fff;border-color:#c5221f"' if urgent else ''
+    return (f'<form method="post" action="/setup/plants/calendar/reissue" style="margin:6px 0">'
+            f'<input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="month" value="{ym}">'
+            f'<input type="hidden" name="back" value="{html.escape(back)}">'
+            f'<button class="btn"{red}>'
+            f'Recalculate the invoices of {ym} (preview first)</button></form>')
+
+
+def log_block(text, ym):
+    """The newest run of ``ym`` in the re-issue log, or ''. Pure."""
+    blocks = re.split(r'(?m)^(?==== \d{4}-\d{2}-\d{2} )', text or '')
+    mine = [b for b in blocks if b.startswith('=== ') and f' reissue {ym} ' in b.splitlines()[0]]
+    return mine[-1].strip() if mine else ''
+
+
+def reissue_status(ym):
+    try:
+        with open(REISSUE_LOG, encoding='utf-8', errors='replace') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 60000))
+            last = log_block(f.read(), ym)
+    except OSError:
+        return ''
+    if not last:
+        return ''
+    running = '=== done' not in last
+    return (f'<details{" open" if running else ""}><summary class="note">Last recalculation of {ym}'
+            f'{" - RUNNING, refresh in a minute" if running else ""}</summary>'
+            f'<pre style="white-space:pre-wrap;font-size:12px">{html.escape(last[-6000:])}</pre></details>')
+
+
+def _ym_or_none(v):
+    v = (v or '').strip()
+    return v if _YM_RE.match(v) else None
+
+
+@app.post('/plants/calendar/reissue')
+def calendar_reissue_preview():
+    me = _maint_guard()
+    if not me:
+        return stale_page()
+    ym = _ym_or_none(request.form.get('month'))
+    back = _maint_back()
+    if not ym:
+        return _post_done(to=back, msg='recalculate: invalid month - nothing done')
+    try:
+        r = _sh(['bash', REISSUE_SH, ym, 'dry'], timeout=240)
+        out = (r.stdout or '') + (r.stderr or '')
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return _post_done(to=back, msg=f'recalculate: the preview could not run ({e}) - nothing done')
+    ok = r.returncode == 0 and 'dry run - nothing written' in out
+    apply = (f'''<form method="post" action="/setup/plants/calendar/reissue/apply">
+<input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="month" value="{ym}">
+<input type="hidden" name="back" value="{html.escape(back)}">
+<p><label><input type="checkbox" name="confirm" value="yes" required> I checked the figures above: re-issue the
+ {ym} invoices (register, annexes, PDFs, Drive)</label></p>
+<p><button class="btn" style="background:#05847d;color:#fff;border-color:#05847d">Apply</button>
+ <a class="btn" href="{html.escape(back)}">Cancel</a></p></form>''' if ok else
+             f'<p class="warn">The preview did not finish cleanly - nothing can be applied. <a href="{html.escape(back)}">Back</a></p>')
+    body = (f'<div class="card"><h2>Recalculate the invoices of {ym} - preview (nothing written yet)</h2>'
+            f'<p class="note">Every PPA plant of the month: compensated kWh and pesos before and after.'
+            f' Plants marked CHANGES get a new register row, annex, PDF and Drive copy.</p>'
+            f'<pre style="white-space:pre-wrap;font-size:12.5px">{html.escape(out[-8000:])}</pre>{apply}</div>')
+    return page(body, title=('Recalculate invoices', 'Recalcular facturas'), sub=(ym, ym))
+
+
+@app.post('/plants/calendar/reissue/apply')
+def calendar_reissue_apply():
+    me = _maint_guard()
+    if not me:
+        return stale_page()
+    ym = _ym_or_none(request.form.get('month'))
+    back = _maint_back()
+    if not ym or request.form.get('confirm') != 'yes':
+        return _post_done(to=back, msg='recalculate: not confirmed - nothing done')
+    unit = 'argia-reissue-%s-%d' % (ym.replace('-', ''), int(_time.time()))
+    try:
+        r = _sh(['systemd-run', '--unit', unit, '--collect', '--setenv', f'ARGIA_ACTOR={me}',
+                 '/bin/bash', REISSUE_SH, ym, 'apply'], timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return _post_done(to=back, msg=f'recalculate: could not start ({e}) - nothing done')
+    if r.returncode != 0:
+        return _post_done(to=back, msg='recalculate: could not start - ' + (r.stderr or '')[-200:])
+    return _post_done(to=back, msg=f'recalculation of {ym} started by {me} - the log is under the invoice line; '
+                                   'refresh in a minute')
 
 
 @app.get('/plants/calendar')

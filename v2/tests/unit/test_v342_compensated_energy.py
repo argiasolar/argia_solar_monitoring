@@ -205,3 +205,26 @@ def test_nightly_sync_runs_after_the_billable_resync():
     import pathlib
     src = (pathlib.Path(IP.__file__).parent / "recon_snapshot.py").read_text(encoding="utf-8")
     assert src.index("build_billable_resync_sql()") < src.index("DS.sync_month(ym, ppa, apply=True)")
+
+
+# ------------------------------------------------------------ v343
+def test_reissue_script_refuses_bad_input():
+    import pathlib
+    import subprocess
+    sh = pathlib.Path(IP.__file__).parent.parent / "pi" / "reissue.sh"
+    for args in (["2026-13", "dry"], ["2026-10", "now"], ["", ""], ["2026-10; rm", "dry"]):
+        r = subprocess.run(["bash", str(sh), *args], capture_output=True, text=True)
+        assert r.returncode == 2, (args, r.stdout)
+
+
+def test_annex_shows_compensated_energy_on_the_charts_and_the_card():
+    from argia.finance.annex import render_annex_html
+    days = [(dt.date(2026, 1, 1) + dt.timedelta(days=i)).isoformat() for i in range(365)]
+    p = _payload(1859.0, 1859.0)
+    p.update(plant_key="NL1", client="PLASTIC OMNIUM", factura_name="PLASTIC_OMNIUM", client_logo="",
+             co2_factor_by_year={}, co2_factor_label="", co2_factor_contracted=False)
+    assert p["days"] == days
+    html = render_annex_html(p, "now", default_ym="2026-10")
+    assert "Energía compensada kWh" in html and "--comp:" in html
+    assert 'id="c_comp"' in html and '" compensada = "' in html
+    assert "comp:a[AI.deemed]" in html

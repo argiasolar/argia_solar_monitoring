@@ -88,6 +88,11 @@ class MaintenanceEvent:
     cost_mxn: Optional[float]
     note: str
     approved_by: str
+    deemed_kwh: Optional[float] = None
+    """v342: the compensated kWh agreed for the whole event (Tomasz types
+    it, pre-filled with the platform's lost-energy estimate). Set, it IS
+    the event's compensated energy; blank, the contract formula applies."""
+    event_id: Optional[int] = None
 
     @property
     def approved(self) -> bool:
@@ -218,7 +223,8 @@ def load_maintenance_events(sheets) -> List[MaintenanceEvent]:
 def events_from_pg_rows(rows) -> List[MaintenanceEvent]:
     """Typed events from psql tab-rows (the /setup/ maintenance UI,
     pio06 table ``maintenance_event``): [plant_key, start_mx_iso,
-    end_mx_iso_or_'', category, cost_type, cost, note, approved_by].
+    end_mx_iso_or_'', category, cost_type, cost, note, approved_by,
+    (v342) deemed_kwh, id].
     Timestamps arrive as MX-local ISO strings (to_char with the MX zone)
     and get MX_TZ attached - identical semantics to the sheet loader.
     Malformed rows are skipped, like the sheet path. PURE."""
@@ -250,8 +256,22 @@ def events_from_pg_rows(rows) -> List[MaintenanceEvent]:
             cost_mxn=safe_float(r[5]),
             note=normalize_text(r[6]),
             approved_by=normalize_text(r[7]),
+            deemed_kwh=_nonneg(r[8]) if len(r) > 8 else None,
+            event_id=int(r[9]) if len(r) > 9 and str(r[9]).strip().isdigit() else None,
         ))
     return out
+
+
+def _nonneg(v) -> Optional[float]:
+    """A compensated kWh: a number >= 0, else None (never a negative invoice line)."""
+    f = safe_float(v)
+    if f is None or f < 0:
+        return None
+    return f
+
+
+DEEMED_COLUMN_SQL = ("ALTER TABLE IF EXISTS maintenance_event"
+                     " ADD COLUMN IF NOT EXISTS deemed_kwh numeric(12,1);")
 
 
 def load_maintenance_events_pg() -> List[MaintenanceEvent]:
@@ -259,9 +279,10 @@ def load_maintenance_events_pg() -> List[MaintenanceEvent]:
     list anywhere PG isn't available - a Pi/CI run is unaffected."""
     try:
         from argia.store import pg_mirror
-        from argia.store.pgq import psql_rows
+        from argia.store.pgq import psql_exec, psql_rows
         if not pg_mirror.enabled():
             return []
+        psql_exec(DEEMED_COLUMN_SQL)
         rows = psql_rows(
             "SELECT plant_key,"
             " to_char(start_ts AT TIME ZONE 'America/Mexico_City',"
@@ -270,7 +291,8 @@ def load_maintenance_events_pg() -> List[MaintenanceEvent]:
             "  'YYYY-MM-DD\"T\"HH24:MI:SS'), ''),"
             " coalesce(category,''), coalesce(cost_type,''),"
             " coalesce(cost_mxn::text,''), coalesce(note,''),"
-            " coalesce(approved_by,'') FROM maintenance_event;")
+            " coalesce(approved_by,''),"
+            " coalesce(deemed_kwh::text,''), id::text FROM maintenance_event;")
     except Exception as e:  # noqa: BLE001
         LOG.warning("maintenance_event PG read failed: %s - sheet events "
                     "only", e)

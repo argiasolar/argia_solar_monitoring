@@ -153,9 +153,11 @@ class TestRoutes:
         assert (self.OLD_GETS | self.NEW_GETS) <= gets, (self.OLD_GETS | self.NEW_GETS) - gets
 
     def test_post_outcomes_land_on_their_drawer(self):
-        assert "_post_done(to='/setup/plants/#maintenance'" in APP_SRC
+        # v342: maintenance posts return via _maint_back() - the PPA calendar
+        # they came from, else the Plants drawer's maintenance tab
+        assert "return '/setup/plants/#maintenance'" in APP_SRC
         assert "_post_done(to='/setup/people/#mail'" in APP_SRC
-        assert APP_SRC.count("_post_done(to='/setup/plants/#maintenance'") >= 4
+        assert APP_SRC.count("_post_done(to=_maint_back()") + APP_SRC.count("_post_done(to=back,") >= 4
         assert APP_SRC.count("_post_done(to='/setup/people/#mail'") >= 3
 
     def test_finance_page_is_split_into_the_drawer_tabs(self):

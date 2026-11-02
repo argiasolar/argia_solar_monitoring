@@ -151,6 +151,13 @@ def deemed_by_plant_day(events: List[MaintenanceEvent],
     for e in events:
         if not e.approved or e.category not in categories:
             continue
+        if getattr(e, "deemed_kwh", None) is not None:
+            # v342: the agreed kWh, spread over the event's days by daylight share
+            for day_iso, kwh in agreed_split(e, now=now).items():
+                if kwh > 0:
+                    key = (e.plant_key, day_iso)
+                    out[key] = out.get(key, 0.0) + kwh
+            continue
         for (day, seg_start, seg_end) in event_day_spans(e, now=now):
             cd = contract_daily_for(e.plant_key, day.year, day.month)
             if cd is None or cd <= 0:
@@ -161,6 +168,29 @@ def deemed_by_plant_day(events: List[MaintenanceEvent],
             if kwh > 0:
                 key = (e.plant_key, day.isoformat())
                 out[key] = out.get(key, 0.0) + kwh
+    return out
+
+
+def agreed_split(event: MaintenanceEvent, now: Optional[dt.datetime] = None) -> Dict[str, float]:
+    """{day_iso: kWh} - an event's agreed compensated kWh (``deemed_kwh``)
+    spread over its calendar days by each day's daylight share; an event
+    entirely at night lands on its first day. Rounded to 0.1 kWh with the
+    rounding remainder on the last day, so the days add up exactly. Pure."""
+    total = event.deemed_kwh or 0.0
+    spans = event_day_spans(event, now=now)
+    if not spans or total <= 0:
+        return {}
+    w = [(day.isoformat(), daylight_fraction(day, s, e)) for day, s, e in spans]
+    tw = sum(x for _d, x in w)
+    if tw <= 0:
+        return {w[0][0]: round(total, 1)}
+    out: Dict[str, float] = {}
+    acc = 0.0
+    live = [(d, x) for d, x in w if x > 0]
+    for i, (d, x) in enumerate(live):
+        v = round(total - acc, 1) if i == len(live) - 1 else round(total * x / tw, 1)
+        out[d] = out.get(d, 0.0) + v
+        acc += v
     return out
 
 

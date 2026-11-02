@@ -177,6 +177,7 @@ setup_app  GET    /finance/
 setup_app  GET    /healthz
 setup_app  GET    /people/
 setup_app  GET    /plants/
+setup_app  GET    /plants/calendar
 setup_app  GET    /system/
 setup_app  POST   /account/change
 setup_app  POST   /account/profile

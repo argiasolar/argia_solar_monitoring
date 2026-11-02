@@ -365,7 +365,8 @@ class TestPostRedirectGet:
         sig = self.SRC.split("def _post_done(")[1].split(")")[0]
         assert "to='/setup/'" in sig
         body = self.SRC.split("def _post_done(")[1].split("\ndef ")[0]
-        assert "'?m='" in body and "code=303" in body
+        assert "'m=' + quote(msg" in body and "code=303" in body
+        assert "('&' if '?' in path else '?')" in body          # v342: a calendar URL keeps its query
         assert "_post_done(to='/setup/people/#mail'" in self.SRC
 
     def test_render_picks_up_redirect_message(self):

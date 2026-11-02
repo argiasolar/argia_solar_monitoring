@@ -596,6 +596,17 @@ def main(argv=None) -> int:
             psql_exec(B.build_billable_resync_sql())
         except RuntimeError as e:
             LOG.warning("billable resync failed (recon unaffected): %s", e)
+        # v342: compensated energy follows the maintenance events on any day of
+        # the open months - AFTER the resync, so a heal can never wipe it
+        try:
+            from argia.maintenance import deemed_sync as DS
+            ppa = [p.plant_key for p in portfolio.financial_plants()]
+            for ym in DS.recent_months(base):
+                r = DS.sync_month(ym, ppa, apply=True)
+                LOG.info("deemed sync %s: %d day(s) updated, %d invoiced plant-month(s) pending re-issue",
+                         ym, len(r["applied"]), len(r["pending_invoiced"]))
+        except Exception as e:  # noqa: BLE001
+            LOG.warning("deemed sync failed (recon unaffected): %s", e)
 
     # v341: month to date - the three ledgers must agree every night, not on the 1st
     if dates:

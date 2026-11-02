@@ -140,6 +140,25 @@ def annex_month(html_text: str, ym: str):
     return float(r["billable_kwh"]), (float(amt) if amt is not None else None)
 
 
+def annex_month_split(html_text: str, ym: str):
+    """(measured kWh, compensated kWh, MXN) the annex shows for ``ym``, or
+    None. v342: the register keeps measured (produced_kwh) and compensated
+    (penalty_kwh) apart - only measured is compared with the closed month."""
+    import json as _json
+    m = ANNEX_DATA.search(html_text or "")
+    if not m:
+        return None
+    try:
+        from argia.finance.annex import rollup_month
+        r = rollup_month(_json.loads(m.group(1)), ym)
+    except Exception:                                  # noqa: BLE001
+        return None
+    if not r.get("has_data") or r.get("billable_kwh") is None:
+        return None
+    amt = r.get("amount_mxn")
+    return float(r["measured_kwh"]), float(r["deemed_kwh"] or 0.0), (float(amt) if amt is not None else None)
+
+
 def record_invoicing(ym, names, history, out_dir=None):
     """Write the invoicing register rows for one month and return
     {factura_name: (kwh, mxn, status)} for the index.
@@ -181,23 +200,24 @@ def record_invoicing(ym, names, history, out_dir=None):
             path = os.path.join(out_dir, "factura_%s_%s.html" % (name, ym.replace("-", "")))
             try:
                 with open(path, encoding="utf-8") as fh:
-                    got = annex_month(fh.read(), ym)
+                    got = annex_month_split(fh.read(), ym)
             except OSError:
                 got = None
             if got:
-                h = {"kwh": got[0], "penalty": 0.0, "income": got[1], "source": "annex"}
+                h = {"kwh": got[0], "penalty": got[1], "income": got[2], "source": "annex"}
         if not h or h.get("kwh") is None:
             continue
         kwh = float(h["kwh"]) + float(h.get("penalty") or 0.0)
         amount = h.get("income")
         billing = closing.get(pk)
-        status, dk, dp = invoice_check(kwh, billing)
+        # v342: the close is MEASURED energy; compensated kWh is added on top
+        status, dk, dp = invoice_check(float(h["kwh"]), billing)
         if status == "NO_BASIS" and not have_pg:
             status = "XLSX"                    # index-only, unrecorded
         if status == "MISMATCH":
-            LOG.error("INVOICING CHECK %s %s: billed %.1f kWh vs close"
+            LOG.error("INVOICING CHECK %s %s: measured %.1f kWh vs close"
                       " %.1f (%+0.3f%%) - investigate before sending",
-                      pk, ym, kwh, billing, dp)
+                      pk, ym, float(h["kwh"]), billing, dp)
         rows[name] = (kwh, round(amount, 2) if amount else None, status)
         if not have_pg:
             continue

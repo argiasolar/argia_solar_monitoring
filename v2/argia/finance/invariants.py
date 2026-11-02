@@ -22,6 +22,7 @@ Rules against the books (``check_books``):
   CLOSED   the month's reconciliation is closed
   CLOSE    invoiced kWh = the closed reconciliation figure
   TABLE    the month's daily table adds up to the invoiced kWh, every day present
+  DEEMED   the compensated kWh on the days = the compensated kWh invoiced (v342)
   PRIOR    every earlier month on the annex = what was invoiced for it
 """
 from __future__ import annotations
@@ -156,6 +157,14 @@ def check_books(ym: str, payload: Dict, close: Optional[Dict],
         out.append(Violation("TABLE", "the daily table adds up to "
                                       + ("nothing" if daily_sum_kwh is None else f"{daily_sum_kwh:,.3f} kWh")
                                       + f", invoiced {produced:,.3f}"))
+    # v342 DEEMED: the compensated kWh on the month's days = the compensated kWh invoiced
+    if h.get("kwh") is not None:
+        days_deemed = round(sum((a[A_DEEMED] or 0.0) for d, a in zip(payload.get("days") or [], payload.get("atoms") or [])
+                                if str(d)[:7] == ym), 1)
+        invoiced = float(h.get("penalty") or 0.0)
+        if abs(days_deemed - invoiced) > KWH_TOL:
+            out.append(Violation("DEEMED", f"the days carry {days_deemed:,.1f} kWh compensated, the invoice "
+                                           f"{invoiced:,.1f} - run invoice_reissue.py --month {ym}"))
     for m, row in sorted((payload.get("history") or {}).items()):
         if str(m)[:4] != ym[:4] or str(m) >= ym or row.get("kwh") is None:
             continue

@@ -145,7 +145,8 @@ def test_an_unknown_channel_saves_nothing(sa, psql):
 
 # ------------------------------------------------------------ maintenance windows
 def test_maintenance_window_lifecycle(sa, psql):
-    post(sa, "/maint/add", {"plant": "gto1", "start": "2026-09-01T08:00", "category": "customer", "note": "roof work"})
+    post(sa, "/maint/add", {"plant": "gto1", "start": "2026-09-01T08:00", "category": "customer", "note": "roof work",
+                            "deemed_kwh": "1200"})
     mid = psql("SELECT id FROM maintenance_event WHERE note = 'roof work'")[0][0]
     post(sa, "/maint/close", {"id": mid})
     assert psql(f"SELECT end_ts IS NOT NULL, approved_by IS NULL FROM maintenance_event WHERE id = {mid}") == [["t", "t"]]
@@ -156,7 +157,8 @@ def test_maintenance_window_lifecycle(sa, psql):
 
 
 def test_a_draft_maintenance_window_can_be_deleted(sa, psql):
-    post(sa, "/maint/add", {"plant": "qro1", "start": "2026-09-02T08:00", "category": "customer", "note": "draft one"})
+    post(sa, "/maint/add", {"plant": "qro1", "start": "2026-09-02T08:00", "category": "customer", "note": "draft one",
+                            "deemed_kwh": "0"})
     mid = psql("SELECT id FROM maintenance_event WHERE note = 'draft one'")[0][0]
     post(sa, "/maint/delete", {"id": mid})
     assert psql(f"SELECT count(*) FROM maintenance_event WHERE id = {mid}") == [["0"]]
@@ -210,3 +212,60 @@ def test_fee_and_tariff_from_a_month(sa, psql):
     assert psql(f"SELECT tariff_mxn FROM contract_monthly WHERE plant_key = 'GTO1' AND year = {y} AND month = {m}") == [["2.5500"]]
     r2 = post(sa, "/finance/fee", {"plant": "GTO1", "from_month": ym, "amount": "1000"})
     assert "saved" in r2.get_data(as_text=True), r2.get_data(as_text=True)[-600:]
+
+
+
+# ------------------------------------------------------------ v342: the PPA calendar
+def test_a_customer_event_needs_its_compensated_kwh(sa, psql):
+    post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "end": "2026-10-11T20:00",
+                            "category": "customer", "note": "no kwh"})
+    assert psql("SELECT count(*) FROM maintenance_event WHERE note = 'no kwh'") == [["0"]]
+    for bad in ("-5", "abc", "nan"):
+        post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "category": "customer",
+                                "note": "bad kwh", "deemed_kwh": bad})
+    assert psql("SELECT count(*) FROM maintenance_event WHERE note = 'bad kwh'") == [["0"]]
+    post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "end": "2026-10-11T05:00",
+                            "category": "argia", "note": "backwards"})
+    assert psql("SELECT count(*) FROM maintenance_event WHERE note = 'backwards'") == [["0"]]
+
+
+def test_the_calendar_logs_a_past_customer_event_and_returns_to_itself(sa, psql):
+    back = "/setup/plants/calendar?plant=nl1&month=2026-10"
+    r = post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "end": "2026-10-11T20:00",
+                                "category": "customer", "deemed_kwh": "1859", "note": "customer shutdown",
+                                "back": back})
+    assert r.status_code == 303 and r.headers["Location"].startswith(back + "&m=")
+    row = psql("SELECT plant_key, deemed_kwh, approved_by IS NULL FROM maintenance_event WHERE note = 'customer shutdown'")
+    assert row == [["NL1", "1859.0", "t"]]
+    mid = psql("SELECT id FROM maintenance_event WHERE note = 'customer shutdown'")[0][0]
+    r = post(sa, "/maint/approve", {"id": mid, "back": back})
+    assert r.headers["Location"].startswith(back + "&m=")
+    page = sa.app.test_client().get("/plants/calendar?plant=nl1&month=2026-10&day=11", headers=ADMIN).get_data(as_text=True)
+    assert "Traceback" not in page and "PPA calendar" in page
+    assert f"#{mid} customer 1,859.0 kWh" in page
+    assert 'name="deemed_kwh"' in page and 'value="2026-10-11T06:00"' in page
+
+
+def test_the_calendar_only_returns_to_itself(sa):
+    r = post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "category": "argia",
+                                "note": "evil", "back": "https://evil.example/x"})
+    assert r.headers["Location"].startswith("/setup/plants/#maintenance".split("#")[0])
+
+
+def test_the_calendar_is_for_admins_only(sa):
+    body = sa.app.test_client().get("/plants/calendar?plant=nl1&month=2026-10", headers=PLAIN).get_data(as_text=True)
+    assert "no management rights" in body and "calg" not in body
+
+
+def test_calendar_pure_helpers(sa):
+    assert sa.shift_month("2026-01", -1) == "2025-12" and sa.shift_month("2026-12", 1) == "2027-01"
+    assert sa.event_days("2026-10-11 01:01", "2026-10-11 23:00", "2026-10") == ["2026-10-11"]
+    assert sa.event_days("2026-09-30 20:00", "2026-10-02 08:00", "2026-10") == ["2026-10-01", "2026-10-02"]
+    assert len(sa.event_days("2026-10-30 08:00", "", "2026-10")) == 2              # ongoing: to the month end
+    days = {"2026-10-11": {"energy": 0.0, "billable": None}, "2026-10-12": {"energy": 2684.2, "billable": 2684.2}}
+    ev = [{"id": "2", "start": "2026-10-11 01:01", "end": "2026-10-11 23:00", "cat": "customer", "kwh": 1859.0,
+           "appr": "tomasz", "note": "", "days": ["2026-10-11"]}]
+    s = sa.calendar_summary(days, ev, {"produced": 61035.0, "penalty": 0.0, "amount": 123412.77})
+    assert s["agreed"] == 1859.0 and s["reissue"] is True
+    s = sa.calendar_summary(days, ev, {"produced": 61035.0, "penalty": 1859.0, "amount": 127171.67})
+    assert s["reissue"] is False

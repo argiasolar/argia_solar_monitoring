@@ -909,6 +909,8 @@ def _maint_ensure():
         approved_by text,
         created_by  text,
         created_at  timestamptz NOT NULL DEFAULT now());''')
+    # v342: the compensated kWh agreed for a customer event (shown on the invoice)
+    psql('ALTER TABLE maintenance_event ADD COLUMN IF NOT EXISTS deemed_kwh numeric(12,1);')
 
 
 def maintenance_card():
@@ -919,7 +921,7 @@ def maintenance_card():
             " to_char(start_ts AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI'),"
             " coalesce(to_char(end_ts AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI'),''),"
             " category, coalesce(cost_type,''), coalesce(cost_mxn::text,''),"
-            " coalesce(note,''), coalesce(approved_by,'')"
+            " coalesce(note,''), coalesce(approved_by,''), coalesce(deemed_kwh::text,'')"
             " FROM maintenance_event ORDER BY start_ts DESC LIMIT 40;")
     except RuntimeError as e:
         return ('<div class="card"><p class="note">maintenance events '
@@ -930,6 +932,7 @@ def maintenance_card():
         if len(r) < 9:
             continue
         mid, pk, st, en, cat, ct, cost, note, appr = r[:9]
+        dk = r[9] if len(r) > 9 else ''
         acts = []
         if not en:
             acts.append(
@@ -953,7 +956,7 @@ def maintenance_card():
         trs.append(
             f'<tr><td>{html.escape(pk)}</td><td>{html.escape(st)}</td>'
             f'<td>{html.escape(en) or "<i>ongoing</i>"}</td>'
-            f'<td>{html.escape(cat)}</td>'
+            f'<td>{html.escape(cat)}{("<br><b>" + html.escape(dk) + " kWh</b>") if dk else ""}</td>'
             f'<td>{html.escape(ct)}{(" · " + html.escape(cost) + " MXN") if cost else ""}</td>'
             f'<td>{html.escape(note[:40])}</td><td>{badge}</td>'
             f'<td>{"".join(acts)}</td></tr>')
@@ -971,6 +974,8 @@ def maintenance_card():
 <p class="note" data-en="Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy (contract-anchored), like ARGIA_Solar Invoicing. 'argia' and 'force_majeure' are recorded but never billed. Leave End empty for an ongoing event and close it later."
  data-es="Categoría 'customer' = paro causado por el cliente: una vez APROBADO, esas horas se facturan como energía compensada (anclada al contrato). 'argia' y 'force_majeure' se registran pero nunca se facturan. Deje Fin vacío para un evento en curso.">
 Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy.</p>
+<p><a class="btn" href="/setup/plants/calendar" data-en="Open the PPA calendar - one month per plant, past days included"
+ data-es="Abrir el calendario PPA - un mes por planta, días pasados incluidos">Open the PPA calendar - one month per plant, past days included</a></p>
 {rows_html}
 <form method="post" action="/setup/maint/add" style="margin-top:12px">
 <input type="hidden" name="csrf" value="{CSRF}">
@@ -980,6 +985,7 @@ Category 'customer' = customer-caused shutdown: once APPROVED, those hours are b
  <select name="category">{cat_opts}</select>
  <select name="cost_type">{ct_opts}</select>
  <input name="cost" placeholder="cost MXN" size="9">
+ <input name="deemed_kwh" placeholder="compensated kWh (customer)" size="14">
  <input name="note" placeholder="note" size="24">
  <button class="btn" data-en="Log event (draft)" data-es="Registrar evento (borrador)">Log event (draft)</button></p>
 </form></div>'''
@@ -998,8 +1004,274 @@ def _post_done(msg, to='/setup/'):
     and 404s - exactly what bit Tomasz subscribing to a second channel
     (2026-09-02)."""
     from urllib.parse import quote
-    return redirect(to.split('#')[0] + '?m=' + quote(msg or '')
+    path = to.split('#')[0]
+    return redirect(path + ('&' if '?' in path else '?') + 'm=' + quote(msg or '')
                     + ('#' + to.split('#')[1] if '#' in to else ''), code=303)
+
+
+def _maint_back():
+    """Where a maintenance form returns: the calendar it came from, else the
+    Plants drawer. Only the calendar path is accepted (no open redirect)."""
+    b = (request.form.get('back') or '').strip()
+    if re.fullmatch(r'/setup/plants/calendar\?plant=[a-z0-9]{2,8}&month=\d{4}-\d{2}', b):
+        return b
+    return '/setup/plants/#maintenance'
+
+
+# ---------------------------------------------------------------------------
+# v342: the PPA calendar - one month per plant, any day (past included).
+# Tomasz 2026-11-02: "some kind of calendar per each ppa plant where I can
+# put event like customer maintenance, even in the past, this event will
+# show compensated energy for the day instead of actual reading".
+# ---------------------------------------------------------------------------
+PPA_FALLBACK = ['gto1', 'nl1', 'slp1', 'slp2', 'mex1', 'mex2']
+_YM_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')
+WEEKDAYS = (('Mon', 'Lun'), ('Tue', 'Mar'), ('Wed', 'Mié'), ('Thu', 'Jue'), ('Fri', 'Vie'),
+            ('Sat', 'Sáb'), ('Sun', 'Dom'))
+
+
+def _num(v):
+    try:
+        return float(v) if str(v).strip() != '' else None
+    except ValueError:
+        return None
+
+
+def ppa_plants():
+    """PPA plants = a contract tariff on file; the fixed list if unreadable."""
+    try:
+        got = sorted({ln.strip().lower() for ln in psql(
+            "SELECT DISTINCT plant_key FROM contract_monthly WHERE tariff_mxn IS NOT NULL;").splitlines()
+            if ln.strip()})
+        got = [p for p in got if p in PLANTS]
+        return got or PPA_FALLBACK
+    except RuntimeError:
+        return PPA_FALLBACK
+
+
+def calendar_days(ym):
+    """[(date, weekday 0=Mon)] of the month. Pure."""
+    y, m = int(ym[:4]), int(ym[5:])
+    d = _dt.date(y, m, 1)
+    out = []
+    while d.month == m:
+        out.append((d, d.weekday()))
+        d += _dt.timedelta(days=1)
+    return out
+
+
+def shift_month(ym, n):
+    y, m = int(ym[:4]), int(ym[5:]) + n
+    while m < 1:
+        y, m = y - 1, m + 12
+    while m > 12:
+        y, m = y + 1, m - 12
+    return '%04d-%02d' % (y, m)
+
+
+def event_days(start_iso, end_iso, ym):
+    """Calendar days of ``ym`` an event touches ('YYYY-MM-DD HH:MM' MX; end ''
+    = ongoing, shown to the month end). Pure."""
+    s = _dt.datetime.fromisoformat(start_iso)
+    last = calendar_days(ym)[-1][0]
+    e = _dt.datetime.fromisoformat(end_iso) if end_iso else _dt.datetime(last.year, last.month, last.day, 23, 59)
+    out = []
+    for d, _w in calendar_days(ym):
+        lo = _dt.datetime(d.year, d.month, d.day)
+        if s < lo + _dt.timedelta(days=1) and e > lo:
+            out.append(d.isoformat())
+    return out
+
+
+def calendar_data(pk, ym):
+    first = f'{ym}-01'
+    last = calendar_days(ym)[-1][0].isoformat()
+    days = {}
+    for ln in psql(
+            "SELECT d::date, dp.energy_kwh, dp.billable_kwh FROM generate_series("
+            f"DATE '{first}', DATE '{last}', interval '1 day') d LEFT JOIN daily_production dp"
+            f" ON dp.plant_key = {_sqlq(pk.upper())} AND dp.prod_date = d::date ORDER BY 1;").splitlines():
+        r = ln.split('\t')
+        if len(r) >= 3:
+            days[r[0]] = {'energy': _num(r[1]), 'billable': _num(r[2])}
+    try:
+        for ln in psql(
+                "SELECT prod_date, expected_kwh, lost_kwh, coalesce(expected_basis,'') FROM loss_daily"
+                f" WHERE plant_key = {_sqlq(pk.upper())} AND prod_date BETWEEN DATE '{first}' AND DATE '{last}';").splitlines():
+            r = ln.split('\t')
+            if len(r) >= 4 and r[0] in days:
+                days[r[0]].update(expected=_num(r[1]), lost=_num(r[2]), basis=r[3])
+    except RuntimeError:
+        pass                                   # no loss table here: no estimate, the form stays blank
+    events = []
+    for ln in psql(
+            "SELECT id, to_char(start_ts AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI'),"
+            " coalesce(to_char(end_ts AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI'),''),"
+            " category, coalesce(deemed_kwh::text,''), coalesce(approved_by,''), coalesce(note,'')"
+            f" FROM maintenance_event WHERE plant_key = {_sqlq(pk.upper())}"
+            f" AND start_ts < (DATE '{last}' + 1) AT TIME ZONE 'America/Mexico_City'"
+            f" AND coalesce(end_ts, now()) >= DATE '{first}' AT TIME ZONE 'America/Mexico_City'"
+            " ORDER BY start_ts;").splitlines():
+        r = ln.split('\t')
+        if len(r) >= 7:
+            events.append({'id': r[0], 'start': r[1], 'end': r[2], 'cat': r[3], 'kwh': _num(r[4]),
+                           'appr': r[5], 'note': r[6], 'days': event_days(r[1], r[2], ym)})
+    reg = None
+    for ln in psql("SELECT produced_kwh, coalesce(penalty_kwh,0), amount_mxn FROM invoicing"
+                   f" WHERE plant_key = {_sqlq(pk.upper())} AND ref_month = DATE '{first}';").splitlines():
+        r = ln.split('\t')
+        if len(r) >= 3:
+            reg = {'produced': _num(r[0]), 'penalty': _num(r[1]) or 0.0, 'amount': _num(r[2])}
+    return days, events, reg
+
+
+def calendar_summary(days, events, reg):
+    """Month totals and whether the invoice still matches the events. Pure.
+    Agreed = Σ kWh of the APPROVED customer events that start this month."""
+    measured = sum((v.get('energy') or 0.0) for v in days.values())
+    on_days = sum(max(0.0, (v.get('billable') or 0.0) - (v.get('energy') or 0.0))
+                  for v in days.values() if v.get('billable') is not None)
+    agreed = sum(e['kwh'] or 0.0 for e in events
+                 if e['appr'] and e['cat'] == 'customer' and e['kwh'] and e['days'] and e['days'][0] == e['start'][:10])
+    out = {'measured': round(measured, 1), 'on_days': round(on_days, 1), 'agreed': round(agreed, 1),
+           'invoiced': None, 'reissue': False, 'pending_days': abs(on_days - agreed) > 0.05}
+    if reg is not None:
+        out['invoiced'] = reg
+        out['reissue'] = abs((reg['penalty'] or 0.0) - agreed) > 0.05
+    return out
+
+
+def _fmt(v, nd=1):
+    return '-' if v is None else f'{v:,.{nd}f}'
+
+
+def calendar_page(pk, ym, day=None, msg=''):
+    plants = ppa_plants()
+    if pk not in plants:
+        pk = plants[0]
+    days, events, reg = calendar_data(pk, ym)
+    summ = calendar_summary(days, events, reg)
+    by_day = {}
+    for e in events:
+        for d in e['days']:
+            by_day.setdefault(d, []).append(e)
+    base = f'/setup/plants/calendar?plant={pk}&month={ym}'
+    cells = ['<td class="cal-empty"></td>'] * calendar_days(ym)[0][1]
+    for d, _w in calendar_days(ym):
+        iso = d.isoformat()
+        v = days.get(iso, {})
+        e_kwh, b_kwh = v.get('energy'), v.get('billable')
+        comp = (b_kwh - e_kwh) if (b_kwh is not None and e_kwh is not None and b_kwh > e_kwh + 0.005) else 0.0
+        chips = ''.join(
+            f'<div class="chip {"c-" + html.escape(e["cat"])}{"" if e["appr"] else " draft"}">#{e["id"]} '
+            f'{html.escape(e["cat"])}{(" " + _fmt(e["kwh"]) + " kWh") if e["kwh"] is not None else ""}'
+            f'{"" if e["appr"] else " DRAFT"}</div>' for e in by_day.get(iso, []))
+        lost = v.get('lost')
+        hint = (f'<div class="lost">lost {_fmt(lost)} kWh</div>'
+                if (lost and lost > 1 and not by_day.get(iso)) else '')
+        add = f'<a class="add" href="{base}&day={d.day}#form" data-en="+ event" data-es="+ evento">+ event</a>'
+        sel = ' sel' if (day and d.day == day) else ''
+        cells.append(
+            f'<td class="cal{sel}"><div class="dn">{d.day}</div>'
+            f'<div class="meas">{_fmt(e_kwh)} kWh</div>'
+            + (f'<div class="comp">+ {_fmt(comp)} compensated</div>' if comp else '')
+            + chips + hint + add + '</td>')
+    while len(cells) % 7:
+        cells.append('<td class="cal-empty"></td>')
+    rows = ''.join('<tr>' + ''.join(cells[i:i + 7]) + '</tr>' for i in range(0, len(cells), 7))
+    head = '<tr>' + ''.join(f'<th data-en="{en}" data-es="{es}">{en}</th>' for en, es in WEEKDAYS) + '</tr>'
+    tabs = ''.join(f'<a class="ptab{" on" if p == pk else ""}" href="/setup/plants/calendar?plant={p}&month={ym}">'
+                   f'{p.upper()}</a>' for p in plants)
+    nav = (f'<a class="btn" href="/setup/plants/calendar?plant={pk}&month={shift_month(ym, -1)}">&lt;</a> '
+           f'<b style="font-size:17px">{ym}</b> '
+           f'<a class="btn" href="/setup/plants/calendar?plant={pk}&month={shift_month(ym, 1)}">&gt;</a>')
+    inv = ''
+    if summ['invoiced']:
+        r = summ['invoiced']
+        inv = (f'<p class="note">Invoiced: measured {_fmt(r["produced"])} + compensated {_fmt(r["penalty"])} kWh'
+               f' = MXN {_fmt(r["amount"], 2)}</p>')
+        if summ['reissue']:
+            inv += (f'<p class="warn">The approved customer events of {ym} now total {_fmt(summ["agreed"])} kWh'
+                    f' compensated, the invoice has {_fmt(r["penalty"])}. Re-issue the month on the server:'
+                    f' <code>invoice_reissue.py --month {ym}</code> (dry run first, then --apply).</p>')
+    elif summ['pending_days']:
+        inv = ('<p class="note">Approved events reach the daily table in tonight\'s reconciliation run'
+               f' ({_fmt(summ["on_days"])} kWh on the days now, {_fmt(summ["agreed"])} agreed).</p>')
+    form = ''
+    if day and 1 <= day <= len(calendar_days(ym)):
+        iso = f'{ym}-{day:02d}'
+        v = days.get(iso, {})
+        est = v.get('lost')
+        if est is None and v.get('expected') is not None:
+            est = max(0.0, v['expected'] - (v.get('energy') or 0.0))
+        basis = {'weather': 'irradiance at the site', 'peers': 'the neighbouring plants'}.get(v.get('basis', ''), '')
+        cat_opts = ''.join(f'<option value="{c}"{" selected" if c == "customer" else ""}>{c}</option>'
+                           for c in MAINT_CATEGORIES)
+        form = f'''<div class="card" id="form"><h2>{pk.upper()} {iso} - new event</h2>
+<p class="note">Measured {_fmt(v.get("energy"))} kWh. Platform estimate of the energy lost:
+ <b>{_fmt(est)} kWh</b>{(" (from " + basis + ")") if basis else ""}. The compensated kWh is what goes on the invoice
+ for a customer event - pre-filled with the estimate, change it to the figure agreed with the customer.</p>
+<form method="post" action="/setup/maint/add">
+<input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="plant" value="{pk}">
+<input type="hidden" name="back" value="{base}">
+<p>from <input type="datetime-local" name="start" value="{iso}T06:00" required>
+ to <input type="datetime-local" name="end" value="{iso}T20:00" required>
+ <select name="category">{cat_opts}</select>
+ compensated kWh <input name="deemed_kwh" value="{"" if est is None else f"{est:.1f}"}" size="9">
+ <input name="note" placeholder="note (what happened, who asked)" size="34">
+ <button class="btn">Save as draft</button></p></form></div>'''
+    ev_rows = ''.join(
+        f'<tr><td>#{e["id"]}</td><td>{html.escape(e["start"])}</td><td>{html.escape(e["end"]) or "<i>ongoing</i>"}</td>'
+        f'<td>{html.escape(e["cat"])}</td><td>{_fmt(e["kwh"])}</td><td>{html.escape(e["note"][:60])}</td>'
+        f'<td>{("approved: " + html.escape(e["appr"])) if e["appr"] else "DRAFT"}</td><td>'
+        + ('' if e['appr'] else
+           f'<form method="post" action="/setup/maint/approve" style="display:inline"><input type="hidden" name="csrf" value="{CSRF}">'
+           f'<input type="hidden" name="id" value="{e["id"]}"><input type="hidden" name="back" value="{base}">'
+           '<button class="btn">approve</button></form> '
+           f'<form method="post" action="/setup/maint/delete" style="display:inline"><input type="hidden" name="csrf" value="{CSRF}">'
+           f'<input type="hidden" name="id" value="{e["id"]}"><input type="hidden" name="back" value="{base}">'
+           '<button class="btn">delete</button></form>')
+        + '</td></tr>' for e in events)
+    css = '''<style>.ptab{display:inline-block;padding:5px 11px;margin:0 4px 6px 0;border:1px solid #dadce0;border-radius:8px;
+text-decoration:none;color:#3c4043}.ptab.on{background:#05847d;color:#fff;border-color:#05847d}
+table.calg{width:100%;table-layout:fixed;border-collapse:collapse}table.calg td{vertical-align:top;border:1px solid #e0e3e7;
+height:92px;padding:5px;font-size:12.5px}td.cal-empty{background:#f8f9fa}td.sel{outline:2px solid #05847d}
+.dn{font-weight:600}.meas{color:#3c4043}.comp{color:#137333;font-weight:600}.lost{color:#a05c00}
+.chip{display:inline-block;margin-top:3px;padding:1px 6px;border-radius:9px;font-size:11.5px;background:#e6f4ea;color:#137333}
+.chip.c-argia{background:#e8f0fe;color:#1967d2}.chip.c-force_majeure{background:#fce8e6;color:#c5221f}
+.chip.draft{background:#fdf0dc;color:#a05c00}a.add{display:block;margin-top:4px;font-size:11.5px}
+p.warn{background:#fce8e6;color:#a50e0e;padding:8px 10px;border-radius:8px}</style>'''
+    body = (css + f'''<div class="card"><p>{tabs}</p><p>{nav}</p>
+<p class="note">Measured {_fmt(summ["measured"])} kWh · compensated on the days {_fmt(summ["on_days"])} kWh ·
+ approved customer events {_fmt(summ["agreed"])} kWh</p>{inv}
+<table class="calg">{head}{rows}</table>
+<p class="note">Green = compensated energy on the daily table (billable = measured + compensated). Orange "lost" =
+ the platform's estimate where nothing was logged. Click "+ event" on any day, past ones included.</p></div>{form}
+<div class="card"><h2>Events touching {ym}</h2><table><tr><th>#</th><th>Start MX</th><th>End MX</th><th>Category</th>
+<th>kWh</th><th>Note</th><th>Status</th><th></th></tr>{ev_rows}</table></div>''')
+    return page(body, msg=msg, title=('PPA calendar', 'Calendario PPA'),
+                sub=('Customer events per plant and day - compensated energy goes on the invoice',
+                     'Eventos del cliente por planta y día - la energía compensada va a la factura'))
+
+
+@app.get('/plants/calendar')
+def plants_calendar():
+    me, is_global, org = actor()
+    if not is_global:
+        return page('<div class="card"><p>Your account has no management rights.</p></div>')
+    pk = (request.args.get('plant') or '').strip().lower()
+    ym = (request.args.get('month') or '').strip()
+    if not _YM_RE.match(ym):
+        ym = (_dt.date.today().replace(day=1) - _dt.timedelta(days=1)).strftime('%Y-%m')
+    try:
+        day = int(request.args.get('day') or 0)
+    except ValueError:
+        day = 0
+    try:
+        _maint_ensure()
+    except RuntimeError as e:
+        return page(f'<div class="card"><p class="note">calendar unavailable: {html.escape(str(e)[:200])}</p></div>')
+    return calendar_page(pk, ym, day or None, msg=(request.args.get('m') or '')[:300])
 
 
 @app.post('/maint/add')
@@ -1014,23 +1286,37 @@ def maint_add():
     ct = (request.form.get('cost_type') or '').strip()
     cost = (request.form.get('cost') or '').strip()
     note = (request.form.get('note') or '').strip()[:200]
+    back = _maint_back()
     if plant not in PLANTS or cat not in MAINT_CATEGORIES \
             or not _TS_RE.match(start) or (end and not _TS_RE.match(end)):
-        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: invalid plant/category/time - nothing saved')
+        return _post_done(to=back, msg='maintenance: invalid plant/category/time - nothing saved')
+    if end and end.replace('T', ' ') <= start.replace('T', ' '):
+        return _post_done(to=back, msg='maintenance: the end must be after the start - nothing saved')
     try:
         cost_sql = f'{float(cost):.2f}' if cost else 'NULL'
     except ValueError:
-        return _post_done(to='/setup/plants/#maintenance', msg='maintenance: cost must be a number - nothing saved')
+        return _post_done(to=back, msg='maintenance: cost must be a number - nothing saved')
+    # v342: a customer event carries the compensated kWh that goes on the invoice
+    dk = (request.form.get('deemed_kwh') or '').strip().replace(',', '')
+    try:
+        dk_val = float(dk) if dk else None
+    except ValueError:
+        dk_val = -1.0
+    if dk_val is not None and (dk_val < 0 or dk_val != dk_val or dk_val > 1e6):
+        return _post_done(to=back, msg='maintenance: compensated kWh must be a number >= 0 - nothing saved')
+    if cat == 'customer' and dk_val is None:
+        return _post_done(to=back, msg='maintenance: a customer event needs the compensated kWh - nothing saved')
+    dk_sql = f'{dk_val:.1f}' if dk_val is not None else 'NULL'
     mx = "AT TIME ZONE 'America/Mexico_City'"
     end_sql = f"timestamp '{end.replace('T', ' ')}' {mx}" if end else 'NULL'
     ct_sql = _sqlq(ct) if ct in MAINT_COST_TYPES else 'NULL'
     _maint_ensure()
     psql(f"INSERT INTO maintenance_event (plant_key, start_ts, end_ts,"
-         f" category, cost_type, cost_mxn, note, created_by) VALUES"
+         f" category, cost_type, cost_mxn, note, created_by, deemed_kwh) VALUES"
          f" ({_sqlq(plant.upper())}, timestamp '{start.replace('T', ' ')}' {mx},"
          f" {end_sql}, {_sqlq(cat)}, {ct_sql}, {cost_sql}, {_sqlq(note)},"
-         f" {_sqlq(me)});")
-    return _post_done(to='/setup/plants/#maintenance', msg='maintenance event logged as DRAFT - approve it to make it billable')
+         f" {_sqlq(me)}, {dk_sql});")
+    return _post_done(to=back, msg='maintenance event logged as DRAFT - approve it to make it billable')
 
 
 @app.post('/maint/close')
@@ -1043,7 +1329,7 @@ def maint_close():
     except ValueError:
         mid = 0
     psql(f'UPDATE maintenance_event SET end_ts = now() WHERE id = {mid} AND end_ts IS NULL;')
-    return _post_done(to='/setup/plants/#maintenance', msg=f'maintenance event #{mid} ended now')
+    return _post_done(to=_maint_back(), msg=f'maintenance event #{mid} ended now')
 
 
 @app.post('/maint/approve')
@@ -1057,7 +1343,8 @@ def maint_approve():
         mid = 0
     psql(f'UPDATE maintenance_event SET approved_by = {_sqlq(me)} '
          f'WHERE id = {mid} AND approved_by IS NULL;')
-    return _post_done(to='/setup/plants/#maintenance', msg=f'maintenance event #{mid} approved - billable if category=customer')
+    return _post_done(to=_maint_back(), msg=f'maintenance event #{mid} approved - billable if category=customer'
+                      ' (on the daily table tonight; an invoiced month needs invoice_reissue)')
 
 
 @app.post('/maint/delete')
@@ -1070,7 +1357,7 @@ def maint_delete():
     except ValueError:
         mid = 0
     psql(f'DELETE FROM maintenance_event WHERE id = {mid} AND approved_by IS NULL;')
-    return _post_done(to='/setup/plants/#maintenance', msg=f'draft maintenance event #{mid} deleted')
+    return _post_done(to=_maint_back(), msg=f'draft maintenance event #{mid} deleted')
 
 
 

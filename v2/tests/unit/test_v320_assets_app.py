@@ -6,6 +6,7 @@ spreadsheet), roles, export, both languages, no em dash."""
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import importlib
 import io
 import json
@@ -100,6 +101,10 @@ def test_viewer_and_manager_see_but_cannot_change(env):
         assert cl.get("/assets/equipment.csv").status_code == 200           # Owner visibility: the register is theirs
 
 
+# v339: 60 days ahead, always inside the 90-day warning (a fixed 2026-11-01 expired on that date)
+SOON = (dt.date.today() + dt.timedelta(days=60)).isoformat()
+
+
 def test_operator_register_import_and_export(env):
     app_mod, pws, tmp = env
     op = sign_in(app_mod, "operator", pws["operator"])
@@ -109,7 +114,7 @@ def test_operator_register_import_and_export(env):
     assert 'value="TST002" selected' in form
     tok = _csrf(form)
     base = {"site_code": "TST001", "category": "inverter", "tag": "INV-01", "make": "SolarEdge", "model": "SE100K", "serial": "7E1",
-            "qty": "1", "dc_kw": "120", "warranty_until": "2026-11-01", "status": "in_service", "csrf": tok}
+            "qty": "1", "dc_kw": "120", "warranty_until": SOON, "status": "in_service", "csrf": tok}
     r = op.post("/assets/eq/save", data=base)
     assert r.status_code == 302 and r.headers["Location"].endswith("/assets/?site=TST001")
     dup = op.post("/assets/eq/save", data={**base, "tag": "INV-02"}).get_data(as_text=True)
@@ -118,7 +123,7 @@ def test_operator_register_import_and_export(env):
     op.post("/assets/eq/save", data={**base, "category": "meter", "tag": "MTR", "serial": "M-1", "make": "Janitza", "dc_kw": "", "calib_due": "2020-01-01"})
     h = op.get("/assets/?site=TST001").get_data(as_text=True)
     _ok(h)
-    assert "7E1" in h and "Expires 2026-11-01" in h and "Calibration overdue 2020-01-01" in h
+    assert "7E1" in h and f"Expires {SOON}" in h and "Calibration overdue 2020-01-01" in h
     assert "No module DC registered for this site yet" in h
     # CSV import: one bad row refuses the whole file
     bad = "site,category,tag,make,serial,qty,dc_kw\nTST001,module,ROOF-A,Longi,,1126,619.4\nTST001,inverter,INV-09,SolarEdge,7E1,1,\n"

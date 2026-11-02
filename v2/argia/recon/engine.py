@@ -83,20 +83,23 @@ BASIS_VENDOR_DAILY = "vendor_plant_daily"
 def reference_kwh(inverter_counter_kwh: Optional[float],
                   vendor_daily_kwh: Optional[float]
                   ) -> tuple[Optional[float], str]:
-    """The day's energy reference - v206, Tomasz 2026-09-05: "always
-    prefer the inverter counter, it is the only way we can prove it to
-    the customer". Σ of the inverters' own eToday registers wins; the
-    vendor's plant-daily figure (server-side, built from uploaded 5-min
-    data - SLP2 2026-09-04 lost the 145 kWh of a link gap that way) is
-    used only when it is HIGHER by more than DAILY_PASS_PCT, i.e. when
-    our own sampling missed part of the day. Never lowers. Pure."""
+    """The day's energy reference. v206, Tomasz 2026-09-05: the inverters'
+    own eToday registers are the proof; the vendor's plant-daily figure
+    (server-side, built from uploaded 5-min data - SLP2 2026-09-04 lost
+    145 kWh of a link gap that way) never LOWERS them. v339: the vendor
+    plant daily is taken whenever it is HIGHER (the inverters' 0.1 kWh
+    steps lose a little every day). Never lowers. Pure."""
     if inverter_counter_kwh is None and vendor_daily_kwh is None:
         return None, BASIS_NONE
     if inverter_counter_kwh is None:
         return vendor_daily_kwh, BASIS_VENDOR_DAILY
     if vendor_daily_kwh is None:
         return inverter_counter_kwh, BASIS_INV
-    if vendor_daily_kwh > inverter_counter_kwh * (1 + DAILY_PASS_PCT / 100.0):
+    # v339 (Tomasz 2026-11-02, "take the inverters' portal numbers"): the vendor
+    # plant daily wins whenever it is HIGHER, by any amount. Each inverter's
+    # eToday comes in 0.1 kWh steps, so their sum ran 0.1-0.5 kWh/day below the
+    # portal on almost every day (October: Taigene -7.8 kWh, Holiday Inn -3.3).
+    if vendor_daily_kwh > inverter_counter_kwh:
         return vendor_daily_kwh, BASIS_VENDOR_DAILY
     return inverter_counter_kwh, BASIS_INV
 
@@ -208,22 +211,31 @@ def select_billing(lifetime_delta_kwh: Optional[float],
                    ) -> tuple[Optional[float], str]:
     """Billing control value + basis.
 
-    v206: the Σ of the daily references (inverter counters, vendor plant
-    daily only where higher) is FIRST when every day of the month has
-    one - the customer can verify it register by register. The lifetime
-    delta and the vendor monthly counter follow (plant-level vendor
-    figures), then Σ vendor daily, then the bare interval sum. Any Σ
-    only qualifies with EVERY day covered; a partial sum silently
-    under-bills. The caller downgrades the status on the last resort.
+    v339 (Tomasz 2026-11-02: invoices carry the month the vendor portal
+    shows): FIRST the portal month - the vendor month counter (Huawei,
+    SolarEdge), else the full-month Σ of the vendor plant dailies (Growatt
+    has no month counter; its portal month is that sum). The portal month
+    is only taken when it is not BELOW the full-month Σ of the daily
+    references (inverter counters) by more than MONTHLY_PASS_PCT - when
+    the counters prove more energy, an incomplete portal (late uploads,
+    an early nightly snapshot) must never shrink an invoice, and the
+    counters' sum is billed instead. Then the lifetime delta, then the
+    bare interval sum. Any Σ only qualifies with EVERY day covered.
     """
-    if daily_ref_sum_kwh is not None and daily_ref_days >= days_in_month:
-        return daily_ref_sum_kwh, BASIS_DAILY_REF
+    ref = daily_ref_sum_kwh if (daily_ref_sum_kwh is not None and daily_ref_days >= days_in_month) else None
+    portal, pbasis = None, BASIS_NONE
+    if vendor_monthly_kwh is not None:
+        portal, pbasis = vendor_monthly_kwh, BASIS_MONTHLY
+    elif vendor_daily_sum_kwh is not None and daily_days >= days_in_month:
+        portal, pbasis = vendor_daily_sum_kwh, BASIS_DAILY_SUM
+    if portal is not None:
+        if ref is not None and portal < ref * (1 - MONTHLY_PASS_PCT / 100.0):
+            return ref, BASIS_DAILY_REF
+        return portal, pbasis
+    if ref is not None:
+        return ref, BASIS_DAILY_REF
     if lifetime_delta_kwh is not None:
         return lifetime_delta_kwh, BASIS_LIFETIME
-    if vendor_monthly_kwh is not None:
-        return vendor_monthly_kwh, BASIS_MONTHLY
-    if vendor_daily_sum_kwh is not None and daily_days >= days_in_month:
-        return vendor_daily_sum_kwh, BASIS_DAILY_SUM
     if interval_sum_kwh is not None:
         return interval_sum_kwh, BASIS_INTERVAL
     return None, BASIS_NONE
@@ -269,7 +281,24 @@ def monthly_close(interval_sum_kwh: Optional[float],
     # lost uploads (the SLP2 pattern) - informational either way.
     c3 = variance_pct(daily_ref_sum_kwh, ld) if basis == BASIS_DAILY_REF else None
 
-    hard_checks = [c for c in (c2, c4) if c is not None]
+    # v339: the nightly daily snapshots (Σ vendor daily) lag behind late
+    # vendor uploads (SAG 2026-10: 16 days caught before Huawei caught up,
+    # -12.7 % against a month counter that equals the lifetime register).
+    # With a lifetime register the month counter is checked against it and
+    # CHECK2 informs; without one CHECK2 is the only cross-check and counts.
+    if c4 is not None:
+        hard_checks = [c4]
+        if c2 is not None and abs(c2) > MONTHLY_PASS_PCT:
+            notes.append(f"CHECK2 Σ nightly vendor daily snapshots vs month counter {c2:+.2f}% "
+                         "- late vendor uploads after our snapshots; the month counter agrees "
+                         "with the lifetime register")
+    elif basis == BASIS_DAILY_SUM and ld is not None:
+        # Growatt: no month counter - the portal month (Σ vendor daily) is
+        # checked against the lifetime register instead
+        c4 = variance_pct(vendor_daily_sum_kwh, ld)
+        hard_checks = [c4]
+    else:
+        hard_checks = [c for c in (c2,) if c is not None]
     low_completeness = (completeness_pct is not None
                         and completeness_pct < COMPLETENESS_MIN_PCT)
 

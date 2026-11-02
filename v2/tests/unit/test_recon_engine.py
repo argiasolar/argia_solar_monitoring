@@ -1,4 +1,5 @@
 """Unit tests - argia.recon.engine (pure reconciliation logic)."""
+import pytest
 
 from argia.recon.engine import (
     BASIS_DAILY_SUM,
@@ -105,9 +106,14 @@ def test_lifetime_delta_missing_endpoint():
 
 
 # --------------------------------------------------------- billing basis
-def test_billing_prefers_lifetime_delta():
+def test_billing_prefers_the_portal_month_counter():
+    # v339: the vendor month counter (what the portal shows) comes before the lifetime delta
     v, basis = select_billing(98542.2, 98540.0, 98500.0, 98000.0, 31, 31)
-    assert (v, basis) == (98542.2, BASIS_LIFETIME)
+    assert (v, basis) == (98540.0, BASIS_MONTHLY)
+    # without a month counter (Growatt): the full-month sum of the vendor dailies
+    assert select_billing(98542.2, None, 98500.0, 98000.0, 31, 31) == (98500.0, BASIS_DAILY_SUM)
+    # without any portal figure: the lifetime delta
+    assert select_billing(98542.2, None, 98500.0, 98000.0, 30, 31) == (98542.2, BASIS_LIFETIME)
 
 
 def test_billing_falls_back_to_monthly():
@@ -133,8 +139,8 @@ def test_close_pass_all_counters_agree():
     mc = monthly_close(93827.5, 93833.8, 93834.1,
                        1000000.0, 1093834.0, 99.96, 31, 31)
     assert mc.status == STATUS_PASS
-    assert mc.billing_basis == BASIS_LIFETIME
-    assert abs(mc.billing_kwh - 93834.0) < 0.01
+    assert mc.billing_basis == BASIS_MONTHLY                 # v339: the portal month
+    assert abs(mc.billing_kwh - 93834.1) < 0.01
     assert abs(mc.check1_pct) < 0.05
 
 
@@ -189,8 +195,10 @@ from argia.recon.engine import (BASIS_DAILY_REF, BASIS_INV, BASIS_VENDOR_DAILY,
 def test_reference_prefers_the_inverter_counters():
     # SLP2 2026-09-04: inverters 1513.4, vendor plant daily 1368.6 (upload gap)
     assert reference_kwh(1513.4, 1368.6) == (1513.4, BASIS_INV)
-    # equal within 1 %: still the inverters (0.1 kWh granularity)
-    assert reference_kwh(1000.0, 1005.0) == (1000.0, BASIS_INV)
+    # v339: a vendor plant daily HIGHER by any amount wins (the inverters' 0.1 kWh steps)
+    assert reference_kwh(1000.0, 1005.0) == (1005.0, BASIS_VENDOR_DAILY)
+    assert reference_kwh(3667.0, 3667.2) == (3667.2, BASIS_VENDOR_DAILY)   # Taigene 2026-10-01
+    assert reference_kwh(1000.0, 1000.0) == (1000.0, BASIS_INV)
     # our own sampling missed part of the day: the vendor saw more -> never lower
     assert reference_kwh(900.0, 1000.0) == (1000.0, BASIS_VENDOR_DAILY)
     assert reference_kwh(None, 1000.0) == (1000.0, BASIS_VENDOR_DAILY)
@@ -208,24 +216,70 @@ def test_daily_vendor_below_inverters_is_review_not_fail():
     assert r.status == STATUS_FAIL and r.reference_kwh == 1000.0 and r.reference_basis == BASIS_VENDOR_DAILY
 
 
-def test_billing_prefers_the_daily_reference_sum_when_complete():
+def test_billing_takes_the_portal_month_unless_the_counters_prove_more():
+    # portal month within 0.5 % of the inverter-counter sum: the portal month (v339)
     v, basis = select_billing(98542.2, 98540.0, 98500.0, 98000.0, 31, 31,
                               daily_ref_sum_kwh=98600.0, daily_ref_days=31)
+    assert (v, basis) == (98540.0, BASIS_MONTHLY)
+    # portal month more than 0.5 % below the counters (late uploads): the counters - never shrink an invoice
+    v, basis = select_billing(98542.2, 97000.0, 98500.0, 98000.0, 31, 31,
+                              daily_ref_sum_kwh=98600.0, daily_ref_days=31)
     assert (v, basis) == (98600.0, BASIS_DAILY_REF)
-    # a partial month of references falls back to the lifetime delta
+    # no portal figure at all: the counters' sum
+    assert select_billing(98542.2, None, None, None, 0, 31, daily_ref_sum_kwh=98600.0, daily_ref_days=31) == (98600.0, BASIS_DAILY_REF)
+    # a partial month of references cannot overrule the portal month
     v, basis = select_billing(98542.2, 98540.0, 98500.0, 98000.0, 31, 31,
-                              daily_ref_sum_kwh=90000.0, daily_ref_days=28)
-    assert (v, basis) == (98542.2, BASIS_LIFETIME)
+                              daily_ref_sum_kwh=99900.0, daily_ref_days=28)
+    assert (v, basis) == (98540.0, BASIS_MONTHLY)
     # legacy call shape unchanged
     assert select_billing(98542.2, None, None, None, 0, 31) == (98542.2, BASIS_LIFETIME)
 
 
 def test_close_check3_flags_a_lifetime_delta_above_the_references():
-    mc = monthly_close(98000.0, 98500.0, 98540.0, 100000.0, 198542.2, 99.0, 31, 31,
+    # no portal figure: the references are billed and CHECK3 still compares them with the lifetime delta
+    mc = monthly_close(98000.0, None, None, 100000.0, 198542.2, 99.0, 0, 31,
                        daily_ref_sum_kwh=96000.0, daily_ref_days=31)
     assert mc.billing_basis == BASIS_DAILY_REF and mc.billing_kwh == 96000.0
     assert mc.status == STATUS_REVIEW and "CHECK3" in mc.note and "days without inverter data" in mc.note
     # references above the lifetime delta = vendor upload gaps: informational
-    mc = monthly_close(98000.0, 98500.0, 98540.0, 100000.0, 198542.2, 99.0, 31, 31,
+    mc = monthly_close(98000.0, None, None, 100000.0, 198542.2, 99.0, 0, 31,
                        daily_ref_sum_kwh=100500.0, daily_ref_days=31)
     assert mc.status == STATUS_PASS and "vendor upload gaps; counters kept" in mc.note
+
+
+# ----------------------------------------------------------- v339: October 2026, the real figures
+# Tomasz 2026-11-02 checked the vendor portals: Taigene 102,141.5, Plastic Omnium 61,035.0,
+# Quimica 17,314.8, Holiday Inn 27,364.8, Vitalmex 62,505.42, SAG 55,139.65 kWh. The close
+# billed the inverter-counter sums (0.4-7.8 kWh lower) and FAILED SAG. Inputs below are the
+# real reconciliation_monthly values of 2026-10 (interval, Σ vendor daily, month counter,
+# lifetime delta, completeness, Σ inverter references).
+OCT_2026 = {
+    "GTO1": (102133.7, 102141.5, None, 102142.0, 100.0, 102133.7, 102141.5),
+    "NL1": (61030.2, 61035.0, None, 61034.3, 97.2, 61030.2, 61035.0),
+    "SLP1": (17311.8, 17314.8, None, 17313.6, 100.0, 17311.8, 17314.8),
+    "SLP2": (27263.8, 27364.8, None, 27362.1, 99.8, 27361.5, 27364.8),
+    "MEX2": (62505.0, 62504.97, 62505.42, 62505.42, 100.0, 62505.0, 62505.42),
+    "MEX1": (48119.4, 48119.37, 55139.65, 55139.65, 96.8, 48119.4, 55139.65),
+}
+
+
+@pytest.mark.parametrize("pk", sorted(OCT_2026))
+def test_october_2026_closes_at_the_portal_figures(pk):
+    interval, vdaily, vmonth, life, compl, refsum, portal = OCT_2026[pk]
+    mc = monthly_close(interval, vdaily, vmonth, 0.0, life, compl, 31, 31,
+                       daily_ref_sum_kwh=refsum, daily_ref_days=31)
+    assert mc.billing_kwh == portal, (pk, mc.billing_kwh, mc.billing_basis)
+    assert mc.status == STATUS_PASS, (pk, mc.status, mc.note)
+
+
+def test_sag_october_explains_the_late_snapshots():
+    interval, vdaily, vmonth, life, compl, refsum, _ = OCT_2026["MEX1"]
+    mc = monthly_close(interval, vdaily, vmonth, 0.0, life, compl, 31, 31, daily_ref_sum_kwh=refsum, daily_ref_days=31)
+    assert mc.billing_basis == BASIS_MONTHLY and "late vendor uploads" in mc.note
+
+
+def test_without_a_lifetime_register_the_daily_snapshots_still_guard_the_month():
+    # CHECK2 is the only cross-check left: a 12.7 % gap must still FAIL
+    mc = monthly_close(48119.4, 48119.37, 55139.65, None, None, 96.8, 31, 31,
+                       daily_ref_sum_kwh=48119.4, daily_ref_days=31)
+    assert mc.status == STATUS_FAIL

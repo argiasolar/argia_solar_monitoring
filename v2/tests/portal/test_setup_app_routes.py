@@ -200,9 +200,13 @@ def test_loan_edits(sa, psql):
 
 
 def test_fee_and_tariff_from_a_month(sa, psql):
-    y = psql("SELECT extract(year FROM now())::int")[0][0]
-    r1 = post(sa, "/finance/tariff", {"plant": "GTO1", "from_month": f"{y}-10", "amount": "2.55"})
-    assert "saved" in r1.get_data(as_text=True), r1.get_data(as_text=True)[-600:]
-    assert psql(f"SELECT tariff_mxn FROM contract_monthly WHERE plant_key = 'GTO1' AND year = {y} AND month = 10") == [["2.5500"]]
-    r2 = post(sa, "/finance/fee", {"plant": "GTO1", "from_month": f"{y}-10", "amount": "1000"})
+    # v339: next month, not a fixed October - the form refuses past months by design
+    # (min_month = this month), and this test broke when the calendar reached November
+    y, m = (int(x) for x in psql("SELECT extract(year FROM now() + interval '1 month')::int,"
+                                 " extract(month FROM now() + interval '1 month')::int")[0])
+    ym = f"{y}-{m:02d}"
+    r1 = post(sa, "/finance/tariff", {"plant": "GTO1", "from_month": ym, "amount": "2.55"})
+    assert "nothing saved" not in r1.get_data(as_text=True), r1.get_data(as_text=True)[-600:]
+    assert psql(f"SELECT tariff_mxn FROM contract_monthly WHERE plant_key = 'GTO1' AND year = {y} AND month = {m}") == [["2.5500"]]
+    r2 = post(sa, "/finance/fee", {"plant": "GTO1", "from_month": ym, "amount": "1000"})
     assert "saved" in r2.get_data(as_text=True), r2.get_data(as_text=True)[-600:]

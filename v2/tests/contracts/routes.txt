@@ -200,6 +200,7 @@ setup_app  POST   /maint/add
 setup_app  POST   /maint/approve
 setup_app  POST   /maint/close
 setup_app  POST   /maint/delete
+setup_app  POST   /maint/kwh
 setup_app  POST   /password
 setup_app  POST   /plants/calendar/reissue
 setup_app  POST   /plants/calendar/reissue/apply

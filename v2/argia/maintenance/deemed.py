@@ -8,8 +8,10 @@ contract, not measured irradiance:
     deemed_day = max(0, contract_daily × daylight_fraction
                         − measured_in_window)
 
-* ``contract_daily``      = Contract_Monthly.contract_kwh ÷ days-in-month
-                            for THAT day's month (escalations included).
+* ``contract_daily``      = v344: the year's contracted energy (Σ of its 12
+                            Contract_Monthly rows) ÷ 12 ÷ days in THAT
+                            day's month (``contract_daily_rule``). Before
+                            v344 it was the month's own contract_kwh ÷ days.
 * ``daylight_fraction``   = the window's overlap with civil daylight
                             (06:00–20:00 MX = 14 h) on that day. Night
                             hours produce nothing, so a shutdown at
@@ -124,6 +126,26 @@ def event_day_spans(event: MaintenanceEvent,
             spans.append((day, seg_start, seg_end))
         day = next_day.date()
     return spans
+
+
+def contract_daily_rule(monthly_contract_kwh: Dict[Tuple[str, int, int], Optional[float]],
+                        plant_key: str, year: int, month: int) -> Optional[float]:
+    """v344, Tomasz 2026-11-02: "annual contract projected energy, divide 12
+    months, divide number of days in a month". The annual figure is the
+    Σ of the plant's 12 Contract_Monthly rows of that calendar year; None
+    when the year is not complete (a partial year has no annual figure -
+    nothing is compensated rather than a guess). Pure.
+
+    NL1 Oct 2026: 1,000,973 / 12 / 31 = 2,690.8 kWh; SAG: 985,290 / 12 / 31 = 2,648.6."""
+    import calendar as _cal
+    pk = str(plant_key).upper()
+    vals = [monthly_contract_kwh.get((pk, year, m)) for m in range(1, 13)]
+    if any(v is None for v in vals):
+        return None
+    annual = float(sum(vals))
+    if annual <= 0:
+        return None
+    return annual / 12.0 / _cal.monthrange(year, month)[1]
 
 
 # contract_daily_for(plant_key, year, month) -> Optional[float]

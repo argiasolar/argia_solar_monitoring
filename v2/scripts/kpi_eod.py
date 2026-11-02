@@ -42,7 +42,7 @@ from argia.maintenance.events import (
     load_maintenance_events_pg,
 )
 from argia.maintenance.deemed import (
-    daylight_fraction, deemed_for_date, measured_in_window_from_buckets,
+    contract_daily_rule, daylight_fraction, deemed_for_date, measured_in_window_from_buckets,
 )
 from argia.kpi import availability as AV
 from argia.kpi.availability import compute as plant_availability
@@ -563,9 +563,11 @@ def main(argv=None) -> int:
     if _fin_source() != "pg":
         events = events + load_maintenance_events_pg()
 
+    _contract_kwh = {k: r.contract_kwh for k, r in contracts.items()}
+
     def _contract_daily_for(pk, y, m):
-        row = contracts.get((str(pk).upper(), y, m))
-        return row.contract_kwh_daily if row is not None else None
+        # v344: annual contracted energy / 12 / days in the month (Tomasz 2026-11-02)
+        return contract_daily_rule(_contract_kwh, pk, y, m)
 
     _dash_cache: Dict[str, object] = {}
 

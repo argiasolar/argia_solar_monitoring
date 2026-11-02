@@ -1155,27 +1155,90 @@ def calendar_data(pk, ym):
         r = ln.split('\t')
         if len(r) >= 3:
             reg = {'produced': _num(r[0]), 'penalty': _num(r[1]) or 0.0, 'amount': _num(r[2])}
-    return days, events, reg
+    rule = None
+    for ln in psql("SELECT count(contract_kwh), coalesce(sum(contract_kwh),0) FROM contract_monthly"
+                   f" WHERE plant_key = {_sqlq(pk.upper())} AND year = {int(ym[:4])};").splitlines():
+        r = ln.split('\t')
+        if len(r) >= 2:
+            rule = contract_rule(int(_num(r[0]) or 0), _num(r[1]), ym)
+    return days, events, reg, rule
 
 
-def calendar_summary(days, events, reg):
+def contract_rule(months, annual, ym):
+    """v344, Tomasz 2026-11-02: compensated kWh per day = annual contracted
+    energy / 12 / days in the month. Needs all 12 months of the year. Pure.
+    -> {'annual', 'days', 'daily'} or None."""
+    if months != 12 or not annual or annual <= 0:
+        return None
+    nd = len(calendar_days(ym))
+    return {'annual': annual, 'days': nd, 'daily': annual / 12.0 / nd}
+
+
+def daylight_share(start_iso, end_iso, day_iso):
+    """Share of the 06:00-20:00 MX daylight window of ``day_iso`` an event
+    covers (the engine's daylight_fraction). End '' = to the day's end. Pure."""
+    d = _dt.date.fromisoformat(day_iso)
+    lo = _dt.datetime(d.year, d.month, d.day, 6)
+    hi = _dt.datetime(d.year, d.month, d.day, 20)
+    s = max(_dt.datetime.fromisoformat(start_iso), lo)
+    e = min(_dt.datetime.fromisoformat(end_iso) if end_iso else hi, hi)
+    return max(0.0, min(1.0, (e - s).total_seconds() / 50400.0)) if e > s else 0.0
+
+
+def event_compensation(e, days, rule):
+    """Compensated kWh an APPROVED customer event puts on the month - the
+    engine's arithmetic (argia.maintenance.deemed): an agreed figure when
+    set, else per day max(0, rule x daylight share - measured x share), the
+    full day's measured on a full day. Rounded per day like the nightly
+    sync. Pure."""
+    if not e.get('appr') or e.get('cat') != 'customer':
+        return 0.0
+    if e.get('kwh') is not None:
+        return e['kwh'] if (e['days'] and e['days'][0] == e['start'][:10]) else 0.0
+    if not rule:
+        return 0.0
+    total = 0.0
+    for d in e['days']:
+        frac = daylight_share(e['start'], e['end'], d)
+        energy = (days.get(d, {}) or {}).get('energy') or 0.0
+        comp = rule['daily'] - energy if frac >= 0.999 else rule['daily'] * frac - energy * frac
+        total += round(max(0.0, comp), 1)
+    return total
+
+
+def calendar_summary(days, events, reg, rule=None):
     """Month totals and whether the invoice still matches the events. Pure.
-    Agreed = Σ kWh of the APPROVED customer events that start this month."""
+    Agreed = Σ compensated kWh of the APPROVED customer events (v344: the
+    contract rule unless a figure was agreed)."""
     measured = sum((v.get('energy') or 0.0) for v in days.values())
     on_days = sum(max(0.0, (v.get('billable') or 0.0) - (v.get('energy') or 0.0))
                   for v in days.values() if v.get('billable') is not None)
-    agreed = sum(e['kwh'] or 0.0 for e in events
-                 if e['appr'] and e['cat'] == 'customer' and e['kwh'] and e['days'] and e['days'][0] == e['start'][:10])
+    agreed = sum(event_compensation(e, days, rule) for e in events)
     out = {'measured': round(measured, 1), 'on_days': round(on_days, 1), 'agreed': round(agreed, 1),
            'invoiced': None, 'reissue': False, 'pending_days': abs(on_days - agreed) > 0.05}
     if reg is not None:
         out['invoiced'] = reg
-        out['reissue'] = abs((reg['penalty'] or 0.0) - agreed) > 0.05
+        out['reissue'] = abs((reg['penalty'] or 0.0) - agreed) > 0.5
     return out
 
 
 def _fmt(v, nd=1):
     return '-' if v is None else f'{v:,.{nd}f}'
+
+
+def kwh_cell(e, days, rule, back):
+    """Events table: what the event compensates, and a field to change the
+    agreed figure (blank = contract rule). A change sends the event back to
+    DRAFT - it must be approved again (v344)."""
+    if e['cat'] != 'customer':
+        return '-'
+    shown = (f'{_fmt(e["kwh"])} agreed' if e['kwh'] is not None else
+             (f'{_fmt(event_compensation(dict(e, appr="x"), days, rule))} by rule' if rule else 'no rule'))
+    return (f'{shown}<form method="post" action="/setup/maint/kwh" style="margin-top:3px">'
+            f'<input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="id" value="{e["id"]}">'
+            f'<input type="hidden" name="back" value="{back}">'
+            f'<input name="deemed_kwh" value="{"" if e["kwh"] is None else e["kwh"]}" placeholder="rule" size="7"> '
+            '<button class="btn" title="blank = contract rule; the event goes back to DRAFT">change</button></form>')
 
 
 def calendar_page(pk, ym, day=None, msg=''):
@@ -1184,8 +1247,8 @@ def calendar_page(pk, ym, day=None, msg=''):
     if pk not in plants:
         pk = plants[0]
     who = html.escape(plabel(pk, names))
-    days, events, reg = calendar_data(pk, ym)
-    summ = calendar_summary(days, events, reg)
+    days, events, reg, rule = calendar_data(pk, ym)
+    summ = calendar_summary(days, events, reg, rule)
     by_day = {}
     for e in events:
         for d in e['days']:
@@ -1199,7 +1262,7 @@ def calendar_page(pk, ym, day=None, msg=''):
         comp = (b_kwh - e_kwh) if (b_kwh is not None and e_kwh is not None and b_kwh > e_kwh + 0.005) else 0.0
         chips = ''.join(
             f'<div class="chip {"c-" + html.escape(e["cat"])}{"" if e["appr"] else " draft"}">#{e["id"]} '
-            f'{html.escape(e["cat"])}{(" " + _fmt(e["kwh"]) + " kWh") if e["kwh"] is not None else ""}'
+            f'{html.escape(e["cat"])}{(" " + _fmt(e["kwh"]) + " kWh agreed") if e["kwh"] is not None else (" by contract rule" if e["cat"] == "customer" else "")}'
             f'{"" if e["appr"] else " DRAFT"}</div>' for e in by_day.get(iso, []))
         lost = v.get('lost')
         hint = (f'<div class="lost">lost {_fmt(lost)} kWh</div>'
@@ -1243,22 +1306,25 @@ def calendar_page(pk, ym, day=None, msg=''):
         basis = {'weather': 'irradiance at the site', 'peers': 'the neighbouring plants'}.get(v.get('basis', ''), '')
         cat_opts = ''.join(f'<option value="{c}"{" selected" if c == "customer" else ""}>{c}</option>'
                            for c in MAINT_CATEGORIES)
+        rule_txt = (f'Contract rule: {_fmt(rule["annual"], 0)} kWh a year / 12 / {rule["days"]} days = '
+                    f'<b>{_fmt(rule["daily"])} kWh</b> for a full day, minus what was measured during the event.'
+                    if rule else '<b>No complete contract year on file for this plant</b> - type the agreed kWh.')
         form = f'''<div class="card" id="form"><h2>{who} {iso} - new event</h2>
-<p class="note">Measured {_fmt(v.get("energy"))} kWh. Platform estimate of the energy lost:
- <b>{_fmt(est)} kWh</b>{(" (from " + basis + ")") if basis else ""}. The compensated kWh is what goes on the invoice
- for a customer event - pre-filled with the estimate, change it to the figure agreed with the customer.</p>
+<p class="note">Measured {_fmt(v.get("energy"))} kWh. {rule_txt} Leave "agreed kWh" empty to apply the contract rule;
+ fill it only when a different figure was agreed with the customer. (Platform estimate of the energy lost, for
+ reference: {_fmt(est)} kWh{(" from " + basis) if basis else ""}.)</p>
 <form method="post" action="/setup/maint/add">
 <input type="hidden" name="csrf" value="{CSRF}"><input type="hidden" name="plant" value="{pk}">
 <input type="hidden" name="back" value="{base}">
 <p>from <input type="datetime-local" name="start" value="{iso}T06:00" required>
  to <input type="datetime-local" name="end" value="{iso}T20:00" required>
  <select name="category">{cat_opts}</select>
- compensated kWh <input name="deemed_kwh" value="{"" if est is None else f"{est:.1f}"}" size="9">
+ agreed kWh <input name="deemed_kwh" value="" placeholder="contract rule" size="11">
  <input name="note" placeholder="note (what happened, who asked)" size="34">
  <button class="btn">Save as draft</button></p></form></div>'''
     ev_rows = ''.join(
         f'<tr><td>#{e["id"]}</td><td>{html.escape(e["start"])}</td><td>{html.escape(e["end"]) or "<i>ongoing</i>"}</td>'
-        f'<td>{html.escape(e["cat"])}</td><td>{_fmt(e["kwh"])}</td><td>{html.escape(e["note"][:60])}</td>'
+        f'<td>{html.escape(e["cat"])}</td><td>{kwh_cell(e, days, rule, base)}</td><td>{html.escape(e["note"][:60])}</td>'
         f'<td>{("approved: " + html.escape(e["appr"])) if e["appr"] else "DRAFT"}</td><td>'
         + ('' if e['appr'] else
            f'<form method="post" action="/setup/maint/approve" style="display:inline"><input type="hidden" name="csrf" value="{CSRF}">'
@@ -1284,7 +1350,7 @@ p.warn{background:#fce8e6;color:#a50e0e;padding:8px 10px;border-radius:8px}</sty
 <p class="note">Green = compensated energy on the daily table (billable = measured + compensated). Orange "lost" =
  the platform's estimate where nothing was logged. Click "+ event" on any day, past ones included.</p></div>{form}
 <div class="card"><h2>{who}: events touching {ym}</h2><table><tr><th>#</th><th>Start MX</th><th>End MX</th><th>Category</th>
-<th>kWh</th><th>Note</th><th>Status</th><th></th></tr>{ev_rows}</table></div>''')
+<th>Compensated kWh</th><th>Note</th><th>Status</th><th></th></tr>{ev_rows}</table></div>''')
     return page(body, msg=msg, title=('PPA calendar', 'Calendario PPA'),
                 sub=('Customer events per plant and day - compensated energy goes on the invoice',
                      'Eventos del cliente por planta y día - la energía compensada va a la factura'))
@@ -1436,7 +1502,7 @@ def maint_add():
         cost_sql = f'{float(cost):.2f}' if cost else 'NULL'
     except ValueError:
         return _post_done(to=back, msg='maintenance: cost must be a number - nothing saved')
-    # v342: a customer event carries the compensated kWh that goes on the invoice
+    # v342: an agreed compensated kWh overrides the contract rule (v344)
     dk = (request.form.get('deemed_kwh') or '').strip().replace(',', '')
     try:
         dk_val = float(dk) if dk else None
@@ -1444,8 +1510,7 @@ def maint_add():
         dk_val = -1.0
     if dk_val is not None and (dk_val < 0 or dk_val != dk_val or dk_val > 1e6):
         return _post_done(to=back, msg='maintenance: compensated kWh must be a number >= 0 - nothing saved')
-    if cat == 'customer' and dk_val is None:
-        return _post_done(to=back, msg='maintenance: a customer event needs the compensated kWh - nothing saved')
+    # v344: blank = the contract rule (annual / 12 / days in the month)
     dk_sql = f'{dk_val:.1f}' if dk_val is not None else 'NULL'
     mx = "AT TIME ZONE 'America/Mexico_City'"
     end_sql = f"timestamp '{end.replace('T', ' ')}' {mx}" if end else 'NULL'
@@ -1457,6 +1522,35 @@ def maint_add():
          f" {end_sql}, {_sqlq(cat)}, {ct_sql}, {cost_sql}, {_sqlq(note)},"
          f" {_sqlq(me)}, {dk_sql});")
     return _post_done(to=back, msg='maintenance event logged as DRAFT - approve it to make it billable')
+
+
+@app.post('/maint/kwh')
+def maint_kwh():
+    """v344: change (or clear = contract rule) an event's agreed kWh. The
+    event goes back to DRAFT and the change is written into its note."""
+    me = _maint_guard()
+    if not me:
+        return stale_page()
+    back = _maint_back()
+    try:
+        mid = int(request.form.get('id') or 0)
+    except ValueError:
+        mid = 0
+    dk = (request.form.get('deemed_kwh') or '').strip().replace(',', '')
+    try:
+        val = float(dk) if dk else None
+    except ValueError:
+        val = -1.0
+    if not mid or (val is not None and (val < 0 or val != val or val > 1e6)):
+        return _post_done(to=back, msg='maintenance: compensated kWh must be a number >= 0 (or empty for the rule) - nothing changed')
+    new_sql = f'{val:.1f}' if val is not None else 'NULL'
+    new_txt = f'{val:.1f} kWh agreed' if val is not None else 'contract rule'
+    stamp = _dt.datetime.now().strftime('%Y-%m-%d %H:%M')
+    psql(f"UPDATE maintenance_event SET deemed_kwh = {new_sql}, approved_by = NULL,"
+         f" note = trim(coalesce(note,'') || ' | ' || {_sqlq(stamp + ' ' + me + ': compensated kWh ')}"
+         f" || coalesce(deemed_kwh::text || ' kWh', 'contract rule') || ' -> ' || {_sqlq(new_txt)})"
+         f" WHERE id = {mid} AND category = 'customer';")
+    return _post_done(to=back, msg=f'maintenance event #{mid}: compensated kWh set to {new_txt} - back to DRAFT, approve it again')
 
 
 @app.post('/maint/close')

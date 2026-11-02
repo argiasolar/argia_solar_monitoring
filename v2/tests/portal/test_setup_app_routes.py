@@ -216,10 +216,10 @@ def test_fee_and_tariff_from_a_month(sa, psql):
 
 
 # ------------------------------------------------------------ v342: the PPA calendar
-def test_a_customer_event_needs_its_compensated_kwh(sa, psql):
+def test_a_customer_event_without_kwh_uses_the_contract_rule(sa, psql):
     post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "end": "2026-10-11T20:00",
                             "category": "customer", "note": "no kwh"})
-    assert psql("SELECT count(*) FROM maintenance_event WHERE note = 'no kwh'") == [["0"]]
+    assert psql("SELECT deemed_kwh IS NULL FROM maintenance_event WHERE note = 'no kwh'") == [["t"]]
     for bad in ("-5", "abc", "nan"):
         post(sa, "/maint/add", {"plant": "nl1", "start": "2026-10-11T06:00", "category": "customer",
                                 "note": "bad kwh", "deemed_kwh": bad})
@@ -242,7 +242,7 @@ def test_the_calendar_logs_a_past_customer_event_and_returns_to_itself(sa, psql)
     assert r.headers["Location"].startswith(back + "&m=")
     page = sa.app.test_client().get("/plants/calendar?plant=nl1&month=2026-10&day=11", headers=ADMIN).get_data(as_text=True)
     assert "Traceback" not in page and "PPA calendar" in page
-    assert f"#{mid} customer 1,859.0 kWh" in page
+    assert f"#{mid} customer 1,859.0 kWh agreed" in page
     assert 'name="deemed_kwh"' in page and 'value="2026-10-11T06:00"' in page
 
 
@@ -269,6 +269,38 @@ def test_calendar_pure_helpers(sa):
     assert s["agreed"] == 1859.0 and s["reissue"] is True
     s = sa.calendar_summary(days, ev, {"produced": 61035.0, "penalty": 1859.0, "amount": 127171.67})
     assert s["reissue"] is False
+    # v344: no agreed figure -> the contract rule, annual / 12 / days in the month
+    rule = sa.contract_rule(12, 1000973.0, "2026-10")
+    assert round(rule["daily"], 1) == 2690.8
+    assert sa.contract_rule(10, 862160.0, "2024-10") is None                    # an incomplete contract year
+    ev_rule = [dict(ev[0], kwh=None)]
+    s = sa.calendar_summary(days, ev_rule, {"produced": 61035.0, "penalty": 1859.0, "amount": 127171.67}, rule)
+    assert s["agreed"] == 2690.8 and s["reissue"] is True
+    # a partial day: the share of daylight, minus what was measured in it
+    days2 = {"2026-10-12": {"energy": 2684.2, "billable": 2684.2}}
+    part = {"id": "9", "start": "2026-10-12 06:00", "end": "2026-10-12 13:00", "cat": "customer", "kwh": None,
+            "appr": "tomasz", "note": "", "days": ["2026-10-12"]}
+    assert sa.daylight_share("2026-10-12 06:00", "2026-10-12 13:00", "2026-10-12") == 0.5
+    assert sa.event_compensation(part, days2, rule) == round(2690.78 * 0.5 - 2684.2 * 0.5, 1)
+    assert sa.event_compensation(dict(part, cat="argia"), days2, rule) == 0.0
+    assert sa.event_compensation(dict(part, appr=""), days2, rule) == 0.0
+
+
+def test_changing_the_kwh_of_an_approved_event_sends_it_back_to_draft(sa, psql):
+    back = "/setup/plants/calendar?plant=mex1&month=2026-10"
+    post(sa, "/maint/add", {"plant": "mex1", "start": "2026-10-24T06:00", "end": "2026-10-24T20:00",
+                            "category": "customer", "deemed_kwh": "1986.8", "note": "sag day"})
+    mid = psql("SELECT id FROM maintenance_event WHERE note = 'sag day'")[0][0]
+    post(sa, "/maint/approve", {"id": mid})
+    r = post(sa, "/maint/kwh", {"id": mid, "deemed_kwh": "", "back": back})
+    assert r.headers["Location"].startswith(back + "&m=")
+    row = psql(f"SELECT deemed_kwh IS NULL, approved_by IS NULL, note FROM maintenance_event WHERE id = {mid}")[0]
+    assert row[:2] == ["t", "t"] and "compensated kWh 1986.8 kWh -> contract rule" in row[2]
+    post(sa, "/maint/kwh", {"id": mid, "deemed_kwh": "2651"})
+    assert psql(f"SELECT deemed_kwh FROM maintenance_event WHERE id = {mid}") == [["2651.0"]]
+    for bad in ("-1", "x"):
+        post(sa, "/maint/kwh", {"id": mid, "deemed_kwh": bad})
+    assert psql(f"SELECT deemed_kwh FROM maintenance_event WHERE id = {mid}") == [["2651.0"]]
 
 
 # ------------------------------------------------------------ v343: names + recalculate button

@@ -228,3 +228,46 @@ def test_annex_shows_compensated_energy_on_the_charts_and_the_card():
     assert "Energía compensada kWh" in html and "--comp:" in html
     assert 'id="c_comp"' in html and '" compensada = "' in html
     assert "comp:a[AI.deemed]" in html
+
+
+# ------------------------------------------------------------ v344: the contract rule
+from argia.maintenance.deemed import contract_daily_rule  # noqa: E402
+
+NL1_2026 = {("NL1", 2026, m): v for m, v in zip(range(1, 13), [
+    73050, 78000, 92000, 90000, 93000, 87000, 88000, 90500, 75000, 80667, 65732, 88024])}
+
+
+def test_rule_annual_over_12_over_days_in_the_month():
+    """Tomasz 2026-11-02: annual contract projected energy / 12 / days in the month"""
+    assert sum(NL1_2026.values()) == 1000973
+    assert round(contract_daily_rule(NL1_2026, "NL1", 2026, 10), 1) == 2690.8        # 31 days
+    assert round(contract_daily_rule(NL1_2026, "nl1", 2026, 11), 1) == 2780.5        # 30 days
+    assert round(contract_daily_rule(NL1_2026, "NL1", 2026, 2), 1) == 2979.1         # 28 days
+
+
+def test_rule_needs_the_whole_contract_year():
+    partial = {k: v for k, v in NL1_2026.items() if k[2] != 12}
+    assert contract_daily_rule(partial, "NL1", 2026, 10) is None
+    assert contract_daily_rule(NL1_2026, "MEX1", 2026, 10) is None
+
+
+def test_october_by_the_rule():
+    """the figures Tomasz checked: NL1 2,690.8 kWh, SAG 985,290/12/31 = 2,648.6 kWh"""
+    def rule(pk, y, m):
+        return contract_daily_rule(NL1_2026, pk, y, m)
+    e = ev("2026-10-11T01:01", "2026-10-11T23:00")                    # event #2, no agreed figure
+    got = deemed_by_plant_day([e], rule, measured)
+    assert round(got[("NL1", "2026-10-11")], 1) == 2690.8
+    sag = {("MEX1", 2026, m): 985290 / 12 for m in range(1, 13)}
+    e2 = ev("2026-10-24T06:00", "2026-10-24T20:00", pk="MEX1")
+    got2 = deemed_by_plant_day([e2], lambda pk, y, m: contract_daily_rule(sag, pk, y, m), measured)
+    assert round(got2[("MEX1", "2026-10-24")], 1) == 2648.6
+    new = RE.new_register({"NL1": REG["NL1"]}, {"NL1": 2690.8})
+    assert new["NL1"] == (2690.8, 63725.8, 128853.57)
+
+
+def test_every_caller_uses_the_rule():
+    import pathlib
+    root = pathlib.Path(IP.__file__).parent.parent
+    assert "contract_daily_rule(_contract_kwh, pk, y, m)" in (root / "scripts" / "kpi_eod.py").read_text(encoding="utf-8")
+    assert "contract_daily_rule(contract, pk, y, m)" in (root / "argia" / "maintenance" / "deemed_sync.py").read_text(encoding="utf-8")

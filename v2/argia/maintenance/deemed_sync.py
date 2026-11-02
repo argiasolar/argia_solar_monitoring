@@ -28,7 +28,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from argia.maintenance.deemed import (daylight_fraction, deemed_by_plant_day,
+from argia.maintenance.deemed import (contract_daily_rule, daylight_fraction, deemed_by_plant_day,
                                       measured_in_window_from_buckets)
 
 LOG = logging.getLogger("argia.maintenance.deemed_sync")
@@ -126,8 +126,7 @@ def compute(ym: str, plants: List[str], events=None):
     energy = {k: v[0] for k, v in rows.items()}
 
     def contract_daily_for(pk, y, m):
-        c = contract.get((str(pk).upper(), y, m))
-        return c / calendar.monthrange(y, m)[1] if c else None
+        return contract_daily_rule(contract, pk, y, m)      # v344: annual / 12 / days
 
     def measured_for(pk, d_iso, s, e):
         day = dt.date.fromisoformat(d_iso)

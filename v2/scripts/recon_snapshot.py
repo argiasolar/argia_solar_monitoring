@@ -35,8 +35,9 @@ from argia.store.pgq import psql_exec, psql_rows
 LOG = logging.getLogger("argia.recon_snapshot")
 
 # Expected 5-min ticks per MX production day, per vendor (the systemd
-# timers): Growatt/Huawei */5 05:00-21:00 = 193; SolarEdge 3/h 06-20 = 45.
-EXPECTED_TICKS = {"GROWATT": 193, "HUAWEI": 193, "SOLAREDGE": 45, "SMA": 193}
+# timers): Growatt/Huawei */5 05:00-21:00 = 193; SolarEdge (v348, API v2) one 15-min
+# bucket per daylight quarter hour, ~12 h = 48.
+EXPECTED_TICKS = {"GROWATT": 193, "HUAWEI": 193, "SOLAREDGE": 48, "SMA": 193}
 
 MX_DATE_SQL = "(ts_utc AT TIME ZONE 'America/Mexico_City')::date"
 

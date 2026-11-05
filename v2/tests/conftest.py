@@ -40,3 +40,14 @@ def _legacy_sheet_switches(monkeypatch):
         if k not in _os.environ:
             monkeypatch.setenv(k, v)
     yield
+
+
+@_pytest.fixture(autouse=True)
+def _solaredge_v2_offline(monkeypatch):
+    """v348: a test never waits on the real per-minute pacer (it is shared by
+    the whole process) and never switches to API v2 because the machine
+    running the suite happens to hold SOLAREDGE_V2_API_KEY."""
+    from argia.vendors import solaredge_v2 as _se2
+    monkeypatch.setattr(_se2, "PACER", _se2.MinutePacer(sleep=lambda s: None))
+    monkeypatch.delenv("SOLAREDGE_V2_API_KEY", raising=False)
+    yield

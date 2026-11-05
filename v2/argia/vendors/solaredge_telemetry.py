@@ -289,6 +289,9 @@ def fetch_inverter_telemetry(
     """
     if not inverters:
         return []
+    from argia.vendors.solaredge_v2 import SolarEdgeV2Client
+    if isinstance(getattr(se_client, "_v2", None), SolarEdgeV2Client):
+        return fetch_inverter_telemetry_v2(se_client, plant, inverters, site_tz)
 
     now_local = dt.datetime.now(site_tz)
     start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -298,6 +301,7 @@ def fetch_inverter_telemetry(
     }
 
     out: List[SolarEdgeTelemetryRow] = []
+    api_errors: List[Exception] = []
     for inv in inverters:
         try:
             response = se_client._get_json(
@@ -320,6 +324,7 @@ def fetch_inverter_telemetry(
                 "[%s/%s] API error: %s",
                 plant.plant_key, inv.inverter_sn, e,
             )
+            api_errors.append(e)
             continue
 
         # v80: keep the full 5-minute series, not just the latest
@@ -339,8 +344,64 @@ def fetch_inverter_telemetry(
             continue
         out.extend(rows)
 
+    if api_errors and len(api_errors) == len(inverters):
+        # v348: every inverter call failed (v1 retired: HTTP 410 on all of
+        # them) - that is an outage, not "no data"; before, the run logged
+        # OK with errors=0 for three days.
+        raise SolarEdgeAPIError(f"every inverter call failed: {api_errors[-1]}")
     LOG.info(
         "[%s] fetched %d telemetry rows from %d inverter(s)",
         plant.plant_key, len(out), len(inverters),
     )
+    return out
+
+
+# v348: every poll rebuilds the WHOLE local day (idempotent upsert on
+# plant, inverter, ts). Same one credit as a short window, and a missed
+# poll, a server outage or an inverter that uploads late is healed by the
+# next poll of the same day. SolarEdge publishes a bucket 15-30 min late.
+
+
+def rows_from_v2(body: Any, plant_key: str, inverters: List[Any], now: Optional[dt.datetime] = None,
+                 min_ts_utc: Optional[dt.datetime] = None) -> List[SolarEdgeTelemetryRow]:
+    """v2 inverters/telemetry -> rows for the configured inverters. PURE.
+    v2 has no inverter mode, temperature, DC voltage or per-phase split; it
+    gives one AC voltage, current and frequency (kept on L1)."""
+    from argia.vendors.solaredge_v2 import inverter_series
+    series = inverter_series(body, now=now)
+    by_norm = {normalize_sn(k): v for k, v in series.items()}
+    out: List[SolarEdgeTelemetryRow] = []
+    for inv in inverters:
+        for r in by_norm.get(normalize_sn(inv.inverter_sn), []):
+            if min_ts_utc is not None and r["ts_utc"] < min_ts_utc:
+                continue
+            out.append(SolarEdgeTelemetryRow(
+                plant_key=plant_key, inverter_sn=normalize_sn(inv.inverter_sn), timestamp_utc=r["ts_utc"],
+                status=1, raw_mode="V2", power_w=r["power_w"],
+                l1=PhaseData(ac_voltage_v=safe_float(r["voltage"]), ac_current_a=safe_float(r["current"]),
+                             ac_frequency_hz=safe_float(r["frequency"])),
+                etoday_kwh=round(r["etoday_wh"] / 1000.0, 3),
+                raw_telemetry={k: v for k, v in r.items() if k != "ts_utc"}))
+    return out
+
+
+def fetch_inverter_telemetry_v2(se_client: Any, plant: Any, inverters: List[Any],
+                                site_tz=MX_TZ) -> List[SolarEdgeTelemetryRow]:
+    """ONE v2 call for the whole site (local midnight -> now), every row of
+    the day. Errors raise (the orchestrator counts them)."""
+    from argia.vendors import solaredge_v2 as V2
+    now = dt.datetime.now(UTC).replace(microsecond=0)
+    midnight = dt.datetime.now(site_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        body = se_client._v2.get(f"sites/{plant.site_id}/inverters/telemetry",
+                                 {"from": midnight.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                  "to": now.strftime("%Y-%m-%dT%H:%M:%SZ")})
+    except V2.SolarEdgeV2AuthError as e:
+        raise SolarEdgeAuthError(f"SolarEdge v2: {e}") from e
+    except (V2.SolarEdgeV2BudgetExceeded, V2.SolarEdgeV2RateLimited) as e:
+        raise SolarEdgeAPIError(f"SolarEdge v2 rate-limited: {e}") from e
+    except V2.SolarEdgeV2Error as e:
+        raise SolarEdgeAPIError(f"SolarEdge v2: {e}") from e
+    out = rows_from_v2(body, plant.plant_key, inverters, now=now)
+    LOG.info("[%s] v2: %d telemetry rows for %d inverter(s), one call", plant.plant_key, len(out), len(inverters))
     return out

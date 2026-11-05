@@ -58,6 +58,15 @@ OFFLINE_INVERTER_MODES = frozenset(
 )
 
 
+def _v2_from_env():
+    """The v2 client when SOLAREDGE_V2_API_KEY is set, else None (v1 path)."""
+    import os
+    from argia.vendors import solaredge_v2 as V2
+    if not (os.environ.get(V2.ENV_API_KEY) or "").strip():
+        return None
+    return V2.SolarEdgeV2Client.from_env()
+
+
 class SolarEdgeClient:
     """
     SolarEdge Monitoring API client.
@@ -76,6 +85,7 @@ class SolarEdgeClient:
         timeout_sec: int = DEFAULT_TIMEOUT_SEC,
         session: Optional[requests.Session] = None,
         site_timezone: str = "America/Mexico_City",
+        v2_client: Any = None,
     ) -> None:
         if not api_key:
             raise ValueError("api_key is required")
@@ -85,6 +95,12 @@ class SolarEdgeClient:
         self._session = session or requests.Session()
         self._site_tz = MX_TZ if site_timezone == "America/Mexico_City" else MX_TZ
         # ^ TODO: when we expand outside MX, plumb timezone through PlantConfig
+        # v348: SolarEdge retired v1 on 3 Nov 2026 (HTTP 410). With the v2 key
+        # in the environment every call goes through the v2 API instead (one
+        # translation layer, argia.vendors.solaredge_v2.V1Compat), so all the
+        # callers and parsers below keep working unchanged.
+        self._v2 = v2_client if v2_client is not None else _v2_from_env()
+        self._v2_compat = None
 
     # ===== public VendorClient interface =====
 
@@ -157,6 +173,8 @@ class SolarEdgeClient:
           SolarEdgeAuthError on 401/403 (bad api_key, account suspended)
           SolarEdgeAPIError on other non-200 or invalid JSON
         """
+        if self._v2 is not None:
+            return self._get_json_v2(path, params)
         merged = {**params, "api_key": self._api_key}
         url = f"{self._base}{path}"
         resp = self._session.get(url, params=merged, timeout=self._timeout)
@@ -181,6 +199,21 @@ class SolarEdgeClient:
             raise SolarEdgeAPIError(
                 f"SolarEdge {path} returned invalid JSON: {e}"
             ) from e
+
+    def _get_json_v2(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """The v1 call answered from v2, with v2 errors mapped onto this
+        module's error classes (callers already handle those)."""
+        from argia.vendors import solaredge_v2 as V2
+        if self._v2_compat is None:
+            self._v2_compat = V2.V1Compat(self._v2)
+        try:
+            return self._v2_compat.get(path, params)
+        except V2.SolarEdgeV2AuthError as e:
+            raise SolarEdgeAuthError(f"SolarEdge v2 {path}: {e}") from e
+        except (V2.SolarEdgeV2BudgetExceeded, V2.SolarEdgeV2RateLimited) as e:
+            raise SolarEdgeAPIError(f"SolarEdge v2 {path} rate-limited: {e}") from e
+        except V2.SolarEdgeV2Error as e:
+            raise SolarEdgeAPIError(f"SolarEdge v2 {path}: {e}") from e
 
     # ===== parsers (pure, fully testable) =====
 

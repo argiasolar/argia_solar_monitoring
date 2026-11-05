@@ -462,12 +462,11 @@ def _process_solaredge_plant(
         msg = str(e).lower()
         if "rate-limited" in msg or "429" in msg:
             log.warning(
-                "[%s] site %s: daily SolarEdge API quota reached "
-                "(~300 req/day/site) - expected near end of day at the "
-                "20-min cadence, NOT an outage. Collection resumes "
-                "after site-local midnight; tomorrow's full-day fetch "
-                "backfills today's tail for KPI purposes.",
-                plant.plant_key, plant.site_id,
+                "[%s] site %s: SolarEdge API v2 limit reached (10 calls a "
+                "minute, or the month's credits - see "
+                "solaredge_v2_credits.json): %s. The next poll of the day "
+                "rebuilds the whole day.",
+                plant.plant_key, plant.site_id, e,
             )
             raise _SolarEdgeQuotaExhausted() from e
         log.warning("[%s] SolarEdge fetch failed: %s", plant.plant_key, e)

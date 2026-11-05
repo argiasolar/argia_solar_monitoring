@@ -40,7 +40,7 @@ argia-savio-mock  |  (service)  |  savio_mock.py
 argia-sbom  |  Mon *-*-* 04:40:00  |  server_sbom.py
 argia-setup  |  (service)  |  setup_app.py
 argia-strings  |  *-*-* 21:15:00 America/Mexico_City  |  string_daily.py
-argia-telemetry-se  |  *-*-* 06..20:03,23,43:00 America/Mexico_City  |  telemetry_5m.py
+argia-telemetry-se  |  *-*-* 06..20:07:00 America/Mexico_City  |  telemetry_5m.py
 argia-telemetry  |  *-*-* 05..21:00/5:00 America/Mexico_City  |  telemetry_5m.py
 argia-thermal  |  *-*-* 01:10:00 America/Mexico_City  |  thermal_daily.py
 argia-ticket-mail  |  *-*-* *:00/10:00  |  ticket_mail_in.py

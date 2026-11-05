@@ -1,7 +1,7 @@
 [Unit]
-Description=ARGIA SolarEdge telemetry 3,23,43 min 06-20h MX
+Description=ARGIA SolarEdge telemetry hourly at :07, 06-20h MX (v348: API v2, free plan credits)
 [Timer]
-OnCalendar=*-*-* 06..20:03,23,43:00 America/Mexico_City
+OnCalendar=*-*-* 06..20:07:00 America/Mexico_City
 Persistent=false
 [Install]
 WantedBy=timers.target

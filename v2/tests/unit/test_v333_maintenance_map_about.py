@@ -197,8 +197,11 @@ class TestMaintenancePages:
         assert cl.post("/maintenance/tasks", data={"csrf": tok, "kind": "cleaning", "every": "6", "first": "2026-01-01"}).status_code == 403
         assert cl.post("/maintenance/tasks/1/active", data={"csrf": tok, "on": "0"}).status_code == 403
 
-    def test_month_calendar_and_ics(self, env):
+    def test_month_calendar_and_ics(self, env, monkeypatch):
         mod, pws, tmp = env
+        # v347: the planted task is due 2026-11-04; on the real calendar it turned "overdue" on 5 Nov 2026 and the
+        # test failed by itself. The page is judged on the file's fixed day (TODAY), as every other test here.
+        monkeypatch.setattr(mod, "now_mx", lambda: dt.datetime.combine(TODAY, dt.time(12, 0)))
         c = S.connect(str(tmp / "pl.db"))
         PM.add_task(c, "", "inspection", "", 6, "2026-11-04", 1, "", "x", _sites(mod))
         c.close()

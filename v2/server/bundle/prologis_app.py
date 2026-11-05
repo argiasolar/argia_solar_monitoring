@@ -311,7 +311,7 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
 <a class="brand" href="/">{pl or UI.stripe_svg(26) + ' PROLOGIS'}<span class="x">×</span>
 <img class="ar" src="{argia_logo.MARK_URI}" alt="ARGIA"><span class="tag">{tt("Solar O&M platform", "Plataforma O&M solar")}</span></a>
 <nav class="main">{links}</nav>{who}</div></div>{banner}
-<main>{body}</main>
+<main>{body}</main>{SORT_JS if 'class="t sortable"' in body else ""}
 <div class="foot"><span>ARGIA for Prologis · {tt("operated by", "operado por")} ARGIA - Smart Energy Solutions</span>
 <span>{tt("Times in Mexico City time", "Horas en tiempo de Ciudad de México")}</span><a href="/security/">{tt("Security & data", "Seguridad y datos")}</a>{privacy_link(tt)}</div>
 </body></html>"""
@@ -3932,6 +3932,20 @@ def _logo_src(c) -> str:
     return f"/lighting/logo/{UI.e(c.key)}.png?v={v}"
 
 
+SORT_JS = ("<script>document.querySelectorAll('table.t.sortable').forEach(function(t){var h=t.rows[0];"
+           "[].forEach.call(h.cells,function(th,ci){if(!th.textContent.trim())return;th.classList.add('srt');th.tabIndex=0;th.setAttribute('aria-sort','none');"
+           "function val(r){var c=r.cells[ci],s=(c.dataset.v!==undefined?c.dataset.v:c.textContent).trim(),n=s.replace(/[,\\s%\\u00b2m]/g,'');"
+           "if(/^-?\\d+(\\.\\d+)?$/.test(n))return[0,parseFloat(n)];if(!s||s==='-')return[2,0];return[1,s];}"
+           "function go(){var asc=th.getAttribute('aria-sort')!=='ascending';"
+           "[].forEach.call(h.cells,function(x){if(x.classList.contains('srt'))x.setAttribute('aria-sort','none');});"
+           "th.setAttribute('aria-sort',asc?'ascending':'descending');"
+           "var rows=[].slice.call(t.rows,1).filter(function(r){return r.cells.length===h.cells.length;});"
+           "rows.sort(function(a,b){var x=val(a),y=val(b);if(x[0]!==y[0])return x[0]-y[0];"
+           "var d=x[0]===0?x[1]-y[1]:x[1].localeCompare(y[1],'es',{sensitivity:'base',numeric:true});return asc?d:-d;});"
+           "rows.forEach(function(r){r.parentNode.appendChild(r);});}"
+           "th.addEventListener('click',go);th.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});});});</script>")
+
+
 def _hscroll(inner: str, cls: str, tt, ident: str = "") -> str:
     """Two rows that scroll sideways: swipe on a phone; wheel, trackpad or the arrow buttons on a desktop (v351)."""
     idattr = f' id="{ident}"' if ident else ""
@@ -4008,13 +4022,13 @@ def _park_points(ds: LT.Dataset, projects: List[LT.Project], tt) -> List[Dict]:
     return pts
 
 
-def _tbl_summary(rows, tt, link_key: str, label) -> str:
+def _tbl_summary(rows, tt, link_key: str, label, head: str = "") -> str:
     out = ""
     for k, t_ in rows:
         out += (f'<tr><td><a href="/lighting/buildings/?{link_key}={UI.e(k)}">{UI.e(label(k))}</a></td><td class="n">{t_.projects}</td>'
                 f'<td class="n">{UI.num(t_.fixtures)}</td><td class="n">{UI.num(t_.area_m2)}</td><td class="n">{UI.num(t_.mwh_saved)}</td>'
                 f'<td class="n">{UI.num(t_.co2_t_year)}</td></tr>')
-    return (f'<div style="overflow-x:auto"><table class="t"><tr><th></th><th class="n">{tt("Projects", "Proyectos")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th>'
+    return (f'<div style="overflow-x:auto"><table class="t sortable"><tr><th>{UI.e(head)}</th><th class="n">{tt("Projects", "Proyectos")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th>'
             f'<th class="n">m²</th><th class="n">MWh/{tt("yr", "año")}</th><th class="n">t CO₂e/{tt("yr", "año")}</th></tr>{out}</table></div>')
 
 
@@ -4069,10 +4083,10 @@ setInterval(function(){el.textContent=(v0+r*(Date.now()-t0)/1000).toLocaleString
 <div class="sub">{tt("ARGIA converts Prologis buildings across Mexico to LED: audit, lighting study, proforma, work order, installation and handover.", "ARGIA convierte naves de Prologis en todo México a LED: auditoría, estudio lumínico, proforma, orden de trabajo, instalación y entrega.")}</div>
 <div class="kpis">{counter}{kpis}</div></section>
 <div class="grid g2 lg"><div class="card"><h2 style="flex-wrap:wrap">{tt("Where", "Dónde")}<span class="r muted" style="font-weight:600">{tt("one circle per park, size = LED fixtures", "un círculo por parque, tamaño = luminarias")}</span></h2>{_lmap(_park_points(ds, deliv, tt))}</div>
-<div class="card"><h2>{tt("By city", "Por ciudad")}</h2>{_tbl_summary(by_m, tt, "m", lambda k: tt(*LT.MARKETS[k]))}
+<div class="card"><h2>{tt("By city", "Por ciudad")}</h2>{_tbl_summary(by_m, tt, "m", lambda k: tt(*LT.MARKETS[k]), tt("City", "Ciudad"))}
 <h2 style="margin-top:18px">{tt("Year by year", "Año por año")}</h2>{chart}</div></div>
 <div class="grid g2e lg"><div class="card"><h2>{tt("By park", "Por parque")}<span class="r muted">{len(by_p)} {tt("parks", "parques")}</span></h2>
-<div class="sitebox" style="max-height:440px">{_tbl_summary(by_p, tt, "pk", lambda k: pname.get(k, k))}</div></div>
+<div class="sitebox" style="max-height:440px">{_tbl_summary(by_p, tt, "pk", lambda k: pname.get(k, k), tt("Park · city", "Parque · ciudad"))}</div></div>
 <div class="card"><h2>{tt("Still to convert", "Por convertir")}<a class="r" href="/lighting/pipeline/">{tt("Open the list", "Abrir la lista")} ›</a></h2>
 <p class="small muted" style="margin-top:0">{tt("Prologis buildings of 5,000 m² and more (Prologis property database) that are not, or only partly, on LED according to ARGIA's records.", "Naves de Prologis de 5,000 m² o más (base de propiedades de Prologis) que según los registros de ARGIA no están, o solo en parte, en LED.")}</p>
 <table class="t">{"".join(f'<tr><td><span class="pill" style="background:{LT.BSTATUS[k][2]}22;color:#14211f">{UI.e(tt(*LT.BSTATUS[k][:2]))}</span></td><td class="n"><b>{cnt[k]}</b></td></tr>' for k in ("in_progress", "audited", "partial", "not_started"))}
@@ -4144,7 +4158,7 @@ def lighting_list():
     body = f"""{_ltabs("list", tt, len(LT.pipeline(ds)))}
 <h1 class="pt">{tt("All LED projects", "Todos los proyectos LED")}</h1><p class="muted" style="margin-top:0">{tt("Every building ARGIA has relit for Prologis, and the projects under way.", "Cada nave que ARGIA ha iluminado para Prologis, y los proyectos en curso.")}</p>
 {form}{chips}
-<div class="card"><h2>{tt("Projects", "Proyectos")}{csv_link}</h2><div style="overflow-x:auto"><table class="t"><tr><th></th><th>{tt("Customer", "Cliente")}</th><th>{tt("Park · building", "Parque · nave")}</th>
+<div class="card"><h2>{tt("Projects", "Proyectos")}{csv_link}</h2><div style="overflow-x:auto"><table class="t sortable"><tr><th></th><th>{tt("Customer", "Cliente")}</th><th>{tt("Park · building", "Parque · nave")}</th>
 <th>{tt("Building code", "Código")}</th><th class="n">{tt("Year", "Año")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th><th class="n">m²</th><th class="n">{tt("Saving", "Ahorro")}</th>
 <th class="n">MWh/{tt("yr", "año")}</th><th>{tt("WO", "OT")}</th><th>{tt("Status", "Estado")}</th></tr>{rows or f'<tr><td colspan="11" class="muted">{tt("No project matches these filters.", "Ningún proyecto coincide con los filtros.")}</td></tr>'}</table></div></div>"""
     return page(tt("LED projects", "Proyectos LED"), body, on="lighting")
@@ -4294,7 +4308,7 @@ def lighting_pipeline():
 <div class="tabs"><a class="tab{" on" if not stf else ""}" href="?m={UI.e(mf)}">{tt("All", "Todas")}<b>{len(allp)}</b></a>{tabs2}
 <form method="get" style="margin-left:auto"><input type="hidden" name="s" value="{UI.e(stf)}"><select name="m" onchange="this.form.submit()" style="width:auto"><option value="">{tt("All cities", "Todas las ciudades")}</option>{mopts}</select></form></div>
 <div class="card"><h2 style="flex-wrap:wrap">{tt("Map", "Mapa")}<span class="r legend">{"".join(f'<span><i style="background:{LT.BSTATUS[k][2]}"></i>{UI.e(tt(*LT.BSTATUS[k][:2]))}</span>' for k in ("in_progress", "audited", "partial", "not_started"))}</span></h2>{_lmap(pts, "460px")}</div>
-<div class="card" style="margin-top:16px"><h2>{tt("Buildings", "Naves")}{csv_link}</h2><div style="overflow-x:auto"><table class="t"><tr><th>{tt("Code", "Código")}</th><th>{tt("Building", "Nave")}</th><th>{tt("City", "Ciudad")}</th>
+<div class="card" style="margin-top:16px"><h2>{tt("Buildings", "Naves")}{csv_link}</h2><div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Code", "Código")}</th><th>{tt("Building", "Nave")}</th><th>{tt("City", "Ciudad")}</th>
 <th class="n">m²</th><th>{tt("On LED", "En LED")}</th><th class="n">{tt("To convert m²", "Por convertir m²")}</th><th>{tt("Status", "Estado")}</th><th>{tt("ARGIA audit of the rest", "Auditoría ARGIA del resto")}</th><th>{tt("Last proforma", "Última proforma")}</th>
 <th class="n">MWh/{tt("yr", "año")} ({tt("est.", "est.")})</th><th></th></tr>{rows or f'<tr><td colspan="11" class="muted">{tt("Nothing to show.", "Nada que mostrar.")}</td></tr>'}</table></div></div>
 <p class="small muted">{tt("Partly converted = ARGIA has delivered LED in part of the building (less than 80 % of its area); it does not mean the rest was audited - see the audit column.", "Convertida en parte = ARGIA entregó LED en parte de la nave (menos del 80 % de su superficie); no significa que el resto esté auditado - ver la columna de auditoría.")} {basis} {tt("No ARGIA record does not prove a building has no LED: a tenant or another contractor may have converted it. Buildings without a recorded area are not listed.", "Que ARGIA no tenga registro no prueba que la nave no tenga LED: un inquilino u otro contratista pudo convertirla. Las naves sin superficie registrada no se listan.")}</p>"""

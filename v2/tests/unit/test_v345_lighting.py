@@ -372,4 +372,4 @@ def test_lighting_grids_shrink_on_phones(env):
     h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/").get_data(as_text=True)
     assert 'class="grid g2 lg"' in h and 'class="grid g2e lg"' in h
     assert ".grid.lg>*{min-width:0}" in UI.CSS
-    assert h.count('<div style="overflow-x:auto"><table class="t">') >= 2
+    assert h.count('<div style="overflow-x:auto"><table class="t') >= 2

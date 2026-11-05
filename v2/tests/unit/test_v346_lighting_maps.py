@@ -104,13 +104,17 @@ class TestPages:
         assert h.count('class="chpane"') == 5 and h.count('data-ch="co2_cum"') == 2
         assert "Year by year" in h
 
-    def test_logos_frameless_bw_in_customer_views_colour_in_tables(self, env):
+    def test_logos_frameless_and_full_colour_everywhere(self, env):
+        # v349: "make the logos full color again, the B&W doesn't look good" (Tomasz, 5 Nov)
         mod, pws, tmp = env
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         cust = cl.get("/lighting/customers/").get_data(as_text=True)
-        assert 'class="clogo mid plain bw"><img src="/lighting/logo/acme.png"' in cust
+        assert 'class="clogo mid plain"><img src="/lighting/logo/acme.png"' in cust
         table = cl.get("/lighting/buildings/").get_data(as_text=True).split("<h2>Projects")[1]
-        assert 'class="clogo plain"><img src="/lighting/logo/acme.png"' in table and "plain bw" not in table
+        assert 'class="clogo plain"><img src="/lighting/logo/acme.png"' in table
+        for path in ("/lighting/", "/lighting/customers/", "/lighting/buildings/", "/lighting/p/1"):
+            h = cl.get(path).get_data(as_text=True)
+            assert "grayscale" not in h and " bw" not in h, path
 
     def test_pipeline_says_whether_the_rest_was_audited(self, env):
         mod, pws, tmp = env

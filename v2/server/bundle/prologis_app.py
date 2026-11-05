@@ -3920,12 +3920,12 @@ def _ltabs(on: str, tt, n_pipe: int) -> str:
     return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{lbl}</a>' for h, lbl, k in tabs) + "</div>"
 
 
-def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: str = "", bw: bool = False) -> str:
-    """The customer's logo (server-only PNG) or a monogram badge."""
+def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: str = "") -> str:
+    """The customer's logo in full colour (server-only PNG) or a monogram badge."""
     key = p_or_key.group if isinstance(p_or_key, LT.Project) else p_or_key
     name = name or (p_or_key.customer if isinstance(p_or_key, LT.Project) else key) or ""
     c = ds.customers.get(key) if key else None
-    cls = ("clogo big" if big else ("clogo " + size).strip()) + " plain" + (" bw" if bw else "")
+    cls = ("clogo big" if big else ("clogo " + size).strip()) + " plain"
     if c and c.logo:
         return f'<span class="{cls}"><img src="/lighting/logo/{UI.e(c.key)}.png" alt="{UI.e(c.name)}" loading="lazy"></span>'
     words = [w for w in re.split(r"[^A-Za-z0-9&+]+", name) if w]
@@ -4009,7 +4009,7 @@ def lighting_home():
              'document.querySelectorAll(".chpane").forEach(function(p){p.hidden=p.dataset.ch!==b.dataset.ch;});});});</script>')
     cust = LT.summary_rows(LT.group_by([p for p in deliv if p.group], lambda p: p.group), today)[:24]
     logos = "".join(f'<a class="ltile" href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(ds.customers[k].name if k in ds.customers else k)}">'
-                    f'{_clogo(ds, k, ds.customers[k].name if k in ds.customers else k, size="mid", bw=True)}<span>{UI.e(ds.customers[k].name if k in ds.customers else k)}</span>'
+                    f'{_clogo(ds, k, ds.customers[k].name if k in ds.customers else k, size="mid")}<span>{UI.e(ds.customers[k].name if k in ds.customers else k)}</span>'
                     f'<small>{t_.projects} · {UI.num(t_.fixtures)} {tt("fixtures", "luminarias")}</small></a>' for k, t_ in cust)
     cnt = {k: sum(1 for s in pipe if s.status == k) for k in LT.BSTATUS}
     pot = LT.potential(pipe, LT.intensity(ds), today.year)
@@ -4178,13 +4178,18 @@ def lighting_customers():
         c = ds.customers.get(k)
         name = c.name if c else k
         parks = sorted({p.park for p in ds.projects if p.group == k})
-        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}">{_clogo(ds, k, name, size="mid", bw=True)}'
+        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}">{_clogo(ds, k, name, size="mid")}'
                   f'<h3>{UI.e(name)}</h3><p>{UI.e(", ".join(parks[:4]))}{"…" if len(parks) > 4 else ""}</p>'
                   f'<div class="foot2"><span><b>{t_.projects}</b> {tt("project", "proyecto") if t_.projects == 1 else tt("projects", "proyectos")}</span><span><b>{UI.num(t_.fixtures)}</b> {tt("fixtures", "luminarias")}</span>'
                   f'<span><b>{UI.num(t_.mwh_saved)}</b> MWh/{tt("yr", "año")}</span></div></a>')
     other = [p for p in ds.delivered if not p.group]
+    with_logo = [(k, ds.customers[k]) for k, _ in rows if k in ds.customers and ds.customers[k].logo]
+    wall = "".join(f'<a href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(c.name)}"><img src="/lighting/logo/{UI.e(c.key)}.png" alt="{UI.e(c.name)}" loading="lazy"></a>'
+                   for k, c in with_logo)
     body = f"""{_ltabs("cust", tt, len(LT.pipeline(ds)))}
 <h1 class="pt">{tt("Customers", "Clientes")}</h1><p class="muted" style="margin-top:0">{len(rows)} {tt("companies in Prologis buildings relit by ARGIA (including projects in progress), largest first. Logos are the companies' own; they identify the occupant at the time of the retrofit.", "empresas en naves de Prologis iluminadas por ARGIA (incluye proyectos en proceso), de mayor a menor. Los logotipos son de cada empresa; identifican al ocupante al momento del proyecto.")}</p>
+<div class="lwall">{wall}</div>
+<p class="small muted" style="margin:0 0 14px">{len(with_logo)} {tt("of", "de")} {len(rows)} {tt("customers with their logo; the others show their initials until a logo is confirmed.", "clientes con su logotipo; los demás muestran sus iniciales hasta confirmar el logotipo.")}</p>
 <div class="shopgrid">{cards}</div>
 <p class="small muted">{tt("Not listed here: vacant spaces, exteriors, common areas and stock", "No listados aquí: espacios vacantes, exteriores, áreas comunes y stock")} ({len(other)} {tt("projects", "proyectos")}).</p>"""
     return page(tt("LED customers", "Clientes LED"), body, on="lighting")

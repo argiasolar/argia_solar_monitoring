@@ -61,6 +61,7 @@ import json
 import mimetypes
 import os
 import re
+import unicodedata
 import sys
 import time
 import zipfile
@@ -3931,6 +3932,26 @@ def _logo_src(c) -> str:
     return f"/lighting/logo/{UI.e(c.key)}.png?v={v}"
 
 
+def _hscroll(inner: str, cls: str, tt, ident: str = "") -> str:
+    """Two rows that scroll sideways: swipe on a phone; wheel, trackpad or the arrow buttons on a desktop (v351)."""
+    idattr = f' id="{ident}"' if ident else ""
+    return (f'<div class="lscroll"><button type="button" class="lsb" data-d="-1" aria-label="{tt("Scroll left", "Desplazar a la izquierda")}">‹</button>'
+            f'<div class="{cls} hrow"{idattr}>{inner}</div>'
+            f'<button type="button" class="lsb" data-d="1" aria-label="{tt("Scroll right", "Desplazar a la derecha")}">›</button></div>')
+
+
+HSCROLL_JS = ("<script>document.querySelectorAll('.lscroll').forEach(function(w){var g=w.querySelector('.hrow'),b=w.querySelectorAll('.lsb');"
+              "function upd(){b[0].disabled=g.scrollLeft<4;b[1].disabled=g.scrollLeft+g.clientWidth>=g.scrollWidth-4;}"
+              "b.forEach(function(x){x.addEventListener('click',function(){g.scrollBy({left:+x.dataset.d*g.clientWidth*0.9,behavior:'smooth'});});});"
+              "g.addEventListener('scroll',upd,{passive:true});window.addEventListener('resize',upd);g.addEventListener('hupd',upd);upd();});</script>")
+
+
+def _q(*parts: str) -> str:
+    """Search key: lower case, no accents ("Sincronía" is found by "sincronia")."""
+    s = " ".join(p for p in parts if p)
+    return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn").lower()
+
+
 def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: str = "") -> str:
     """The customer's logo in full colour (server-only PNG) or a monogram badge."""
     key = p_or_key.group if isinstance(p_or_key, LT.Project) else p_or_key
@@ -3941,7 +3962,11 @@ def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: st
         return f'<span class="{cls}"><img src="{_logo_src(c)}" alt="{UI.e(c.name)}" loading="lazy"></span>'
     words = [w for w in re.split(r"[^A-Za-z0-9&+]+", name) if w]
     init = "".join(w[0] for w in words[:2]).upper() or "-"
-    if isinstance(p_or_key, LT.Project) and p_or_key.kind != "tenant":      # vacant, exterior, common areas, stock
+    if isinstance(p_or_key, LT.Project) and p_or_key.kind == "vacant":     # a vacant space is Prologis's own (v351)
+        img = _brand_img("prologis_logo.png", "", "Prologis")
+        if img:
+            return f'<span class="{cls}">{img}</span>'
+    if isinstance(p_or_key, LT.Project) and p_or_key.kind != "tenant":      # exterior, common areas, stock
         return f'<span class="{cls} mono" style="background:#9aa4ad">{UI.e(init)}</span>'
     hue = int(hashlib.md5(name.encode()).hexdigest()[:4], 16) % 360
     return f'<span class="{cls} mono" style="background:hsl({hue} 30% 36%)">{UI.e(init)}</span>'
@@ -4018,7 +4043,7 @@ def lighting_home():
              '<script>document.querySelectorAll(".chtabs .tab").forEach(function(b){b.addEventListener("click",function(){'
              'document.querySelectorAll(".chtabs .tab").forEach(function(x){x.classList.toggle("on",x===b);});'
              'document.querySelectorAll(".chpane").forEach(function(p){p.hidden=p.dataset.ch!==b.dataset.ch;});});});</script>')
-    cust = LT.summary_rows(LT.group_by([p for p in deliv if p.group], lambda p: p.group), today)[:24]
+    cust = LT.summary_rows(LT.group_by([p for p in deliv if p.group], lambda p: p.group), today)   # all of them, 2 scrolling rows
     logos = "".join(f'<a class="ltile" href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(ds.customers[k].name if k in ds.customers else k)}">'
                     f'{_clogo(ds, k, ds.customers[k].name if k in ds.customers else k, size="mid")}<span>{UI.e(ds.customers[k].name if k in ds.customers else k)}</span>'
                     f'<small>{t_.projects} · {UI.num(t_.fixtures)} {tt("fixtures", "luminarias")}</small></a>' for k, t_ in cust)
@@ -4053,7 +4078,7 @@ setInterval(function(){el.textContent=(v0+r*(Date.now()-t0)/1000).toLocaleString
 <table class="t">{"".join(f'<tr><td><span class="pill" style="background:{LT.BSTATUS[k][2]}22;color:#14211f">{UI.e(tt(*LT.BSTATUS[k][:2]))}</span></td><td class="n"><b>{cnt[k]}</b></td></tr>' for k in ("in_progress", "audited", "partial", "not_started"))}
 <tr><td>{tt("Floor area to convert", "Superficie por convertir")}</td><td class="n"><b>{UI.num(pot["m2"])} m²</b></td></tr>
 <tr><td>{tt("Potential (estimate)", "Potencial (estimado)")}</td><td class="n"><b>{UI.num(pot["mwh"])} MWh/{tt("yr", "año")} · {UI.num(pot["co2_t"])} t CO₂e/{tt("yr", "año")}</b></td></tr></table></div></div>
-<div class="card" style="margin-top:16px"><h2>{tt("Customers", "Clientes")}<a class="r" href="/lighting/customers/">{tt("All customers", "Todos los clientes")} ›</a></h2><div class="lgrid2">{logos}</div></div>
+<div class="card" style="margin-top:16px"><h2>{tt("Customers", "Clientes")}<a class="r" href="/lighting/customers/">{tt("All customers", "Todos los clientes")} ›</a></h2>{_hscroll(logos, "lgrid2", tt, "lgrid2")}{HSCROLL_JS}</div>
 <p class="small muted">{tt("Savings are design values from ARGIA's lighting studies (annual kWh before vs after), not metered. Positions are park-level unless the building was surveyed. Data as of", "Los ahorros son valores de diseño de los estudios lumínicos de ARGIA (kWh anuales antes y después), no medidos. Las posiciones son por parque salvo levantamiento. Datos al")} {UI.e(ds.generated)}.</p>{js}"""
     return page(tt("LED lighting", "Iluminación LED"), body, on="lighting")
 
@@ -4189,19 +4214,30 @@ def lighting_customers():
         c = ds.customers.get(k)
         name = c.name if c else k
         parks = sorted({p.park for p in ds.projects if p.group == k})
-        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}">{_clogo(ds, k, name, size="mid")}'
+        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}" data-q="{UI.e(_q(name, k, " ".join(parks)))}">{_clogo(ds, k, name, size="mid")}'
                   f'<h3>{UI.e(name)}</h3><p>{UI.e(", ".join(parks[:4]))}{"…" if len(parks) > 4 else ""}</p>'
                   f'<div class="foot2"><span><b>{t_.projects}</b> {tt("project", "proyecto") if t_.projects == 1 else tt("projects", "proyectos")}</span><span><b>{UI.num(t_.fixtures)}</b> {tt("fixtures", "luminarias")}</span>'
                   f'<span><b>{UI.num(t_.mwh_saved)}</b> MWh/{tt("yr", "año")}</span></div></a>')
     other = [p for p in ds.delivered if not p.group]
     with_logo = [(k, ds.customers[k]) for k, _ in rows if k in ds.customers and ds.customers[k].logo]
-    wall = "".join(f'<a href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(c.name)}"><img src="{_logo_src(c)}" alt="{UI.e(c.name)}" loading="lazy"></a>'
+    parks_of = {k: " ".join(sorted({p.park for p in ds.projects if p.group == k})) for k, _ in rows}
+    wall = "".join(f'<a href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(c.name)}" data-q="{UI.e(_q(c.name, k, parks_of.get(k, "")))}"><img src="{_logo_src(c)}" alt="{UI.e(c.name)}" loading="lazy"></a>'
                    for k, c in with_logo)
+    search = (f'<div class="csearch"><input type="search" id="csearch" autocomplete="off" placeholder="{tt("Search a customer or a park", "Buscar un cliente o un parque")}" '
+              f'aria-label="{tt("Search customers", "Buscar clientes")}"><span class="small muted" id="ccount">{len(rows)} {tt("customers", "clientes")}</span></div>'
+              f'<p class="muted" id="cnone" hidden>{tt("No customer matches.", "Ningún cliente coincide.")}</p>')
+    search_js = ("<script>(function(){var i=document.getElementById('csearch'),n=document.getElementById('ccount'),z=document.getElementById('cnone'),"
+                 "w=document.querySelector('.lwall'),it=document.querySelectorAll('[data-q]'),cards=document.querySelectorAll('.ccard[data-q]');"
+                 "function nq(s){return s.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().trim();}"
+                 "i.addEventListener('input',function(){var q=nq(i.value),k=0;it.forEach(function(e){var m=!q||e.dataset.q.indexOf(q)>=0;e.hidden=!m;"
+                 "if(m&&e.classList.contains('ccard'))k++;});"
+                 f"n.textContent=q?k+' {tt('of', 'de')} '+cards.length+' {tt('customers', 'clientes')}':cards.length+' {tt('customers', 'clientes')}';"
+                 "z.hidden=k>0;w.scrollLeft=0;w.dispatchEvent(new Event('hupd'));});})();</script>")
     body = f"""{_ltabs("cust", tt, len(LT.pipeline(ds)))}
 <h1 class="pt">{tt("Customers", "Clientes")}</h1><p class="muted" style="margin-top:0">{len(rows)} {tt("companies in Prologis buildings relit by ARGIA (including projects in progress), largest first. Logos are the companies' own; they identify the occupant at the time of the retrofit.", "empresas en naves de Prologis iluminadas por ARGIA (incluye proyectos en proceso), de mayor a menor. Los logotipos son de cada empresa; identifican al ocupante al momento del proyecto.")}</p>
-<div class="lwall">{wall}</div>
+{search}{_hscroll(wall, "lwall", tt)}
 <p class="small muted" style="margin:0 0 14px">{len(with_logo)} {tt("of", "de")} {len(rows)} {tt("customers with their logo; the others show their initials until a logo is confirmed.", "clientes con su logotipo; los demás muestran sus iniciales hasta confirmar el logotipo.")}</p>
-<div class="shopgrid">{cards}</div>
+<div class="shopgrid">{cards}</div>{HSCROLL_JS}{search_js}
 <p class="small muted">{tt("Not listed here: vacant spaces, exteriors, common areas and stock", "No listados aquí: espacios vacantes, exteriores, áreas comunes y stock")} ({len(other)} {tt("projects", "proyectos")}).</p>"""
     return page(tt("LED customers", "Clientes LED"), body, on="lighting")
 

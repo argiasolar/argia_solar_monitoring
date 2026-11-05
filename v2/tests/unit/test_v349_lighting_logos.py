@@ -17,7 +17,7 @@ from argia.prologis import lighting as LT
 
 
 def _wall(h):
-    return re.search(r'<div class="lwall">(.*?)</div>', h, re.S).group(1)
+    return re.search(r'<div class="lwall hrow">(.*?)</div><button', h, re.S).group(1)
 
 
 class TestCustomerPage:
@@ -27,7 +27,7 @@ class TestCustomerPage:
         ds = LT.parse(copy.deepcopy(DATA))
         groups = {p.group for p in ds.projects if p.group}
         expect = sorted(k for k in groups if ds.customers.get(k) and ds.customers[k].logo)
-        wall = re.findall(r'href="/lighting/buildings/\?c=([^"]+)" title="[^"]+"><img src="/lighting/logo/([^"]+)\.png\?v=[0-9a-f]+"', _wall(h))
+        wall = re.findall(r'href="/lighting/buildings/\?c=([^"]+)" title="[^"]+"(?: data-q="[^"]*")?><img src="/lighting/logo/([^"]+)\.png\?v=[0-9a-f]+"', _wall(h))
         assert sorted(k for k, _ in wall) == expect and all(k == f for k, f in wall)
         assert f"{len(expect)} of {len(groups)} customers with their logo" in h
 
@@ -36,7 +36,7 @@ class TestCustomerPage:
         h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/customers/").get_data(as_text=True)
         ds = LT.parse(copy.deepcopy(DATA))
         groups = {p.group for p in ds.projects if p.group}
-        cards = re.findall(r'<a class="svc ccard" href="/lighting/buildings/\?c=([^"]+)"><span class="clogo mid plain( mono)?"', h)
+        cards = re.findall(r'<a class="svc ccard" href="/lighting/buildings/\?c=([^"]+)"(?: data-q="[^"]*")?><span class="clogo mid plain( mono)?"', h)
         assert sorted(k for k, _ in cards) == sorted(groups)
         for k, mono in cards:
             assert bool(mono) == (not (ds.customers.get(k) and ds.customers[k].logo)), k

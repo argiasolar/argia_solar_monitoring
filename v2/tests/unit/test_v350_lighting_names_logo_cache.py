@@ -44,7 +44,8 @@ class TestNames:
         (tmp / "lighting" / "lighting.json").write_text(json.dumps(d), encoding="utf-8")
         os.utime(tmp / "lighting" / "lighting.json", (time.time() + 5, time.time() + 5))
         h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/customers/").get_data(as_text=True)
-        assert "<h3>Bravo foods</h3>" in h and "bravo foods" not in h
+        shown = re.sub(r' data-q="[^"]*"', "", h)                     # the search key is lower case on purpose
+        assert "<h3>Bravo foods</h3>" in shown and "bravo foods" not in shown
 
 
 class TestLogoCache:

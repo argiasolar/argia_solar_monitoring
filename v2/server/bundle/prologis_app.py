@@ -86,6 +86,7 @@ from argia.prologis import monthly as MR                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import scan as SC                     # noqa: E402
 from argia.prologis import warranty as WR                 # noqa: E402
+from argia.prologis import lightops as LO                 # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
 from argia.prologis import maintplan as PM            # noqa: E402  (v333)
@@ -103,7 +104,7 @@ COOKIE = "pl_sid"
 SECURE_COOKIE = os.environ.get("ARGIA_PL_INSECURE_COOKIE", "") != "1"
 MAX_UPLOAD = 50 * 1024 * 1024
 ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".dwg", ".dxf", ".xlsx", ".xls", ".csv", ".docx",
-               ".doc", ".pptx", ".zip", ".txt", ".kmz", ".mp4", ".heic"}
+               ".doc", ".pptx", ".zip", ".txt", ".kmz", ".mp4", ".heic", ".mov"}      # v356: .mov - phone videos of a failed fixture
 PUBLIC = {"login", "login_post", "healthz", "brand", "lang", "favicon", "about"}
 # v331: the public product manual (Tomasz, 28 Oct: "available to anyone without a
 # need to login"). Server-only file, never in the public repo; the page is one
@@ -3941,8 +3942,9 @@ def _ltabs(on: str, tt, n_pipe: int) -> str:
             ("/lighting/pipeline/", tt("Not yet on LED", "Aún sin LED") + f"<b>{n_pipe}</b>", "pipe")]
     reg = warranty_reg()
     if reg is not None:
-        n_open = sum(1 for c in reg.claims if c.status == "open")
+        n_open = sum(1 for c in reg.claims if c.status == "open") + len(LO.claims(db(), open_only=True))
         tabs.append(("/lighting/warranty/", tt("Warranty", "Garantías") + (f"<b>{n_open}</b>" if n_open else ""), "warr"))
+    tabs.append(("/lighting/calendar/", tt("Calendar", "Calendario"), "cal"))
     return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{lbl}</a>' for h, lbl, k in tabs) + "</div>"
 
 
@@ -4279,8 +4281,13 @@ def lighting_project(pid: int):
     wcard = ""
     if reg is not None and p.yardi:
         wrows = "".join(_claim_row(c, tt, today, with_place=False) for c in wclaims)
+        mine = LO.claims(db(), p.yardi)
         wcard = (f'<div class="card" style="margin-top:16px"><h2>{tt("Warranty claims in this building", "Reclamos de garantía en esta nave")}'
-                 f'<a class="r" href="/lighting/warranty/">{tt("All claims", "Todos los reclamos")} ›</a></h2>'
+                 + (f'<a class="btn sm" style="margin-left:auto" href="/lighting/warranty/new?code={UI.e(p.yardi)}">{tt("Report a failure", "Reportar una falla")}</a>'
+                    if S.can(g.user["role"], "light_claim_new") else "")
+                 + f'<a class="r" href="/lighting/warranty/">{tt("All claims", "Todos los reclamos")} ›</a></h2>'
+                 + "".join(f'<div class="small" style="margin:0 0 6px"><a href="/lighting/warranty/c/{UI.e(r["number"])}/">{UI.e(r["number"])}</a> · '
+                           f'{UI.e(r["created_utc"][:10])} · {UI.e(tt(*LO.SYMPTOM.get(r["symptom"], (r["symptom"], r["symptom"]))))} {_lc_pill(r["status"], tt)}</div>' for r in mine)
                  + (f'<div style="overflow-x:auto"><table class="t sortable">{_claim_head(tt, with_place=False)}{wrows}</table></div>' if wclaims
                     else f'<span class="muted">{tt("No warranty claim recorded for this building.", "Sin reclamos de garantía registrados para esta nave.")}</span>') + "</div>")
     same = [q for q in ds.projects if LT.park_key(q) == LT.park_key(p) and q.id != p.id]
@@ -4432,8 +4439,10 @@ def lighting_warranty():
     body = f"""{_ltabs("warr", tt, len(LT.pipeline(ds)))}
 <section class="hero"><div class="glow"></div><div class="k">{tt("Warranty", "Garantías")}</div>
 <h1>{tt("Warranty claims on the LED fixtures", "Reclamos de garantía de las luminarias LED")}</h1>
-<div class="sub">{tt("Every failure reported on an ARGIA LED installation in a Prologis building, from the report to the replacement.", "Cada falla reportada en una instalación LED de ARGIA en una nave de Prologis, del reporte al reemplazo.")}</div>
+<div class="sub">{tt("Every failure reported on an ARGIA LED installation in a Prologis building, from the report to the replacement.", "Cada falla reportada en una instalación LED de ARGIA en una nave de Prologis, del reporte al reemplazo.")}</div>{f'<div style="margin-top:12px"><a class="btn" href="/lighting/warranty/new">{tt("Report a failed fixture", "Reportar una luminaria con falla")}</a></div>' if S.can(g.user["role"], "light_claim_new") else ""}
 <div class="kpis">{kpis}</div></section>
+{_portal_claims_card(tt)}
+{_coverage_card(ds, reg, tt, today)}
 <div class="grid g2 lg"><div class="card"><h2>{tt("Claims per year", "Reclamos por año")}</h2>{chart}
 <p class="small muted" style="margin:4px 0 0">{tt("By the year the failure was reported.", "Por el año en que se reportó la falla.")}</p></div>
 <div class="card"><h2>{tt("How the warranty works", "Cómo funciona la garantía")}</h2><ol class="small" style="margin:0;padding-left:18px;line-height:1.55">{"".join(f"<li>{UI.e(x)}</li>" for x in terms)}</ol></div></div>
@@ -4444,6 +4453,380 @@ def lighting_warranty():
 {rows or f'<tr><td colspan="13" class="muted">{tt("No claim matches these filters.", "Ningún reclamo coincide con los filtros.")}</td></tr>'}</table></div></div>
 <p class="small muted">{tt("Source: ARGIA's warranty trackers (claims 2022 to August 2025, and the W- ticket sheet since then). Days = report to replacement; for an open claim, days since the report (+). A building code is shown when the tracker names the building; older claims name the customer and city only.", "Fuente: registros de garantías de ARGIA (reclamos 2022 a agosto 2025, y la hoja de tickets W- desde entonces). Días = del reporte al reemplazo; para un reclamo abierto, días desde el reporte (+). El código de nave aparece cuando el registro nombra la nave; los reclamos antiguos solo nombran cliente y ciudad.")} {tt("Data as of", "Datos al")} {UI.e(reg.generated)}.</p>"""
     return page(tt("LED warranty", "Garantías LED"), body, on="lighting")
+
+
+# ------------------------------------------------------------------ v356: warranty claims in the portal, warranty periods, calendar
+def _bopts(ds: LT.Dataset, cur: str = "") -> str:
+    """Building picker: every Prologis building code ARGIA has worked in (code · park · customers)."""
+    by: Dict[str, List[LT.Project]] = {}
+    for p in ds.projects:
+        if p.yardi:
+            by.setdefault(p.yardi, []).append(p)
+    out = []
+    for code in sorted(by):
+        ps = by[code]
+        who = ", ".join(sorted({p.customer for p in ps if p.kind == "tenant"}))[:60]
+        out.append(f'<option value="{UI.e(code)}"{" selected" if code == cur else ""}>{UI.e(code)} · {UI.e(ps[0].park)} · {_mk(ps[0].market, t())}'
+                   f'{(" · " + UI.e(who)) if who else ""}</option>')
+    return "".join(out)
+
+
+def _bname(ds: Optional[LT.Dataset], code: str) -> str:
+    ps = [p for p in ds.projects if p.yardi == code] if ds else []
+    return f"{ps[0].park} ({LT.MARKETS[ps[0].market][0]})" if ps else ""
+
+
+def _lc_pill(status: str, tt) -> str:
+    en, es, col = LO.CLAIM_STATUS.get(status, (status, status, "#9aa4ad"))
+    return f'<span class="pill" style="background:{col}22;color:#14211f">{UI.e(tt(en, es))}</span>'
+
+
+def _portal_claims_card(tt) -> str:
+    rows = LO.claims(db())
+    btn = (f'<a class="btn sm" href="/lighting/warranty/new">{tt("Report a failure", "Reportar una falla")}</a>'
+           if S.can(g.user["role"], "light_claim_new") else "")
+    body = "".join(f'<tr><td class="nw"><a href="/lighting/warranty/c/{UI.e(r["number"])}/">{UI.e(r["number"])}</a></td>'
+                   f'<td class="nw">{UI.e(r["created_utc"][:10])}</td><td class="nw">{UI.e(r["code"])}</td><td>{UI.e(r["customer"] or "-")}</td>'
+                   f'<td class="n">{r["fixtures"] or "-"}</td><td class="small">{UI.e(tt(*LO.SYMPTOM.get(r["symptom"], (r["symptom"], r["symptom"]))))}</td>'
+                   f'<td class="nw">{UI.e(r["w_ticket"] or "-")}</td><td>{_lc_pill(r["status"], tt)}</td></tr>' for r in rows)
+    table = (f'<div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Claim", "Reclamo")}</th><th>{tt("Reported", "Reportado")}</th>'
+             f'<th>{tt("Prologis building code", "Código Prologis")}</th><th>{tt("Customer", "Cliente")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th>'
+             f'<th>{tt("What happens", "Qué pasa")}</th><th>{tt("ARGIA ticket", "Ticket ARGIA")}</th><th>{tt("Status", "Estado")}</th></tr>{body}</table></div>'
+             if rows else f'<p class="muted" style="margin:0">{tt("No claim has been reported in the portal yet.", "Aún no se ha reportado ningún reclamo en el portal.")}</p>')
+    return (f'<div class="card" style="margin-bottom:16px"><h2>{tt("Claims reported in the portal", "Reclamos reportados en el portal")}<span class="r">{btn}</span></h2>'
+            f'<p class="small muted" style="margin-top:0">{tt("Report a failed LED fixture here: ARGIA receives it at once, answers in the claim and keeps its status up to date.", "Reporte aquí una luminaria LED con falla: ARGIA lo recibe al momento, responde en el reclamo y mantiene su estado al día.")}</p>{table}</div>')
+
+
+def _coverage_card(ds: LT.Dataset, reg: Optional[WR.Register], tt, today: dt.date) -> str:
+    """v356: the 5-year warranty period of every delivered building, ending soonest first."""
+    cov = LO.coverage(ds.projects, today, reg.years if reg else 5)
+    byid = {p.id: p for p in ds.projects}
+    n = {k: sum(1 for c in cov if c.state == k) for k in ("in", "ending", "ended")}
+    lab = {"in": (tt("In warranty", "En garantía"), "#23B2A9"), "ending": (tt("Ends within 12 months", "Termina en 12 meses"), "#e0a100"),
+           "ended": (tt("Warranty ended", "Garantía terminada"), "#9aa4ad")}
+    order = sorted(cov, key=lambda c: ({"ending": 0, "in": 1, "ended": 2}[c.state], c.until))
+    rows = "".join(f'<tr><td class="nw"><a href="/lighting/p/{c.project_id}">{UI.e(c.code or "-")}</a></td><td>{UI.e(byid[c.project_id].park)}</td>'
+                   f'<td>{_mk(byid[c.project_id].market, tt)}</td><td>{UI.e(byid[c.project_id].customer)}</td><td class="nw">{UI.e(c.handover)}</td>'
+                   f'<td class="nw">{UI.e(c.until)}</td><td class="n">{c.days_left if c.days_left >= 0 else "-"}</td>'
+                   f'<td><span class="pill" style="background:{lab[c.state][1]}22;color:#14211f">{UI.e(lab[c.state][0])}</span></td></tr>' for c in order)
+    chips = "".join(f'<span class="chip"><b>{n[k]}</b> {UI.e(lab[k][0])}</span>' for k in ("in", "ending", "ended"))
+    return (f'<div class="card" style="margin-bottom:16px"><h2>{tt("Warranty period of every building", "Periodo de garantía de cada nave")}</h2>'
+            f'<p class="small muted" style="margin-top:0">{tt("5 years from the handover of each delivered project; projects without a handover date are not listed.", "5 años desde la entrega de cada proyecto; los proyectos sin fecha de entrega no aparecen.")}</p>'
+            f'<div class="lchips">{chips}</div><div class="sitebox" style="max-height:360px"><div><table class="t sortable"><tr><th>{tt("Prologis building code", "Código Prologis")}</th>'
+            f'<th>{tt("Park", "Parque")}</th><th>{tt("City", "Ciudad")}</th><th>{tt("Customer", "Cliente")}</th><th>{tt("Handover", "Entrega")}</th>'
+            f'<th>{tt("Warranty until", "Garantía hasta")}</th><th class="n">{tt("Days left", "Días restantes")}</th><th>{tt("Status", "Estado")}</th></tr>{rows}</table></div></div></div>')
+
+
+@app.get("/lighting/warranty/new")
+def light_claim_new(msg: str = ""):
+    ds = _lds()
+    need("light_claim_new")
+    tt = t()
+    f = request.form if request.method == "POST" else request.args
+    code = (f.get("code") or "").upper()
+    syms = "".join(f'<option value="{k}"{" selected" if f.get("symptom") == k else ""}>{UI.e(tt(en, es))}</option>' for k, en, es in LO.SYMPTOMS)
+    body = f"""{_ltabs("warr", tt, len(LT.pipeline(ds)))}
+<div class="card form"><div class="kick">{tt("LED warranty", "Garantía LED")}</div><h1 class="pt">{tt("Report a failed fixture", "Reportar una luminaria con falla")}</h1>{flash(msg, True)}
+<p class="small muted">{tt("ARGIA receives the claim at once. Photos or a short video of the fixture are needed for the manufacturer; add them here or later in the claim.", "ARGIA recibe el reclamo al momento. El fabricante necesita fotos o un video corto de la luminaria; agréguelos aquí o después en el reclamo.")}</p>
+<form method="post" action="/lighting/warranty/new" enctype="multipart/form-data">{csrf_field()}
+<label>{tt("Building (Prologis building code)", "Nave (código Prologis)")}</label><select name="code" required><option value="">-</option>{_bopts(ds, code)}</select>
+<div class="row"><div><label>{tt("Fixtures affected", "Luminarias afectadas")}</label><input name="fixtures" inputmode="numeric" value="{UI.e(f.get("fixtures", ""))}"></div>
+<div><label>{tt("What happens", "Qué pasa")}</label><select name="symptom" required>{syms}</select></div></div>
+<label>{tt("Where in the building (area, aisle, office...)", "Dónde en la nave (área, pasillo, oficina...)")}</label><input name="area" maxlength="160" value="{UI.e(f.get("area", ""))}">
+<label>{tt("Description", "Descripción")}</label><textarea name="desc">{UI.e(f.get("desc", ""))}</textarea>
+<label>{tt("Contact on site (name, phone) for the visit", "Contacto en sitio (nombre, teléfono) para la visita")}</label><input name="contact" maxlength="200" value="{UI.e(f.get("contact", ""))}">
+<label>{tt("Photo or video (optional)", "Foto o video (opcional)")}</label><input type="file" name="file" accept="image/*,video/*,.pdf">
+<div style="margin-top:14px"><button class="btn">{tt("Send to ARGIA", "Enviar a ARGIA")}</button> <a class="btn ghost" href="/lighting/warranty/">{tt("Cancel", "Cancelar")}</a></div></form></div>"""
+    return page(tt("Report a failure", "Reportar una falla"), body, on="lighting")
+
+
+@app.post("/lighting/warranty/new")
+def light_claim_new_post():
+    ds = _lds()
+    need("light_claim_new")
+    tt = t()
+    f = request.form
+    code = (f.get("code") or "").strip().upper()
+    if not any(p.yardi == code for p in ds.projects):
+        return light_claim_new(tt("Choose the building from the list.", "Elija la nave de la lista."))
+    custs = sorted({p.customer for p in ds.projects if p.yardi == code and p.kind == "tenant"})
+    c = db()
+    try:
+        cl = LO.create_claim(c, code, ", ".join(custs), f.get("fixtures"), f.get("area", ""), f.get("symptom", ""), f.get("desc", ""),
+                             f.get("contact", ""), g.user["username"], ip(), today_mx())
+    except LO.Invalid as ex:
+        return light_claim_new(tt(f"Please check: {ex}.", f"Revise: {ex}."))
+    did = _upload(request.files.get("file"), code, "lighting") if request.files.get("file") else None
+    if did:
+        LO.add_claim_event(c, cl["id"], g.user["username"], "file", "", {"doc": did})
+    subj, body = LO.claim_mail(cl, _bname(ds, code), "https://prologis.argia.com.mx", f'{g.user["name"] or g.user["username"]} ({g.user["org"]})')
+    AL.queue(c, "light_claim", cl["number"], subj, body, AL.recipients(c, "critical"), False)
+    return redirect(f"/lighting/warranty/c/{cl['number']}/")
+
+
+def _light_claim(number: str):
+    cl = LO.claim(db(), number)
+    if cl is None:
+        abort(404)
+    return cl
+
+
+@app.get("/lighting/warranty/c/<number>/")
+def light_claim_page(number, msg: str = ""):
+    ds = _lds()
+    tt = t()
+    cl = _light_claim(number)
+    c = db()
+    files = {d["id"]: d for d in c.execute("SELECT * FROM documents WHERE folder='lighting' AND site_code=? AND deleted=0", (cl["code"],))}
+    tl = ""
+    for ev in LO.claim_events(c, cl["id"]):
+        m = json.loads(ev["meta"] or "{}")
+        what = {"created": tt("reported the failure", "reportó la falla"), "comment": tt("commented", "comentó"),
+                "status": f'{tt("moved it to", "lo pasó a")} <b>{UI.e(tt(*LO.CLAIM_STATUS.get(m.get("to", ""), ("", "", ""))[:2]))}</b>'
+                          + (f' · {tt("ARGIA ticket", "ticket ARGIA")} <b>{UI.e(m["w"])}</b>' if m.get("w") else ""),
+                "file": tt("attached a file", "adjuntó un archivo"),
+                "visit": f'{tt("scheduled a visit for", "programó una visita para")} <b>{UI.e(m.get("date", ""))}</b>'}.get(ev["kind"], ev["kind"])
+        att = ""
+        if ev["kind"] == "file" and m.get("doc") in files:
+            d = files[m["doc"]]
+            att = f'<div><a class="chip" href="/docs/{d["id"]}/download">📎 {UI.e(d["name"])}</a></div>'
+        tl += (f'<div class="ev"><div class="small muted">{mx_time(ev["ts_utc"])} · <b>{UI.e(ev["username"])}</b> {what}</div>'
+               + (f'<div>{UI.e(ev["body"])}</div>' if ev["body"] else "") + f'{att}</div>')
+    acts = ""
+    if S.can(g.user["role"], "light_work"):
+        btns = "".join(f'<button class="btn sm ghost" name="to" value="{k}">{UI.e(tt(*LO.CLAIM_STATUS[k][:2]))}</button> ' for k in LO.CLAIM_NEXT.get(cl["status"], ()))
+        acts += (f'<form method="post" action="/lighting/warranty/c/{UI.e(number)}/status">{csrf_field()}<label>{tt("Move to", "Mover a")}</label>'
+                 f'<div class="row"><input name="note" placeholder="{tt("note for Prologis (optional)", "nota para Prologis (opcional)")}">'
+                 f'<input name="w" value="{UI.e(cl["w_ticket"])}" placeholder="W-1234-00" style="max-width:140px"></div><div style="margin-top:8px">{btns}</div></form>'
+                 f'<form method="post" action="/lighting/warranty/c/{UI.e(number)}/visit" style="margin-top:12px;display:flex;gap:6px;align-items:end;flex-wrap:wrap">{csrf_field()}'
+                 f'<div><label>{tt("Visit date", "Fecha de visita")}</label><input name="date" type="date" required></div>'
+                 f'<div><label>{tt("Time", "Hora")}</label><input name="slot" placeholder="09:00" style="width:90px"></div>'
+                 f'<button class="btn sm">{tt("Schedule visit", "Programar visita")}</button></form>')
+    if S.can(g.user["role"], "comment"):
+        acts += (f'<form method="post" action="/lighting/warranty/c/{UI.e(number)}/comment" enctype="multipart/form-data" style="margin-top:12px">{csrf_field()}'
+                 f'<label>{tt("Comment, photo or video", "Comentario, foto o video")}</label><textarea name="body"></textarea>'
+                 f'<input type="file" name="file" accept="image/*,video/*,.pdf" style="margin-top:6px"><div style="margin-top:8px"><button class="btn sm">{tt("Add", "Agregar")}</button></div></form>')
+    proj = [p for p in ds.projects if p.yardi == cl["code"]]
+    facts = [(tt("Prologis building code", "Código Prologis"), f'<a href="/lighting/buildings/?q={UI.e(cl["code"])}">{UI.e(cl["code"])}</a>'),
+             (tt("Park", "Parque"), UI.e(proj[0].park if proj else "-")), (tt("Customer", "Cliente"), UI.e(cl["customer"] or "-")),
+             (tt("Fixtures affected", "Luminarias afectadas"), UI.e(str(cl["fixtures"] or "-"))), (tt("Where", "Dónde"), UI.e(cl["area"] or "-")),
+             (tt("What happens", "Qué pasa"), UI.e(tt(*LO.SYMPTOM.get(cl["symptom"], (cl["symptom"], cl["symptom"]))))),
+             (tt("Contact on site", "Contacto en sitio"), UI.e(cl["contact"] or "-")), (tt("ARGIA ticket", "Ticket ARGIA"), UI.e(cl["w_ticket"] or "-")),
+             (tt("Reported", "Reportado"), mx_time(cl["created_utc"])), (tt("Closed", "Cerrado"), mx_time(cl["closed_utc"]))]
+    ftab = "".join(f'<tr><td class="muted">{k}</td><td><b>{v}</b></td></tr>' for k, v in facts)
+    body = f"""{_ltabs("warr", tt, len(LT.pipeline(ds)))}
+<div class="kick">{tt("LED warranty claim", "Reclamo de garantía LED")} · {UI.e(cl["number"])}</div><h1 class="pt">{UI.e(cl["code"])} · {UI.e(tt(*LO.SYMPTOM.get(cl["symptom"], (cl["symptom"], cl["symptom"]))))}</h1>
+<div style="margin:6px 0 12px">{_lc_pill(cl["status"], tt)}</div>{flash(msg, True)}
+<div class="grid g2 lg"><div class="card"><h2>{tt("The claim", "El reclamo")}</h2><table class="t">{ftab}</table>
+{f'<p style="white-space:pre-wrap">{UI.e(cl["description"])}</p>' if cl["description"] else ""}</div>
+<div class="card"><h2>{tt("Timeline", "Historial")}</h2><div class="tl">{tl}</div>{acts}</div></div>"""
+    return page(cl["number"], body, on="lighting")
+
+
+@app.post("/lighting/warranty/c/<number>/status")
+def light_claim_status(number):
+    need("light_work")
+    tt = t()
+    cl = _light_claim(number)
+    c = db()
+    try:
+        new = LO.set_claim_status(c, number, request.form.get("to", ""), g.user["username"], request.form.get("note", ""),
+                                  request.form.get("w", ""), ip())
+    except LO.Invalid as ex:
+        return light_claim_page(number, tt(f"Not possible: {ex}.", f"No es posible: {ex}."))
+    to = [r["email"] for r in c.execute("SELECT email FROM users WHERE username=? AND email<>''", (cl["created_by"],))]
+    if to:
+        st = LO.CLAIM_STATUS[new["status"]][0]
+        AL.queue(c, "light_claim_status", number, f"[Prologis LED warranty] {number} - {st}",
+                 f"Your warranty claim {number} ({new['code']}) is now: {st}.\n{request.form.get('note', '')}\n\n"
+                 f"https://prologis.argia.com.mx/lighting/warranty/c/{number}/\n", to, False)
+    return redirect(f"/lighting/warranty/c/{number}/")
+
+
+@app.post("/lighting/warranty/c/<number>/comment")
+def light_claim_comment(number):
+    need("comment")
+    cl = _light_claim(number)
+    c = db()
+    did = _upload(request.files.get("file"), cl["code"], "lighting") if request.files.get("file") else None
+    body = (request.form.get("body") or "").strip()
+    if body:
+        LO.add_claim_event(c, cl["id"], g.user["username"], "comment", body)
+        S.audit(c, g.user["username"], ip(), "light_claim_comment", number)
+    if did:
+        LO.add_claim_event(c, cl["id"], g.user["username"], "file", "", {"doc": did})
+    return redirect(f"/lighting/warranty/c/{number}/")
+
+
+@app.post("/lighting/warranty/c/<number>/visit")
+def light_claim_visit(number):
+    need("light_work")
+    tt = t()
+    cl = _light_claim(number)
+    c = db()
+    d = request.form.get("date", "")
+    try:
+        LO.add_event(c, "warranty", cl["code"], f"{tt('Warranty visit', 'Visita de garantía')} {number}", d, d,
+                     request.form.get("slot", ""), "confirmed", "", g.user["username"], ref=number, ip=ip())
+    except LO.Invalid as ex:
+        return light_claim_page(number, tt(f"Not possible: {ex}.", f"No es posible: {ex}."))
+    LO.add_claim_event(c, cl["id"], g.user["username"], "visit", request.form.get("slot", ""), {"date": d})
+    if "SCHEDULED" in LO.CLAIM_NEXT.get(cl["status"], ()):
+        LO.set_claim_status(c, number, "SCHEDULED", g.user["username"], "", "", ip())
+    to = [r["email"] for r in c.execute("SELECT email FROM users WHERE username=? AND email<>''", (cl["created_by"],))]
+    if to:
+        AL.queue(c, "light_claim_status", number, f"[Prologis LED warranty] {number} - visit on {d}",
+                 f"ARGIA will visit {cl['code']} on {d} {request.form.get('slot', '')} for warranty claim {number}.\n\n"
+                 f"https://prologis.argia.com.mx/lighting/warranty/c/{number}/\n", to, False)
+    return redirect(f"/lighting/warranty/c/{number}/")
+
+
+# ------------------------------------------------------------------ v356: lighting calendar
+@app.get("/lighting/calendar/")
+def light_calendar():
+    ds = _lds()
+    tt, today = t(), today_mx()
+    y, m = LO.month_of(request.args.get("mo", ""), today)
+    weeks = LO.month_grid(y, m)
+    first, last = weeks[0][0], weeks[-1][-1]
+    ents = LO.entries(db(), first, last, ds.projects)
+    up = [e for e in LO.entries(db(), today, today + dt.timedelta(days=60), ds.projects) if e.end >= today]
+    names = {p.yardi: p.park for p in ds.projects if p.yardi}
+
+    def chip(e: LO.Entry) -> str:
+        en, es, col = LO.EVENT_KIND[e.kind]
+        dim = ";opacity:.55" if e.status == "requested" else ""
+        return (f'<a class="calev" href="{UI.e(e.href)}" style="border-left-color:{col}{dim}" title="{UI.e(e.title)}">'
+                f'{UI.e(e.slot + " " if e.slot else "")}{UI.e(e.code or tt(en, es))}<span>{UI.e(e.title)}</span></a>')
+    days = "".join(f'<div class="calh">{d}</div>' for d in (tt("Mon", "Lun"), tt("Tue", "Mar"), tt("Wed", "Mié"), tt("Thu", "Jue"), tt("Fri", "Vie"), tt("Sat", "Sáb"), tt("Sun", "Dom")))
+    for w in weeks:
+        for d in w:
+            here = "".join(chip(e) for e in ents if e.start <= d <= e.end)
+            cls = "cald" + (" out" if d.month != m else "") + (" today" if d == today else "")
+            days += f'<div class="{cls}"><div class="calnum">{d.day}</div>{here}</div>'
+    py, pm = LO.shift_month(y, m, -1)
+    ny, nm = LO.shift_month(y, m, 1)
+    legend = "".join(f'<span><i style="background:{col}"></i>{UI.e(tt(en, es))}</span>' for k, en, es, col in LO.EVENT_KINDS)
+    can_add = S.can(g.user["role"], "light_work")
+    can_req = S.can(g.user["role"], "light_request")
+    btn = (f'<a class="btn sm" href="/lighting/calendar/new">{tt("Add work on site", "Agregar trabajo en sitio")}</a>' if can_add else
+           f'<a class="btn sm" href="/lighting/calendar/new">{tt("Request an audit", "Solicitar una auditoría")}</a>' if can_req else "")
+    ups = "".join(f'<tr><td class="nw">{UI.e(e.start.isoformat())}{(" - " + UI.e(e.end.isoformat())) if e.end != e.start else ""}</td>'
+                  f'<td><span class="pill" style="background:{LO.EVENT_KIND[e.kind][2]}22;color:#14211f">{UI.e(tt(*LO.EVENT_KIND[e.kind][:2]))}</span></td>'
+                  f'<td class="nw">{UI.e(e.code or "-")}</td><td>{UI.e(names.get(e.code, ""))}</td><td><a href="{UI.e(e.href)}">{UI.e(e.title)}</a></td>'
+                  f'<td>{UI.e(tt(*LO.EVENT_STATUS.get(e.status, (e.status, e.status))))}</td></tr>' for e in up)
+    body = f"""{_ltabs("cal", tt, len(LT.pipeline(ds)))}
+<h1 class="pt">{tt("Lighting calendar", "Calendario de iluminación")}</h1><p class="muted" style="margin-top:0">{tt("Audits, installations, handovers and warranty visits in Prologis buildings: what ARGIA does on site, and when.", "Auditorías, instalaciones, entregas y visitas de garantía en naves de Prologis: qué hace ARGIA en sitio, y cuándo.")}</p>
+<div class="card"><h2 style="flex-wrap:wrap"><a class="btn sm ghost" href="?mo={py:04d}-{pm:02d}">‹</a> {UI.e(tt(_MONTHS_EN[m - 1], _MONTHS_ES[m - 1]))} {y} <a class="btn sm ghost" href="?mo={ny:04d}-{nm:02d}">›</a>
+<a class="btn sm ghost" href="/lighting/calendar/">{tt("Today", "Hoy")}</a><span class="r">{btn}</span></h2>
+<div class="legend" style="margin:0 0 8px">{legend}<span class="small muted">{tt("faded = requested, not confirmed yet", "tenue = solicitado, aún sin confirmar")}</span></div>
+<div class="calgrid">{days}</div></div>
+<div class="card" style="margin-top:16px"><h2>{tt("Next 60 days", "Próximos 60 días")}</h2>
+{f'<div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Date", "Fecha")}</th><th>{tt("What", "Qué")}</th><th>{tt("Prologis building code", "Código Prologis")}</th><th>{tt("Park", "Parque")}</th><th></th><th>{tt("Status", "Estado")}</th></tr>{ups}</table></div>' if ups else f'<p class="muted" style="margin:0">{tt("Nothing scheduled.", "Nada programado.")}</p>'}</div>"""
+    return page(tt("Lighting calendar", "Calendario de iluminación"), body, on="lighting")
+
+
+_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+_MONTHS_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+
+@app.get("/lighting/calendar/new")
+def light_cal_new(msg: str = ""):
+    ds = _lds()
+    if not (S.can(g.user["role"], "light_work") or S.can(g.user["role"], "light_request")):
+        abort(403)
+    tt = t()
+    argia = S.can(g.user["role"], "light_work")
+    f = request.form if request.method == "POST" else request.args
+    kinds = "".join(f'<option value="{k}"{" selected" if f.get("kind") == k else ""}>{UI.e(tt(en, es))}</option>' for k, en, es, _ in LO.EVENT_KINDS)
+    kind_field = (f'<label>{tt("What", "Qué")}</label><select name="kind">{kinds}</select>' if argia
+                  else f'<input type="hidden" name="kind" value="audit"><p class="small muted">{tt("ARGIA confirms the date or proposes another one; you will see it on the calendar.", "ARGIA confirma la fecha o propone otra; la verá en el calendario.")}</p>')
+    body = f"""{_ltabs("cal", tt, len(LT.pipeline(ds)))}
+<div class="card form"><div class="kick">{tt("Lighting calendar", "Calendario de iluminación")}</div><h1 class="pt">{tt("Add work on site", "Agregar trabajo en sitio") if argia else tt("Request an audit", "Solicitar una auditoría")}</h1>{flash(msg, True)}
+<form method="post" action="/lighting/calendar/new">{csrf_field()}{kind_field}
+<label>{tt("Building (Prologis building code)", "Nave (código Prologis)")}</label><select name="code"><option value="">-</option>{_bopts(ds, (f.get("code") or "").upper())}</select>
+<label>{tt("Or a building not in the list (code and address)", "O una nave que no está en la lista (código y dirección)")}</label><input name="other" maxlength="160" value="{UI.e(f.get("other", ""))}">
+<div class="row"><div><label>{tt("From", "Desde")}</label><input type="date" name="start" required value="{UI.e(f.get("start", ""))}"></div>
+<div><label>{tt("To (optional)", "Hasta (opcional)")}</label><input type="date" name="end" value="{UI.e(f.get("end", ""))}"></div>
+<div><label>{tt("Time", "Hora")}</label><input name="slot" placeholder="09:00" value="{UI.e(f.get("slot", ""))}"></div></div>
+<label>{tt("Title", "Título")}</label><input name="title" maxlength="160" value="{UI.e(f.get("title", ""))}">
+<label>{tt("Notes (access, contact, what is needed)", "Notas (acceso, contacto, qué se necesita)")}</label><textarea name="notes">{UI.e(f.get("notes", ""))}</textarea>
+<div style="margin-top:14px"><button class="btn">{tt("Save", "Guardar") if argia else tt("Send request", "Enviar solicitud")}</button> <a class="btn ghost" href="/lighting/calendar/">{tt("Cancel", "Cancelar")}</a></div></form></div>"""
+    return page(tt("Lighting calendar", "Calendario de iluminación"), body, on="lighting")
+
+
+@app.post("/lighting/calendar/new")
+def light_cal_new_post():
+    ds = _lds()
+    argia = S.can(g.user["role"], "light_work")
+    if not (argia or S.can(g.user["role"], "light_request")):
+        abort(403)
+    tt = t()
+    f = request.form
+    kind = f.get("kind", "audit") if argia else "audit"
+    code = (f.get("code") or "").strip().upper()
+    notes = f.get("notes", "")
+    if f.get("other"):
+        notes = f"{tt('Building', 'Nave')}: {f.get('other')}\n{notes}"
+    title = f.get("title", "") or (f"{tt(*LO.EVENT_KIND[kind][:2])} {code}".strip() if kind in LO.EVENT_KIND else "")
+    c = db()
+    try:
+        eid = LO.add_event(c, kind, code, title, f.get("start", ""), f.get("end", ""), f.get("slot", ""),
+                           "confirmed" if argia else "requested", notes, g.user["username"],
+                           requested_by="" if argia else g.user["username"], ip=ip())
+    except LO.Invalid as ex:
+        return light_cal_new(tt(f"Please check: {ex}.", f"Revise: {ex}."))
+    if not argia:
+        ev = LO.event(c, eid)
+        AL.queue(c, "light_audit", str(eid), f"[Prologis LED] Audit requested - {code or f.get('other', '')} - {ev['start_date']}",
+                 f"{g.user['name'] or g.user['username']} ({g.user['org']}) requested an audit.\nBuilding: {code} {_bname(ds, code)} {f.get('other', '')}\n"
+                 f"Date: {ev['start_date']} {ev['slot']}\n\n{f.get('notes', '')}\n\nhttps://prologis.argia.com.mx/lighting/calendar/e/{eid}/\n",
+                 AL.recipients(c, "critical"), False)
+    return redirect(f"/lighting/calendar/e/{eid}/")
+
+
+@app.get("/lighting/calendar/e/<int:eid>/")
+def light_cal_event(eid: int, msg: str = ""):
+    ds = _lds()
+    tt = t()
+    ev = LO.event(db(), eid)
+    if ev is None:
+        abort(404)
+    en, es, col = LO.EVENT_KIND[ev["kind"]]
+    acts = ""
+    if S.can(g.user["role"], "light_work"):
+        sts = "".join(f'<button class="btn sm ghost" name="status" value="{k}">{UI.e(tt(e1, e2))}</button> ' for k, e1, e2 in LO.EVENT_STATUSES if k != ev["status"])
+        acts = (f'<form method="post" action="/lighting/calendar/e/{eid}/">{csrf_field()}<div class="row">'
+                f'<div><label>{tt("From", "Desde")}</label><input type="date" name="start" value="{UI.e(ev["start_date"])}"></div>'
+                f'<div><label>{tt("To", "Hasta")}</label><input type="date" name="end" value="{UI.e(ev["end_date"])}"></div>'
+                f'<div><label>{tt("Time", "Hora")}</label><input name="slot" value="{UI.e(ev["slot"])}"></div></div>'
+                f'<div style="margin-top:8px"><button class="btn sm" name="status" value="{UI.e(ev["status"])}">{tt("Save dates", "Guardar fechas")}</button> {sts}</div></form>')
+    facts = [(tt("What", "Qué"), f'<span class="pill" style="background:{col}22;color:#14211f">{UI.e(tt(en, es))}</span>'),
+             (tt("Status", "Estado"), UI.e(tt(*LO.EVENT_STATUS[ev["status"]]))),
+             (tt("Prologis building code", "Código Prologis"), UI.e(ev["code"] or "-")), (tt("Park", "Parque"), UI.e(_bname(ds, ev["code"]) or "-")),
+             (tt("Dates", "Fechas"), UI.e(ev["start_date"] + ("" if ev["end_date"] == ev["start_date"] else " - " + ev["end_date"]))),
+             (tt("Time", "Hora"), UI.e(ev["slot"] or "-")),
+             (tt("Warranty claim", "Reclamo de garantía"), f'<a href="/lighting/warranty/c/{UI.e(ev["ref"])}/">{UI.e(ev["ref"])}</a>' if ev["ref"] else "-"),
+             (tt("Requested by", "Solicitado por"), UI.e(ev["requested_by"] or "-"))]
+    ftab = "".join(f'<tr><td class="muted">{k}</td><td><b>{v}</b></td></tr>' for k, v in facts)
+    body = f"""{_ltabs("cal", tt, len(LT.pipeline(ds)))}
+<div class="kick">{tt("Lighting calendar", "Calendario de iluminación")}</div><h1 class="pt">{UI.e(ev["title"])}</h1>{flash(msg, True)}
+<div class="grid g2 lg"><div class="card"><table class="t">{ftab}</table>{f'<p style="white-space:pre-wrap">{UI.e(ev["notes"])}</p>' if ev["notes"] else ""}
+<a class="btn sm ghost" href="/lighting/calendar/?mo={UI.e(ev["start_date"][:7])}">{tt("Back to the calendar", "Volver al calendario")}</a></div>
+{f'<div class="card"><h2>{tt("Update", "Actualizar")}</h2>{acts}</div>' if acts else ""}</div>"""
+    return page(ev["title"], body, on="lighting")
+
+
+@app.post("/lighting/calendar/e/<int:eid>/")
+def light_cal_event_post(eid: int):
+    need("light_work")
+    tt = t()
+    f = request.form
+    try:
+        LO.update_event(db(), eid, g.user["username"], f.get("status") or None, f.get("start", ""), f.get("end", ""), f.get("slot"), ip())
+    except LO.Invalid as ex:
+        return light_cal_event(eid, tt(f"Not possible: {ex}.", f"No es posible: {ex}."))
+    return redirect(f"/lighting/calendar/e/{eid}/")
 
 
 @app.get("/lighting/logo/<key>.png")

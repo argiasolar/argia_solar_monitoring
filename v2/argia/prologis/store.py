@@ -47,6 +47,9 @@ PERMS = {
     "exclusion_decide": {"manager", "admin"},            # v323: Prologis accepts or rejects an availability exclusion
     "contract_edit": {"admin"},                          # v323: effective date, kWh rate and annual fee per site
     "handover_edit": {"manager", "operator", "admin"},   # v338: site handover checklist (Prologis delivers documents, ARGIA the rest)
+    "light_claim_new": {"viewer", "manager", "operator", "admin"},  # v356: any Prologis user reports a failed LED fixture
+    "light_work": {"operator", "admin"},                  # v356: ARGIA works warranty claims and keeps the lighting calendar
+    "light_request": {"manager", "operator", "admin"},    # v356: Prologis managers request an audit date
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -138,6 +141,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _scan.ensure(c)
     from argia.prologis import handover as _handover   # v338: site handover checklist
     _handover.ensure(c)
+    from argia.prologis import lightops as _lightops   # v356: lighting warranty claims and calendar
+    _lightops.ensure(c)
     return c
 
 
@@ -425,7 +430,7 @@ def waiting_spans(events: Sequence[sqlite3.Row]) -> List[Tuple[str, Optional[str
 # ------------------------------------------------------------- documents
 def add_document(c, files_dir: str, site_code: str, folder: str, name: str, data: bytes,
                  mime: str, by: str, ticket_id: Optional[int] = None, ip: str = "") -> int:
-    if folder not in FOLDER_KEYS and folder != "ticket":
+    if folder not in FOLDER_KEYS and folder not in ("ticket", "lighting"):
         raise ValueError("unknown folder")
     sha = hashlib.sha256(data).hexdigest()
     d = os.path.join(files_dir, sha[:2])

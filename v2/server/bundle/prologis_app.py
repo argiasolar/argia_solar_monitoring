@@ -3920,6 +3920,17 @@ def _ltabs(on: str, tt, n_pipe: int) -> str:
     return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{lbl}</a>' for h, lbl, k in tabs) + "</div>"
 
 
+def _logo_src(c) -> str:
+    """Logo URL with a version from the file's size and time: a replaced logo shows at once although the
+    browser keeps logos for a day (v350 - Tomasz still saw the old green tiles after the files were swapped)."""
+    try:
+        st = os.stat(os.path.join(LIGHT_DIR, "logos", c.logo))
+        v = f"{st.st_mtime_ns:x}{st.st_size:x}"[-12:]
+    except OSError:
+        v = "0"
+    return f"/lighting/logo/{UI.e(c.key)}.png?v={v}"
+
+
 def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: str = "") -> str:
     """The customer's logo in full colour (server-only PNG) or a monogram badge."""
     key = p_or_key.group if isinstance(p_or_key, LT.Project) else p_or_key
@@ -3927,7 +3938,7 @@ def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: st
     c = ds.customers.get(key) if key else None
     cls = ("clogo big" if big else ("clogo " + size).strip()) + " plain"
     if c and c.logo:
-        return f'<span class="{cls}"><img src="/lighting/logo/{UI.e(c.key)}.png" alt="{UI.e(c.name)}" loading="lazy"></span>'
+        return f'<span class="{cls}"><img src="{_logo_src(c)}" alt="{UI.e(c.name)}" loading="lazy"></span>'
     words = [w for w in re.split(r"[^A-Za-z0-9&+]+", name) if w]
     init = "".join(w[0] for w in words[:2]).upper() or "-"
     if isinstance(p_or_key, LT.Project) and p_or_key.kind != "tenant":      # vacant, exterior, common areas, stock
@@ -4184,7 +4195,7 @@ def lighting_customers():
                   f'<span><b>{UI.num(t_.mwh_saved)}</b> MWh/{tt("yr", "año")}</span></div></a>')
     other = [p for p in ds.delivered if not p.group]
     with_logo = [(k, ds.customers[k]) for k, _ in rows if k in ds.customers and ds.customers[k].logo]
-    wall = "".join(f'<a href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(c.name)}"><img src="/lighting/logo/{UI.e(c.key)}.png" alt="{UI.e(c.name)}" loading="lazy"></a>'
+    wall = "".join(f'<a href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(c.name)}"><img src="{_logo_src(c)}" alt="{UI.e(c.name)}" loading="lazy"></a>'
                    for k, c in with_logo)
     body = f"""{_ltabs("cust", tt, len(LT.pipeline(ds)))}
 <h1 class="pt">{tt("Customers", "Clientes")}</h1><p class="muted" style="margin-top:0">{len(rows)} {tt("companies in Prologis buildings relit by ARGIA (including projects in progress), largest first. Logos are the companies' own; they identify the occupant at the time of the retrofit.", "empresas en naves de Prologis iluminadas por ARGIA (incluye proyectos en proceso), de mayor a menor. Los logotipos son de cada empresa; identifican al ocupante al momento del proyecto.")}</p>

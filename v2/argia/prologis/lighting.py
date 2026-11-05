@@ -203,12 +203,17 @@ def load(path: str) -> Dataset:
         return parse(json.load(f))
 
 
+def cap_name(s: Optional[str]) -> Optional[str]:
+    """A company name always starts with a capital letter ("syncreon" -> "Syncreon"); the rest is kept as written."""
+    return s[:1].upper() + s[1:] if s else s
+
+
 def parse(d: dict) -> Dataset:
     if not isinstance(d, dict) or d.get("meta", {}).get("schema") != 1:
         raise ValueError("lighting.json: unknown schema")
     projects, seen = [], set()
     for r in d.get("projects", []):
-        p = Project(**{k: r.get(k) for k in Project.__dataclass_fields__ if k in r})
+        p = Project(**{k: (cap_name(r.get(k)) if k == "customer" else r.get(k)) for k in Project.__dataclass_fields__ if k in r})
         if p.id in seen:
             raise ValueError(f"lighting.json: duplicate project {p.id}")
         seen.add(p.id)
@@ -240,7 +245,7 @@ def parse(d: dict) -> Dataset:
         logo = r.get("logo")
         if logo is not None and not LOGO_RE.match(logo):
             raise ValueError(f"lighting.json: bad logo file name for {k}")
-        customers[k] = Customer(k, r.get("name") or k, r.get("domain"), logo)
+        customers[k] = Customer(k, cap_name(r.get("name")) or k, r.get("domain"), logo)
     meta = d["meta"]
     return Dataset(meta.get("generated", ""), projects, buildings, opps, customers, meta.get("note", ""))
 

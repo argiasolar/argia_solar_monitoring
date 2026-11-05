@@ -27,7 +27,7 @@ class TestCustomerPage:
         ds = LT.parse(copy.deepcopy(DATA))
         groups = {p.group for p in ds.projects if p.group}
         expect = sorted(k for k in groups if ds.customers.get(k) and ds.customers[k].logo)
-        wall = re.findall(r'href="/lighting/buildings/\?c=([^"]+)" title="[^"]+"><img src="/lighting/logo/([^"]+)\.png"', _wall(h))
+        wall = re.findall(r'href="/lighting/buildings/\?c=([^"]+)" title="[^"]+"><img src="/lighting/logo/([^"]+)\.png\?v=[0-9a-f]+"', _wall(h))
         assert sorted(k for k, _ in wall) == expect and all(k == f for k, f in wall)
         assert f"{len(expect)} of {len(groups)} customers with their logo" in h
 

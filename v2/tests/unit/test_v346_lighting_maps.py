@@ -109,9 +109,9 @@ class TestPages:
         mod, pws, tmp = env
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         cust = cl.get("/lighting/customers/").get_data(as_text=True)
-        assert 'class="clogo mid plain"><img src="/lighting/logo/acme.png"' in cust
+        assert 'class="clogo mid plain"><img src="/lighting/logo/acme.png?v=' in cust
         table = cl.get("/lighting/buildings/").get_data(as_text=True).split("<h2>Projects")[1]
-        assert 'class="clogo plain"><img src="/lighting/logo/acme.png"' in table
+        assert 'class="clogo plain"><img src="/lighting/logo/acme.png?v=' in table
         for path in ("/lighting/", "/lighting/customers/", "/lighting/buildings/", "/lighting/p/1"):
             h = cl.get(path).get_data(as_text=True)
             assert "grayscale" not in h and " bw" not in h, path

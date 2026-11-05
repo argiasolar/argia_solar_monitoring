@@ -21,22 +21,18 @@ def _wall(h):
 
 
 class TestCustomerPage:
-    def test_every_customer_with_a_logo_is_on_the_wall_once(self, env):
+    def test_the_logo_wall_is_gone(self, env):
+        # v355: "remove the logo carousel from all customers" - every logo is on its card already
         mod, pws, tmp = env
         h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/customers/").get_data(as_text=True)
-        ds = LT.parse(copy.deepcopy(DATA))
-        groups = {p.group for p in ds.projects if p.group}
-        expect = sorted(k for k in groups if ds.customers.get(k) and ds.customers[k].logo)
-        wall = re.findall(r'href="/lighting/buildings/\?c=([^"]+)" title="[^"]+"(?: data-q="[^"]*")?><img src="/lighting/logo/([^"]+)\.png\?v=[0-9a-f]+"', _wall(h))
-        assert sorted(k for k, _ in wall) == expect and all(k == f for k, f in wall)
-        assert f"{len(expect)} of {len(groups)} customers with their logo" in h
+        assert 'class="lwall' not in h and "customers with their logo" not in h
 
     def test_every_customer_has_a_card_with_logo_or_initials(self, env):
         mod, pws, tmp = env
         h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/customers/").get_data(as_text=True)
         ds = LT.parse(copy.deepcopy(DATA))
         groups = {p.group for p in ds.projects if p.group}
-        cards = re.findall(r'<a class="svc ccard" href="/lighting/buildings/\?c=([^"]+)"(?: data-q="[^"]*")?><span class="clogo mid plain( mono)?"', h)
+        cards = re.findall(r'<a class="svc ccard" href="/lighting/buildings/\?c=([^"]+)"(?: data-n="[^"]*" data-p="[^"]*")?><span class="clogo mid plain( mono)?"', h)
         assert sorted(k for k, _ in cards) == sorted(groups)
         for k, mono in cards:
             assert bool(mono) == (not (ds.customers.get(k) and ds.customers[k].logo)), k
@@ -51,5 +47,6 @@ class TestCustomerPage:
         import os, time
         os.utime(tmp / "lighting" / "lighting.json", (time.time() + 5, time.time() + 5))
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
-        assert '/lighting/logo/bravo.png' in _wall(cl.get("/lighting/customers/").get_data(as_text=True))
+        card = cl.get("/lighting/customers/").get_data(as_text=True).split('?c=bravo"')[1].split("</a>")[0]
+        assert '/lighting/logo/bravo.png' in card
         assert cl.get("/lighting/logo/bravo.png").status_code == 200

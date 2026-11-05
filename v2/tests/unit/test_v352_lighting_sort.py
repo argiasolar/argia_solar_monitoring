@@ -120,5 +120,5 @@ class TestInTheBrowser:
         pg.close()
         pg = _page(browser, cl.get("/lighting/buildings/?q=zzzz-nothing").get_data(as_text=True))
         pg.click("table.t.sortable th:nth-child(2)")
-        assert pg.eval_on_selector("table.t.sortable", "t => t.rows[1].cells[0].colSpan") == 11
+        assert pg.eval_on_selector("table.t.sortable", "t => t.rows[1].cells[0].colSpan") == 12
         pg.close()

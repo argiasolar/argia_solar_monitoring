@@ -4217,7 +4217,7 @@ def lighting_list():
         s = p.kwh_saved
         st = LT.STATUSES[p.status]
         rows += (f'<tr><td>{_clogo(ds, p)}</td><td><a href="/lighting/p/{p.id}"><b>{UI.e(p.customer)}</b></a><div class="small muted">{UI.e(tt(*LT.KINDS[p.kind]))}</div></td>'
-                 f'<td>{UI.e(p.park)}<div class="small muted">{_mk(p.market, tt)}</div></td><td class="nw">{UI.e(p.yardi or "-")}</td><td class="n">{p.year or "-"}</td>'
+                 f'<td>{UI.e(p.park)}</td><td>{_mk(p.market, tt)}</td><td class="nw">{UI.e(p.yardi or "-")}</td><td class="n">{p.year or "-"}</td>'
                  f'<td class="n">{UI.num(p.fixtures)}</td><td class="n">{UI.num(p.area_m2)}</td><td class="n">{UI.num(100 * p.saving_share) + " %" if s else "-"}</td>'
                  f'<td class="n">{UI.num(s / 1000, 1) if s else "-"}</td><td class="nw">{UI.e(p.wo_number or "-")}</td>'
                  f'<td><span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></td></tr>')
@@ -4225,9 +4225,9 @@ def lighting_list():
     body = f"""{_ltabs("list", tt, len(LT.pipeline(ds)))}
 <h1 class="pt">{tt("All LED projects", "Todos los proyectos LED")}</h1><p class="muted" style="margin-top:0">{tt("Every building ARGIA has relit for Prologis, and the projects under way.", "Cada nave que ARGIA ha iluminado para Prologis, y los proyectos en curso.")}</p>
 {form}{chips}
-<div class="card"><h2>{tt("Projects", "Proyectos")}{csv_link}</h2><div style="overflow-x:auto"><table class="t sortable"><tr><th></th><th>{tt("Customer", "Cliente")}</th><th>{tt("Park", "Parque")}</th>
+<div class="card"><h2>{tt("Projects", "Proyectos")}{csv_link}</h2><div style="overflow-x:auto"><table class="t sortable"><tr><th></th><th>{tt("Customer", "Cliente")}</th><th>{tt("Park", "Parque")}</th><th>{tt("City", "Ciudad")}</th>
 <th>{tt("Prologis building code", "Código Prologis")}</th><th class="n">{tt("Year", "Año")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th><th class="n">m²</th><th class="n">{tt("Saving", "Ahorro")}</th>
-<th class="n">MWh/{tt("yr", "año")}</th><th>{tt("WO", "OT")}</th><th>{tt("Status", "Estado")}</th></tr>{rows or f'<tr><td colspan="11" class="muted">{tt("No project matches these filters.", "Ningún proyecto coincide con los filtros.")}</td></tr>'}</table></div></div>"""
+<th class="n">MWh/{tt("yr", "año")}</th><th>{tt("WO", "OT")}</th><th>{tt("Status", "Estado")}</th></tr>{rows or f'<tr><td colspan="12" class="muted">{tt("No project matches these filters.", "Ningún proyecto coincide con los filtros.")}</td></tr>'}</table></div></div>"""
     return page(tt("LED projects", "Proyectos LED"), body, on="lighting")
 
 
@@ -4302,35 +4302,34 @@ def lighting_customers():
     ds = _lds()
     tt, today = t(), today_mx()
     rows = LT.summary_rows(LT.group_by([p for p in ds.projects if p.group], lambda p: p.group), today)
+    cname = {k: (ds.customers[k].name if k in ds.customers else k) for k, _ in rows}
+    rows = sorted(rows, key=lambda r: _q(cname[r[0]]))                                 # v355: A-Z (accents ignored)
     cards = ""
     for k, t_ in rows:
-        c = ds.customers.get(k)
-        name = c.name if c else k
+        name = cname[k]
         parks = sorted({p.park for p in ds.projects if p.group == k})
-        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}" data-q="{UI.e(_q(name, k, " ".join(parks)))}">{_clogo(ds, k, name, size="mid")}'
+        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}" data-n="{UI.e(_q(name))}" data-p="{UI.e(_q(" ".join(parks)))}">{_clogo(ds, k, name, size="mid")}'
                   f'<h3>{UI.e(name)}</h3><p>{UI.e(", ".join(parks[:4]))}{"…" if len(parks) > 4 else ""}</p>'
                   f'<div class="foot2"><span><b>{t_.projects}</b> {tt("project", "proyecto") if t_.projects == 1 else tt("projects", "proyectos")}</span><span><b>{UI.num(t_.fixtures)}</b> {tt("fixtures", "luminarias")}</span>'
                   f'<span><b>{UI.num(t_.mwh_saved)}</b> MWh/{tt("yr", "año")}</span></div></a>')
     other = [p for p in ds.delivered if not p.group]
-    with_logo = [(k, ds.customers[k]) for k, _ in rows if k in ds.customers and ds.customers[k].logo]
-    parks_of = {k: " ".join(sorted({p.park for p in ds.projects if p.group == k})) for k, _ in rows}
-    wall = "".join(f'<a href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(c.name)}" data-q="{UI.e(_q(c.name, k, parks_of.get(k, "")))}"><img src="{_logo_src(c)}" alt="{UI.e(c.name)}" loading="lazy"></a>'
-                   for k, c in with_logo)
-    search = (f'<div class="csearch"><input type="search" id="csearch" autocomplete="off" placeholder="{tt("Search a customer or a park", "Buscar un cliente o un parque")}" '
+    search = (f'<div class="csearch"><input type="search" id="csearch" autocomplete="off" placeholder="{tt("Customer name (first letters), or a park", "Nombre del cliente (primeras letras), o un parque")}" '
               f'aria-label="{tt("Search customers", "Buscar clientes")}"><span class="small muted" id="ccount">{len(rows)} {tt("customers", "clientes")}</span></div>'
               f'<p class="muted" id="cnone" hidden>{tt("No customer matches.", "Ningún cliente coincide.")}</p>')
     search_js = ("<script>(function(){var i=document.getElementById('csearch'),n=document.getElementById('ccount'),z=document.getElementById('cnone'),"
-                 "w=document.querySelector('.lwall'),it=document.querySelectorAll('[data-q]'),cards=document.querySelectorAll('.ccard[data-q]');"
+                 "cards=document.querySelectorAll('.ccard[data-n]');"
                  "function nq(s){return s.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().trim();}"
-                 "i.addEventListener('input',function(){var q=nq(i.value),k=0;it.forEach(function(e){var m=!q||e.dataset.q.indexOf(q)>=0;e.hidden=!m;"
-                 "if(m&&e.classList.contains('ccard'))k++;});"
+                 # v355: the name must START with what is typed ("a" -> only names starting with A); from 3 letters a park
+                 # whose name has a word starting with it also matches
+                 "function hit(e,q){if(!q||e.dataset.n.indexOf(q)===0)return true;"
+                 "return q.length>=3&&(' '+e.dataset.p).indexOf(' '+q)>=0;}"
+                 "i.addEventListener('input',function(){var q=nq(i.value),k=0;cards.forEach(function(e){var m=hit(e,q);e.hidden=!m;if(m)k++;});"
                  f"n.textContent=q?k+' {tt('of', 'de')} '+cards.length+' {tt('customers', 'clientes')}':cards.length+' {tt('customers', 'clientes')}';"
-                 "z.hidden=k>0;w.scrollLeft=0;w.dispatchEvent(new Event('hupd'));});})();</script>")
+                 "z.hidden=k>0;});})();</script>")
     body = f"""{_ltabs("cust", tt, len(LT.pipeline(ds)))}
-<h1 class="pt">{tt("Customers", "Clientes")}</h1><p class="muted" style="margin-top:0">{len(rows)} {tt("companies in Prologis buildings relit by ARGIA (including projects in progress), largest first. Logos are the companies' own; they identify the occupant at the time of the retrofit.", "empresas en naves de Prologis iluminadas por ARGIA (incluye proyectos en proceso), de mayor a menor. Los logotipos son de cada empresa; identifican al ocupante al momento del proyecto.")}</p>
-{search}{_hscroll(wall, "lwall", tt)}
-<p class="small muted" style="margin:0 0 14px">{len(with_logo)} {tt("of", "de")} {len(rows)} {tt("customers with their logo; the others show their initials until a logo is confirmed.", "clientes con su logotipo; los demás muestran sus iniciales hasta confirmar el logotipo.")}</p>
-<div class="shopgrid">{cards}</div>{HSCROLL_JS}{search_js}
+<h1 class="pt">{tt("Customers", "Clientes")}</h1><p class="muted" style="margin-top:0">{len(rows)} {tt("companies in Prologis buildings relit by ARGIA (including projects in progress), A to Z. Logos are the companies' own; they identify the occupant at the time of the retrofit.", "empresas en naves de Prologis iluminadas por ARGIA (incluye proyectos en proceso), de la A a la Z. Los logotipos son de cada empresa; identifican al ocupante al momento del proyecto.")}</p>
+{search}
+<div class="shopgrid">{cards}</div>{search_js}
 <p class="small muted">{tt("Not listed here: vacant spaces, exteriors, common areas and stock", "No listados aquí: espacios vacantes, exteriores, áreas comunes y stock")} ({len(other)} {tt("projects", "proyectos")}).</p>"""
     return page(tt("LED customers", "Clientes LED"), body, on="lighting")
 

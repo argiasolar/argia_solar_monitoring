@@ -43,7 +43,7 @@ class TestCodes:
         mod, pws, tmp = env
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         lst = cl.get("/lighting/buildings/").get_data(as_text=True)
-        assert "<th>Park</th>\n<th>Prologis building code</th>" in lst
+        assert "<th>Park</th><th>City</th>\n<th>Prologis building code</th>" in lst
         h = cl.get("/lighting/p/1").get_data(as_text=True)
         assert '<td class="muted">Prologis building code</td><td><b>MXC09901</b></td>' in h
         assert re.search(r'<div class="muted">[^<]*· MXC09901 <span class="pill"', h)          # under the title

@@ -64,26 +64,8 @@ class TestMarkup:
         assert '<a class="r" href="/lighting/customers/">All customers' in h            # the full page is one click away
 
 
-class TestCustomersPage:
-    def test_logo_wall_is_two_scrolling_rows(self, env):
-        _, h = _customers(env)
-        assert '<div class="lwall hrow">' in h and h.count('class="lsb"') == 2
-        assert "grid-template-rows:repeat(2,64px)" in h
-
-    def test_search_box_and_keys_without_accents(self, env):
-        mod, pws, tmp = env
-        d = _many(tmp)
-        d["customers"]["co-00"]["name"] = "Sincronía Logística"
-        f = tmp / "lighting" / "lighting.json"
-        f.write_text(json.dumps(d), encoding="utf-8")
-        os.utime(f, (time.time() + 9, time.time() + 9))
-        h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/customers/").get_data(as_text=True)
-        assert '<input type="search" id="csearch"' in h and 'placeholder="Search a customer or a park"' in h
-        assert 'id="cnone" hidden' in h
-        card = re.search(r'<a class="svc ccard" href="/lighting/buildings/\?c=co-00" data-q="([^"]+)"', h).group(1)
-        assert card == "sincronia logistica co-00 parque uno"                       # name, key and parks; no accents
-        n_cards = len(re.findall(r'<a class="svc ccard"', h))
-        assert f'id="ccount">{n_cards} customers<' in h
+# the Customers page logo wall and its search moved on in v355 (no wall, A-Z, search from the first letter):
+# see test_v355_lighting_customers_az.py
 
 
 class TestVacantSpace:
@@ -148,25 +130,4 @@ class TestInTheBrowser:
         assert len(pg.eval_on_selector_all("#lgrid2 .ltile", "els => [...new Set(els.map(e => e.offsetTop))]")) == 2
         assert not pg.is_visible('.lsb[data-d="1"]')
         assert pg.evaluate("document.documentElement.scrollWidth - innerWidth") <= 1
-        pg.close()
-
-    def test_search_filters_wall_and_cards(self, env, browser):
-        _, h = _customers(env)
-        pg = _page(browser, h, 1440)
-        tops = pg.eval_on_selector_all(".lwall > a", "els => [...new Set(els.map(e => e.offsetTop))]")
-        assert len(tops) <= 2
-        pg.fill("#csearch", "company 07")
-        pg.wait_for_timeout(100)
-        vis = pg.eval_on_selector_all(".ccard", "els => els.filter(e => !e.hidden).map(e => e.querySelector('h3').textContent)")
-        assert vis == ["Company 07"]
-        assert pg.inner_text("#ccount").startswith("1 of ") and pg.is_hidden("#cnone")
-        pg.fill("#csearch", "parque uno")                                           # a park finds its customers
-        pg.wait_for_timeout(100)
-        assert pg.eval_on_selector_all(".ccard", "els => els.filter(e => !e.hidden).length") > 1
-        pg.fill("#csearch", "zzzz")
-        pg.wait_for_timeout(100)
-        assert pg.is_visible("#cnone") and pg.inner_text("#ccount").startswith("0 of ")
-        pg.fill("#csearch", "")
-        pg.wait_for_timeout(100)
-        assert pg.eval_on_selector_all(".ccard", "els => els.filter(e => e.hidden).length") == 0
         pg.close()

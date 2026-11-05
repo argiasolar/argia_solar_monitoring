@@ -261,6 +261,7 @@ class Totals:
     co2_rate_t_s: float = 0.0     # for the live counter (t per second, current factor)
     with_savings: int = 0
     first_year: Optional[int] = None
+    stock_fixtures: int = 0           # v346: delivered as replacement stock, not counted as installed
 
 
 def building_key(p: Project) -> str:
@@ -274,7 +275,8 @@ def totals(projects: Iterable[Project], today: dt.date) -> Totals:
     t.parks = len({(p.market, p.park) for p in ps})
     t.markets = len({p.market for p in ps})
     t.customers = len({p.group for p in ps if p.group})
-    t.fixtures = sum(p.fixtures or 0 for p in ps)
+    t.fixtures = sum(p.fixtures or 0 for p in ps if p.kind != "stock")   # v346: replacement stock is not installed
+    t.stock_fixtures = sum(p.fixtures or 0 for p in ps if p.kind == "stock")
     t.area_m2 = sum(p.area_m2 or 0 for p in ps)
     saved = [p.kwh_saved for p in ps if p.kwh_saved]
     t.with_savings = len(saved)
@@ -309,6 +311,36 @@ def per_year(projects: Iterable[Project]) -> List[Tuple[int, int, int]]:
     y0, y1 = min(p.year for p in ps), max(p.year for p in ps)
     return [(y, sum(1 for p in ps if p.year == y), sum(p.fixtures or 0 for p in ps if p.year == y))
             for y in range(y0, y1 + 1)]
+
+
+def year_series(projects: Iterable[Project], today: dt.date) -> Dict[str, List[Tuple[int, float]]]:
+    """v346 - the overview's chart options, one value per calendar year from the first delivery to today:
+    projects, installed LED fixtures, floor area, design MWh/yr added, and t CO2e avoided in that year by
+    everything handed over until then (each year at its own grid factor) plus the running total."""
+    ps = [p for p in projects if p.delivered and p.year]
+    if not ps:
+        return {}
+    y0, y1 = min(p.year for p in ps), max(max(p.year for p in ps), today.year)
+    years = range(y0, y1 + 1)
+    out = {"projects": [], "fixtures": [], "area_m2": [], "mwh": [], "co2_year": [], "co2_cum": []}
+    cum = 0.0
+    for y in years:
+        this = [p for p in ps if p.year == y]
+        out["projects"].append((y, float(len(this))))
+        out["fixtures"].append((y, float(sum(p.fixtures or 0 for p in this if p.kind != "stock"))))
+        out["area_m2"].append((y, float(sum(p.area_m2 or 0 for p in this))))
+        out["mwh"].append((y, sum(p.kwh_saved or 0 for p in this) / 1000))
+        end = min(dt.date(y + 1, 1, 1), today)
+        start = dt.date(y, 1, 1)
+        in_year = 0.0
+        for p in ps:
+            a = p.co2_t_since(end) or 0.0
+            b = p.co2_t_since(start) or 0.0
+            in_year += max(0.0, a - b)
+        cum += in_year
+        out["co2_year"].append((y, in_year))
+        out["co2_cum"].append((y, cum))
+    return out
 
 
 def park_key(p: Project) -> str:

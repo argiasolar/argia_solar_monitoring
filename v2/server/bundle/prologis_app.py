@@ -30,6 +30,10 @@ log of every login, change, upload and download, and a data export.
                       HTML file kept server-only (it carries the offer's prices).
     /maintenance/     preventive maintenance and cleaning plan: year planner, month
                       calendar, tasks, iCalendar export (v333)
+    /lighting/        the LED programme (Prologis Essentials): overview by city and park with a
+                      live CO2 counter, every project, customers with their logos, one page per
+                      project with a satellite picture, and the buildings of 5,000 m2+ not yet on
+                      LED; server-only data LIGHT_DIR/lighting.json - no file, no menu entry (v345)
 
 Metering is labelled SAMPLE until Prologis grants SolarEdge access
 (argia.prologis.metering). Customer data (registry, database, files,
@@ -83,6 +87,7 @@ from argia.prologis import scan as SC                     # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
 from argia.prologis import maintplan as PM            # noqa: E402  (v333)
+from argia.prologis import lighting as LT                 # noqa: E402  (v345)
 from argia.prologis import totp as TOTP                   # noqa: E402
 from argia.prologis import xlsx as XL                     # noqa: E402
 
@@ -283,6 +288,8 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
            ("/maintenance/", tt("Maintenance", "Mantenimiento"), "maint"), ("/shop/", tt("Services", "Servicios"), "shop"), ("/assets/", tt("Assets", "Activos"), "assets"),
            ("/alarms/", tt("Alarms", "Alarmas"), "alarms"), ("/reports/", tt("Reports", "Reportes"), "reports"),
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
+    if lighting_ds() is not None:                       # v345: only where the server has the LED programme data
+        nav.insert(nav.index(next(x for x in nav if x[2] == "projects")), ("/lighting/", tt("Lighting", "Iluminación"), "lighting"))
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
     # v338: the account links fold into one menu under the user's name, so the main menu fits on one line
@@ -3839,6 +3846,413 @@ def maint_ics():
     body = PM.ics(occ, {s_.code: s_.name for s_ in rg.sites}, request.host or "prologis.argia.com.mx", tt.lang)
     S.audit(c, g.user["username"], ip(), "pm_ics", "plan.ics", f"{len(occ)} events")
     return Response(body, mimetype="text/calendar", headers={"Content-Disposition": 'attachment; filename="maintenance-plan.ics"'})
+
+
+# ------------------------------------------------------------- v345: LED lighting (Prologis Essentials)
+# Tomasz, 5 Nov 2026: the LED programme ARGIA delivers for Prologis since 2019 on this platform - by city,
+# park and customer, every building in a table, statistics, a CO2 counter, a satellite picture per plant,
+# the customers' logos, and the Prologis buildings of 5,000 m2+ still not on LED. Data: the server-only
+# LIGHT_DIR/lighting.json (+ logos/<key>.png), written on Tomasz's laptop; no file = no menu entry, 404.
+LIGHT_DIR = os.environ.get("ARGIA_PL_LIGHTING_DIR", os.path.join(DATA_DIR, "lighting"))
+_LIGHT_CACHE: Dict[str, object] = {"mtime": None, "ds": None, "err": None}
+
+
+def lighting_ds() -> Optional[LT.Dataset]:
+    """The dataset, re-read when the file changes. A broken file keeps the last good one (and says why in
+    the log); no file at all = None."""
+    path = os.path.join(LIGHT_DIR, "lighting.json")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        _LIGHT_CACHE.update(mtime=None, ds=None, err=None)
+        return None
+    if _LIGHT_CACHE["mtime"] == mt:
+        return _LIGHT_CACHE["ds"]
+    try:
+        _LIGHT_CACHE.update(mtime=mt, ds=LT.load(path), err=None)
+    except (OSError, ValueError, TypeError, KeyError) as ex:
+        _LIGHT_CACHE.update(mtime=mt, err=str(ex))
+        print(f"lighting.json not loaded: {ex}", file=sys.stderr)
+    return _LIGHT_CACHE["ds"]
+
+
+def _lds() -> LT.Dataset:
+    need("view")
+    ds = lighting_ds()
+    if ds is None:
+        abort(404)
+    return ds
+
+
+def _mk(key: str, tt) -> str:
+    return UI.e(tt(*LT.MARKETS.get(key, (key, key))))
+
+
+def _ltabs(on: str, tt, n_pipe: int) -> str:
+    tabs = [("/lighting/", tt("Overview", "Resumen"), "home"), ("/lighting/buildings/", tt("All buildings", "Todas las naves"), "list"),
+            ("/lighting/customers/", tt("Customers", "Clientes"), "cust"),
+            ("/lighting/pipeline/", tt("Not yet on LED", "Aún sin LED") + f"<b>{n_pipe}</b>", "pipe")]
+    return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{lbl}</a>' for h, lbl, k in tabs) + "</div>"
+
+
+def _clogo(ds: LT.Dataset, p_or_key, name: str = "", big: bool = False, size: str = "") -> str:
+    """The customer's logo (server-only PNG) or a monogram badge."""
+    key = p_or_key.group if isinstance(p_or_key, LT.Project) else p_or_key
+    name = name or (p_or_key.customer if isinstance(p_or_key, LT.Project) else key) or ""
+    c = ds.customers.get(key) if key else None
+    cls = "clogo big" if big else ("clogo " + size).strip()
+    if c and c.logo:
+        return f'<span class="{cls}"><img src="/lighting/logo/{UI.e(c.key)}.png" alt="{UI.e(c.name)}" loading="lazy"></span>'
+    words = [w for w in re.split(r"[^A-Za-z0-9&+]+", name) if w]
+    init = "".join(w[0] for w in words[:2]).upper() or "-"
+    if isinstance(p_or_key, LT.Project) and p_or_key.kind != "tenant":      # vacant, exterior, common areas, stock
+        return f'<span class="{cls} mono" style="background:#9aa4ad">{UI.e(init)}</span>'
+    hue = int(hashlib.md5(name.encode()).hexdigest()[:4], 16) % 360
+    return f'<span class="{cls} mono" style="background:hsl({hue} 30% 36%)">{UI.e(init)}</span>'
+
+
+def _lmap(points: List[Dict], height: str = "520px", sat: bool = False) -> str:
+    """Leaflet map (streets / satellite, Esri - the tiles the CSP allows), one circle per point, popup with a link."""
+    data = json.dumps(points, ensure_ascii=False).replace("</", "<\\/")
+    base = "sat" if sat else "st"
+    return f"""<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<div id="map" style="height:{height}"></div><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>(function(){{var P={data};var m=L.map('map',{{scrollWheelZoom:false}});
+var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}});
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}});
+{base}.addTo(m);L.control.layers({{'Streets':st,'Satellite':sat}}).addTo(m);
+function esc(s){{return String(s).replace(/[&<>"]/g,function(c){{return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c];}});}}
+var b=[];P.forEach(function(p){{b.push([p.lat,p.lon]);L.circleMarker([p.lat,p.lon],{{radius:p.r||7,color:'#fff',weight:1.5,fillColor:p.c,fillOpacity:.9}}).addTo(m)
+.bindPopup('<b>'+esc(p.t)+'</b><div class="small muted">'+esc(p.s)+'</div>'+(p.u?'<a href="'+p.u+'">'+esc(p.l||'Open')+' ›</a>':''));}});
+if(b.length>1)m.fitBounds(b,{{padding:[30,30],maxZoom:15}});else if(b.length)m.setView(b[0],16);}})();</script>"""
+
+
+def _park_points(ds: LT.Dataset, projects: List[LT.Project], tt) -> List[Dict]:
+    pts = []
+    for key, ps in LT.group_by([p for p in projects if p.lat is not None], LT.park_key).items():
+        t_ = LT.totals(ps, today_mx())
+        pts.append({"lat": sum(p.lat for p in ps) / len(ps), "lon": sum(p.lon for p in ps) / len(ps),
+                    "c": UI.TEAL, "r": max(6, min(22, (t_.fixtures or 50) ** 0.5 / 2.4)),
+                    "t": f"{ps[0].park} ({tt(*LT.MARKETS[ps[0].market])})",
+                    "s": f"{t_.projects} {tt('projects', 'proyectos')} · {UI.num(t_.fixtures)} {tt('fixtures', 'luminarias')} · {UI.num(t_.area_m2)} m²",
+                    "u": f"/lighting/buildings/?pk={key}", "l": tt("Open the park", "Abrir el parque")})
+    return pts
+
+
+def _tbl_summary(rows, tt, link_key: str, label) -> str:
+    out = ""
+    for k, t_ in rows:
+        out += (f'<tr><td><a href="/lighting/buildings/?{link_key}={UI.e(k)}">{UI.e(label(k))}</a></td><td class="n">{t_.projects}</td>'
+                f'<td class="n">{UI.num(t_.fixtures)}</td><td class="n">{UI.num(t_.area_m2)}</td><td class="n">{UI.num(t_.mwh_saved)}</td>'
+                f'<td class="n">{UI.num(t_.co2_t_year)}</td></tr>')
+    return (f'<div style="overflow-x:auto"><table class="t"><tr><th></th><th class="n">{tt("Projects", "Proyectos")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th>'
+            f'<th class="n">m²</th><th class="n">MWh/{tt("yr", "año")}</th><th class="n">t CO₂e/{tt("yr", "año")}</th></tr>{out}</table></div>')
+
+
+@app.get("/lighting/")
+def lighting_home():
+    ds = _lds()
+    tt, today = t(), today_mx()
+    T_ = LT.totals(ds.projects, today)
+    pipe = LT.pipeline(ds)
+    deliv = ds.delivered
+    by_m = LT.summary_rows(LT.group_by(deliv, lambda p: p.market), today)
+    by_p = LT.summary_rows(LT.group_by(deliv, LT.park_key), today)
+    pname = {LT.park_key(p): f"{p.park} · {tt(*LT.MARKETS[p.market])}" for p in deliv}
+    yrs = LT.per_year(ds.projects)
+    chart = UI.bar_chart([(str(y), n, None) for y, n, _ in yrs], unit=tt("projects", "proyectos"), h=210)
+    cust = LT.summary_rows(LT.group_by([p for p in deliv if p.group], lambda p: p.group), today)[:24]
+    logos = "".join(f'<a class="ltile" href="/lighting/buildings/?c={UI.e(k)}" title="{UI.e(ds.customers[k].name if k in ds.customers else k)}">'
+                    f'{_clogo(ds, k, ds.customers[k].name if k in ds.customers else k, size="mid")}<span>{UI.e(ds.customers[k].name if k in ds.customers else k)}</span>'
+                    f'<small>{t_.projects} · {UI.num(t_.fixtures)} {tt("fixtures", "luminarias")}</small></a>' for k, t_ in cust)
+    cnt = {k: sum(1 for s in pipe if s.status == k) for k in LT.BSTATUS}
+    pot = LT.potential(pipe, LT.intensity(ds), today.year)
+    since = f"{tt('since', 'desde')} {T_.first_year}" if T_.first_year else ""
+    kp = [(tt("Projects delivered", "Proyectos entregados"), UI.num(T_.projects), "", f"{UI.num(T_.buildings)} {tt('buildings', 'naves')} {since}"),
+          (tt("LED fixtures installed", "Luminarias LED instaladas"), UI.num(T_.fixtures), "", ""),
+          (tt("Floor area relit", "Superficie iluminada"), UI.num(T_.area_m2 / 1e6, 2), "M m²", ""),
+          (tt("Energy saved", "Energía ahorrada"), UI.num(T_.mwh_saved / 1000, 1), f"GWh/{tt('yr', 'año')}", tt("design, from the lighting studies", "de diseño, según estudios lumínicos")),
+          (tt("CO₂e avoided", "CO₂e evitado"), UI.num(T_.co2_t_year), f"t/{tt('yr', 'año')}", UI.e(co2reg_label())),
+          (tt("Parks · markets", "Parques · mercados"), f"{T_.parks} · {T_.markets}", "", f"{T_.customers} {tt('customers', 'clientes')}")]
+    kpis = "".join(f'<div class="kpi"><div class="l">{l}</div><div class="v">{v}<small>{u}</small></div><div class="d">{d}</div></div>' for l, v, u, d in kp)
+    counter = (f'<div class="kpi lcount"><div class="l"><span class="live-dot"></span>{tt("CO₂e avoided since handover", "CO₂e evitado desde la entrega")}</div>'
+               f'<div class="v"><span id="co2c" data-v="{T_.co2_t_since:.4f}" data-r="{T_.co2_rate_t_s:.10f}">{UI.num(T_.co2_t_since, 3)}</span><small>t</small></div>'
+               f'<div class="d">{tt("each year at that year&#39;s grid factor; counting live", "cada año con su factor de red; contando en vivo")}</div></div>')
+    js = """<script>(function(){var el=document.getElementById('co2c');if(!el)return;var v0=parseFloat(el.dataset.v),r=parseFloat(el.dataset.r),t0=Date.now();
+setInterval(function(){el.textContent=(v0+r*(Date.now()-t0)/1000).toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3});},250);})();</script>"""
+    body = f"""{_ltabs("home", tt, len(pipe))}
+<section class="hero"><div class="glow"></div><div class="k">{tt("LED lighting · Prologis Essentials", "Iluminación LED · Prologis Essentials")}</div>
+<h1>{tt("Prologis buildings relit with LED, one view.", "Naves de Prologis con iluminación LED, en una vista.")}</h1>
+<div class="sub">{tt("ARGIA converts Prologis buildings across Mexico to LED: audit, lighting study, proforma, work order, installation and handover.", "ARGIA convierte naves de Prologis en todo México a LED: auditoría, estudio lumínico, proforma, orden de trabajo, instalación y entrega.")}</div>
+<div class="kpis">{counter}{kpis}</div></section>
+<div class="grid g2 lg"><div class="card"><h2 style="flex-wrap:wrap">{tt("Where", "Dónde")}<span class="r muted" style="font-weight:600">{tt("one circle per park, size = LED fixtures", "un círculo por parque, tamaño = luminarias")}</span></h2>{_lmap(_park_points(ds, deliv, tt))}</div>
+<div class="card"><h2>{tt("By city", "Por ciudad")}</h2>{_tbl_summary(by_m, tt, "m", lambda k: tt(*LT.MARKETS[k]))}
+<h2 style="margin-top:18px">{tt("Projects delivered per year", "Proyectos entregados por año")}</h2>{chart}</div></div>
+<div class="grid g2e lg"><div class="card"><h2>{tt("By park", "Por parque")}<span class="r muted">{len(by_p)} {tt("parks", "parques")}</span></h2>
+<div class="sitebox" style="max-height:440px">{_tbl_summary(by_p, tt, "pk", lambda k: pname.get(k, k))}</div></div>
+<div class="card"><h2>{tt("Still to convert", "Por convertir")}<a class="r" href="/lighting/pipeline/">{tt("Open the list", "Abrir la lista")} ›</a></h2>
+<p class="small muted" style="margin-top:0">{tt("Prologis buildings of 5,000 m² and more (Prologis property database) that are not, or only partly, on LED according to ARGIA's records.", "Naves de Prologis de 5,000 m² o más (base de propiedades de Prologis) que según los registros de ARGIA no están, o solo en parte, en LED.")}</p>
+<table class="t">{"".join(f'<tr><td><span class="pill" style="background:{LT.BSTATUS[k][2]}22;color:#14211f">{UI.e(tt(*LT.BSTATUS[k][:2]))}</span></td><td class="n"><b>{cnt[k]}</b></td></tr>' for k in ("in_progress", "audited", "partial", "not_started"))}
+<tr><td>{tt("Floor area to convert", "Superficie por convertir")}</td><td class="n"><b>{UI.num(pot["m2"])} m²</b></td></tr>
+<tr><td>{tt("Potential (estimate)", "Potencial (estimado)")}</td><td class="n"><b>{UI.num(pot["mwh"])} MWh/{tt("yr", "año")} · {UI.num(pot["co2_t"])} t CO₂e/{tt("yr", "año")}</b></td></tr></table></div></div>
+<div class="card" style="margin-top:16px"><h2>{tt("Customers", "Clientes")}<a class="r" href="/lighting/customers/">{tt("All customers", "Todos los clientes")} ›</a></h2><div class="lgrid2">{logos}</div></div>
+<p class="small muted">{tt("Savings are design values from ARGIA's lighting studies (annual kWh before vs after), not metered. Positions are park-level unless the building was surveyed. Data as of", "Los ahorros son valores de diseño de los estudios lumínicos de ARGIA (kWh anuales antes y después), no medidos. Las posiciones son por parque salvo levantamiento. Datos al")} {UI.e(ds.generated)}.</p>{js}"""
+    return page(tt("LED lighting", "Iluminación LED"), body, on="lighting")
+
+
+def co2reg_label() -> str:
+    from argia.core import co2 as _co2
+    return _co2.label()
+
+
+def _filter(ds: LT.Dataset) -> tuple:
+    a = request.args
+    q = (a.get("q") or "").strip().lower()[:80]
+    ps = ds.projects
+    if a.get("m"):
+        ps = [p for p in ps if p.market == a.get("m")]
+    if a.get("pk"):
+        ps = [p for p in ps if LT.park_key(p) == a.get("pk")]
+    if a.get("c"):
+        ps = [p for p in ps if p.group == a.get("c")]
+    if a.get("s"):
+        ps = [p for p in ps if p.status == a.get("s")]
+    if a.get("y", "").isdigit():
+        ps = [p for p in ps if p.year == int(a.get("y"))]
+    if q:
+        ps = [p for p in ps if q in " ".join(str(x or "") for x in (p.customer, p.park, p.bldg, p.yardi, p.wo_number, p.po_number)).lower()]
+    return ps, {k: a.get(k, "") for k in ("q", "m", "pk", "c", "s", "y")}
+
+
+@app.get("/lighting/buildings/")
+def lighting_list():
+    ds = _lds()
+    tt, today = t(), today_mx()
+    ps, f = _filter(ds)
+    ps = sorted(ps, key=lambda p: (-(p.year or 0), p.market, p.park, p.bldg or ""))
+    T_ = LT.totals(ps, today)
+    parks = sorted({(LT.park_key(p), f"{p.park} · {tt(*LT.MARKETS[p.market])}") for p in ds.projects}, key=lambda x: x[1])
+    custs = sorted({(p.group, ds.customers[p.group].name if p.group in ds.customers else p.customer) for p in ds.projects if p.group}, key=lambda x: x[1].lower())
+    years = sorted({p.year for p in ds.projects if p.year}, reverse=True)
+
+    def sel(name, opts, cur, all_lbl):
+        return (f'<select name="{name}" onchange="this.form.submit()"><option value="">{all_lbl}</option>'
+                + "".join(f'<option value="{UI.e(v)}"{" selected" if str(v) == cur else ""}>{UI.e(lbl)}</option>' for v, lbl in opts) + "</select>")
+    form = (f'<form class="lfilt" method="get"><input name="q" value="{UI.e(f["q"])}" placeholder="{tt("Search customer, park, building code, WO, PO", "Buscar cliente, parque, código, OT, OC")}">'
+            + sel("m", [(k, tt(*LT.MARKETS[k])) for k in LT.MARKETS if any(p.market == k for p in ds.projects)], f["m"], tt("All cities", "Todas las ciudades"))
+            + sel("pk", parks, f["pk"], tt("All parks", "Todos los parques"))
+            + sel("c", custs, f["c"], tt("All customers", "Todos los clientes"))
+            + sel("s", [(k, tt(*v[:2])) for k, v in LT.STATUSES.items()], f["s"], tt("Any status", "Cualquier estado"))
+            + sel("y", [(y, y) for y in years], f["y"], tt("All years", "Todos los años"))
+            + f'<button class="btn sm">{tt("Filter", "Filtrar")}</button><a class="btn sm ghost" href="/lighting/buildings/">{tt("Clear", "Limpiar")}</a></form>')
+    chips = (f'<div class="lchips"><span class="chip"><b>{len(ps)}</b> {tt("projects", "proyectos")}</span><span class="chip"><b>{UI.num(T_.fixtures)}</b> {tt("LED fixtures", "luminarias LED")}</span>'
+             f'<span class="chip"><b>{UI.num(T_.area_m2)}</b> m²</span><span class="chip"><b>{UI.num(T_.mwh_saved)}</b> MWh/{tt("yr", "año")}</span>'
+             f'<span class="chip"><b>{UI.num(T_.co2_t_year)}</b> t CO₂e/{tt("yr", "año")}</span><span class="chip"><b>{UI.num(T_.co2_t_since)}</b> t CO₂e {tt("since handover", "desde la entrega")}</span></div>')
+    rows = ""
+    for p in ps:
+        s = p.kwh_saved
+        st = LT.STATUSES[p.status]
+        rows += (f'<tr><td>{_clogo(ds, p)}</td><td><a href="/lighting/p/{p.id}"><b>{UI.e(p.customer)}</b></a><div class="small muted">{UI.e(tt(*LT.KINDS[p.kind]))}</div></td>'
+                 f'<td>{UI.e(p.place)}<div class="small muted">{_mk(p.market, tt)}</div></td><td class="nw">{UI.e(p.yardi or "-")}</td><td class="n">{p.year or "-"}</td>'
+                 f'<td class="n">{UI.num(p.fixtures)}</td><td class="n">{UI.num(p.area_m2)}</td><td class="n">{UI.num(100 * p.saving_share) + " %" if s else "-"}</td>'
+                 f'<td class="n">{UI.num(s / 1000, 1) if s else "-"}</td><td class="nw">{UI.e(p.wo_number or "-")}</td>'
+                 f'<td><span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></td></tr>')
+    csv_link = (f'<a class="r" href="/lighting/projects.csv?{UI.e(request.query_string.decode())}">CSV ›</a>' if S.can(g.user["role"], "export") else "")
+    body = f"""{_ltabs("list", tt, len(LT.pipeline(ds)))}
+<h1 class="pt">{tt("All LED projects", "Todos los proyectos LED")}</h1><p class="muted" style="margin-top:0">{tt("Every building ARGIA has relit for Prologis, and the projects under way.", "Cada nave que ARGIA ha iluminado para Prologis, y los proyectos en curso.")}</p>
+{form}{chips}
+<div class="card"><h2>{tt("Projects", "Proyectos")}{csv_link}</h2><div style="overflow-x:auto"><table class="t"><tr><th></th><th>{tt("Customer", "Cliente")}</th><th>{tt("Park · building", "Parque · nave")}</th>
+<th>{tt("Building code", "Código")}</th><th class="n">{tt("Year", "Año")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th><th class="n">m²</th><th class="n">{tt("Saving", "Ahorro")}</th>
+<th class="n">MWh/{tt("yr", "año")}</th><th>{tt("WO", "OT")}</th><th>{tt("Status", "Estado")}</th></tr>{rows or f'<tr><td colspan="11" class="muted">{tt("No project matches these filters.", "Ningún proyecto coincide con los filtros.")}</td></tr>'}</table></div></div>"""
+    return page(tt("LED projects", "Proyectos LED"), body, on="lighting")
+
+
+@app.get("/lighting/p/<int:pid>")
+def lighting_project(pid: int):
+    ds = _lds()
+    tt, today = t(), today_mx()
+    p = ds.project(pid)
+    if p is None:
+        abort(404)
+    st = LT.STATUSES[p.status]
+    s = p.kwh_saved
+    pic = ""
+    if p.lat is not None:
+        cap = (tt("Satellite view of the building", "Vista satelital de la nave") if p.geo == "building"
+               else tt("Satellite view of the park (the building's exact position is not surveyed yet)", "Vista satelital del parque (la posición exacta de la nave aún no está levantada)"))
+        pic = (f'<img class="satimg" src="{UI.e(LT.satellite_url(p.lat, p.lon, half_m=180 if p.geo == "building" else 420))}" alt="{UI.e(cap)}" loading="lazy">'
+               f'<div class="small muted" style="margin-top:6px">{UI.e(cap)} · Esri World Imagery · '
+               f'<a href="{UI.e(LT.google_maps_url(p.lat, p.lon))}" target="_blank" rel="noopener">{tt("Open in Google Maps (satellite)", "Abrir en Google Maps (satélite)")} ›</a></div>')
+    hand = p.handover_date if not p.handover_planned else (f'{p.handover_date} ({tt("planned", "planeada")})' if p.handover_date else None)
+    since = p.co2_t_since(today)
+    facts = [(tt("Customer", "Cliente"), UI.e(p.customer)), (tt("Type", "Tipo"), UI.e(tt(*LT.KINDS[p.kind]))),
+             (tt("Park · building", "Parque · nave"), UI.e(p.place)), (tt("City", "Ciudad"), _mk(p.market, tt)),
+             (tt("Prologis building code", "Código Prologis"), UI.e(p.yardi or "-")),
+             (tt("Work order", "Orden de trabajo"), UI.e(p.wo_number or "-")), (tt("Prologis PO", "OC Prologis"), UI.e(p.po_number or "-")),
+             (tt("Work order signed", "OT firmada"), UI.e(p.wo_date or "-")), (tt("Handover", "Entrega"), UI.e(hand or "-")),
+             (tt("LED fixtures", "Luminarias LED"), UI.num(p.fixtures)), (tt("Area", "Superficie"), f"{UI.num(p.area_m2)} m²" if p.area_m2 else "-"),
+             (tt("Fixture maker", "Fabricante"), UI.e(p.maker or "-")), (tt("Controls", "Controles"), UI.e(p.controls or "-")),
+             (tt("Design light level", "Nivel de diseño"), UI.e(p.lux or "-"))]
+    ftab = "".join(f'<tr><td class="muted">{k}</td><td><b>{v}</b></td></tr>' for k, v in facts)
+    energy = ""
+    if s:
+        mx = p.kwh_before
+        energy = (f'<div class="card"><h2>{tt("Energy (design)", "Energía (diseño)")}</h2>'
+                  f'<div class="small">{tt("Before", "Antes")} <b>{UI.num(p.kwh_before)} kWh/{tt("yr", "año")}</b></div><div class="hbar"><i style="width:100%;background:#9aa4ad"></i></div>'
+                  f'<div class="small" style="margin-top:8px">{tt("After", "Después")} <b>{UI.num(p.kwh_after)} kWh/{tt("yr", "año")}</b></div><div class="hbar"><i style="width:{100 * p.kwh_after / mx:.1f}%"></i></div>'
+                  f'<div class="facts" style="margin-top:14px"><div class="chip"><b>{UI.num(100 * p.saving_share)} %</b> {tt("less energy", "menos energía")}</div>'
+                  f'<div class="chip"><b>{UI.num(s / 1000, 1)}</b> MWh/{tt("yr", "año")}</div><div class="chip"><b>{UI.num(p.co2_t_per_year(today.year), 1)}</b> t CO₂e/{tt("yr", "año")}</div>'
+                  f'<div class="chip"><b>{UI.num(since, 1) if since is not None else "-"}</b> t CO₂e {tt("since handover", "desde la entrega")}</div></div></div>')
+    steps = [("audit", tt("Audit", "Auditoría")), ("study", tt("Lighting study", "Estudio lumínico")), ("proforma", "Proforma"),
+             ("wo", tt("Work order", "Orden de trabajo")), ("handover", tt("Handover", "Entrega"))]
+    stepper = "".join(f'<div class="st{" done" if p.docs.get(k) else ""}"><i></i>{lbl}</div>' for k, lbl in steps)
+    same = [q for q in ds.projects if LT.park_key(q) == LT.park_key(p) and q.id != p.id]
+    others = "".join(f'<tr><td>{_clogo(ds, q)}</td><td><a href="/lighting/p/{q.id}">{UI.e(q.customer)}</a></td><td>{UI.e(q.bldg or "-")}</td>'
+                     f'<td class="n">{q.year or "-"}</td><td class="n">{UI.num(q.fixtures)}</td></tr>' for q in sorted(same, key=lambda q: -(q.year or 0)))
+    body = f"""{_ltabs("list", tt, len(LT.pipeline(ds)))}
+<div class="lhead">{_clogo(ds, p, big=True)}<div><div class="kick">{_mk(p.market, tt)} · {UI.e(p.park)}</div><h1 class="pt">{UI.e(p.customer)}</h1>
+<div class="muted">{UI.e(p.place)} <span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></div></div></div>
+<div class="stepper">{stepper}</div><p class="small muted" style="margin:0 0 6px">{tt("Steps with a document in ARGIA's project folders are filled in.", "Los pasos con documento en las carpetas de ARGIA aparecen llenos.")}</p>
+<div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
+<div class="card"><h2>{tt("Project", "Proyecto")}</h2><div style="overflow-x:auto"><table class="t">{ftab}</table></div></div></div>
+<div class="grid g2e lg">{energy}<div class="card"><h2>{tt("Other projects in this park", "Otros proyectos en este parque")}</h2>
+{f'<table class="t">{others}</table>' if others else f'<span class="muted">{tt("None yet.", "Ninguno aún.")}</span>'}</div></div>"""
+    return page(p.customer, body, on="lighting")
+
+
+@app.get("/lighting/customers/")
+def lighting_customers():
+    ds = _lds()
+    tt, today = t(), today_mx()
+    rows = LT.summary_rows(LT.group_by([p for p in ds.projects if p.group], lambda p: p.group), today)
+    cards = ""
+    for k, t_ in rows:
+        c = ds.customers.get(k)
+        name = c.name if c else k
+        parks = sorted({p.park for p in ds.projects if p.group == k})
+        cards += (f'<a class="svc ccard" href="/lighting/buildings/?c={UI.e(k)}">{_clogo(ds, k, name, big=True)}'
+                  f'<h3>{UI.e(name)}</h3><p>{UI.e(", ".join(parks[:4]))}{"…" if len(parks) > 4 else ""}</p>'
+                  f'<div class="foot2"><span><b>{t_.projects}</b> {tt("project", "proyecto") if t_.projects == 1 else tt("projects", "proyectos")}</span><span><b>{UI.num(t_.fixtures)}</b> {tt("fixtures", "luminarias")}</span>'
+                  f'<span><b>{UI.num(t_.mwh_saved)}</b> MWh/{tt("yr", "año")}</span></div></a>')
+    other = [p for p in ds.delivered if not p.group]
+    body = f"""{_ltabs("cust", tt, len(LT.pipeline(ds)))}
+<h1 class="pt">{tt("Customers", "Clientes")}</h1><p class="muted" style="margin-top:0">{len(rows)} {tt("companies in Prologis buildings relit by ARGIA, largest first. Logos are the companies' own; they identify the occupant at the time of the retrofit.", "empresas en naves de Prologis iluminadas por ARGIA, de mayor a menor. Los logotipos son de cada empresa; identifican al ocupante al momento del proyecto.")}</p>
+<div class="shopgrid">{cards}</div>
+<p class="small muted">{tt("Not listed here: vacant spaces, exteriors, common areas and stock", "No listados aquí: espacios vacantes, exteriores, áreas comunes y stock")} ({len(other)} {tt("projects", "proyectos")}).</p>"""
+    return page(tt("LED customers", "Clientes LED"), body, on="lighting")
+
+
+@app.get("/lighting/pipeline/")
+def lighting_pipeline():
+    ds = _lds()
+    tt, today = t(), today_mx()
+    allp = LT.pipeline(ds)
+    stf, mf = request.args.get("s", ""), request.args.get("m", "")
+    rows_ = [r for r in allp if (not stf or r.status == stf) and (not mf or r.building.market == mf)]
+    it = LT.intensity(ds)
+    pot = LT.potential(rows_, it, today.year)
+    cnt = {k: sum(1 for s in allp if s.status == k) for k in LT.BSTATUS}
+    pts = [{"lat": r.building.lat, "lon": r.building.lon, "c": LT.BSTATUS[r.status][2],
+            "r": max(5, min(16, (r.building.area_m2 or 5000) ** 0.5 / 14)),
+            "t": f"{r.building.name or r.building.yardi} ({r.building.yardi})",
+            "s": f"{tt(*LT.BSTATUS[r.status][:2])} · {UI.num(r.building.area_m2)} m²",
+            "u": LT.google_maps_url(r.building.lat, r.building.lon), "l": tt("Satellite view", "Vista satelital")}
+           for r in rows_ if r.building.lat is not None]
+    rows = ""
+    for r in rows_:
+        b = r.building
+        last = max((o.last_proforma for o in r.opportunities if o.last_proforma), default=None)
+        est = (r.remaining_m2 or 0) * it.kwh_per_m2 / 1000 if it else None
+        sh = r.share or 0
+        sat = (f'<a href="{UI.e(LT.google_maps_url(b.lat, b.lon))}" target="_blank" rel="noopener" title="{tt("Satellite view", "Vista satelital")}">🛰</a>'
+               if b.lat is not None else "")
+        rows += (f'<tr><td class="nw"><b>{UI.e(b.yardi)}</b></td><td>{UI.e(b.name or "-")}<div class="small muted">{UI.e(b.park or "")}</div></td>'
+                 f'<td>{_mk(b.market, tt) if b.market else "-"}<div class="small muted">{UI.e(b.city or "")}</div></td><td class="n">{UI.num(b.area_m2)}</td>'
+                 f'<td style="min-width:110px"><div class="hbar"><i style="width:{100 * sh:.0f}%"></i></div><span class="small muted">{UI.num(100 * sh)} % LED</span></td>'
+                 f'<td class="n">{UI.num(r.remaining_m2)}</td><td><span class="pill" style="background:{LT.BSTATUS[r.status][2]}22;color:#14211f">{UI.e(tt(*LT.BSTATUS[r.status][:2]))}</span></td>'
+                 f'<td class="nw">{UI.e(last or "-")}</td><td class="n">{UI.num(est) if est is not None else "-"}</td><td>{sat}</td></tr>')
+    tabs2 = "".join(f'<a class="tab{" on" if stf == k else ""}" href="?s={k}&m={UI.e(mf)}">{UI.e(tt(*LT.BSTATUS[k][:2]))}<b>{cnt[k]}</b></a>'
+                    for k in ("in_progress", "audited", "partial", "not_started"))
+    mopts = "".join(f'<option value="{k}"{" selected" if mf == k else ""}>{UI.e(tt(*v))}</option>' for k, v in LT.MARKETS.items()
+                    if any(r.building.market == k for r in allp))
+    csv_link = f'<a class="r" href="/lighting/pipeline.csv?s={UI.e(stf)}&m={UI.e(mf)}">CSV ›</a>' if S.can(g.user["role"], "export") else ""
+    kp = [(tt("Buildings", "Naves"), UI.num(len(rows_)), ""), (tt("Floor area to convert", "Superficie por convertir"), UI.num(pot["m2"] / 1e6, 2), "M m²"),
+          (tt("Potential saving (estimate)", "Ahorro potencial (estimado)"), UI.num(pot["mwh"] / 1000, 1), f"GWh/{tt('yr', 'año')}"),
+          (tt("CO₂e potential (estimate)", "CO₂e potencial (estimado)"), UI.num(pot["co2_t"]), f"t/{tt('yr', 'año')}"),
+          (tt("LED fixtures (estimate)", "Luminarias LED (estimado)"), UI.num(pot["fixtures"]), "")]
+    kpis = "".join(f'<div class="kpi"><div class="l">{l}</div><div class="v">{v}<small>{u}</small></div></div>' for l, v, u in kp)
+    basis = (tt(f"Estimate = area still to convert x the median design saving of {it.n} delivered projects ({UI.num(it.kwh_per_m2, 1)} kWh/m² per year, {UI.num(it.fixtures_per_1000m2, 1)} fixtures per 1,000 m²).",
+                f"Estimado = superficie por convertir x el ahorro de diseño mediano de {it.n} proyectos entregados ({UI.num(it.kwh_per_m2, 1)} kWh/m² al año, {UI.num(it.fixtures_per_1000m2, 1)} luminarias por 1,000 m²).")
+             if it else "")
+    body = f"""{_ltabs("pipe", tt, len(allp))}
+<section class="hero"><div class="glow"></div><div class="k">{tt("Not yet on LED", "Aún sin LED")}</div>
+<h1>{tt("Prologis buildings still to convert", "Naves de Prologis por convertir")}</h1>
+<div class="sub">{tt("Prologis property database, locations of 5,000 m² and more, without an ARGIA LED project or converted only in part. Audited buildings have an ARGIA audit, lighting study or proforma.", "Base de propiedades de Prologis, ubicaciones de 5,000 m² o más, sin proyecto LED de ARGIA o convertidas solo en parte. Las auditadas tienen auditoría, estudio lumínico o proforma de ARGIA.")}</div>
+<div class="kpis">{kpis}</div></section>
+<div class="tabs"><a class="tab{" on" if not stf else ""}" href="?m={UI.e(mf)}">{tt("All", "Todas")}<b>{len(allp)}</b></a>{tabs2}
+<form method="get" style="margin-left:auto"><input type="hidden" name="s" value="{UI.e(stf)}"><select name="m" onchange="this.form.submit()" style="width:auto"><option value="">{tt("All cities", "Todas las ciudades")}</option>{mopts}</select></form></div>
+<div class="card"><h2 style="flex-wrap:wrap">{tt("Map", "Mapa")}<span class="r legend">{"".join(f'<span><i style="background:{LT.BSTATUS[k][2]}"></i>{UI.e(tt(*LT.BSTATUS[k][:2]))}</span>' for k in ("in_progress", "audited", "partial", "not_started"))}</span></h2>{_lmap(pts, "460px")}</div>
+<div class="card" style="margin-top:16px"><h2>{tt("Buildings", "Naves")}{csv_link}</h2><div style="overflow-x:auto"><table class="t"><tr><th>{tt("Code", "Código")}</th><th>{tt("Building", "Nave")}</th><th>{tt("City", "Ciudad")}</th>
+<th class="n">m²</th><th>{tt("On LED", "En LED")}</th><th class="n">{tt("To convert m²", "Por convertir m²")}</th><th>{tt("Status", "Estado")}</th><th>{tt("Last proforma", "Última proforma")}</th>
+<th class="n">MWh/{tt("yr", "año")} ({tt("est.", "est.")})</th><th></th></tr>{rows or f'<tr><td colspan="10" class="muted">{tt("Nothing to show.", "Nada que mostrar.")}</td></tr>'}</table></div></div>
+<p class="small muted">{basis} {tt("No ARGIA record does not prove a building has no LED: a tenant or another contractor may have converted it. Buildings without a recorded area are not listed.", "Que ARGIA no tenga registro no prueba que la nave no tenga LED: un inquilino u otro contratista pudo convertirla. Las naves sin superficie registrada no se listan.")}</p>"""
+    return page(tt("Not yet on LED", "Aún sin LED"), body, on="lighting")
+
+
+@app.get("/lighting/logo/<key>.png")
+def lighting_logo(key):
+    ds = _lds()
+    c = ds.customers.get(key)
+    if not c or not c.logo or not LT.SLUG_RE.match(key):
+        abort(404)
+    path = os.path.join(LIGHT_DIR, "logos", c.logo)
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(2_000_001)
+    except OSError:
+        abort(404)
+    if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) > 2_000_000:
+        abort(404)                                  # only real PNGs are served (no SVG: it could carry script)
+    r = Response(data, mimetype="image/png")
+    r.headers["Cache-Control"] = "private, max-age=86400"
+    return r
+
+
+def _csv_response(rows: List[List], name: str) -> Response:
+    buf = io.StringIO()
+    csv.writer(buf).writerows(rows)
+    return Response("﻿" + plain(buf.getvalue()), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.get("/lighting/projects.csv")
+def lighting_csv():
+    ds = _lds()
+    need("export")
+    ps, _ = _filter(ds)
+    S.audit(db(), g.user["username"], ip(), "export", "lighting projects csv")
+    return _csv_response(LT.csv_rows(ps, today_mx().year), "ARGIA_Prologis_LED_projects.csv")
+
+
+@app.get("/lighting/pipeline.csv")
+def lighting_pipeline_csv():
+    ds = _lds()
+    need("export")
+    stf, mf = request.args.get("s", ""), request.args.get("m", "")
+    it = LT.intensity(ds)
+    rows = [["yardi", "building", "park", "city", "market", "area_m2", "led_share_pct", "to_convert_m2", "status",
+             "audited", "last_proforma", "est_mwh_year"]]
+    for r in LT.pipeline(ds):
+        if (stf and r.status != stf) or (mf and r.building.market != mf):
+            continue
+        b = r.building
+        rows.append([b.yardi, b.name or "", b.park or "", b.city or "", b.market or "", b.area_m2 or "",
+                     round(100 * (r.share or 0), 1), round(r.remaining_m2 or 0), r.status,
+                     "yes" if r.status == "audited" or any(o.audit for o in r.opportunities) else "no",
+                     max((o.last_proforma for o in r.opportunities if o.last_proforma), default=""),
+                     round((r.remaining_m2 or 0) * it.kwh_per_m2 / 1000, 1) if it else ""])
+    S.audit(db(), g.user["username"], ip(), "export", "lighting pipeline csv")
+    return _csv_response(rows, "ARGIA_Prologis_not_yet_LED.csv")
 
 
 def main(argv: List[str]) -> int:

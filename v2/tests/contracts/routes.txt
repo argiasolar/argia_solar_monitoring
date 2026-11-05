@@ -91,6 +91,14 @@ prologis_app  GET    /favicon.ico
 prologis_app  GET    /favicon.png
 prologis_app  GET    /healthz
 prologis_app  GET    /lang/<code>
+prologis_app  GET    /lighting/
+prologis_app  GET    /lighting/buildings/
+prologis_app  GET    /lighting/customers/
+prologis_app  GET    /lighting/logo/<key>.png
+prologis_app  GET    /lighting/p/<int:pid>
+prologis_app  GET    /lighting/pipeline.csv
+prologis_app  GET    /lighting/pipeline/
+prologis_app  GET    /lighting/projects.csv
 prologis_app  GET    /login
 prologis_app  GET    /logout
 prologis_app  GET    /maintenance/

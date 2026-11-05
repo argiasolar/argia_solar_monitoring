@@ -40,7 +40,7 @@ class TestMarkup:
             h = cl.get(path).get_data(as_text=True)
             assert '<table class="t sortable">' in h and "table.t.sortable" in h, path
         h = cl.get("/lighting/").get_data(as_text=True)
-        assert "<tr><th>City</th>" in h and "<tr><th>Park · city</th>" in h           # every column has a header
+        assert "<tr><th>City</th><th class=\"n\">" in h and "<tr><th>Park</th><th>City</th>" in h           # every column has a header
         p = cl.get("/lighting/p/1").get_data(as_text=True)                           # no sortable table: no script
         assert "table.t.sortable" not in p
 
@@ -84,14 +84,14 @@ class TestInTheBrowser:
         pg = _page(browser, h)
         tbl = ".sitebox table.t"
         pg.click(f"{tbl} th:nth-child(1)")                                           # park A-Z, accents ignored
-        names = [n.split(" · ")[0] for n in _col(pg, tbl, 0)]
+        names = _col(pg, tbl, 0)
         assert names.index("Álamos") < names.index("Beta") < names.index("Ébano") < names.index("Zeta")
         assert pg.get_attribute(f"{tbl} th:nth-child(1)", "aria-sort") == "ascending"
-        pg.click(f"{tbl} th:nth-child(3)")                                           # fixtures, numbers ascending
-        fx = [int(x.replace(",", "")) for x in _col(pg, tbl, 2)]
+        pg.click(f"{tbl} th:nth-child(4)")                                           # fixtures, numbers ascending
+        fx = [int(x.replace(",", "")) for x in _col(pg, tbl, 3)]
         assert fx == sorted(fx)
-        pg.click(f"{tbl} th:nth-child(3)")                                           # again: descending
-        fx = [int(x.replace(",", "")) for x in _col(pg, tbl, 2)]
+        pg.click(f"{tbl} th:nth-child(4)")                                           # again: descending
+        fx = [int(x.replace(",", "")) for x in _col(pg, tbl, 3)]
         assert fx == sorted(fx, reverse=True) and fx[0] == 9000
         assert pg.get_attribute(f"{tbl} th:nth-child(1)", "aria-sort") == "none"
         pg.eval_on_selector(".sitebox", "e => { e.style.maxHeight = '120px'; e.scrollTop = 300; }")   # header stays in view

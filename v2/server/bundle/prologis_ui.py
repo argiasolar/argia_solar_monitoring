@@ -171,7 +171,7 @@ th.grp{background:#f1f6f5;color:var(--deep)!important;font-size:12px!important;l
 .ltile{display:flex;flex-direction:column;align-items:flex-start;gap:4px;border:1px solid var(--line);border-radius:12px;padding:10px;color:var(--ink)}
 .ltile:hover{box-shadow:0 6px 16px rgba(20,33,31,.08);color:var(--ink)}.ltile span{font-weight:700;font-size:13px;line-height:1.2}.ltile small{color:var(--muted);font-size:11.5px}
 .ccard .clogo{margin-bottom:8px}.lhead{display:flex;gap:16px;align-items:center;margin:4px 0 6px}
-.satimg{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;background:#dfe6e4}
+.satimg{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;background:#dfe6e4}.satwrap{position:relative}.satpin{position:absolute;left:50%;top:50%;width:34px;height:46px;transform:translate(-50%,-100%);pointer-events:none;filter:drop-shadow(0 3px 4px rgba(0,0,0,.45))}
 form.lfilt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}form.lfilt input{flex:1;min-width:220px;width:auto}form.lfilt select{width:auto;max-width:220px}
 .grid.lg>*{min-width:0}.clogo.plain{border:0;background:none;border-radius:0}.lwall{display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,64px);grid-auto-columns:132px;gap:10px;margin:10px 0 6px;overflow-x:auto;scroll-snap-type:x proximity;padding:2px 2px 10px;scrollbar-width:thin;overscroll-behavior-x:contain}.lwall>a{scroll-snap-align:start}.lwall a[hidden],.ccard[hidden]{display:none!important}.csearch{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 4px}.csearch input{flex:1;min-width:220px;max-width:420px}.lwall a{display:flex;align-items:center;justify-content:center;height:64px;padding:8px;background:#fff;border:1px solid var(--line);border-radius:10px}.lwall img{max-width:100%;max-height:46px;object-fit:contain}.ltile,.ccard{align-items:center!important;text-align:center}.ccard .foot2{justify-content:center}.ltile .clogo,.ccard .clogo{margin:0 auto 6px}.chpane[hidden]{display:none}th.srt{cursor:pointer;user-select:none;white-space:nowrap}th.srt::after{content:" ↕";opacity:.3;font-size:.85em}th.srt[aria-sort=ascending]::after{content:" ▲";opacity:.8}th.srt[aria-sort=descending]::after{content:" ▼";opacity:.8}.sitebox>div{overflow:visible!important}.sitebox table.t tr:first-child th{position:sticky;top:-4px;background:#fff;z-index:1}button.tab{cursor:pointer;font:inherit}.lchips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
 """
@@ -301,3 +301,8 @@ def donut(share: float, color: str = TEAL, size: int = 86, label: str = "") -> s
 def _mins(hhmm: str) -> int:
     h, m = hhmm.split(":")
     return int(h) * 60 + int(m)
+
+
+# v353 - a pin on the plant picture; its tip is the centre of the image (the point the picture is centred on)
+MAP_PIN = ('<svg class="satpin" viewBox="0 0 34 46" aria-hidden="true"><path d="M17 0C7.6 0 0 7.5 0 16.8 0 29.4 17 46 17 46s17-16.6 17-29.2C34 7.5 26.4 0 17 0z" '
+           'fill="#e5322d" stroke="#fff" stroke-width="2"/><circle cx="17" cy="16.5" r="6.5" fill="#fff"/></svg>')

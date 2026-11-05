@@ -136,7 +136,8 @@ class Project:
 
     @property
     def place(self) -> str:
-        return " · ".join(x for x in (self.park, self.bldg) if x)
+        """Park and the building as Prologis knows it: its building code (GDL00403) when recorded (v353)."""
+        return " · ".join(x for x in (self.park, self.yardi or self.bldg) if x)
 
 
 @dataclass(frozen=True)
@@ -468,7 +469,7 @@ def satellite_url(lat: float, lon: float, w: int = 640, h: int = 360, half_m: fl
 
 def google_maps_url(lat: float, lon: float) -> str:
     """Opens Google Maps' satellite view at the point (a link, not an embed - the CSP blocks frames)."""
-    return f"https://www.google.com/maps/@{lat:.6f},{lon:.6f},350m/data=!3m1!1e3"
+    return f"https://www.google.com/maps/place/{lat:.6f},{lon:.6f}/@{lat:.6f},{lon:.6f},250m/data=!3m1!1e3"   # pin + satellite
 
 
 # ------------------------------------------------------------------ helpers

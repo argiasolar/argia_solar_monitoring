@@ -72,7 +72,7 @@ class TestGoogle:
         assert "img-src 'self' data: https://server.arcgisonline.com https://cdnjs.cloudflare.com https://maps.googleapis.com;" \
             in r.headers["Content-Security-Policy"]
         assert re.search(r'<img class="satimg" src="https://maps\.googleapis\.com/maps/api/staticmap\?center=19\.700000,-99\.200000'
-                         r'&amp;zoom=16&amp;size=640x360&amp;scale=2&amp;maptype=satellite&amp;key=' + KEY + '" referrerpolicy="origin"', h)
+                         r'&amp;zoom=17&amp;size=640x360&amp;scale=2&amp;maptype=satellite&amp;key=' + KEY + '" referrerpolicy="origin"', h)
         assert "frame-src" not in r.headers["Content-Security-Policy"] and "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;" in r.headers["Content-Security-Policy"]
         home = cl.get("/")                                                    # the rest of the platform: untouched
         assert "maps.googleapis.com" not in home.headers["Content-Security-Policy"] and KEY not in home.get_data(as_text=True)

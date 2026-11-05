@@ -292,7 +292,7 @@ class TestPages:
         mod, pws, tmp = env
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         h = cl.get("/lighting/p/1").get_data(as_text=True)
-        assert "World_Imagery/MapServer/export" in h and "google.com/maps/@" in h and "data=!3m1!1e3" in h
+        assert "World_Imagery/MapServer/export" in h and "google.com/maps/place/" in h and "data=!3m1!1e3" in h
         assert '/lighting/logo/acme.png' in h and "2022-901" in h and "2000000001" in h
         assert not re.search(r"\$|\bMXN\b|\bUSD\b", re.sub(r"<script.*?</script>", "", h, flags=re.S))
         assert cl.get("/lighting/p/999").status_code == 404

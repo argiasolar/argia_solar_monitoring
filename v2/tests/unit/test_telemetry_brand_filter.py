@@ -38,12 +38,15 @@ class TestQuotaPerSite:
         pf.inverters_for.return_value = [MagicMock()]
         return pf
 
+    # v358: QRO1 is dormant (one ping a day); this test is about the
+    # per-site quota, so both plants are treated as active here
+    @patch("scripts.telemetry_5m.SED.is_dormant", return_value=False)
     @patch("scripts.telemetry_5m._fetch_weather_for_plant")
     @patch("scripts.telemetry_5m._process_solaredge_plant")
     @patch("scripts.telemetry_5m.SolarEdgeClient")
     @patch.dict("os.environ", {"SOLAREDGE_API_KEY": "k1",
                                "SOLAREDGE_API_KEY2": "k2"})
-    def test_second_site_still_processed(self, _cli, proc, _weather):
+    def test_second_site_still_processed(self, _cli, proc, _weather, _dormant):
         q = _plant("QRO1", "4146396", "SOLAREDGE_API_KEY")
         g = _plant("GTO2", "4362085", "SOLAREDGE_API_KEY2")
         proc.side_effect = [_SolarEdgeQuotaExhausted(), (["row"], 0)]

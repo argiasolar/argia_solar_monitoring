@@ -101,6 +101,7 @@ from argia.vendors.solaredge import (
     SolarEdgeAuthError,
     SolarEdgeClient,
 )
+from argia.vendors import solaredge_dormant as SED
 from argia.vendors.solaredge_telemetry import (
     SolarEdgeTelemetryRow,
     fetch_inverter_telemetry as fetch_solaredge_telemetry,
@@ -722,9 +723,17 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
     total_errors = 0
 
     dead_keys: set = set()
+    hour = now_mx().hour
     for plant in plants:
         secret_name = plant.secret_api_name
         if secret_name in dead_keys:
+            skipped += 1
+            continue
+        # v358: a plant that sends no data (QRO1) costs one credit a day, not one an hour
+        was_alive = SED.is_dormant(plant.plant_key) and SED.alive(plant.plant_key)
+        if not SED.should_poll(plant.plant_key, hour, was_alive):
+            log.info("[%s] dormant (no data): one ping a day at %02d:07 MX - skipped this run",
+                     plant.plant_key, SED.PING_HOUR)
             skipped += 1
             continue
         api_key = os.environ.get(secret_name, "").strip() if secret_name else ""
@@ -758,6 +767,10 @@ def _run_solaredge(portfolio, sheets, date_iso, only_plant,
             common, errs = _process_solaredge_plant(
                 plant, inverters, sheets, se_client, weather, dry_run, log,
             )
+            if SED.is_dormant(plant.plant_key) and common:
+                log.warning("[%s] DORMANT plant reported %d telemetry row(s) - it works again; it is "
+                            "polled hourly while it reports; take it off DORMANT_PLANTS "
+                            "(argia/vendors/solaredge_dormant.py)", plant.plant_key, len(common))
             all_common.extend(common)
             total_errors += errs
             processed += 1

@@ -31,6 +31,7 @@ from argia.recon import perf as P
 from argia.recon import retry as R
 from argia.store import pg_mirror
 from argia.store.pgq import psql_exec, psql_rows
+from argia.vendors import solaredge_dormant as SED
 
 LOG = logging.getLogger("argia.recon_snapshot")
 
@@ -445,6 +446,8 @@ def retry_pass(active, portfolio, brand_by_plant: Dict[str, str],
                       ("SOLAREDGE", RB.fetch_solaredge)):
         plants = [plant_by_key[pk] for pk in by_plant
                   if pk in plant_by_key and brand_by_plant.get(pk) == brand]
+        if brand == "SOLAREDGE":
+            plants = SED.counter_plants(plants, SED.alive)       # v358
         if not plants:
             continue
         try:
@@ -554,8 +557,8 @@ def main(argv=None) -> int:
             [p for p in active if p.brand.upper() == "GROWATT"], snap_date)
         snaps += snap_huawei(
             [p for p in active if p.brand.upper() == "HUAWEI"], snap_date)
-        snaps += snap_solaredge(
-            [p for p in active if p.brand.upper() == "SOLAREDGE"], snap_date)
+        snaps += snap_solaredge(SED.counter_plants(          # v358: no calls for a dormant plant
+            [p for p in active if p.brand.upper() == "SOLAREDGE"], SED.alive), snap_date)
         for s in snaps:
             LOG.info("snapshot %s %s: day=%s month=%s lifetime=%s %s",
                      s.plant_key, s.vendor, s.daily_kwh, s.monthly_kwh,

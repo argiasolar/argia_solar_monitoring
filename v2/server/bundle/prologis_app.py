@@ -3880,6 +3880,61 @@ def lighting_ds() -> Optional[LT.Dataset]:
     return _LIGHT_CACHE["ds"]
 
 
+_DOCS_CACHE: Dict = {"mtime": None, "by": {}}
+DOC_TYPES = [("audit", "Audit", "Auditoría"), ("study", "Lighting study", "Estudio lumínico"), ("proforma", "Proforma", "Proforma"),
+             ("wo", "Work order", "Orden de trabajo"), ("po", "Prologis PO", "OC Prologis"), ("handover", "Handover", "Entrega")]
+_DOC_PATH_RE = re.compile(r"^[^<>:\"|?*\x00-\x1f\\]+$")
+
+
+def project_docs() -> Dict[int, List[Dict]]:
+    """v357: the project documents the portal serves - lighting/docs.json (built on the laptop) lists them, the files sit
+    under lighting/docs/ on the server. A broken list keeps the last good one; no list = no documents card."""
+    path = os.path.join(LIGHT_DIR, "docs.json")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        _DOCS_CACHE.update(mtime=None, by={})
+        return {}
+    if _DOCS_CACHE["mtime"] != mt:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+            if d.get("schema") != 1:
+                raise ValueError("docs.json: unknown schema")
+            by: Dict[int, List[Dict]] = {}
+            kinds = {k for k, _, _ in DOC_TYPES}
+            for f in d.get("files", []):
+                rel = str(f.get("path", ""))
+                if f.get("type") not in kinds or not _DOC_PATH_RE.match(rel) or ".." in rel.split("/") or rel.startswith("/"):
+                    raise ValueError(f"docs.json: bad entry {rel!r}")
+                by.setdefault(int(f["project"]), []).append({"type": f["type"], "date": f.get("date"), "name": str(f.get("name") or rel.rsplit("/", 1)[-1]),
+                                                             "path": rel, "size": int(f.get("size") or 0)})
+            _DOCS_CACHE.update(mtime=mt, by=by)
+        except (OSError, ValueError, TypeError, KeyError) as ex:
+            _DOCS_CACHE.update(mtime=mt)
+            print(f"docs.json not loaded: {ex}", file=sys.stderr)
+    return _DOCS_CACHE["by"]
+
+
+def _docs_card(p: LT.Project, tt) -> str:
+    files = project_docs().get(p.id, [])
+    if not files:
+        return ""
+    icons = {"audit": "🔎", "study": "💡", "proforma": "🧾", "wo": "📝", "po": "📑", "handover": "✅"}
+    label = {k: tt(en, es) for k, en, es in DOC_TYPES}
+
+    def size(n: int) -> str:
+        return f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{max(1, round(n / 1e3))} kB"
+    rows = "".join(f'<a class="docf" href="/lighting/p/{p.id}/doc/{i}" target="_blank" rel="noopener" title="{UI.e(f["name"])}">'
+                   f'<span class="docic">{icons[f["type"]]}</span><span><b>{UI.e(label[f["type"]])}</b>'
+                   f'<small>{UI.e(f["date"] or "")}{" · " if f["date"] else ""}{size(f["size"])} · {UI.e(f["name"].rsplit(".", 1)[-1].upper())}</small></span>'
+                   f'<span class="docdl" title="{tt("Download", "Descargar")}" onclick="event.preventDefault();location.href=this.parentNode.href+\'?dl=1\'">⬇</span></a>'
+                   for i, f in enumerate(files))
+    return (f'<div class="card" style="margin-top:16px"><h2>{tt("Project documents", "Documentos del proyecto")}<span class="r muted">{len(files)}</span></h2>'
+            f'<p class="small muted" style="margin-top:0">{tt("The latest version of each document; open it in the browser or download it. No Google Drive access needed.", "La última versión de cada documento; ábralo en el navegador o descárguelo. No se necesita acceso a Google Drive.")}</p>'
+            f'<div class="docgrid">{rows}</div></div>')
+
+
 _WARRANTY_CACHE: Dict = {"mtime": None, "reg": None}
 
 
@@ -4300,7 +4355,7 @@ def lighting_project(pid: int):
 <div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
 <div class="card"><h2>{tt("Project", "Proyecto")}</h2><div style="overflow-x:auto"><table class="t">{ftab}</table></div></div></div>
 <div class="grid g2e lg">{energy}<div class="card"><h2>{tt("Other projects in this park", "Otros proyectos en este parque")}</h2>
-{f'<table class="t">{others}</table>' if others else f'<span class="muted">{tt("None yet.", "Ninguno aún.")}</span>'}</div></div>{wcard}"""
+{f'<table class="t">{others}</table>' if others else f'<span class="muted">{tt("None yet.", "Ninguno aún.")}</span>'}</div></div>{_docs_card(p, tt)}{wcard}"""
     return page(p.customer, body, on="lighting")
 
 
@@ -4827,6 +4882,28 @@ def light_cal_event_post(eid: int):
     except LO.Invalid as ex:
         return light_cal_event(eid, tt(f"Not possible: {ex}.", f"No es posible: {ex}."))
     return redirect(f"/lighting/calendar/e/{eid}/")
+
+
+@app.get("/lighting/p/<int:pid>/doc/<int:n>")
+def lighting_doc(pid: int, n: int):
+    """v357: a project document from the server's copy - opens in the browser, or downloads with ?dl=1."""
+    ds = _lds()
+    if ds.project(pid) is None:
+        abort(404)
+    files = project_docs().get(pid, [])
+    if not 0 <= n < len(files):
+        abort(404)
+    f = files[n]
+    base = os.path.realpath(os.path.join(LIGHT_DIR, "docs"))
+    p = os.path.realpath(os.path.join(base, f["path"]))
+    if not p.startswith(base + os.sep) or not os.path.isfile(p):
+        abort(404)
+    S.audit(db(), g.user["username"], ip(), "lighting_doc", f"P{pid}/{f['type']}", f["name"])
+    mime = mimetypes.guess_type(f["name"])[0] or "application/octet-stream"
+    inline = mime in ("application/pdf", "image/jpeg", "image/png") and request.args.get("dl") != "1"
+    r = send_file(p, mimetype=mime, as_attachment=not inline, download_name=f["name"], max_age=0)
+    r.headers["Cache-Control"] = "private, no-store"
+    return r
 
 
 @app.get("/lighting/logo/<key>.png")

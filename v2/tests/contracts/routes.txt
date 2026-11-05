@@ -99,6 +99,7 @@ prologis_app  GET    /lighting/calendar/new
 prologis_app  GET    /lighting/customers/
 prologis_app  GET    /lighting/logo/<key>.png
 prologis_app  GET    /lighting/p/<int:pid>
+prologis_app  GET    /lighting/p/<int:pid>/doc/<int:n>
 prologis_app  GET    /lighting/pipeline.csv
 prologis_app  GET    /lighting/pipeline/
 prologis_app  GET    /lighting/projects.csv

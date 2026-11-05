@@ -65,7 +65,7 @@ import unicodedata
 import sys
 import time
 import zipfile
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from flask import Flask, Response, abort, g, redirect, request, send_file
 
@@ -87,6 +87,7 @@ from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import scan as SC                     # noqa: E402
 from argia.prologis import warranty as WR                 # noqa: E402
 from argia.prologis import lightops as LO                 # noqa: E402
+from argia.prologis import essentials as ES               # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
 from argia.prologis import maintplan as PM            # noqa: E402  (v333)
@@ -4350,7 +4351,8 @@ def lighting_project(pid: int):
                      f'<td class="n">{q.year or "-"}</td><td class="n">{UI.num(q.fixtures)}</td></tr>' for q in sorted(same, key=lambda q: -(q.year or 0)))
     body = f"""{_ltabs("list", tt, len(LT.pipeline(ds)))}
 <div class="lhead">{_clogo(ds, p, big=True)}<div><div class="kick">{_mk(p.market, tt)} · {UI.e(p.park)}</div><h1 class="pt">{UI.e(p.customer)}</h1>
-<div class="muted">{UI.e(p.place)} <span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></div></div></div>
+<div class="muted">{UI.e(p.place)} <span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></div>
+<div class="lbtns">{_audit_btn(p.yardi, tt, small=False)} {_offer_btn(_latest_offer([f"P{p.id:03d}"]), tt)}</div></div></div>
 <div class="stepper">{stepper}</div><p class="small muted" style="margin:0 0 6px">{tt("Steps with a document in ARGIA's project folders are filled in.", "Los pasos con documento en las carpetas de ARGIA aparecen llenos.")}</p>
 <div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
 <div class="card"><h2>{tt("Project", "Proyecto")}</h2><div style="overflow-x:auto"><table class="t">{ftab}</table></div></div></div>
@@ -4426,7 +4428,8 @@ def lighting_pipeline():
                  f'<td>{_mk(b.market, tt) if b.market else "-"}<div class="small muted">{UI.e(b.city or "")}</div></td><td class="n">{UI.num(b.area_m2)}</td>'
                  f'<td style="min-width:110px"><div class="hbar"><i style="width:{100 * sh:.0f}%"></i></div><span class="small muted">{UI.num(100 * sh)} % LED</span></td>'
                  f'<td class="n">{UI.num(r.remaining_m2)}</td><td><span class="pill" style="background:{LT.BSTATUS[r.status][2]}22;color:#14211f">{UI.e(tt(*LT.BSTATUS[r.status][:2]))}</span></td>'
-                 f'<td>{tt("yes", "sí") if aud else tt("no", "no")}</td><td class="nw">{UI.e(last or "-")}</td><td class="n">{UI.num(est) if est is not None else "-"}</td><td>{sat}</td></tr>')
+                 f'<td>{tt("yes", "sí") if aud else tt("no", "no")}</td><td class="nw" data-v="{UI.e(last or "")}">{UI.e(last or "-")} {_offer_btn(_latest_offer([f"O{o.id:03d}" for o in r.opportunities]), tt)}</td>'
+                 f'<td class="n">{UI.num(est) if est is not None else "-"}</td><td class="nw">{sat} {_audit_btn(b.yardi, tt)}</td></tr>')
     tabs2 = "".join(f'<a class="tab{" on" if stf == k else ""}" href="?s={k}&m={UI.e(mf)}">{UI.e(tt(*LT.BSTATUS[k][:2]))}<b>{cnt[k]}</b></a>'
                     for k in ("in_progress", "audited", "partial", "not_started"))
     mopts = "".join(f'<option value="{k}"{" selected" if mf == k else ""}>{UI.e(tt(*v))}</option>' for k, v in LT.MARKETS.items()
@@ -4904,6 +4907,270 @@ def lighting_doc(pid: int, n: int):
     r = send_file(p, mimetype=mime, as_attachment=not inline, download_name=f["name"], max_age=0)
     r.headers["Cache-Control"] = "private, no-store"
     return r
+
+
+# ------------------------------------------------------------------------------------------------ v359 offer simulator
+_OFFERS_CACHE: Dict = {"mtime": None, "by_id": {}, "by_key": {}}
+
+
+def offers() -> Tuple[Dict[str, ES.Offer], Dict[str, List[ES.Offer]]]:
+    """v359: the PROLOGIS Essentials proformas the simulator can recalculate (lighting/offers.json, built on the laptop by
+    build_offers_json.py). A broken file keeps the last good one; no file = no simulator."""
+    path = os.path.join(LIGHT_DIR, "offers.json")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        _OFFERS_CACHE.update(mtime=None, by_id={}, by_key={})
+        return {}, {}
+    if _OFFERS_CACHE["mtime"] != mt:
+        try:
+            lst = ES.load(path)
+            by_key: Dict[str, List[ES.Offer]] = {}
+            for o in sorted(lst, key=lambda o: (o.date or "", o.id)):
+                by_key.setdefault(o.key, []).append(o)
+            _OFFERS_CACHE.update(mtime=mt, by_id={o.id: o for o in lst}, by_key=by_key)
+        except (OSError, ValueError, TypeError, KeyError) as ex:
+            _OFFERS_CACHE.update(mtime=mt)
+            print(f"offers.json not loaded: {ex}", file=sys.stderr)
+    return _OFFERS_CACHE["by_id"], _OFFERS_CACHE["by_key"]
+
+
+def _can_offer() -> bool:
+    return S.can(g.user["role"], "light_request")
+
+
+def _can_cal() -> bool:
+    return S.can(g.user["role"], "light_request") or S.can(g.user["role"], "light_work")
+
+
+def _latest_offer(keys) -> Optional[ES.Offer]:
+    """The most recent simulable proforma among register keys (O### opportunities, P### projects)."""
+    _, by_key = offers()
+    cand = [o for k in keys for o in by_key.get(k, [])]
+    return max(cand, key=lambda o: (o.date or "", o.id)) if cand else None
+
+
+def _audit_btn(code: Optional[str], tt, small: bool = True) -> str:
+    if not code or not _can_cal():
+        return ""
+    return (f'<a class="btn {"sm " if small else ""}ghost" href="/lighting/calendar/new?kind=audit&amp;code={UI.e(code)}" '
+            f'title="{tt("Schedule an audit of this building and put it on the calendar", "Programar una auditoría de esta nave en el calendario")}">'
+            f'📅 {tt("Audit", "Auditoría") if small else tt("Schedule audit", "Programar auditoría")}</a>')
+
+
+def _offer_btn(o: Optional[ES.Offer], tt) -> str:
+    if o is None or not _can_offer():
+        return ""
+    return (f'<a class="btn sm" href="/lighting/offer/{UI.e(o.id)}/" title="{tt("Simulate the Prologis Essentials offer of this proforma", "Simular la oferta Prologis Essentials de esta proforma")}">'
+            f'🧮 {tt("Simulate", "Simular")}</a>')
+
+
+def _omxn(v, d: int = 0) -> str:
+    return "-" if v is None else ("-$" if v < 0 else "$") + UI.num(abs(v), d)
+
+
+def _opct(v, d: int = 1) -> str:
+    return "-" if v is None else f"{UI.num(100 * v, d)} %"
+
+
+_OFFER_WARN = {
+    "no_before": ("The proforma has no consumption of the current lighting: enter it to see the customer's saving.",
+                  "La proforma no tiene el consumo de la iluminación actual: ingréselo para ver el ahorro del cliente."),
+    "no_saving": ("With these numbers the new lighting does not use less electricity than the current one.",
+                  "Con estos datos la nueva iluminación no consume menos electricidad que la actual."),
+    "customer_pays_more": ("The customer pays more in Essentials fee than it saves in electricity.",
+                           "El cliente paga más de cuota Essentials de lo que ahorra en electricidad."),
+    "not_repaid": ("The fees over the contract do not repay Prologis's investment.",
+                   "Las cuotas del contrato no recuperan la inversión de Prologis."),
+    "check_data": ("Return above 100 % a year: the cost or the area in this proforma is probably not right - check it with ARGIA.",
+                   "Retorno de más de 100 % al año: el costo o la superficie de esta proforma probablemente no son correctos - revíselo con ARGIA."),
+}
+_SUGGEST = {
+    "target": ("Price for the target IRR", "Precio para la TIR objetivo",
+               "Prices per m² scaled so Prologis gets exactly the target IRR.", "Precios por m² ajustados para que Prologis obtenga exactamente la TIR objetivo."),
+    "share": ("Customer keeps 30 % of the saving", "El cliente conserva 30 % del ahorro",
+              "Fee = 70 % of the electricity the customer saves: an easy offer to accept.", "Cuota = 70 % de la electricidad que ahorra el cliente: una oferta fácil de aceptar."),
+    "longer": ("Longer contract, same IRR", "Contrato más largo, misma TIR",
+               "Spread the investment over more months: a lower monthly fee at the target IRR.", "Repartir la inversión en más meses: cuota mensual menor con la TIR objetivo."),
+    "nofee": ("Without the Prologis fee", "Sin la cuota Prologis",
+              "The 7 % Prologis fee removed from the work order: a lower investment.", "Sin la cuota Prologis de 7 % en la orden de trabajo: menor inversión."),
+}
+
+
+def _offer_results(o: ES.Offer, s: ES.Scenario, tt) -> str:
+    """The results panel; also returned by /calc so the page updates without a reload (one place computes)."""
+    r, r0 = ES.compute(o, s), ES.compute(o, ES.standard(o))
+    std = ES.standard(o)
+    kp = [(tt("Prologis IRR", "TIR Prologis"), _opct(r.irr) if r.irr is not None else tt("not repaid", "no se recupera"), tt(f"target {UI.num(100 * s.target_irr, 1)} %", f"objetivo {UI.num(100 * s.target_irr, 1)} %")),
+          (tt("Payback", "Recuperación"), (UI.num(r.payback_months) + f' <small>{tt("months", "meses")}</small>') if r.payback_months is not None else "-", tt(f"contract {s.months} months", f"contrato {s.months} meses")),
+          (tt("Essentials fee", "Cuota Essentials"), _omxn(r.monthly_fee) + f' <small>/{tt("mo", "mes")}</small>', f'{_omxn(r.fees_total)} {tt("over the contract", "en el contrato")}'),
+          (tt("Customer net saving", "Ahorro neto del cliente"), (_omxn(r.net_saving_m) + f' <small>/{tt("mo", "mes")}</small>') if r.net_saving_m is not None else "-",
+           (tt(f"keeps {_opct(r.customer_keeps, 0)} of the saving", f"conserva {_opct(r.customer_keeps, 0)} del ahorro") if r.net_saving_m >= 0
+            else tt("pays more than it saves", "paga más de lo que ahorra")) if r.customer_keeps is not None and r.net_saving_m is not None else "")]
+    kpis = "".join(f'<div class="kpi"><div class="l">{l}</div><div class="v">{v}</div><div class="d">{d}</div></div>' for l, v, d in kp)
+    lo, hi = r.fee_for_target, r.fee_breakeven
+    if hi is None:
+        band = tt(f"Prologis reaches {UI.num(100 * s.target_irr, 1)} % with a fee of at least <b>{_omxn(lo)}</b> a month. Enter the consumption of the current lighting to see what the customer saves.",
+                  f"Prologis alcanza {UI.num(100 * s.target_irr, 1)} % con una cuota de al menos <b>{_omxn(lo)}</b> al mes. Ingrese el consumo de la iluminación actual para ver el ahorro del cliente.")
+        bar = ""
+    else:
+        top = max(hi, lo, r.monthly_fee) * 1.15 or 1
+        pos = lambda v: f"{max(0.0, min(100.0, 100 * v / top)):.1f}%"
+        ok = lo <= hi
+        band = (tt(f"Any monthly fee between <b>{_omxn(lo)}</b> (Prologis gets {UI.num(100 * s.target_irr, 1)} %) and <b>{_omxn(hi)}</b> (the customer stops saving) works for both sides.",
+                   f"Cualquier cuota mensual entre <b>{_omxn(lo)}</b> (Prologis obtiene {UI.num(100 * s.target_irr, 1)} %) y <b>{_omxn(hi)}</b> (el cliente deja de ahorrar) funciona para ambos.")
+                if ok else
+                tt(f"No fee works for both: Prologis needs at least <b>{_omxn(lo)}</b> a month for {UI.num(100 * s.target_irr, 1)} %, but the customer saves only <b>{_omxn(hi)}</b>. Lower the investment (Prologis fee, customer contribution, ARGIA margin) or lengthen the contract.",
+                   f"Ninguna cuota funciona para ambos: Prologis necesita al menos <b>{_omxn(lo)}</b> al mes para {UI.num(100 * s.target_irr, 1)} %, pero el cliente ahorra solo <b>{_omxn(hi)}</b>. Reduzca la inversión (cuota Prologis, aportación del cliente, margen de ARGIA) o alargue el contrato."))
+        bar = (f'<div class="dealbar"><i class="zone{"" if ok else " bad"}" style="left:{pos(min(lo, hi))};width:calc({pos(max(lo, hi))} - {pos(min(lo, hi))})"></i>'
+               f'<b class="mark" style="left:{pos(r.monthly_fee)}" title="{tt("This offer", "Esta oferta")}"></b></div>'
+               f'<div class="dealaxis"><span>$0</span><span>{tt("this offer", "esta oferta")}: {_omxn(r.monthly_fee)}</span><span>{_omxn(top)}</span></div>')
+    warn = "".join(f'<div class="flash err" style="margin:8px 0 0">{UI.e(tt(*_OFFER_WARN[w]))}</div>' for w in r.warnings if w in _OFFER_WARN)
+
+    def row(label, a, b, strong=False):
+        tag = "b" if strong else "span"
+        return f'<tr><td>{label}</td><td class="n"><{tag}>{a}</{tag}></td><td class="n muted">{b}</td></tr>'
+    margin_note = (f' <span class="pill" style="background:#e8a23a22;color:#7a5200">{tt("needs ARGIA approval", "requiere aprobación de ARGIA")}</span>'
+                   if s.profit < o.profit - 1e-9 else "")
+    prol = (row(tt("Direct costs (fixtures, labour, materials...)", "Costos directos (luminarias, mano de obra, materiales...)"), _omxn(r.direct), _omxn(r0.direct))
+            + row(tt(f"Corporate overhead {UI.num(100 * o.oh)} %", f"Gastos generales {UI.num(100 * o.oh)} %"), _omxn(r.oh_mxn), _omxn(r0.oh_mxn))
+            + row(tt(f"ARGIA profit {UI.num(100 * s.profit, 1)} %", f"Utilidad ARGIA {UI.num(100 * s.profit, 1)} %") + margin_note, _omxn(r.profit_mxn), _omxn(r0.profit_mxn))
+            + row(tt(f"Prologis fee {UI.num(100 * s.prologis_fee, 1)} %", f"Cuota Prologis {UI.num(100 * s.prologis_fee, 1)} %"), _omxn(r.fee_mxn), _omxn(r0.fee_mxn))
+            + row(tt("Work order total", "Total de la orden de trabajo"), _omxn(r.investment), _omxn(r0.investment), True)
+            + row(tt("Customer contribution at start", "Aportación del cliente al inicio"), _omxn(-min(s.contribution, r.investment)) if s.contribution else "-", "-")
+            + row(tt("Prologis pays", "Prologis paga"), _omxn(r.outlay), _omxn(r0.outlay), True)
+            + row(tt("Essentials fee per month", "Cuota Essentials al mes"), _omxn(r.monthly_fee), _omxn(r0.monthly_fee))
+            + row(tt("Fees over the contract", "Cuotas en el contrato"), f'{_omxn(r.fees_total)} <span class="small muted">({s.months} {tt("mo", "m")})</span>', f'{_omxn(r0.fees_total)} ({std.months})')
+            + row(tt("Prologis IRR (a year)", "TIR Prologis (anual)"), _opct(r.irr) if r.irr is not None else tt("not repaid", "no se recupera"), _opct(r0.irr) if r0.irr is not None else tt("not repaid", "no se recupera"), True)
+            + row(tt("Payback", "Recuperación"), f'{UI.num(r.payback_months)} {tt("months", "meses")}' if r.payback_months is not None else "-", f'{UI.num(r0.payback_months)} {tt("months", "meses")}' if r0.payback_months is not None else "-"))
+    cust = (row(tt("Lighting electricity now, kWh a year", "Electricidad de iluminación actual, kWh al año"), UI.num(r.kwh_before) if r.kwh_before else "-", UI.num(r0.kwh_before) if r0.kwh_before else "-")
+            + row(tt("With LED (design), kWh a year", "Con LED (diseño), kWh al año"), UI.num(r.kwh_after) if r.kwh_after else "-", UI.num(r0.kwh_after) if r0.kwh_after else "-")
+            + row(tt(f"Electricity cost a month now ({UI.num(s.kwh_price, 2)} MXN/kWh)", f"Costo de electricidad al mes actual ({UI.num(s.kwh_price, 2)} MXN/kWh)"), _omxn(r.cost_before_m), _omxn(r0.cost_before_m))
+            + row(tt("Electricity cost a month with LED", "Costo de electricidad al mes con LED"), _omxn(r.cost_after_m), _omxn(r0.cost_after_m))
+            + row(tt("Electricity saved a month", "Electricidad ahorrada al mes"), _omxn(r.gross_saving_m), _omxn(r0.gross_saving_m), True)
+            + row(tt("Essentials fee a month", "Cuota Essentials al mes"), _omxn(-r.monthly_fee), _omxn(-r0.monthly_fee))
+            + row(tt("Customer's net saving a month", "Ahorro neto del cliente al mes"), _omxn(r.net_saving_m), _omxn(r0.net_saving_m), True)
+            + row(tt("Over the contract", "En el contrato"), _omxn(r.net_saving_m * s.months if r.net_saving_m is not None else None), _omxn(r0.net_saving_m * std.months if r0.net_saving_m is not None else None)))
+    head = f'<tr><th></th><th class="n">{tt("This offer", "Esta oferta")}</th><th class="n">{tt("Proforma", "Proforma")}</th></tr>'
+    sug = ""
+    for k, sc in ES.suggestions(o, s):
+        rr = ES.compute(o, sc)
+        en, es, den, des = _SUGGEST[k]
+        qs = "&amp;".join(f"{a}={UI.e(b)}" for a, b in ES.to_args(sc).items())
+        sug += (f'<div class="sugg"><b>{UI.e(tt(en, es))}</b><div class="small muted">{UI.e(tt(den, des))}</div>'
+                f'<div class="small">{tt("Fee", "Cuota")} <b>{_omxn(rr.monthly_fee)}</b>/{tt("mo", "mes")} · {s.months if k != "longer" else sc.months} {tt("months", "meses")} · '
+                f'{tt("IRR", "TIR")} <b>{_opct(rr.irr) if rr.irr is not None else tt("not repaid", "no se recupera")}</b> · {tt("customer", "cliente")} <b>{_omxn(rr.net_saving_m)}</b>/{tt("mo", "mes")}</div>'
+                f'<a class="btn sm ghost" href="?{qs}" data-apply="{qs}">{tt("Apply", "Aplicar")}</a></div>')
+    return f"""<section class="hero"><div class="glow"></div><div class="k">{tt("Result", "Resultado")}</div><div class="kpis">{kpis}</div></section>{warn}
+<div class="card" style="margin-top:16px"><h2>{tt("Where the deal works", "Dónde funciona el trato")}</h2><p style="margin-top:0">{band}</p>{bar}</div>
+<div class="grid g2 lg" style="margin-top:16px"><div class="card"><h2>{tt("Prologis Essentials", "Prologis Essentials")}</h2><div style="overflow-x:auto"><table class="t">{head}{prol}</table></div></div>
+<div class="card"><h2>{tt("Saving calculator (customer)", "Calculadora de ahorro (cliente)")}</h2><div style="overflow-x:auto"><table class="t">{head}{cust}</table></div></div></div>
+<div class="card" style="margin-top:16px"><h2>{tt("Ideas for this offer", "Ideas para esta oferta")}</h2><div class="suggs">{sug}</div></div>"""
+
+
+def _offer_or_404(oid: str) -> ES.Offer:
+    if not _can_offer():
+        abort(403)
+    by_id, _ = offers()
+    o = by_id.get(oid) if ES.ID_RE.match(oid or "") else None
+    if o is None:
+        abort(404)
+    return o
+
+
+@app.get("/lighting/offer/<oid>/")
+def lighting_offer(oid: str):
+    """v359: the PROLOGIS Essentials offer simulator for one proforma."""
+    o = _offer_or_404(oid)
+    return _offer_page(o, ES.from_args(o, request.args))
+
+
+def _offer_page(o: ES.Offer, s: ES.Scenario, msg: str = "", ok: bool = False):
+    ds = _lds()
+    tt = t()
+    _, by_key = offers()
+    versions = by_key.get(o.key, [])
+    vlinks = ("".join(f'<a class="tab{" on" if v.id == o.id else ""}" href="/lighting/offer/{UI.e(v.id)}/">{UI.e(v.date or v.id)}<b>{UI.e(v.id.rsplit("-", 1)[1])}</b></a>' for v in versions)
+              if len(versions) > 1 else "")
+    std = ES.standard(o)
+
+    def inp(name, val, step, mn, mx, suffix="", extra=""):
+        return (f'<div class="inp"><input type="number" name="{name}" value="{UI.e(val)}" step="{step}" min="{mn}" max="{mx}" {extra}>'
+                f'<span class="muted small">{suffix}</span></div>')
+    rates = "".join((f'<label>{tt(*ES.AREA_NAMES[a])} · {UI.num(o.areas[a])} m²</label>{inp("r_" + a, f"{s.rates[a]:g}", "0.1", 0, 30, tt("MXN per m² a month", "MXN por m² al mes"))}')
+                    if o.areas[a] else f'<input type="hidden" name="r_{a}" value="{s.rates[a]:g}">' for a in ES.AREAS)
+    months = "".join(f'<option value="{m}"{" selected" if m == s.months else ""}>{m} {tt("months", "meses")}</option>' for m in sorted({36, 48, 60, 72, 84, 96, 120, s.months}))
+    kb_ph = UI.num(o.kwh_before) if o.kwh_before else tt("not in the proforma - please enter", "no está en la proforma - ingréselo")
+    send = (f'<div class="card" style="margin-top:16px"><h2>{tt("Send this offer to ARGIA", "Enviar esta oferta a ARGIA")}</h2>'
+            f'<form method="post" action="/lighting/offer/{UI.e(o.id)}/send" id="sendf">{csrf_field()}<input type="hidden" name="qs" value="">'
+            f'<label>{tt("Note for ARGIA (customer, deadline, what you need)", "Nota para ARGIA (cliente, fecha límite, qué necesita)")}</label><textarea name="note" maxlength="1500"></textarea>'
+            f'<div style="margin-top:10px"><button class="btn">{tt("Send to ARGIA", "Enviar a ARGIA")}</button></div></form></div>')
+    title = f"{o.code or o.park or o.key} · {o.tenant}"
+    where = " · ".join(x for x in (o.park, o.building) if x and x.strip())
+    body = f"""{_ltabs("pipe", tt, len(LT.pipeline(ds)))}
+<div class="kick">{tt("Prologis Essentials offer simulator", "Simulador de oferta Prologis Essentials")}</div><h1 class="pt">{UI.e(title)}</h1>
+<p class="muted" style="margin-top:0">{UI.e(where)}{" · " if where else ""}{tt("proforma of", "proforma del")} {UI.e(o.date or "-")} ({UI.e(o.file)}). {_audit_btn(o.code, tt, small=False)}</p>
+{f'<div class="tabs">{vlinks}</div>' if vlinks else ""}{flash(msg, not ok) if msg else ""}
+<div class="offgrid"><div class="card form offform"><h2>{tt("Conditions", "Condiciones")}</h2>
+<form method="get" id="offf">{rates}
+<label>{tt("Contract length", "Duración del contrato")}</label><select name="m">{months}</select>
+<label>{tt("Customer contribution at the start", "Aportación del cliente al inicio")}</label>{inp("c", f"{s.contribution:g}", "1000", 0, 1e9, "MXN")}
+<label>{tt("Prologis fee on the work order", "Cuota Prologis en la orden de trabajo")}</label>{inp("pf", f"{100 * s.prologis_fee:g}", "0.5", 0, 10, f'% · {tt("proforma", "proforma")} {UI.num(100 * std.prologis_fee, 1)} %')}
+<label>{tt("ARGIA profit", "Utilidad de ARGIA")}</label>{inp("pr", f"{100 * s.profit:g}", "0.5", 0, 15, f'% · {tt("proforma", "proforma")} {UI.num(100 * std.profit, 1)} % · {tt("lower needs ARGIA approval", "menor requiere aprobación de ARGIA")}')}
+<label>{tt("Electricity price", "Precio de la electricidad")}</label>{inp("kp", f"{s.kwh_price:g}", "0.05", 0.5, 10, f'MXN/kWh · {tt("proforma", "proforma")} {UI.num(std.kwh_price, 2)}')}
+<label>{tt("Lighting consumption now", "Consumo de iluminación actual")}</label>{inp("kb", f"{s.kwh_before:g}" if s.kwh_before else "", "100", 0, 1e8, "kWh/" + tt("yr", "año"), f'placeholder="{UI.e(kb_ph)}"')}
+<label>{tt("Prologis target IRR", "TIR objetivo de Prologis")}</label>{inp("t", f"{100 * s.target_irr:g}", "0.5", 0, 60, "%")}
+<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn">{tt("Recalculate", "Recalcular")}</button><a class="btn ghost" href="/lighting/offer/{UI.e(o.id)}/">{tt("Back to the proforma", "Volver a la proforma")}</a></div>
+</form></div><div id="offres">{_offer_results(o, s, tt)}</div></div>
+{send if _can_offer() else ""}
+<p class="small muted">{tt("How it is calculated: the work order is built as in ARGIA's proforma (direct costs + corporate overhead + ARGIA profit + Prologis fee), Prologis pays it at the start (less any customer contribution) and receives the Essentials fee every month of the contract; the IRR is that of the monthly cash flows, expressed per year. The proforma workbook's own IRR cell uses yearly sums and per-ft² USD prices that are not the MXN prices it charges, so its IRR can differ from the one shown here. Electricity savings are design values from ARGIA's lighting study at the price per kWh above; no maintenance savings, inflation or taxes are included.",
+"Cómo se calcula: la orden de trabajo se arma como en la proforma de ARGIA (costos directos + gastos generales + utilidad de ARGIA + cuota Prologis), Prologis la paga al inicio (menos la aportación del cliente) y recibe la cuota Essentials cada mes del contrato; la TIR es la de los flujos mensuales, expresada al año. La celda de TIR del libro de la proforma usa sumas anuales y precios en USD por ft² que no son los precios en MXN que cobra, por lo que su TIR puede diferir de la que se muestra aquí. Los ahorros de electricidad son valores de diseño del estudio lumínico de ARGIA al precio por kWh indicado; no incluye ahorro de mantenimiento, inflación ni impuestos.")}</p>
+<script>(function(){{var f=document.getElementById('offf'),box=document.getElementById('offres'),sf=document.getElementById('sendf'),tm=null;
+function qs(){{return new URLSearchParams(new FormData(f)).toString();}}
+function go(q){{fetch('/lighting/offer/{UI.e(o.id)}/calc?'+q,{{credentials:'same-origin'}}).then(function(r){{return r.ok?r.json():null;}}).then(function(d){{if(!d)return;box.innerHTML=d.html;history.replaceState(null,'','?'+q);if(sf)sf.qs.value=q;}});}}
+f.addEventListener('input',function(){{clearTimeout(tm);tm=setTimeout(function(){{go(qs());}},250);}});
+f.addEventListener('submit',function(e){{e.preventDefault();go(qs());}});
+box.addEventListener('click',function(e){{var a=e.target.closest('a[data-apply]');if(!a)return;e.preventDefault();var p=new URLSearchParams(a.getAttribute('data-apply'));
+p.forEach(function(v,k){{var el=f.elements[k];if(el&&el.length&&!el.tagName){{el=el[el.length-1];}}if(el){{if(el.tagName==='SELECT'&&!Array.from(el.options).some(function(o){{return o.value===v;}})){{var o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);}}el.value=v;}}}});go(qs());}});
+if(sf)sf.qs.value=qs();}})();</script>"""
+    S.audit(db(), g.user["username"], ip(), "lighting_offer_view", o.id)
+    return page(tt("Offer simulator", "Simulador de oferta"), body, on="lighting")
+
+
+@app.get("/lighting/offer/<oid>/calc")
+def lighting_offer_calc(oid: str):
+    o = _offer_or_404(oid)
+    s = ES.from_args(o, request.args)
+    r = Response(json.dumps({"html": _offer_results(o, s, t())}), mimetype="application/json")
+    r.headers["Cache-Control"] = "private, no-store"
+    return r
+
+
+@app.post("/lighting/offer/<oid>/send")
+def lighting_offer_send(oid: str):
+    """v359: a Prologis manager sends the scenario to the ARGIA desk (outbox mail with the numbers and a link)."""
+    o = _offer_or_404(oid)
+    tt = t()
+    from urllib.parse import parse_qsl, urlencode
+    args = dict(parse_qsl((request.form.get("qs") or "")[:2000]))
+    s = ES.from_args(o, args)
+    r = ES.compute(o, s)
+    qs = urlencode(ES.to_args(s))
+    note = (request.form.get("note") or "")[:1500]
+    c = db()
+    lines = "\n".join(f"  {tt(*ES.AREA_NAMES[a])}: {o.areas[a]:,.0f} m2 x {s.rates[a]:g} MXN/m2 a month" for a in ES.AREAS if o.areas[a])
+    irr = f"{100 * r.irr:.1f} %" if r.irr is not None else "not repaid"
+    net = f"{r.net_saving_m:,.0f} MXN a month" if r.net_saving_m is not None else "unknown (no current consumption)"
+    body = (f"{g.user['name'] or g.user['username']} ({g.user['org']}) sent an Essentials offer for {o.code or o.key} {o.tenant} "
+            f"({o.park}, {o.building}; proforma {o.date}, {o.file}).\n\n{lines}\n  Contract: {s.months} months\n"
+            f"  Prologis fee: {100 * s.prologis_fee:g} %   ARGIA profit: {100 * s.profit:g} %{'  (BELOW THE PROFORMA - needs ARGIA approval)' if s.profit < o.profit - 1e-9 else ''}\n"
+            f"  Customer contribution: {s.contribution:,.0f} MXN   Electricity price: {s.kwh_price:g} MXN/kWh\n\n"
+            f"  Work order: {r.investment:,.0f} MXN   Prologis pays: {r.outlay:,.0f} MXN\n  Essentials fee: {r.monthly_fee:,.0f} MXN a month\n"
+            f"  Prologis IRR: {irr}   Customer net saving: {net}\n\nNote:\n{note}\n\n"
+            f"https://prologis.argia.com.mx/lighting/offer/{o.id}/?{qs}\n")
+    AL.queue(c, "light_offer", o.id, f"[Prologis LED] Essentials offer - {o.code or o.key} {o.tenant}", body, AL.recipients(c, "critical"), False)
+    S.audit(c, g.user["username"], ip(), "lighting_offer_send", o.id, qs[:240])
+    return _offer_page(o, s, tt("Sent to ARGIA. They will answer by e-mail.", "Enviado a ARGIA. Le responderán por correo."), ok=True)
 
 
 @app.get("/lighting/logo/<key>.png")

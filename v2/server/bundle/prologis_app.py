@@ -85,6 +85,7 @@ from argia.prologis import metering as M                  # noqa: E402
 from argia.prologis import monthly as MR                  # noqa: E402
 from argia.prologis import registry as R                  # noqa: E402
 from argia.prologis import scan as SC                     # noqa: E402
+from argia.prologis import warranty as WR                 # noqa: E402
 from argia.prologis import sla as SLA                     # noqa: E402
 from argia.prologis import store as S                     # noqa: E402
 from argia.prologis import maintplan as PM            # noqa: E402  (v333)
@@ -3878,6 +3879,26 @@ def lighting_ds() -> Optional[LT.Dataset]:
     return _LIGHT_CACHE["ds"]
 
 
+_WARRANTY_CACHE: Dict = {"mtime": None, "reg": None}
+
+
+def warranty_reg() -> Optional[WR.Register]:
+    """The warranty claims register (v354), re-read when the file changes; a broken file keeps the last good one."""
+    path = os.path.join(LIGHT_DIR, "warranty.json")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        _WARRANTY_CACHE.update(mtime=None, reg=None)
+        return None
+    if _WARRANTY_CACHE["mtime"] != mt:
+        try:
+            _WARRANTY_CACHE.update(mtime=mt, reg=WR.load(path))
+        except (OSError, ValueError, TypeError, KeyError) as ex:
+            _WARRANTY_CACHE.update(mtime=mt)
+            print(f"warranty.json not loaded: {ex}", file=sys.stderr)
+    return _WARRANTY_CACHE["reg"]
+
+
 GMAPS_KEY_FILE = os.path.join(LIGHT_DIR, "google_maps_key")      # v346: server-only, one line, browser key restricted by referrer
 _GKEY_RE = re.compile(r"^[A-Za-z0-9_-]{30,60}$")
 
@@ -3918,6 +3939,10 @@ def _ltabs(on: str, tt, n_pipe: int) -> str:
     tabs = [("/lighting/", tt("Overview", "Resumen"), "home"), ("/lighting/buildings/", tt("All buildings", "Todas las naves"), "list"),
             ("/lighting/customers/", tt("Customers", "Clientes"), "cust"),
             ("/lighting/pipeline/", tt("Not yet on LED", "Aún sin LED") + f"<b>{n_pipe}</b>", "pipe")]
+    reg = warranty_reg()
+    if reg is not None:
+        n_open = sum(1 for c in reg.claims if c.status == "open")
+        tabs.append(("/lighting/warranty/", tt("Warranty", "Garantías") + (f"<b>{n_open}</b>" if n_open else ""), "warr"))
     return '<div class="tabs">' + "".join(f'<a class="tab{" on" if k == on else ""}" href="{h}">{lbl}</a>' for h, lbl, k in tabs) + "</div>"
 
 
@@ -4032,6 +4057,45 @@ def _tbl_summary(rows, tt, link_key: str, label, head: str = "", city=None) -> s
     return (f'<div style="overflow-x:auto"><table class="t sortable"><tr><th>{UI.e(head)}</th>' + (f'<th>{tt("City", "Ciudad")}</th>' if city else "")
             + f'<th class="n">{tt("Projects", "Proyectos")}</th><th class="n">{tt("Fixtures", "Luminarias")}</th>'
             f'<th class="n">m²</th><th class="n">MWh/{tt("yr", "año")}</th><th class="n">t CO₂e/{tt("yr", "año")}</th></tr>{out}</table></div>')
+
+
+def _warranty_until(p: LT.Project, tt) -> str:
+    """5 years after the handover (v354); says whether it has ended. A planned handover gives no date yet."""
+    reg = warranty_reg()
+    years = reg.years if reg else 5
+    end = WR.warranty_until(p.handover_date, years) if p.handover_date and not p.handover_planned else None
+    if not end:
+        return "-"
+    gone = end < today_mx().isoformat()
+    return f'{UI.e(end)} <span class="small muted">({tt("ended", "terminó") if gone else tt(f"{years} years from handover", f"{years} años desde la entrega")})</span>'
+
+
+def _claim_head(tt, with_place: bool = True) -> str:
+    place = (f'<th>{tt("Prologis building code", "Código Prologis")}</th><th>{tt("Park", "Parque")}</th><th>{tt("City", "Ciudad")}</th>'
+             f'<th>{tt("Customer", "Cliente")}</th>') if with_place else ""
+    return (f'<tr><th>{tt("Claim", "Reclamo")}</th><th>{tt("Reported", "Reportado")}</th>{place}<th class="n">{tt("Fixtures", "Luminarias")}</th>'
+            f'<th>{tt("Model", "Modelo")}</th><th>{tt("Failure", "Falla")}</th><th>{tt("Closed", "Cerrado")}</th>'
+            f'<th class="n">{tt("Days", "Días")}</th><th>{tt("Status", "Estado")}</th></tr>')
+
+
+def _claim_row(c: WR.Claim, tt, today: dt.date, with_place: bool = True) -> str:
+    st = WR.STATUSES[c.status]
+    days = c.days_open(today)
+    href = ""
+    ds = lighting_ds()
+    if ds is not None and c.code:                 # the customer's project in that building, else every project there
+        cands = [p for p in ds.projects if p.yardi == c.code]
+        own = [p for p in cands if c.group and p.group == c.group]
+        pick = own if len(own) == 1 else (cands if len(cands) == 1 else [])
+        href = f"/lighting/p/{pick[0].id}" if pick else (f"/lighting/buildings/?q={UI.e(c.code)}" if cands else "")
+    code = f'<a href="{href}">{UI.e(c.code)}</a>' if href else UI.e(c.code or "-")
+    place = (f'<td class="nw">{code}</td><td>{UI.e(c.park or "-")}</td><td>{_mk(c.market, tt) if c.market else "-"}</td>'
+             f'<td>{UI.e(c.customer or "-")}</td>') if with_place else ""
+    return (f'<tr><td class="nw">{UI.e(c.ticket or "-")}</td><td class="nw">{UI.e(c.reported or "-")}</td>{place}'
+            f'<td class="n">{UI.num(c.qty) if c.qty else "-"}</td><td class="small">{UI.e(", ".join(c.models) or "-")}</td>'
+            f'<td class="small">{UI.e(c.cause or "-")}</td><td class="nw">{UI.e(c.closed or "-")}</td>'
+            f'<td class="n">{days if days is not None else "-"}{"" if c.status == "closed" or days is None else "+"}</td>'
+            f'<td><span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></td></tr>')
 
 
 @app.get("/lighting/")
@@ -4193,6 +4257,7 @@ def lighting_project(pid: int):
              (tt("Park", "Parque"), UI.e(p.park)), (tt("Building", "Nave"), UI.e(p.bldg or "-")), (tt("City", "Ciudad"), _mk(p.market, tt)),
              (tt("Work order", "Orden de trabajo"), UI.e(p.wo_number or "-")), (tt("Prologis PO", "OC Prologis"), UI.e(p.po_number or "-")),
              (tt("Work order signed", "OT firmada"), UI.e(p.wo_date or "-")), (tt("Handover", "Entrega"), UI.e(hand or "-")),
+             (tt("Warranty until", "Garantía hasta"), _warranty_until(p, tt)),
              (tt("LED fixtures", "Luminarias LED"), UI.num(p.fixtures)), (tt("Area", "Superficie"), f"{UI.num(p.area_m2)} m²" if p.area_m2 else "-"),
              (tt("Fixture maker", "Fabricante"), UI.e(p.maker or "-")), (tt("Controls", "Controles"), UI.e(p.controls or "-")),
              (tt("Design light level", "Nivel de diseño"), UI.e(p.lux or "-"))]
@@ -4209,6 +4274,15 @@ def lighting_project(pid: int):
     steps = [("audit", tt("Audit", "Auditoría")), ("study", tt("Lighting study", "Estudio lumínico")), ("proforma", "Proforma"),
              ("wo", tt("Work order", "Orden de trabajo")), ("handover", tt("Handover", "Entrega"))]
     stepper = "".join(f'<div class="st{" done" if p.docs.get(k) else ""}"><i></i>{lbl}</div>' for k, lbl in steps)
+    reg = warranty_reg()
+    wclaims = WR.for_building(reg.claims, p.yardi) if reg else []
+    wcard = ""
+    if reg is not None and p.yardi:
+        wrows = "".join(_claim_row(c, tt, today, with_place=False) for c in wclaims)
+        wcard = (f'<div class="card" style="margin-top:16px"><h2>{tt("Warranty claims in this building", "Reclamos de garantía en esta nave")}'
+                 f'<a class="r" href="/lighting/warranty/">{tt("All claims", "Todos los reclamos")} ›</a></h2>'
+                 + (f'<div style="overflow-x:auto"><table class="t sortable">{_claim_head(tt, with_place=False)}{wrows}</table></div>' if wclaims
+                    else f'<span class="muted">{tt("No warranty claim recorded for this building.", "Sin reclamos de garantía registrados para esta nave.")}</span>') + "</div>")
     same = [q for q in ds.projects if LT.park_key(q) == LT.park_key(p) and q.id != p.id]
     others = "".join(f'<tr><td>{_clogo(ds, q)}</td><td><a href="/lighting/p/{q.id}">{UI.e(q.customer)}</a></td><td class="nw">{UI.e(q.yardi or q.bldg or "-")}</td>'
                      f'<td class="n">{q.year or "-"}</td><td class="n">{UI.num(q.fixtures)}</td></tr>' for q in sorted(same, key=lambda q: -(q.year or 0)))
@@ -4219,7 +4293,7 @@ def lighting_project(pid: int):
 <div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
 <div class="card"><h2>{tt("Project", "Proyecto")}</h2><div style="overflow-x:auto"><table class="t">{ftab}</table></div></div></div>
 <div class="grid g2e lg">{energy}<div class="card"><h2>{tt("Other projects in this park", "Otros proyectos en este parque")}</h2>
-{f'<table class="t">{others}</table>' if others else f'<span class="muted">{tt("None yet.", "Ninguno aún.")}</span>'}</div></div>"""
+{f'<table class="t">{others}</table>' if others else f'<span class="muted">{tt("None yet.", "Ninguno aún.")}</span>'}</div></div>{wcard}"""
     return page(p.customer, body, on="lighting")
 
 
@@ -4318,6 +4392,59 @@ def lighting_pipeline():
 <th class="n">MWh/{tt("yr", "año")} ({tt("est.", "est.")})</th><th></th></tr>{rows or f'<tr><td colspan="11" class="muted">{tt("Nothing to show.", "Nada que mostrar.")}</td></tr>'}</table></div></div>
 <p class="small muted">{tt("Partly converted = ARGIA has delivered LED in part of the building (less than 80 % of its area); it does not mean the rest was audited - see the audit column.", "Convertida en parte = ARGIA entregó LED en parte de la nave (menos del 80 % de su superficie); no significa que el resto esté auditado - ver la columna de auditoría.")} {basis} {tt("No ARGIA record does not prove a building has no LED: a tenant or another contractor may have converted it. Buildings without a recorded area are not listed.", "Que ARGIA no tenga registro no prueba que la nave no tenga LED: un inquilino u otro contratista pudo convertirla. Las naves sin superficie registrada no se listan.")}</p>"""
     return page(tt("Not yet on LED", "Aún sin LED"), body, on="lighting")
+
+
+@app.get("/lighting/warranty/")
+def lighting_warranty():
+    ds = _lds()
+    reg = warranty_reg()
+    if reg is None:
+        abort(404)
+    tt, today = t(), today_mx()
+    stf = request.args.get("s", "")
+    stf = stf if stf in WR.STATUSES else ""
+    mf = request.args.get("m", "")
+    mf = mf if mf in LT.MARKETS else ""
+    q = request.args.get("q", "")[:60]
+    rows_ = WR.filtered(reg.claims, stf, mf, q)
+    S_ = WR.summary(reg.claims)
+    kp = [(tt("Warranty claims", "Reclamos de garantía"), UI.num(S_.claims), "", f"{S_.buildings} {tt('buildings', 'naves')}"),
+          (tt("Fixtures replaced or repaired", "Luminarias reemplazadas o reparadas"), UI.num(S_.fixtures), "",
+           tt(f"of {UI.num(LT.totals(ds.projects, today).fixtures)} installed", f"de {UI.num(LT.totals(ds.projects, today).fixtures)} instaladas")),
+          (tt("Open now", "Abiertos ahora"), UI.num(S_.open), "", ""),
+          (tt("Median days to close", "Mediana de días al cierre"), UI.num(S_.median_days) if S_.median_days is not None else "-", "",
+           (tt(f"{UI.num(100 * S_.within_30)} % closed within 30 days", f"{UI.num(100 * S_.within_30)} % cerrados en 30 días") if S_.within_30 is not None else ""))]
+    kpis = "".join(f'<div class="kpi"><div class="l">{l}</div><div class="v">{v}<small>{u}</small></div><div class="d">{d}</div></div>' for l, v, u, d in kp)
+    years = WR.per_year(reg.claims)
+    chart = UI.bar_chart([(str(y), n, None) for y, n, _ in years], unit=tt("claims", "reclamos"), h=190)
+    cnt = {k: sum(1 for c in reg.claims if c.status == k and (not mf or c.market == mf)) for k in WR.STATUSES}
+    tabs2 = "".join(f'<a class="tab{" on" if stf == k else ""}" href="?s={k}&m={UI.e(mf)}&q={UI.e(q)}">{UI.e(tt(*WR.STATUSES[k][:2]))}<b>{cnt[k]}</b></a>' for k in ("open", "closed"))
+    mopts = "".join(f'<option value="{k}"{" selected" if k == mf else ""}>{UI.e(tt(*v))}</option>' for k, v in LT.MARKETS.items()
+                    if any(c.market == k for c in reg.claims))
+    rows = "".join(_claim_row(c, tt, today) for c in rows_)
+    terms = [tt(f"LED fixtures carry the manufacturer's {reg.years}-year limited warranty, counted from the installation (Acuity Brands; the handover date is shown on each project page).",
+                f"Las luminarias LED tienen la garantía limitada del fabricante de {reg.years} años desde la instalación (Acuity Brands; la fecha de entrega está en cada proyecto)."),
+             tt("Report a failure to ARGIA with the W1 claim form and photos or a video of the fixture; without them the manufacturer can reject the claim.",
+                "Reporte la falla a ARGIA con el formato de reclamo W1 y fotos o video de la luminaria; sin ellos el fabricante puede rechazar el reclamo."),
+             tt("Each claim gets a W- ticket number; keep it in the e-mail subject so the whole history stays in one thread.",
+                "Cada reclamo recibe un número de ticket W-; manténgalo en el asunto del correo para conservar todo el historial en un hilo."),
+             tt("ARGIA confirms the claim, files it with the manufacturer, installs the replacement and closes the ticket with a short report (cause found, fixtures replaced).",
+                "ARGIA confirma el reclamo, lo tramita con el fabricante, instala el reemplazo y cierra el ticket con un reporte breve (causa encontrada, luminarias reemplazadas).")]
+    body = f"""{_ltabs("warr", tt, len(LT.pipeline(ds)))}
+<section class="hero"><div class="glow"></div><div class="k">{tt("Warranty", "Garantías")}</div>
+<h1>{tt("Warranty claims on the LED fixtures", "Reclamos de garantía de las luminarias LED")}</h1>
+<div class="sub">{tt("Every failure reported on an ARGIA LED installation in a Prologis building, from the report to the replacement.", "Cada falla reportada en una instalación LED de ARGIA en una nave de Prologis, del reporte al reemplazo.")}</div>
+<div class="kpis">{kpis}</div></section>
+<div class="grid g2 lg"><div class="card"><h2>{tt("Claims per year", "Reclamos por año")}</h2>{chart}
+<p class="small muted" style="margin:4px 0 0">{tt("By the year the failure was reported.", "Por el año en que se reportó la falla.")}</p></div>
+<div class="card"><h2>{tt("How the warranty works", "Cómo funciona la garantía")}</h2><ol class="small" style="margin:0;padding-left:18px;line-height:1.55">{"".join(f"<li>{UI.e(x)}</li>" for x in terms)}</ol></div></div>
+<div class="tabs" style="margin-top:16px"><a class="tab{" on" if not stf else ""}" href="?m={UI.e(mf)}&q={UI.e(q)}">{tt("All", "Todos")}<b>{sum(cnt.values())}</b></a>{tabs2}
+<form method="get" class="lfilt" style="margin:0 0 0 auto"><input type="hidden" name="s" value="{UI.e(stf)}"><input type="search" name="q" value="{UI.e(q)}" placeholder="{tt("Search code, park, customer, model", "Buscar código, parque, cliente, modelo")}">
+<select name="m" onchange="this.form.submit()" style="width:auto"><option value="">{tt("All cities", "Todas las ciudades")}</option>{mopts}</select></form></div>
+<div class="card"><h2>{tt("Claims", "Reclamos")}<span class="r muted">{len(rows_)}</span></h2><div style="overflow-x:auto"><table class="t sortable">{_claim_head(tt)}
+{rows or f'<tr><td colspan="13" class="muted">{tt("No claim matches these filters.", "Ningún reclamo coincide con los filtros.")}</td></tr>'}</table></div></div>
+<p class="small muted">{tt("Source: ARGIA's warranty trackers (claims 2022 to August 2025, and the W- ticket sheet since then). Days = report to replacement; for an open claim, days since the report (+). A building code is shown when the tracker names the building; older claims name the customer and city only.", "Fuente: registros de garantías de ARGIA (reclamos 2022 a agosto 2025, y la hoja de tickets W- desde entonces). Días = del reporte al reemplazo; para un reclamo abierto, días desde el reporte (+). El código de nave aparece cuando el registro nombra la nave; los reclamos antiguos solo nombran cliente y ciudad.")} {tt("Data as of", "Datos al")} {UI.e(reg.generated)}.</p>"""
+    return page(tt("LED warranty", "Garantías LED"), body, on="lighting")
 
 
 @app.get("/lighting/logo/<key>.png")

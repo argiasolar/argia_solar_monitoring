@@ -99,6 +99,7 @@ prologis_app  GET    /lighting/p/<int:pid>
 prologis_app  GET    /lighting/pipeline.csv
 prologis_app  GET    /lighting/pipeline/
 prologis_app  GET    /lighting/projects.csv
+prologis_app  GET    /lighting/warranty/
 prologis_app  GET    /login
 prologis_app  GET    /logout
 prologis_app  GET    /maintenance/

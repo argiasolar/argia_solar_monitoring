@@ -83,8 +83,8 @@ class TestVacantSpace:
         h = cl.get("/lighting/p/77").get_data(as_text=True)
         assert '<span class="clogo big plain"><img class="" src="/brand/prologis_logo.png" alt="Prologis"></span>' in h
         ext = cl.get("/lighting/p/4").get_data(as_text=True)                              # v353: exteriors are Prologis's too
-        assert '<div class="lhead"><span class="clogo big plain"><img class="" src="/brand/prologis_logo.png"' in ext
-        assert '<div class="lhead"><span class="clogo big plain"><img src="/lighting/logo/acme.png' in cl.get("/lighting/p/1").get_data(as_text=True)
+        assert '<div class="phlogo"><span class="clogo big plain"><img class="" src="/brand/prologis_logo.png"' in ext
+        assert '<div class="phlogo"><span class="clogo big plain"><img src="/lighting/logo/acme.png' in cl.get("/lighting/p/1").get_data(as_text=True)
 
 
 pw = pytest.importorskip("playwright.sync_api", reason="Playwright not installed")

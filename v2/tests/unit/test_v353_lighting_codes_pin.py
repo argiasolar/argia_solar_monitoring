@@ -46,7 +46,7 @@ class TestCodes:
         assert "<th>Park</th><th>City</th>\n<th>Prologis building code</th>" in lst
         h = cl.get("/lighting/p/1").get_data(as_text=True)
         assert '<td class="muted">Prologis building code</td><td><b>MXC09901</b></td>' in h
-        assert re.search(r'<div class="muted">[^<]*· MXC09901 <span class="pill"', h)          # under the title
+        assert "<span>Prologis code<b>MXC09901</b></span>" in h                       # under the title (v362: facts line)
         other = h.split("Other projects in this park")[1]
         assert '<td class="nw">MXC09901</td>' in other and "Building 1" not in other
 
@@ -71,7 +71,7 @@ class TestPrologisLogo:
         (tmp / "brand").mkdir(exist_ok=True)
         (tmp / "brand" / "prologis_logo.png").write_bytes(_png())
         h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/p/90").get_data(as_text=True)
-        assert '<div class="lhead"><span class="clogo big plain"><img class="" src="/brand/prologis_logo.png" alt="Prologis">' in h
+        assert '<div class="phlogo"><span class="clogo big plain"><img class="" src="/brand/prologis_logo.png" alt="Prologis">' in h
 
     def test_without_the_brand_file_grey_initials(self, env):
         mod, pws, tmp = env

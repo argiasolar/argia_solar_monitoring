@@ -4403,9 +4403,11 @@ def lighting_project(pid: int):
     others = "".join(f'<tr><td>{_clogo(ds, q)}</td><td><a href="/lighting/p/{q.id}">{UI.e(q.customer)}</a></td><td class="nw">{UI.e(q.yardi or q.bldg or "-")}</td>'
                      f'<td class="n">{q.year or "-"}</td><td class="n">{UI.num(q.fixtures)}</td></tr>' for q in sorted(same, key=lambda q: -(q.year or 0)))
     body = f"""{_ltabs("list", tt, len(LT.pipeline(ds)))}
-<div class="lhead">{_clogo(ds, p, big=True)}<div><div class="kick">{_mk(p.market, tt)} · {UI.e(p.park)}</div><h1 class="pt">{UI.e(p.customer)}</h1>
-<div class="muted">{UI.e(p.place)} <span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></div>
-<div class="lbtns">{_audit_btn(p.yardi, tt, small=False)} {_offer_btn(_latest_offer([f"P{p.id:03d}"]), tt)}</div></div></div>
+<section class="card phead"><div class="phlogo">{_clogo(ds, p, big=True)}</div>
+<div class="phmain"><div class="kick">{_mk(p.market, tt)} · {UI.e(p.park)}</div><h1>{UI.e(p.customer)}</h1>
+<div class="phfacts">{f'<span>{tt("Prologis code", "Código Prologis")}<b>{UI.e(p.yardi)}</b></span>' if p.yardi else ""}{f'<span>{tt("Building", "Nave")}<b>{UI.e(p.bldg)}</b></span>' if p.bldg else ""}<span>{tt("Type", "Tipo")}<b>{UI.e(tt(*LT.KINDS[p.kind]))}</b></span>
+<span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></div></div>
+<div class="phact">{_audit_btn(p.yardi, tt, small=False)}{_offer_btn(_latest_offer([f"P{p.id:03d}"]), tt)}</div></section>
 <div class="stepper">{stepper}</div><p class="small muted" style="margin:0 0 6px">{tt("Steps with a document in ARGIA's project folders are filled in.", "Los pasos con documento en las carpetas de ARGIA aparecen llenos.")}</p>
 <div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{flash(pmsg) if pmsg else ""}{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
 <div class="card"><h2>{tt("Project", "Proyecto")}</h2><div style="overflow-x:auto"><table class="t">{ftab}</table></div></div></div>

@@ -312,9 +312,9 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
 <title>{UI.e(title)} - ARGIA for Prologis</title>{ICON_LINKS}<style>{UI.CSS}</style></head><body>
 <div class="top"><div class="stripe"></div><div class="topin">
 <a class="brand" href="/">{pl or UI.stripe_svg(26) + ' PROLOGIS'}<span class="x">×</span>
-<img class="ar" src="{argia_logo.MARK_URI}" alt="ARGIA"><span class="tag">{tt("Solar O&M platform", "Plataforma O&M solar")}</span></a>
+<img class="ar" src="{argia_logo.MARK_URI}" alt="ARGIA"><span class="tag">{tt("O&M platform", "Plataforma O&M")}</span></a>
 <nav class="main">{links}</nav>{who}</div></div>{banner}
-<main>{body}</main>{SORT_JS if 'class="t sortable"' in body else ""}
+<main>{body}</main>{SORT_JS if '<table class="t' in body else ""}
 <div class="foot"><span>ARGIA for Prologis · {tt("operated by", "operado por")} ARGIA - Smart Energy Solutions</span>
 <span>{tt("Times in Mexico City time", "Horas en tiempo de Ciudad de México")}</span><a href="/security/">{tt("Security & data", "Seguridad y datos")}</a>{privacy_link(tt)}</div>
 </body></html>"""
@@ -390,7 +390,7 @@ def _login_page(msg: str = "", status: int = 200) -> Response:
 .login .art img.pl.rev{{height:38px;background:none;padding:0;border-radius:0}}
 </style></head><body><div class="login"><div class="art"><div class="brandrow">{pl or UI.stripe_svg(34)}<span style="opacity:.6">×</span>
 <img src="{argia_logo.MARK_URI}" alt="ARGIA" style="height:26px;filter:brightness(0) invert(1)"></div>
-<div><div class="kick" style="color:#9fe3dc">{tt("Solar O&M platform - Mexico", "Plataforma O&M solar - México")}</div>
+<div><div class="kick" style="color:#9fe3dc">{tt("O&M platform - Mexico", "Plataforma O&M - México")}</div>
 <h1>{tt("Every rooftop. Every kilowatt. One view.", "Cada techo. Cada kilowatt. Una vista.")}</h1>
 <p style="color:#cfe6e3;max-width:520px">{tt("Live production, response-time tickets on your MSA classes, construction pipeline and documentation for the Prologis rooftop solar portfolio, operated by ARGIA.", "Producción en vivo, tickets con los tiempos de respuesta de su MSA, avance de construcción y documentación del portafolio solar de Prologis, operado por ARGIA.")}</p></div>
 <div class="small" style="color:#9fc9c4">{tt("Private platform prepared for Prologis by ARGIA - Smart Energy Solutions. Authorised users only; every access is logged.", "Plataforma privada preparada para Prologis por ARGIA - Smart Energy Solutions. Solo usuarios autorizados; todo acceso queda registrado.")}</div></div>
@@ -3188,7 +3188,7 @@ def availability_annual(msg: str = "", err: bool = False):
     for i, s in enumerate(op):
         tr_ = tm.get(s.code)
         if not tr_:
-            rows += f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code}</div></td><td colspan="8" class="muted small">{tt("Contract terms not set (effective date, kWh rate, annual fee).", "Términos del contrato sin fijar (fecha efectiva, tarifa kWh, cuota anual).")}</td></tr>'
+            rows += f'<tr><td><b>{UI.e(s.name)}</b><div class="small muted">{s.code}</div></td><td colspan="7" class="muted small">{tt("Contract terms not set (effective date, kWh rate, annual fee).", "Términos del contrato sin fijar (fecha efectiva, tarifa kWh, cuota anual).")}</td></tr>'
             continue
         eff = dt.date.fromisoformat(tr_["effective_date"])
         for a, b in [y for y in AV.contract_years(eff, today) if AV.analysis_due(y[1]) >= today]:   # running, or analysis not yet due
@@ -4060,18 +4060,33 @@ def _logo_src(c) -> str:
     return f"/lighting/logo/{UI.e(c.key)}.png?v={v}"
 
 
-SORT_JS = ("<script>document.querySelectorAll('table.t.sortable').forEach(function(t){var h=t.rows[0];"
-           "[].forEach.call(h.cells,function(th,ci){if(!th.textContent.trim())return;th.classList.add('srt');th.tabIndex=0;th.setAttribute('aria-sort','none');"
-           "function val(r){var c=r.cells[ci],s=(c.dataset.v!==undefined?c.dataset.v:c.textContent).trim(),n=s.replace(/[,\\s%\\u00b2m]/g,'');"
-           "if(/^-?\\d+(\\.\\d+)?$/.test(n))return[0,parseFloat(n)];if(!s||s==='-')return[2,0];return[1,s];}"
+SORT_JS = ("<script>(function(){"
+           # v361: one comparison for every column - empty cells ('-') last in both directions (two empties made the
+           # old comparison throw, so the browser dropped the whole sort: 'sorting does not work in all columns'),
+           # numbers with units are numbers ('0 % LED', '48 months', '$1,234', '18,000 m²'), ISO dates and codes
+           # ('2025-339') compare as text in natural order
+           "function key(c){if(!c)return[2,0];var s=(c.dataset.v!==undefined?c.dataset.v:c.textContent).replace(/\\s+/g,' ').trim();"
+           "if(!s||/^[-\\u2013]$/.test(s))return[2,0];if(/^\\d{4}-\\d{2}-\\d{2}/.test(s))return[1,s];"
+           "var m=s.replace(/,/g,'').match(/^(-?)\\$?(-?\\d+(?:\\.\\d+)?)\\s*([^\\d]*)$/);if(m)return[0,(m[1]?-1:1)*parseFloat(m[2])];return[1,s];}"
+           "function cmp(x,y,asc){if(x[0]===2||y[0]===2)return(x[0]===2)-(y[0]===2);if(x[0]!==y[0])return asc?x[0]-y[0]:y[0]-x[0];"
+           "var d=x[0]===0?x[1]-y[1]:x[1].localeCompare(y[1],'es',{sensitivity:'base',numeric:true});return asc?d:-d;}"
+           # columns by position on screen: a merged cell (colspan) counts as empty for the columns it covers
+           "function wid(r){var w=0;[].forEach.call(r.cells,function(c){w+=c.colSpan||1;});return w;}"
+           "function at(r,vi){var x=0;for(var i=0;i<r.cells.length;i++){if(x===vi)return r.cells[i];x+=r.cells[i].colSpan||1;if(x>vi)return null;}return null;}"
+           # every data table with a header row; a row that is one cell across the table (a group title, 'nothing to
+           # show') keeps the table as it is unless the table says sortable
+           "document.querySelectorAll('table.t').forEach(function(t){if(t.classList.contains('tot')||t.classList.contains('nosort')||t.rows.length<3)return;"
+           "var h=t.rows[0];if(![].every.call(h.cells,function(c){return c.tagName==='TH';}))return;var W=wid(h);"
+           "function ok(r){return r.cells.length>1&&wid(r)===W;}"
+           "var odd=[].slice.call(t.rows,1).some(function(r){return !ok(r);});if(odd&&!t.classList.contains('sortable'))return;"
+           "var vi=0;[].forEach.call(h.cells,function(th){var ci=vi;vi+=th.colSpan||1;if(!th.textContent.trim())return;th.classList.add('srt');th.tabIndex=0;th.setAttribute('aria-sort','none');"
            "function go(){var asc=th.getAttribute('aria-sort')!=='ascending';"
            "[].forEach.call(h.cells,function(x){if(x.classList.contains('srt'))x.setAttribute('aria-sort','none');});"
            "th.setAttribute('aria-sort',asc?'ascending':'descending');"
-           "var rows=[].slice.call(t.rows,1).filter(function(r){return r.cells.length===h.cells.length;});"
-           "rows.sort(function(a,b){var x=val(a),y=val(b);if(x[0]!==y[0])return x[0]-y[0];"
-           "var d=x[0]===0?x[1]-y[1]:x[1].localeCompare(y[1],'es',{sensitivity:'base',numeric:true});return asc?d:-d;});"
+           "var rows=[].slice.call(t.rows,1).filter(ok);"
+           "rows.sort(function(a,b){return cmp(key(at(a,ci)),key(at(b,ci)),asc);});"
            "rows.forEach(function(r){r.parentNode.appendChild(r);});}"
-           "th.addEventListener('click',go);th.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});});});</script>")
+           "th.addEventListener('click',go);th.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});});});})();</script>")
 
 
 def _hscroll(inner: str, cls: str, tt, ident: str = "") -> str:
@@ -4436,6 +4451,25 @@ def lighting_customers():
     return page(tt("LED customers", "Clientes LED"), body, on="lighting")
 
 
+def _occ_cell(r, ds, fp, tt) -> str:
+    """v361: who occupies the building per ARGIA's records, and whether that company already has LED in other buildings."""
+    occ = LT.occupants(r, ds, fp)
+    if not occ:
+        txt = tt("Vacant", "Vacante") if LT.vacant(r) else "-"
+        return f'<td data-v="{UI.e(txt if txt != "-" else "")}"><span class="muted">{txt}</span></td>'
+    parts = []
+    for o in occ:
+        badge = ""
+        if o.led_elsewhere:
+            n = o.led_elsewhere
+            lbl = tt(f"LED in {n} other building" + ("s" if n > 1 else ""), f"LED en {n} nave" + ("s" if n > 1 else "") + " más")
+            href = f"/lighting/buildings/?c={UI.e(o.group)}" if o.group else "/lighting/buildings/"
+            badge = f' <a class="pill ledpill" href="{href}" title="{tt("Already an ARGIA LED customer in other Prologis buildings", "Ya es cliente LED de ARGIA en otras naves de Prologis")}">★ {lbl}</a>'
+        here = f' <span class="small muted">({tt("part already LED", "parte ya en LED")})</span>' if o.source == "project" else ""
+        parts.append(f'<div>{"<b>" if o.source == "opportunity" else ""}{UI.e(o.name)}{"</b>" if o.source == "opportunity" else ""}{here}{badge}</div>')
+    return f'<td data-v="{UI.e(occ[0].name)}">{"".join(parts)}</td>'
+
+
 @app.get("/lighting/pipeline/")
 def lighting_pipeline():
     ds = _lds()
@@ -4454,6 +4488,7 @@ def lighting_pipeline():
             "ph": sat_photo(r.building.lat, r.building.lon, r.building.geo == "building", 480, 270)}
            for r in rows_ if r.building.lat is not None]
     rows = ""
+    fp = LT.footprint(ds)
     for r in rows_:
         b = r.building
         last = max((o.last_proforma for o in r.opportunities if o.last_proforma), default=None)
@@ -4463,7 +4498,7 @@ def lighting_pipeline():
                if b.lat is not None else "")
         aud = any(o.audit or o.study or o.proforma for o in r.opportunities) or any(q.docs.get("audit") and not q.delivered for q in r.projects)
         rows += (f'<tr><td class="nw"><b>{UI.e(b.yardi)}</b></td><td>{UI.e(b.name or "-")}<div class="small muted">{UI.e(b.park or "")}</div></td>'
-                 f'<td>{_mk(b.market, tt) if b.market else "-"}<div class="small muted">{UI.e(b.city or "")}</div></td><td class="n">{UI.num(b.area_m2)}</td>'
+                 f'{_occ_cell(r, ds, fp, tt)}<td>{_mk(b.market, tt) if b.market else "-"}<div class="small muted">{UI.e(b.city or "")}</div></td><td class="n">{UI.num(b.area_m2)}</td>'
                  f'<td style="min-width:110px"><div class="hbar"><i style="width:{100 * sh:.0f}%"></i></div><span class="small muted">{UI.num(100 * sh)} % LED</span></td>'
                  f'<td class="n">{UI.num(r.remaining_m2)}</td><td><span class="pill" style="background:{LT.BSTATUS[r.status][2]}22;color:#14211f">{UI.e(tt(*LT.BSTATUS[r.status][:2]))}</span></td>'
                  f'<td>{tt("yes", "sí") if aud else tt("no", "no")}</td><td class="nw" data-v="{UI.e(last or "")}">{UI.e(last or "-")} {_offer_btn(_latest_offer([f"O{o.id:03d}" for o in r.opportunities]), tt)}</td>'
@@ -4489,9 +4524,10 @@ def lighting_pipeline():
 <div class="tabs"><a class="tab{" on" if not stf else ""}" href="?m={UI.e(mf)}">{tt("All", "Todas")}<b>{len(allp)}</b></a>{tabs2}
 <form method="get" style="margin-left:auto"><input type="hidden" name="s" value="{UI.e(stf)}"><select name="m" onchange="this.form.submit()" style="width:auto"><option value="">{tt("All cities", "Todas las ciudades")}</option>{mopts}</select></form></div>
 <div class="card"><h2 style="flex-wrap:wrap">{tt("Map", "Mapa")}<span class="r legend">{"".join(f'<span><i style="background:{LT.BSTATUS[k][2]}"></i>{UI.e(tt(*LT.BSTATUS[k][:2]))}</span>' for k in ("in_progress", "audited", "partial", "not_started"))}</span></h2>{_lmap(pts, "460px")}</div>
-<div class="card" style="margin-top:16px"><h2>{tt("Buildings", "Naves")}{csv_link}</h2><div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Code", "Código")}</th><th>{tt("Building", "Nave")}</th><th>{tt("City", "Ciudad")}</th>
+<div class="card" style="margin-top:16px"><h2>{tt("Buildings", "Naves")}{csv_link}</h2><div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Code", "Código")}</th><th>{tt("Building", "Nave")}</th><th>{tt("Customer", "Cliente")}</th><th>{tt("City", "Ciudad")}</th>
 <th class="n">m²</th><th>{tt("On LED", "En LED")}</th><th class="n">{tt("To convert m²", "Por convertir m²")}</th><th>{tt("Status", "Estado")}</th><th>{tt("ARGIA audit of the rest", "Auditoría ARGIA del resto")}</th><th>{tt("Last proforma", "Última proforma")}</th>
-<th class="n">MWh/{tt("yr", "año")} ({tt("est.", "est.")})</th><th></th></tr>{rows or f'<tr><td colspan="11" class="muted">{tt("Nothing to show.", "Nada que mostrar.")}</td></tr>'}</table></div></div>
+<th class="n">MWh/{tt("yr", "año")} ({tt("est.", "est.")})</th><th></th></tr>{rows or f'<tr><td colspan="12" class="muted">{tt("Nothing to show.", "Nada que mostrar.")}</td></tr>'}</table></div></div>
+<p class="small muted">{tt("Customer = the company in ARGIA's records for the building (bold: the audit or proforma; others: part of the building already relit). ★ = that company already has ARGIA LED in other Prologis buildings. A building without such a record shows -; it does not mean it is empty.", "Cliente = la empresa en los registros de ARGIA para la nave (negrita: la auditoría o proforma; otras: parte de la nave ya iluminada). ★ = esa empresa ya tiene LED de ARGIA en otras naves de Prologis. Una nave sin ese registro muestra -; no significa que esté vacía.")}</p>
 <p class="small muted">{tt("Partly converted = ARGIA has delivered LED in part of the building (less than 80 % of its area); it does not mean the rest was audited - see the audit column.", "Convertida en parte = ARGIA entregó LED en parte de la nave (menos del 80 % de su superficie); no significa que el resto esté auditado - ver la columna de auditoría.")} {basis} {tt("No ARGIA record does not prove a building has no LED: a tenant or another contractor may have converted it. Buildings without a recorded area are not listed.", "Que ARGIA no tenga registro no prueba que la nave no tenga LED: un inquilino u otro contratista pudo convertirla. Las naves sin superficie registrada no se listan.")}</p>"""
     return page(tt("Not yet on LED", "Aún sin LED"), body, on="lighting")
 
@@ -5122,8 +5158,8 @@ def _offer_results(o: ES.Offer, s: ES.Scenario, tt) -> str:
                 f'<a class="btn sm ghost" href="?{qs}" data-apply="{qs}">{tt("Apply", "Aplicar")}</a></div>')
     return f"""<section class="hero"><div class="glow"></div><div class="k">{tt("Result", "Resultado")}</div><div class="kpis">{kpis}</div></section>{warn}
 <div class="card" style="margin-top:16px"><h2>{tt("Where the deal works", "Dónde funciona el trato")}</h2><p style="margin-top:0">{band}</p>{bar}</div>
-<div class="grid g2 lg" style="margin-top:16px"><div class="card"><h2>{tt("Prologis Essentials", "Prologis Essentials")}</h2><div style="overflow-x:auto"><table class="t">{head}{prol}</table></div></div>
-<div class="card"><h2>{tt("Saving calculator (customer)", "Calculadora de ahorro (cliente)")}</h2><div style="overflow-x:auto"><table class="t">{head}{cust}</table></div></div></div>
+<div class="grid g2 lg" style="margin-top:16px"><div class="card"><h2>{tt("Prologis Essentials", "Prologis Essentials")}</h2><div style="overflow-x:auto"><table class="t nosort">{head}{prol}</table></div></div>
+<div class="card"><h2>{tt("Saving calculator (customer)", "Calculadora de ahorro (cliente)")}</h2><div style="overflow-x:auto"><table class="t nosort">{head}{cust}</table></div></div></div>
 <div class="card" style="margin-top:16px"><h2>{tt("Ideas for this offer", "Ideas para esta oferta")}</h2><div class="suggs">{sug}</div></div>"""
 
 
@@ -5274,7 +5310,8 @@ def lighting_pipeline_csv():
     stf, mf = request.args.get("s", ""), request.args.get("m", "")
     it = LT.intensity(ds)
     rows = [["yardi", "building", "park", "city", "market", "area_m2", "led_share_pct", "to_convert_m2", "status",
-             "audited", "last_proforma", "est_mwh_year"]]
+             "audited", "last_proforma", "est_mwh_year", "customer", "customer_led_other_buildings"]]
+    fp = LT.footprint(ds)
     for r in LT.pipeline(ds):
         if (stf and r.status != stf) or (mf and r.building.market != mf):
             continue
@@ -5283,7 +5320,9 @@ def lighting_pipeline_csv():
                      round(100 * (r.share or 0), 1), round(r.remaining_m2 or 0), r.status,
                      "yes" if r.status == "audited" or any(o.audit for o in r.opportunities) else "no",
                      max((o.last_proforma for o in r.opportunities if o.last_proforma), default=""),
-                     round((r.remaining_m2 or 0) * it.kwh_per_m2 / 1000, 1) if it else ""])
+                     round((r.remaining_m2 or 0) * it.kwh_per_m2 / 1000, 1) if it else "",
+                     "; ".join(o.name for o in LT.occupants(r, ds, fp)) or ("Vacant" if LT.vacant(r) else ""),
+                     "; ".join(str(o.led_elsewhere) for o in LT.occupants(r, ds, fp))])
     S.audit(db(), g.user["username"], ip(), "export", "lighting pipeline csv")
     return _csv_response(rows, "ARGIA_Prologis_not_yet_LED.csv")
 

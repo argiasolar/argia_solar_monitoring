@@ -482,3 +482,80 @@ def _date(s: Optional[str]) -> Optional[dt.date]:
 
 def _leap(y: int) -> bool:
     return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+
+
+# ------------------------------------------------------------------ v361 who occupies a building still to convert
+# Tomasz, 5 Nov 2026: "in the buildings not yet delivered we should add column for customer and we should have
+# indicator that the customer is actually already having buildings if they do". The occupant is what ARGIA's records
+# say: the customer of an opportunity (audit / proforma) in the building, then customers of LED projects already done
+# in part of it. Nothing is guessed: a building without such a record has no customer.
+_NOT_A_CUSTOMER = ("vacant", "vacante", "common area", "areas comunes", "exterior", "replacement stock", "stock")
+
+
+def _ckey(name) -> str:
+    import unicodedata
+    s = "".join(ch for ch in unicodedata.normalize("NFD", str(name or "")) if unicodedata.category(ch) != "Mn").lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", s).split())
+
+
+def is_vacant(name) -> bool:
+    k = _ckey(name)
+    return not k or any(k.startswith(x) for x in _NOT_A_CUSTOMER)
+
+
+@dataclass(frozen=True)
+class Occupant:
+    name: str
+    group: Optional[str]                # customer key when the company has LED projects with ARGIA
+    led_elsewhere: int                  # OTHER Prologis buildings with an ARGIA LED project of this company (any status)
+    source: str                         # "opportunity" | "project"
+
+
+def footprint(ds: "Dataset") -> Dict[str, Tuple[Optional[str], set]]:
+    """normalised company name -> (customer key, buildings with its LED projects)."""
+    out: Dict[str, Tuple[Optional[str], set]] = {}
+    for p in ds.projects:
+        if p.kind != "tenant" or is_vacant(p.customer):
+            continue
+        b = p.yardi or f"{p.park}|{p.bldg}"
+        names = {p.customer}
+        if p.group and p.group in ds.customers:
+            names.add(ds.customers[p.group].name)
+        for n in names:
+            g, s = out.setdefault(_ckey(n), (p.group, set()))
+            s.add(b)
+    return out
+
+
+def _find(fp, k: str):
+    """The company in the footprint: same name, or one name is the other's first whole words ('tecma' / 'tecma civco',
+    'rogers foam' / 'rogers'), at least 4 letters so short names ('xb', 'epc') never match by accident."""
+    if k in fp:
+        return fp[k]
+    for other, v in fp.items():
+        short, long_ = sorted((k, other), key=len)
+        if len(short) >= 4 and (long_ + " ").startswith(short + " "):
+            return v
+    return None, set()
+
+
+def occupants(row: "BuildingStatus", ds: "Dataset", fp=None) -> List[Occupant]:
+    """The companies ARGIA's records place in the building (opportunity first, newest first), vacant spaces left out."""
+    fp = footprint(ds) if fp is None else fp
+    here = row.building.yardi
+    seen, out = set(), []
+    opps = sorted(row.opportunities, key=lambda o: (o.last_proforma or "", o.id), reverse=True)
+    for name, src in [(o.customer, "opportunity") for o in opps] + [(p.customer, "project") for p in row.projects if p.kind == "tenant"]:
+        k = _ckey(name)
+        if is_vacant(name) or k in seen:
+            continue
+        seen.add(k)
+        g, bs = _find(fp, k)
+        out.append(Occupant(str(name), g, len(bs - {here}), src))
+    return out
+
+
+def vacant(row: "BuildingStatus") -> bool:
+    """Recorded as vacant (an opportunity or a project for vacant space) and no company on record."""
+    names = [o.customer for o in row.opportunities] + [p.customer for p in row.projects]
+    return bool(names) and all(is_vacant(n) for n in names)

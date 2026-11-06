@@ -38,11 +38,11 @@ class TestMarkup:
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         for path in PAGES:
             h = cl.get(path).get_data(as_text=True)
-            assert '<table class="t sortable">' in h and "table.t.sortable" in h, path
+            assert '<table class="t sortable">' in h and h.count("document.querySelectorAll('table.t')") == 1, path   # v361: every table.t
         h = cl.get("/lighting/").get_data(as_text=True)
         assert "<tr><th>City</th><th class=\"n\">" in h and "<tr><th>Park</th><th>City</th>" in h           # every column has a header
-        p = cl.get("/lighting/p/1").get_data(as_text=True)                           # no sortable table: no script
-        assert "table.t.sortable" not in p
+        p = cl.get("/lighting/p/1").get_data(as_text=True)                           # v361: once per page at most
+        assert p.count("document.querySelectorAll('table.t')") <= 1
 
     def test_sticky_header_and_sort_marks_in_the_css(self):
         import prologis_ui as UI

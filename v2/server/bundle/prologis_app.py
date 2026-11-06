@@ -3985,7 +3985,52 @@ def _lds() -> LT.Dataset:
     ds = lighting_ds()
     if ds is None:
         abort(404)
-    return ds
+    return LO.apply_pins(ds, LO.pins(db()))           # v360: pins moved by hand in the portal win over the data file
+
+
+def _can_pin() -> bool:
+    return S.can(g.user["role"], "light_request") or S.can(g.user["role"], "light_work")
+
+
+def _plant_map(p: LT.Project, tt, moved) -> str:
+    """v360: the plant on a map you can zoom and pan (Esri satellite / streets, the tiles the CSP allows); managers and
+    ARGIA can drag the pin to the right building and save it, or go back to the data file's point."""
+    zoom = 19 if p.geo == "building" else 17 if p.geo == "park" else 12      # as the pictures before (v353)
+    pin = p.geo in ("building", "park")
+    if moved:
+        when = (dt.datetime.strptime(moved["ts_utc"], "%Y-%m-%d %H:%M:%S") + M.MX_OFFSET).strftime("%Y-%m-%d")    # Mexico City date
+        cap = tt(f"Pin placed by hand by {moved['username']} on {when}", f"Pin colocado a mano por {moved['username']} el {when}")
+    else:
+        cap = (tt("The pin marks the building", "El pin marca la nave") if p.geo == "building"
+               else tt("The pin marks the park (the building's exact position is not surveyed yet)", "El pin marca el parque (la posición exacta de la nave aún no está levantada)")
+               if p.geo == "park" else tt("Only the city is known for this project, so there is no pin", "Para este proyecto solo se conoce la ciudad, por eso no hay pin"))
+    cfg = json.dumps({"lat": p.lat, "lon": p.lon, "z": zoom, "pin": pin})
+    edit = ""
+    if _can_pin():
+        reset = (f'<button class="btn sm ghost" name="reset" value="1" formnovalidate>{tt("Back to the data file", "Volver al dato del archivo")}</button>' if moved else "")
+        edit = (f'<form method="post" action="/lighting/p/{p.id}/pin" class="pinbar" id="pinf">{csrf_field()}'
+                f'<input type="hidden" name="lat"><input type="hidden" name="lon">'
+                f'<button type="button" class="btn sm" id="pinedit">📍 {tt("Move pin", "Mover pin") if pin else tt("Place pin", "Colocar pin")}</button>'
+                f'<span id="pinhelp" class="small muted" hidden>{tt("Drag the pin, or click the building on the map.", "Arrastre el pin o haga clic en la nave en el mapa.")}</span>'
+                f'<button class="btn sm" id="pinsave" hidden>{tt("Save position", "Guardar posición")}</button>'
+                f'<button type="button" class="btn sm ghost" id="pincancel" hidden>{tt("Cancel", "Cancelar")}</button>{reset}</form>')
+    icon = UI.MAP_PIN.replace('class="satpin"', 'class="lpin"').replace("'", "&#39;")
+    return f"""<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<div id="pmap" class="pmap"></div>{edit}
+<div class="small muted" style="margin-top:6px">{UI.e(cap)} · Esri World Imagery · <a href="{UI.e(LT.google_maps_url(p.lat, p.lon))}" target="_blank" rel="noopener">{tt("Open in Google Maps (satellite)", "Abrir en Google Maps (satélite)")} ›</a></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>(function(){{var C={cfg};var m=L.map('pmap',{{scrollWheelZoom:true,maxZoom:21}}).setView([C.lat,C.lon],C.z);
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxNativeZoom:19,maxZoom:21}}).addTo(m);
+var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxNativeZoom:19,maxZoom:21}});
+L.control.layers({{'{tt("Satellite", "Satélite")}':sat,'{tt("Streets", "Calles")}':st}}).addTo(m);L.control.scale({{imperial:false}}).addTo(m);
+var ic=L.divIcon({{html:'{icon}',className:'lpinwrap',iconSize:[34,46],iconAnchor:[17,46]}});
+var mk=C.pin?L.marker([C.lat,C.lon],{{icon:ic,keyboard:false}}).addTo(m):null;
+var f=document.getElementById('pinf');if(!f)return;var b=document.getElementById('pinedit'),sv=document.getElementById('pinsave'),cn=document.getElementById('pincancel'),hp=document.getElementById('pinhelp'),on=false;
+function put(ll){{if(!mk){{mk=L.marker(ll,{{icon:ic,keyboard:false}}).addTo(m);}}else mk.setLatLng(ll);f.lat.value=ll.lat.toFixed(6);f.lon.value=ll.lng.toFixed(6);sv.hidden=false;}}
+b.addEventListener('click',function(){{on=true;b.hidden=true;hp.hidden=false;cn.hidden=false;m.getContainer().classList.add('pinning');
+if(!mk)put(m.getCenter());mk.dragging.enable();mk.on('dragend',function(){{put(mk.getLatLng());}});}});
+m.on('click',function(e){{if(on){{put(e.latlng);mk.dragging.enable();}}}});
+cn.addEventListener('click',function(){{location.reload();}});}})();</script>"""
 
 
 def _mk(key: str, tt) -> str:
@@ -4298,16 +4343,9 @@ def lighting_project(pid: int):
         abort(404)
     st = LT.STATUSES[p.status]
     s = p.kwh_saved
-    pic = ""
-    if p.lat is not None:
-        cap = (tt("The pin marks the building", "El pin marca la nave") if p.geo == "building"
-               else tt("The pin marks the park (the building's exact position is not surveyed yet)", "El pin marca el parque (la posición exacta de la nave aún no está levantada)")
-               if p.geo == "park" else tt("Only the city is known for this project, so there is no pin", "Para este proyecto solo se conoce la ciudad, por eso no hay pin"))
-        src_name = "Google" if gmaps_key() else "Esri World Imagery"
-        pic = (f'<div class="satwrap"><img class="satimg" src="{UI.e(sat_photo(p.lat, p.lon, p.geo == "building"))}" referrerpolicy="origin" alt="{UI.e(cap)}" loading="lazy">'
-               f'{UI.MAP_PIN if p.geo in ("building", "park") else ""}</div>'
-               f'<div class="small muted" style="margin-top:6px">{UI.e(cap)} · {src_name} · '
-               f'<a href="{UI.e(LT.google_maps_url(p.lat, p.lon))}" target="_blank" rel="noopener">{tt("Open in Google Maps (satellite)", "Abrir en Google Maps (satélite)")} ›</a></div>')
+    moved = LO.pins(db()).get(p.id)
+    pic = _plant_map(p, tt, moved) if p.lat is not None else ""
+    pmsg = {"saved": tt("Position saved.", "Posición guardada."), "reset": tt("Back to the position in the data file.", "De vuelta a la posición del archivo de datos.")}.get(request.args.get("pin", ""), "")
     hand = p.handover_date if not p.handover_planned else (f'{p.handover_date} ({tt("planned", "planeada")})' if p.handover_date else None)
     since = p.co2_t_since(today)
     facts = [(tt("Customer", "Cliente"), UI.e(p.customer)), (tt("Type", "Tipo"), UI.e(tt(*LT.KINDS[p.kind]))),
@@ -4354,7 +4392,7 @@ def lighting_project(pid: int):
 <div class="muted">{UI.e(p.place)} <span class="pill" style="background:{st[2]}22;color:#14211f">{UI.e(tt(*st[:2]))}</span></div>
 <div class="lbtns">{_audit_btn(p.yardi, tt, small=False)} {_offer_btn(_latest_offer([f"P{p.id:03d}"]), tt)}</div></div></div>
 <div class="stepper">{stepper}</div><p class="small muted" style="margin:0 0 6px">{tt("Steps with a document in ARGIA's project folders are filled in.", "Los pasos con documento en las carpetas de ARGIA aparecen llenos.")}</p>
-<div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
+<div class="grid g2 lg"><div class="card"><h2>{tt("The plant", "La planta")}</h2>{flash(pmsg) if pmsg else ""}{pic or tt("No position recorded.", "Sin posición registrada.")}</div>
 <div class="card"><h2>{tt("Project", "Proyecto")}</h2><div style="overflow-x:auto"><table class="t">{ftab}</table></div></div></div>
 <div class="grid g2e lg">{energy}<div class="card"><h2>{tt("Other projects in this park", "Otros proyectos en este parque")}</h2>
 {f'<table class="t">{others}</table>' if others else f'<span class="muted">{tt("None yet.", "Ninguno aún.")}</span>'}</div></div>{_docs_card(p, tt)}{wcard}"""
@@ -4885,6 +4923,27 @@ def light_cal_event_post(eid: int):
     except LO.Invalid as ex:
         return light_cal_event(eid, tt(f"Not possible: {ex}.", f"No es posible: {ex}."))
     return redirect(f"/lighting/calendar/e/{eid}/")
+
+
+@app.post("/lighting/p/<int:pid>/pin")
+def lighting_pin(pid: int):
+    """v360: save the plant's position dragged on the map, or go back to the data file's point."""
+    ds = _lds()
+    if not _can_pin():
+        abort(403)
+    raw = lighting_ds().project(pid)
+    if raw is None or ds.project(pid) is None:
+        abort(404)
+    c = db()
+    if request.form.get("reset"):
+        LO.clear_pin(c, pid, g.user["username"], ip())
+        return redirect(f"/lighting/p/{pid}?pin=reset")
+    ref = (raw.lat, raw.lon) if raw.lat is not None and raw.geo in ("building", "park") else None
+    try:
+        LO.set_pin(c, pid, request.form.get("lat"), request.form.get("lon"), ref, g.user["username"], ip())
+    except LO.Invalid as ex:
+        return Response(f"Position not saved: {html.escape(str(ex))}.", status=400, mimetype="text/plain")
+    return redirect(f"/lighting/p/{pid}?pin=saved")
 
 
 @app.get("/lighting/p/<int:pid>/doc/<int:n>")

@@ -166,6 +166,7 @@ prologis_app  POST   /docs/upload
 prologis_app  POST   /lighting/calendar/e/<int:eid>/
 prologis_app  POST   /lighting/calendar/new
 prologis_app  POST   /lighting/offer/<oid>/send
+prologis_app  POST   /lighting/p/<int:pid>/pin
 prologis_app  POST   /lighting/warranty/c/<number>/comment
 prologis_app  POST   /lighting/warranty/c/<number>/status
 prologis_app  POST   /lighting/warranty/c/<number>/visit

@@ -61,7 +61,7 @@ class TestGoogle:
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         r = cl.get("/lighting/p/1")
         assert "maps.googleapis.com" not in r.headers["Content-Security-Policy"]
-        assert "World_Imagery/MapServer/export" in r.get_data(as_text=True)
+        assert "World_Imagery/MapServer/tile" in r.get_data(as_text=True)              # v360: interactive Esri map on the building page
 
     def test_with_a_key_google_pictures_on_lighting_pages_only(self, env):
         mod, pws, tmp = env
@@ -71,8 +71,9 @@ class TestGoogle:
         h = r.get_data(as_text=True)
         assert "img-src 'self' data: https://server.arcgisonline.com https://cdnjs.cloudflare.com https://maps.googleapis.com;" \
             in r.headers["Content-Security-Policy"]
-        assert re.search(r'<img class="satimg" src="https://maps\.googleapis\.com/maps/api/staticmap\?center=19\.700000,-99\.200000'
-                         r'&amp;zoom=17&amp;size=640x360&amp;scale=2&amp;maptype=satellite&amp;key=' + KEY + '" referrerpolicy="origin"', h)
+        assert KEY not in h                                                      # v360: the building page is an Esri map now
+        pipe = cl.get("/lighting/pipeline/").get_data(as_text=True)              # the map pop-ups still show Google pictures
+        assert "https://maps.googleapis.com/maps/api/staticmap?center=" in pipe and "&maptype=satellite&key=" + KEY in pipe
         assert "frame-src" not in r.headers["Content-Security-Policy"] and "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;" in r.headers["Content-Security-Policy"]
         home = cl.get("/")                                                    # the rest of the platform: untouched
         assert "maps.googleapis.com" not in home.headers["Content-Security-Policy"] and KEY not in home.get_data(as_text=True)

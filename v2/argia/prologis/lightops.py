@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS light_events (
   notes TEXT NOT NULL DEFAULT '', ref TEXT NOT NULL DEFAULT '', requested_by TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL, created_utc TEXT NOT NULL, updated_by TEXT NOT NULL DEFAULT '', updated_utc TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS light_events_dates ON light_events (start_date, end_date);
+CREATE TABLE IF NOT EXISTS light_pins (
+  project_id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL, username TEXT NOT NULL, ts_utc TEXT NOT NULL);
 """
 
 SYMPTOMS = [("off", "Fixture does not turn on", "La luminaria no enciende"),
@@ -303,3 +305,62 @@ def entries(c, first: dt.date, last: dt.date, projects: Sequence = ()) -> List[E
                 out.append(Entry("handover", f"{p.customer} - planned handover", p.yardi or "", d, d, "confirmed",
                                  href=f"/lighting/p/{p.id}"))
     return sorted(out, key=lambda e: (e.start, e.kind, e.title))
+
+
+# ------------------------------------------------------------------ v360 pins moved by hand
+# Tomasz, 5 Nov 2026: "i want this map to be also interactive so I can zoom in and out and I can edit the pin location,
+# because in many cases the pin is showing something completely out of nowhere". A pin moved in the portal is kept in
+# light_pins and laid over lighting.json at load time (rebuilding lighting.json does not lose it); every move and every
+# reset is in the audit log with the old and the new position.
+MX_BOX = (14.0, 33.5, -118.6, -86.5)               # lat min/max, lon min/max: Mexico
+MAX_MOVE_KM = 60.0                                  # from the data file's point: a slip of the mouse, not another city
+
+
+def _km(a: float, b: float, c: float, d: float) -> float:
+    import math
+    p1, p2 = math.radians(a), math.radians(c)
+    x = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(d - b) / 2) ** 2
+    return 2 * 6371.0 * math.asin(math.sqrt(x))
+
+
+def pins(c: sqlite3.Connection) -> Dict[int, sqlite3.Row]:
+    return {r["project_id"]: r for r in c.execute("SELECT * FROM light_pins")}
+
+
+def set_pin(c: sqlite3.Connection, project_id: int, lat, lon, ref: Optional[Tuple[float, float]], user: str, ip: str = "") -> Tuple[float, float]:
+    """Store the plant's position for a project; `ref` is the data file's point (None when only the city is known)."""
+    try:
+        lat, lon = round(float(lat), 6), round(float(lon), 6)
+    except (TypeError, ValueError):
+        raise Invalid("position missing")
+    if not (MX_BOX[0] <= lat <= MX_BOX[1] and MX_BOX[2] <= lon <= MX_BOX[3]):
+        raise Invalid("the position is not in Mexico")
+    if ref is not None and _km(ref[0], ref[1], lat, lon) > MAX_MOVE_KM:
+        raise Invalid(f"the pin moved more than {MAX_MOVE_KM:.0f} km from the recorded park")
+    old = c.execute("SELECT lat, lon FROM light_pins WHERE project_id=?", (project_id,)).fetchone()
+    was = f"{old['lat']},{old['lon']}" if old else (f"{ref[0]},{ref[1]} (data file)" if ref else "none")
+    c.execute("INSERT INTO light_pins (project_id, lat, lon, username, ts_utc) VALUES (?,?,?,?,?) "
+              "ON CONFLICT(project_id) DO UPDATE SET lat=excluded.lat, lon=excluded.lon, username=excluded.username, ts_utc=excluded.ts_utc",
+              (project_id, lat, lon, user, now_utc()))
+    _audit(c, user, ip, "light_pin", f"P{project_id}", f"{lat},{lon} was {was}")
+    c.commit()
+    return lat, lon
+
+
+def clear_pin(c: sqlite3.Connection, project_id: int, user: str, ip: str = "") -> bool:
+    old = c.execute("SELECT lat, lon FROM light_pins WHERE project_id=?", (project_id,)).fetchone()
+    if not old:
+        return False
+    c.execute("DELETE FROM light_pins WHERE project_id=?", (project_id,))
+    _audit(c, user, ip, "light_pin_reset", f"P{project_id}", f"was {old['lat']},{old['lon']}")
+    c.commit()
+    return True
+
+
+def apply_pins(ds, moved: Dict[int, sqlite3.Row]):
+    """The dataset with the hand-placed positions (geo = building); the same object when nothing was moved."""
+    if not moved:
+        return ds
+    from dataclasses import replace
+    ps = [replace(p, lat=moved[p.id]["lat"], lon=moved[p.id]["lon"], geo="building") if p.id in moved else p for p in ds.projects]
+    return replace(ds, projects=ps)

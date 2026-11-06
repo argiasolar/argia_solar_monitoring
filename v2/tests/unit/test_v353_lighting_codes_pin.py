@@ -83,21 +83,18 @@ class TestPrologisLogo:
 
 
 class TestPin:
-    def test_closer_picture_with_a_pin_and_maps_link_on_a_pin(self, env):
+    def test_closer_view_with_a_pin_and_maps_link_on_a_pin(self, env):
+        """v360: an interactive map opened at the zoom the pictures had (park 17, building 19)."""
         mod, pws, tmp = env
         cl = sign_in(mod, "viewer", pws["viewer"], tmp)
         h = cl.get("/lighting/p/1").get_data(as_text=True)
-        assert '<div class="satwrap"><img class="satimg"' in h and '<svg class="satpin"' in h
-        assert "The pin marks the park" in h
+        assert 'id="pmap"' in h and '"z": 17, "pin": true' in h and "The pin marks the park" in h
         assert "google.com/maps/place/19.700000,-99.200000/" in h
-        _with_key(tmp)
-        g = cl.get("/lighting/p/1").get_data(as_text=True)
-        assert "&amp;zoom=17&amp;" in g                                                  # was 16: half a city
         d = copy.deepcopy(DATA)
         d["projects"][0]["geo"] = "building"
         _write(tmp, d)
         g = cl.get("/lighting/p/1").get_data(as_text=True)
-        assert "&amp;zoom=19&amp;" in g and "The pin marks the building" in g
+        assert '"z": 19, "pin": true' in g and "The pin marks the building" in g
 
     def test_no_pin_when_only_the_city_is_known(self, env):
         mod, pws, tmp = env
@@ -105,7 +102,7 @@ class TestPin:
         d["projects"][0]["geo"] = "city"
         _write(tmp, d)
         h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/p/1").get_data(as_text=True)
-        assert '<div class="satwrap"><img class="satimg"' in h and '<svg class="satpin"' not in h
+        assert 'id="pmap"' in h and '"z": 12, "pin": false' in h
         assert "Only the city is known for this project, so there is no pin" in h
 
     def test_esri_picture_is_closer_too(self, env):
@@ -133,13 +130,16 @@ def browser():
         b.close()
 
 
-def test_the_pin_tip_is_the_centre_of_the_picture(env, browser):
+def test_the_pin_tip_is_the_point(env, browser):
+    """v360: the pin's tip (bottom centre of the 34 x 46 icon) is anchored on the position - checked in a browser on the
+    icon as the page draws it (the map library itself is not loaded offline)."""
     mod, pws, tmp = env
     h = sign_in(mod, "viewer", pws["viewer"], tmp).get("/lighting/p/1").get_data(as_text=True)
-    pg = browser.new_page(viewport={"width": 1440, "height": 900})
-    pg.route("**/*", lambda r: r.abort() if r.request.url.startswith("http") else r.continue_())
-    pg.set_content(h)
-    img = pg.eval_on_selector(".satimg", "e => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }")
-    tip = pg.eval_on_selector(".satpin", "e => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.bottom]; }")
-    assert abs(img[0] - tip[0]) < 2 and abs(img[1] - tip[1]) < 2, (img, tip)
+    assert "iconSize:[34,46],iconAnchor:[17,46]" in h
+    svg = re.search(r"html:'(<svg class=\"lpin\".*?</svg>)'", h).group(1)
+    css = re.search(r"<style>(.*?)</style>", h, re.S).group(1)
+    pg = browser.new_page(viewport={"width": 400, "height": 300})
+    pg.set_content(f"<style>{css}</style><div style='position:absolute;left:100px;top:100px;width:34px;height:46px'>{svg}</div>")
+    box = pg.eval_on_selector(".lpin", "e => { const r = e.getBoundingClientRect(); return [r.width, r.height]; }")
+    assert box == [34, 46], box
     pg.close()

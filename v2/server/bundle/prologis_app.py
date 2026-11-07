@@ -301,6 +301,8 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
         nav.insert(nav.index(next(x for x in nav if x[2] == "projects")), ("/lighting/", tt("Lighting", "Iluminación"), "lighting"))
     if dd_pf() is not None:                             # v363: only where the server has a due diligence file
         nav.insert(2, ("/dd/", tt("Due diligence", "Due diligence"), "dd"))
+        if any(p.lighting for p in dd_pf().props):     # v364: the LED part, where the file has industrial lighting
+            nav.insert(3, ("/dd/lighting/", tt("Lighting", "Iluminación"), "ddlight"))
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
     # v338: the account links fold into one menu under the user's name, so the main menu fits on one line
@@ -5396,7 +5398,7 @@ def dd_home():
                  f'<td class="n">{UI.num(p.gla_m2) if p.gla_m2 else "-"}</td><td class="n">{UI.num(p.parking) if p.parking else "-"}</td>'
                  f'<td class="n">{UI.num(e["existing_kwp"]) if e["existing_kwp"] else "-"}</td>'
                  f'<td class="n">{UI.num(e["new_kwp"])}</td><td class="n">{UI.num(e["new_mwh"])}</td>'
-                 f'<td class="n">{UI.num(e["led_fixtures"]) if e["led_fixtures"] else "-"}</td>'
+                 f'<td class="n">{UI.num(e["led_fixtures"] + e["light_fixtures"]) if (e["led_fixtures"] + e["light_fixtures"]) else "-"}</td>'
                  f'<td class="n" data-v="{e["value_mxn"]:.0f}">{_mxn_m(e["value_mxn"])}</td><td>{_dd_opps(e, tt)}</td></tr>')
         pts.append({"code": p.code, "name": p.name, "lat": p.lat, "lon": p.lon, "approx": p.approx,
                     "c": DD_COL["pv"] if p.pv_seen else DD_COL[p.status], "city": p.city,
@@ -5426,8 +5428,8 @@ def dd_home():
          tt("Audit, design, permits, interconnection with CFE, construction and commissioning; the plant joins O&M on the same platform the day it starts.",
             "Auditoría, diseño, permisos, interconexión con CFE, construcción y puesta en marcha; la planta entra a O&M en la misma plataforma el día que arranca.")),
         (tt("LED lighting partner", "Socio de iluminación LED"),
-         tt("Parking, common areas and back-of-house: fixture audit, replacement plan, installation and measured savings per property.",
-            "Estacionamiento, áreas comunes y áreas de servicio: levantamiento de luminarias, plan de reemplazo, instalación y ahorro medido por propiedad.")),
+         tt("Warehouses (high-bay LED with sensors), parking, common areas and back-of-house: fixture audit, lighting design, installation and measured savings per property.",
+            "Naves (LED high-bay con sensores), estacionamiento, áreas comunes y áreas de servicio: levantamiento de luminarias, diseño de iluminación, instalación y ahorro medido por propiedad.")),
     ]
     offer_html = "".join(f'<div class="card"><h2 style="margin:0 0 6px;font-size:17px">{UI.e(h)}</h2><p class="small" style="margin:0">{UI.e(d)}</p></div>' for h, d in offer)
     body = f"""<div class="hero"><div class="k">{tt("Due diligence", "Due diligence")} · {UI.e(pf.as_of)}</div>
@@ -5435,7 +5437,7 @@ def dd_home():
 <div class="kpis"><div class="kpi"><div class="l">{tt("Properties", "Propiedades")}</div><div class="v">{tot["properties"]}</div><div class="d">{tot["operating"]} {tt("operating", "en operación")} · {tot["development"]} {tt("in development", "en desarrollo")}</div></div>
 <div class="kpi"><div class="l">{tt("PV already on the roof", "FV ya en el techo")}</div><div class="v">{tot["pv_seen"]}<small>{tt("properties", "propiedades")}</small></div><div class="d">≈ {UI.num(tot["existing_kwp"] / 1000, 1)} MWp {tt("est. from imagery", "est. por imagen")}</div></div>
 <div class="kpi"><div class="l">{tt("New PV potential", "Potencial FV nueva")}</div><div class="v">{UI.num(tot["new_kwp"] / 1000, 1)}<small>MWp</small></div><div class="d">{UI.num(tot["new_mwh"])} MWh/{tt("year", "año")}</div></div>
-<div class="kpi"><div class="l">{tt("LED parking fixtures", "Luminarias LED estacionamiento")}</div><div class="v">{UI.num(tot["led_fixtures"])}</div><div class="d">{UI.num(tot["led_mwh"])} MWh/{tt("year saved", "año ahorrados")}</div></div>
+<div class="kpi"><div class="l">{tt("LED fixtures", "Luminarias LED")}</div><div class="v">{UI.num(tot["led_fixtures"] + tot["light_fixtures"])}</div><div class="d">{UI.num(tot["led_mwh"] + tot["light_mwh"])} MWh/{tt("year saved", "año ahorrados")}</div></div>
 <div class="kpi"><div class="l">{tt("Est. savings a year", "Ahorro est. al año")}</div><div class="v">{_mxn_m(tot["value_mxn"])}</div><div class="d">MXN · {UI.num(tot["co2_t"])} t CO₂ {tt("avoided", "evitadas")}</div></div></div></div>
 <div class="grid g2"><div class="card"><h2>{tt("The portfolio on the map of Mexico", "El portafolio en el mapa de México")}</h2>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
@@ -5466,6 +5468,97 @@ if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:12}});}})();</script>"""
     return page(tt("Due diligence", "Due diligence"), body, "dd")
 
 
+@app.get("/dd/lighting/", endpoint="dd_lighting")
+def dd_lighting():
+    """v364: the LED lighting part of the due diligence - interior LED of the industrial buildings (a
+    "lighting" block in the file), LED in the parking lots, a calculator for any other building, and how
+    ARGIA runs an LED project. Only where the file has a lighting block."""
+    tt = t()
+    pf = _dd()
+    a = pf.assumptions
+    lit = [p for p in pf.props if p.lighting]
+    if not lit:
+        abort(404)
+    tot = DD.totals(pf)
+    co2 = a["co2_kg_kwh"]
+    cards = ""
+    for p in lit:
+        e, li = DD.estimate(p, a), DD.light(p, a)
+        lt = p.lighting
+        st = tt(*DD.LIGHT_STATUSES[lt.status])
+        rows = [(tt("Lit floor area", "Área iluminada"), f'{UI.num(li["area_m2"])} m²'),
+                (tt("High-bay fixtures", "Luminarias high-bay"), f'{UI.num(li["fixtures"])} ({tt("1 per", "1 por")} {UI.num(li["area_m2"] / li["fixtures"]) if li["fixtures"] else "-"} m²)'),
+                (tt("Today", "Hoy"), f'{UI.e(tt(*DD.BASELINES[lt.baseline]))} · {UI.num(li["w_before"])} W'),
+                (tt("With ARGIA", "Con ARGIA"), f'LED {UI.num(li["w_after"])} W + ' + tt("occupancy and daylight sensors", "sensores de presencia y luz natural") + f' (-{a["led_controls_share"] * 100:.0f} %)'),
+                (tt("Hours a year", "Horas al año"), UI.num(li["hours"])),
+                (tt("Energy before / after", "Energía antes / después"), f'{UI.num(li["mwh_before"])} / {UI.num(li["mwh_after"])} MWh'),
+                (tt("Saved a year", "Ahorro al año"), f'<b>{UI.num(li["mwh"])} MWh · {_mxn_m(e["light_mxn"])} MXN · {UI.num(li["mwh"] * co2)} t CO₂</b>')]
+        if e["led_fixtures"]:
+            rows.append((tt("Parking and yard", "Estacionamiento y patio"), f'{UI.num(e["led_fixtures"])} ' + tt("fixtures", "luminarias") + f' · {UI.num(e["led_mwh"], 1)} MWh · {_mxn_m(e["led_mxn"])} MXN'))
+        if e["new_kwp"]:
+            rows.append((tt("Solar on the same roof", "Solar en el mismo techo"), f'{UI.num(e["new_kwp"])} kWp · {UI.num(e["new_mwh"])} MWh/' + tt("year", "año")))
+        trs = "".join(f'<tr><td class="muted">{h}</td><td>{v}</td></tr>' for h, v in rows)
+        note = tt(lt.note, lt.note_es or lt.note)
+        cards += f"""<div class="card"><div class="grid g2e" style="margin-top:0">
+<figure style="margin:0"><img src="{UI.e(sat_photo(p.lat, p.lon, False, 640, 400))}" referrerpolicy="origin" alt="" style="width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:12px;background:#dfe6e4">
+{f'<figcaption class="small muted">{tt("Approximate location: the exact site is not published", "Ubicación aproximada: el sitio exacto no está publicado")}</figcaption>' if p.approx else ""}</figure>
+<div><div class="kick">{UI.e(tt(p.kind, p.kind_es or p.kind))} · {UI.e(p.city)}</div><h2 style="margin:2px 0 6px;font-size:20px"><a href="/dd/{p.code}">{UI.e(p.name)}</a></h2>
+<span class="pill s-off">{UI.e(st)}</span><table class="t nosort" style="margin-top:8px">{trs}</table>{f'<p class="small muted">{UI.e(note)}</p>' if note else ""}</div></div></div>"""
+    prow = ""
+    for p in DD.ranked(pf):
+        e = DD.estimate(p, a)
+        if e["led_fixtures"]:
+            prow += (f'<tr><td><a href="/dd/{p.code}">{UI.e(p.name)}</a></td><td>{UI.e(p.city)}</td><td class="n">{UI.num(p.parking)}</td>'
+                     f'<td class="n">{UI.num(e["led_fixtures"])}</td><td class="n">{UI.num(e["led_mwh"], 1)}</td><td class="n" data-v="{e["led_mxn"]:.0f}">{_mxn_m(e["led_mxn"])}</td></tr>')
+    fx = tot["light_fixtures"] + tot["led_fixtures"]
+    mwh = tot["light_mwh"] + tot["led_mwh"]
+    steps = [(tt("Audit", "Auditoría"), tt("Fixture count, lux readings, operating hours and 12 months of CFE bills, building by building.", "Conteo de luminarias, mediciones de lux, horas de operación y 12 meses de recibos de CFE, edificio por edificio.")),
+             (tt("Lighting design", "Diseño de iluminación"), tt("Photometric study per area to the levels of NOM-025-STPS and the power limits of NOM-007-ENER.", "Estudio fotométrico por área con los niveles de la NOM-025-STPS y los límites de potencia de la NOM-007-ENER.")),
+             (tt("Proposal", "Propuesta"), tt("Savings per building and two ways to pay: purchase, or a monthly fee covered by the savings (Light as a Service).", "Ahorro por edificio y dos formas de pago: compra, o una cuota mensual cubierta por el ahorro (Light as a Service).")),
+             (tt("Installation", "Instalación"), tt("In phases, at night or by zones, without stopping the tenants' operations.", "Por etapas, de noche o por zonas, sin detener la operación de los inquilinos.")),
+             (tt("Measured savings", "Ahorro medido"), tt("Every building on this platform: fixtures, warranties, maintenance and the energy saved, month by month.", "Cada edificio en esta plataforma: luminarias, garantías, mantenimiento y la energía ahorrada, mes a mes."))]
+    steps_html = "".join(f'<div class="card" style="padding:12px 14px"><div class="kick">{i}</div><b>{UI.e(h)}</b><p class="small" style="margin:4px 0 0">{UI.e(d)}</p></div>'
+                         for i, (h, d) in enumerate(steps, 1))
+    cj = json.dumps({"co2": co2, "tariff": a["tariff_mxn_kwh"], "per": a["led_m2_per_fixture"], "wa": a["led_w_after"],
+                     "ctl": a["led_controls_share"], "h": a["led_hours_interior"]})
+    calc = f"""<div class="card"><h2>{tt("Savings calculator for any building", "Calculadora de ahorro para cualquier edificio")}</h2>
+<p class="small muted" style="margin-top:0">{tt("Type the numbers of one of your buildings; the result uses the same method as the cards above.", "Escriba los datos de uno de sus edificios; el resultado usa el mismo método que las tarjetas de arriba.")}</p>
+<div class="grid g2e" style="margin-top:6px"><div>
+<label>{tt("Lit floor area, m²", "Área iluminada, m²")}</label><input id="lc_a" type="number" min="0" step="100" value="20000">
+<label>{tt("Fixtures today", "Luminarias actuales")}</label><select id="lc_w"><option value="458">{tt("Metal halide 400 W (458 W with ballast)", "Aditivo metálico 400 W (458 W con balastro)")}</option>
+<option value="295">{tt("Metal halide 250 W (295 W with ballast)", "Aditivo metálico 250 W (295 W con balastro)")}</option><option value="351">{tt("Fluorescent T5HO, 6 tubes (351 W)", "Fluorescente T5HO, 6 tubos (351 W)")}</option>
+<option value="234">{tt("Fluorescent T5HO, 4 tubes (234 W)", "Fluorescente T5HO, 4 tubos (234 W)")}</option></select>
+<label>{tt("Hours a year", "Horas al año")}</label><input id="lc_h" type="number" min="0" max="8760" step="100" value="{a["led_hours_interior"]:.0f}">
+<label>{tt("Energy price, MXN/kWh", "Precio de energía, MXN/kWh")}</label><input id="lc_p" type="number" min="0" step="0.05" value="{a["tariff_mxn_kwh"]:.2f}"></div>
+<div><table class="t nosort"><tr><td class="muted">{tt("LED fixtures", "Luminarias LED")}</td><td class="n"><b id="lc_n">-</b></td></tr>
+<tr><td class="muted">{tt("Energy before / after", "Energía antes / después")}</td><td class="n"><b id="lc_e">-</b></td></tr>
+<tr><td class="muted">{tt("Saved a year", "Ahorro al año")}</td><td class="n"><b id="lc_s">-</b></td></tr>
+<tr><td class="muted">{tt("Money saved a year", "Dinero ahorrado al año")}</td><td class="n"><b id="lc_m">-</b></td></tr>
+<tr><td class="muted">{tt("CO₂ avoided a year", "CO₂ evitado al año")}</td><td class="n"><b id="lc_c">-</b></td></tr></table>
+<p class="small muted">{tt("1 LED fixture per", "1 luminaria LED por")} {UI.num(a["led_m2_per_fixture"])} m², {UI.num(a["led_w_after"])} W, {tt("sensors save", "los sensores ahorran")} {a["led_controls_share"] * 100:.0f} %.</p></div></div>
+<script>(function(){{var C={cj};function g(i){{var v=parseFloat(document.getElementById(i).value);return isFinite(v)&&v>0?v:0;}}
+function f(v,d){{return Number(v).toLocaleString('en-US',{{minimumFractionDigits:d||0,maximumFractionDigits:d||0}});}}
+function run(){{var A=g('lc_a'),W=g('lc_w'),H=Math.min(g('lc_h'),8760),P=g('lc_p');var n=A?Math.ceil(A/C.per):0;
+var b=n*W*H/1e6,af=n*C.wa*H*(1-C.ctl)/1e6,s=Math.max(0,b-af);
+document.getElementById('lc_n').textContent=f(n);document.getElementById('lc_e').textContent=f(b)+' / '+f(af)+' MWh';
+document.getElementById('lc_s').textContent=f(s)+' MWh ('+(b?f(s/b*100):0)+' %)';document.getElementById('lc_m').textContent='MXN $'+f(s*1000*P);
+document.getElementById('lc_c').textContent=f(s*C.co2)+' t';}}
+['lc_a','lc_w','lc_h','lc_p'].forEach(function(i){{document.getElementById(i).addEventListener('input',run);}});run();}})();</script></div>"""
+    body = f"""<div class="hero"><div class="k">{tt("LED lighting", "Iluminación LED")} · {UI.e(pf.as_of)}</div>
+<h1>{tt("LED lighting for the industrial and retail portfolio", "Iluminación LED para el portafolio industrial y comercial")}</h1>
+<div class="sub">{tt("High-bay LED with occupancy and daylight sensors in the warehouses, LED in the parking lots, designed, installed and measured by ARGIA.", "LED high-bay con sensores de presencia y luz natural en las naves, LED en los estacionamientos; diseño, instalación y medición de ARGIA.")}</div>
+<div class="kpis"><div class="kpi"><div class="l">{tt("Industrial buildings", "Naves industriales")}</div><div class="v">{tot["lighting"]}</div><div class="d">{UI.num(sum(DD.light(p, a)["area_m2"] for p in lit))} m² {tt("lit", "iluminados")}</div></div>
+<div class="kpi"><div class="l">{tt("LED fixtures", "Luminarias LED")}</div><div class="v">{UI.num(fx)}</div><div class="d">{UI.num(tot["light_fixtures"])} {tt("interior", "interiores")} · {UI.num(tot["led_fixtures"])} {tt("parking", "estacionamiento")}</div></div>
+<div class="kpi"><div class="l">{tt("Energy saved", "Energía ahorrada")}</div><div class="v">{UI.num(mwh)}<small>MWh/{tt("year", "año")}</small></div><div class="d">{tt("estimate", "estimación")}</div></div>
+<div class="kpi"><div class="l">{tt("Est. savings a year", "Ahorro est. al año")}</div><div class="v">{_mxn_m(tot["light_mxn"] + tot["led_mxn"])}</div><div class="d">MXN · {UI.num(mwh * co2)} t CO₂ {tt("avoided", "evitadas")}</div></div></div></div>
+<h2 style="margin:22px 0 4px">{tt("Industrial buildings", "Naves industriales")}</h2>{cards}
+<div class="grid g2e">{calc}<div class="card"><h2>{tt("Parking lots of the shopping centers", "Estacionamientos de los centros comerciales")}</h2>
+<div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Property", "Propiedad")}</th><th>{tt("City", "Ciudad")}</th><th>{tt("Spaces", "Cajones")}</th><th>{tt("Fixtures", "Luminarias")}</th><th>MWh/{tt("year", "año")}</th><th>{tt("Savings/year", "Ahorro/año")}</th></tr>{prow}</table></div></div></div>
+<h2 style="margin:22px 0 4px">{tt("How ARGIA runs an LED project", "Cómo ARGIA ejecuta un proyecto LED")}</h2><div class="grid g3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">{steps_html}</div>
+<div class="card" style="margin-top:16px"><h2>{tt("Assumptions", "Supuestos")}</h2><p class="small">{tt("Interior: 1 high-bay fixture per", "Interior: 1 luminaria high-bay por")} {UI.num(a["led_m2_per_fixture"])} m² ({tt("11 m clear height, 200-300 lux", "altura libre de 11 m, 200-300 lux")}); {tt("today", "hoy")} {UI.num(a["led_w_before"])} W {tt("per fixture (metal halide 400 W with ballast) unless the building says otherwise; LED", "por luminaria (aditivo metálico 400 W con balastro) salvo que el edificio indique otra cosa; LED")} {UI.num(a["led_w_after"])} W; {tt("sensors save", "los sensores ahorran")} {a["led_controls_share"] * 100:.0f} % {tt("of the LED load", "de la carga LED")}; {UI.num(a["led_hours_interior"])} h/{tt("year", "año")}. {tt("Parking: 1 fixture per", "Estacionamiento: 1 luminaria por")} {UI.num(a["spaces_per_fixture"])} {tt("spaces", "cajones")}, {UI.num(a["led_w_saved"])} W {tt("saved", "ahorrados")}, {UI.num(a["led_hours"])} h. MXN {UI.num(a["tariff_mxn_kwh"], 2)}/kWh; {co2:.3f} kg CO₂/kWh. {tt("Estimates for a first conversation; the audit replaces every number.", "Estimaciones para una primera conversación; la auditoría reemplaza cada número.")}</p></div>"""
+    return page(tt("Lighting", "Iluminación"), body, "ddlight")
+
+
 @app.get("/dd/<code>", endpoint="dd_prop")
 def dd_prop(code):
     tt = t()
@@ -5478,7 +5571,8 @@ def dd_prop(code):
     pics = "".join(f'<figure style="margin:0"><img src="{UI.e(sat_photo(p.lat, p.lon, bld, 640, 360))}" referrerpolicy="origin" alt="" '
                    f'style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;background:#dfe6e4">'
                    f'<figcaption class="small muted" style="margin-top:4px">{UI.e(cap)}</figcaption></figure>'
-                   for bld, cap in ((True, tt("The building", "El edificio")), (False, tt("The surroundings", "El entorno"))))
+                   for bld, cap in ((True, tt("The building", "El edificio") if not p.approx else tt("Approximate location: the exact site is not published", "Ubicación aproximada: el sitio exacto no está publicado")),
+                                    (False, tt("The surroundings", "El entorno"))))
     src = "Google" if k else "Esri, Maxar, Earthstar Geographics"
     facts = [(tt("Address", "Dirección"), UI.e(p.address or "-")),
              (tt("Type", "Tipo"), UI.e(tt(p.kind, p.kind_es or p.kind) or "-")),
@@ -5501,6 +5595,7 @@ def dd_prop(code):
            (tt("New PV production", "Producción FV nueva"), f'{UI.num(e["new_mwh"])} MWh/' + tt("year", "año") + f' ({y} kWh/kWp)'),
            (tt("PV savings", "Ahorro FV"), f'{_mxn_m(e["pv_mxn"])} MXN/' + tt("year", "año")),
            (tt("LED parking fixtures", "Luminarias LED estacionamiento"), f'{UI.num(e["led_fixtures"])} · {UI.num(e["led_mwh"], 1)} MWh/' + tt("year", "año") + f' · {_mxn_m(e["led_mxn"])} MXN'),
+           *([(tt("LED interior fixtures", "Luminarias LED interiores"), f'{UI.num(e["light_fixtures"])} · {UI.num(e["light_mwh"])} MWh/' + tt("year", "año") + f' · {_mxn_m(e["light_mxn"])} MXN')] if e["light_fixtures"] else []),
            (tt("CO₂ avoided", "CO₂ evitado"), f'{UI.num(e["co2_t"])} t/' + tt("year", "año"))]
     erows = "".join(f'<tr><td class="muted">{UI.e(h)}</td><td class="n"><b>{v}</b></td></tr>' for h, v in est)
     site = reg().site(p.code)

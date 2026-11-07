@@ -94,6 +94,7 @@ from argia.prologis import maintplan as PM            # noqa: E402  (v333)
 from argia.prologis import lighting as LT                 # noqa: E402  (v345)
 from argia.prologis import totp as TOTP                   # noqa: E402
 from argia.prologis import xlsx as XL                     # noqa: E402
+from argia.prologis import dd as DD                       # noqa: E402  (v363)
 
 DATA_DIR = os.environ.get("ARGIA_PL_DIR", "/opt/argia/prologis")
 FILES_DIR = os.environ.get("ARGIA_PL_FILES", os.path.join(DATA_DIR, "files"))
@@ -101,6 +102,9 @@ BRAND_DIR = os.path.join(DATA_DIR, "brand")
 # v294: prologis_logo_white.png is the reversed logo (white wordmark, as on the
 # Prologis buildings) for the dark green header; the colour logo stays the fallback
 BRAND_FILES = ("prologis_logo.png", "prologis_logo_white.png", "prologis_mark.png")
+# v363: the client's web font (a client.json pair adds the @font-face), served from here because the
+# CSP allows fonts from this site only
+BRAND_FONTS = {"client_font.woff2": "font/woff2"}
 COOKIE = "pl_sid"
 SECURE_COOKIE = os.environ.get("ARGIA_PL_INSECURE_COOKIE", "") != "1"
 MAX_UPLOAD = 50 * 1024 * 1024
@@ -261,7 +265,7 @@ def _headers(r):
     r.headers["X-Content-Type-Options"] = "nosniff"
     r.headers["X-Frame-Options"] = "DENY"
     r.headers["Referrer-Policy"] = "same-origin"
-    gimg = " https://maps.googleapis.com" if str(request.endpoint or "").startswith("lighting") and gmaps_key() else ""
+    gimg = " https://maps.googleapis.com" if str(request.endpoint or "").startswith(("lighting", "dd")) and gmaps_key() else ""
     r.headers["Content-Security-Policy"] = ABOUT_CSP if request.endpoint == "about" else (
         "default-src 'self'; img-src 'self' data: https://server.arcgisonline.com https://cdnjs.cloudflare.com" + gimg + "; "
         "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
@@ -295,6 +299,8 @@ def page(title: str, body: str, on: str = "", sample: bool = False, wide: bool =
            ("/projects/", tt("Projects", "Proyectos"), "projects"), ("/docs/", tt("Documents", "Documentos"), "docs")]
     if lighting_ds() is not None:                       # v345: only where the server has the LED programme data
         nav.insert(nav.index(next(x for x in nav if x[2] == "projects")), ("/lighting/", tt("Lighting", "Iluminación"), "lighting"))
+    if dd_pf() is not None:                             # v363: only where the server has a due diligence file
+        nav.insert(2, ("/dd/", tt("Due diligence", "Due diligence"), "dd"))
     links = "".join(f'<a href="{h}" class="{"on" if k == on else ""}">{UI.e(lbl)}</a>' for h, lbl, k in nav)
     other = "es" if tt.lang == "en" else "en"
     # v338: the account links fold into one menu under the user's name, so the main menu fits on one line
@@ -342,12 +348,12 @@ def healthz():
 
 @app.get("/brand/<name>")
 def brand(name):
-    if name not in BRAND_FILES:
+    if name not in BRAND_FILES and name not in BRAND_FONTS:
         abort(404)
     p = os.path.join(BRAND_DIR, name)
     if not os.path.exists(p):
         abort(404)
-    return send_file(p, mimetype="image/png", max_age=86400)
+    return send_file(p, mimetype=BRAND_FONTS.get(name, "image/png"), max_age=86400)
 
 
 @app.get("/favicon.png", endpoint="favicon")
@@ -5327,6 +5333,187 @@ def lighting_pipeline_csv():
                      "; ".join(str(o.led_elsewhere) for o in LT.occupants(r, ds, fp))])
     S.audit(db(), g.user["username"], ip(), "export", "lighting pipeline csv")
     return _csv_response(rows, "ARGIA_Prologis_not_yet_LED.csv")
+
+
+# ------------------------------------------------------------------ v363: due diligence of a prospect's portfolio
+# A server-only file DATA_DIR/dd/properties.json (argia/prologis/dd.py): the prospect's properties from public
+# sources, what satellite imagery shows, and every estimate computed from assumptions written in the file.
+# No file = no menu entry and /dd/ answers 404 (Prologis and Irritec unchanged).
+DD_FILE = os.environ.get("ARGIA_PL_DD", os.path.join(DATA_DIR, "dd", "properties.json"))
+_DD_CACHE: Dict[str, object] = {"mtime": None, "pf": None}
+DD_COL = {"pv": "#FFDC00", "operating": "#ffffff", "development": "#9aa4ad"}
+
+
+def dd_pf() -> Optional[DD.Portfolio]:
+    """The due diligence, re-read when the file changes; a broken file keeps the last good one (log says why)."""
+    try:
+        mt = os.path.getmtime(DD_FILE)
+    except OSError:
+        _DD_CACHE.update(mtime=None, pf=None)
+        return None
+    if _DD_CACHE["mtime"] != mt:
+        try:
+            _DD_CACHE.update(mtime=mt, pf=DD.load(DD_FILE))
+        except (OSError, ValueError, TypeError, KeyError) as ex:
+            _DD_CACHE.update(mtime=mt)
+            print(f"due diligence file not loaded: {ex}", file=sys.stderr)
+    return _DD_CACHE["pf"]
+
+
+def _dd() -> DD.Portfolio:
+    need("view")
+    pf = dd_pf()
+    if pf is None:
+        abort(404)
+    return pf
+
+
+def _mxn_m(v: float) -> str:
+    return "$" + UI.num(v / 1e6, 1) + " M"
+
+
+def _dd_status(p: DD.Prop, tt) -> str:
+    st = (tt("Operating", "En operación") if p.status == "operating" else tt("In development", "En desarrollo"))
+    pv = f' <span class="pill s-lime">{tt("PV on the roof", "FV en el techo")}</span>' if p.pv_seen else ""
+    return f'<span class="pill {"s-ok" if p.status == "operating" else "s-off"}">{st}</span>{pv}'
+
+
+def _dd_opps(e: Dict, tt) -> str:
+    return " ".join(f'<span class="pill s-info">{UI.e(tt(*DD.OPPS[k]))}</span>' for k in e["opps"])
+
+
+@app.get("/dd/", endpoint="dd_home")
+def dd_home():
+    tt = t()
+    pf = _dd()
+    a = pf.assumptions
+    tot = DD.totals(pf)
+    rows, pts = "", []
+    for p in DD.ranked(pf):
+        e = DD.estimate(p, a)
+        rows += (f'<tr><td><a href="/dd/{p.code}"><b>{UI.e(p.name)}</b></a><div class="small muted">{UI.e(tt(p.kind, p.kind_es or p.kind))}</div></td>'
+                 f'<td>{UI.e(p.city)}</td><td>{_dd_status(p, tt)}</td>'
+                 f'<td class="n">{UI.num(p.gla_m2) if p.gla_m2 else "-"}</td><td class="n">{UI.num(p.parking) if p.parking else "-"}</td>'
+                 f'<td class="n">{UI.num(e["existing_kwp"]) if e["existing_kwp"] else "-"}</td>'
+                 f'<td class="n">{UI.num(e["new_kwp"])}</td><td class="n">{UI.num(e["new_mwh"])}</td>'
+                 f'<td class="n">{UI.num(e["led_fixtures"]) if e["led_fixtures"] else "-"}</td>'
+                 f'<td class="n" data-v="{e["value_mxn"]:.0f}">{_mxn_m(e["value_mxn"])}</td><td>{_dd_opps(e, tt)}</td></tr>')
+        pts.append({"code": p.code, "name": p.name, "lat": p.lat, "lon": p.lon, "approx": p.approx,
+                    "c": DD_COL["pv"] if p.pv_seen else DD_COL[p.status], "city": p.city,
+                    "st": tt("Operating", "En operación") if p.status == "operating" else tt("In development", "En desarrollo"),
+                    "pv": round(e["existing_kwp"]), "nk": round(e["new_kwp"]), "v": _mxn_m(e["value_mxn"]),
+                    "ph": sat_photo(p.lat, p.lon, True, 480, 270) if gmaps_key() else ""})
+    lb = json.dumps({"pv": tt("PV seen, est. kWp", "FV vista, kWp est."), "nk": tt("New PV potential, kWp", "Potencial FV nueva, kWp"),
+                     "v": tt("Est. savings a year", "Ahorro est. al año"), "open": tt("Open the property", "Abrir la propiedad"),
+                     "approx": tt("approximate location", "ubicación aproximada")}, ensure_ascii=False)
+    co = pf.company
+    a_rows = [
+        (tt("Roof area", "Área de techo"), tt("the published leasable area (single-level retail) unless a roof area is given", "el área rentable publicada (comercio de un nivel) salvo que se indique el área de techo")),
+        (tt("Usable roof share", "Parte útil del techo"), f'{a["roof_use"] * 100:.0f} %'),
+        (tt("Roof area per kWp", "Área de techo por kWp"), f'{UI.num(a["m2_per_kwp"], 1)} m²'),
+        (tt("Specific yield", "Producción específica"), tt("PVGIS per property (10° tilt, 14 % losses); default", "PVGIS por propiedad (10° de inclinación, 14 % de pérdidas); por defecto") + f' {UI.num(a["yield_default"])} kWh/kWp'),
+        (tt("Solar carport", "Estacionamiento solar"), f'{a["carport_share"] * 100:.0f} % ' + tt("of the parking spaces", "de los cajones") + f' × {UI.num(a["kwp_per_space"], 1)} kWp'),
+        (tt("LED parking lighting", "LED en estacionamiento"), tt("1 fixture per", "1 luminaria por") + f' {UI.num(a["spaces_per_fixture"])} ' + tt("spaces", "cajones") + f', {UI.num(a["led_w_saved"])} W ' + tt("saved", "ahorrados") + f', {UI.num(a["led_hours"])} h/' + tt("year", "año")),
+        (tt("Energy price", "Precio de energía"), f'MXN {UI.num(a["tariff_mxn_kwh"], 2)}/kWh ' + tt("(CFE GDMTH average, to confirm with your bills)", "(promedio CFE GDMTH, a confirmar con sus recibos)")),
+        (tt("Grid emission factor", "Factor de emisión de la red"), f'{a["co2_kg_kwh"]:.3f} kg CO₂/kWh (SEMARNAT/CRE)'),
+    ]
+    arows = "".join(f'<tr><td>{UI.e(k)}</td><td>{v}</td></tr>' for k, v in a_rows)
+    offer = [
+        (tt("O&M for the PV you already have", "O&M de la FV que ya tienen"),
+         tt("Monitoring of every inverter, alarms, tickets with response times, preventive maintenance plan, cleaning, thermography and a monthly report per property, on this platform.",
+            "Monitoreo de cada inversor, alarmas, tickets con tiempos de respuesta, plan de mantenimiento preventivo, limpieza, termografía y un reporte mensual por propiedad, en esta plataforma.")),
+        (tt("New PV on roofs and carports", "FV nueva en techos y estacionamientos"),
+         tt("Audit, design, permits, interconnection with CFE, construction and commissioning; the plant joins O&M on the same platform the day it starts.",
+            "Auditoría, diseño, permisos, interconexión con CFE, construcción y puesta en marcha; la planta entra a O&M en la misma plataforma el día que arranca.")),
+        (tt("LED lighting partner", "Socio de iluminación LED"),
+         tt("Parking, common areas and back-of-house: fixture audit, replacement plan, installation and measured savings per property.",
+            "Estacionamiento, áreas comunes y áreas de servicio: levantamiento de luminarias, plan de reemplazo, instalación y ahorro medido por propiedad.")),
+    ]
+    offer_html = "".join(f'<div class="card"><h2 style="margin:0 0 6px;font-size:17px">{UI.e(h)}</h2><p class="small" style="margin:0">{UI.e(d)}</p></div>' for h, d in offer)
+    body = f"""<div class="hero"><div class="k">{tt("Due diligence", "Due diligence")} · {UI.e(pf.as_of)}</div>
+<h1>{UI.e(tt(pf.title, pf.title_es or pf.title))}</h1><div class="sub">{UI.e(tt(co.get("about", ""), co.get("about_es") or co.get("about", "")))}</div>
+<div class="kpis"><div class="kpi"><div class="l">{tt("Properties", "Propiedades")}</div><div class="v">{tot["properties"]}</div><div class="d">{tot["operating"]} {tt("operating", "en operación")} · {tot["development"]} {tt("in development", "en desarrollo")}</div></div>
+<div class="kpi"><div class="l">{tt("PV already on the roof", "FV ya en el techo")}</div><div class="v">{tot["pv_seen"]}<small>{tt("properties", "propiedades")}</small></div><div class="d">≈ {UI.num(tot["existing_kwp"] / 1000, 1)} MWp {tt("est. from imagery", "est. por imagen")}</div></div>
+<div class="kpi"><div class="l">{tt("New PV potential", "Potencial FV nueva")}</div><div class="v">{UI.num(tot["new_kwp"] / 1000, 1)}<small>MWp</small></div><div class="d">{UI.num(tot["new_mwh"])} MWh/{tt("year", "año")}</div></div>
+<div class="kpi"><div class="l">{tt("LED parking fixtures", "Luminarias LED estacionamiento")}</div><div class="v">{UI.num(tot["led_fixtures"])}</div><div class="d">{UI.num(tot["led_mwh"])} MWh/{tt("year saved", "año ahorrados")}</div></div>
+<div class="kpi"><div class="l">{tt("Est. savings a year", "Ahorro est. al año")}</div><div class="v">{_mxn_m(tot["value_mxn"])}</div><div class="d">MXN · {UI.num(tot["co2_t"])} t CO₂ {tt("avoided", "evitadas")}</div></div></div></div>
+<div class="grid g2"><div class="card"><h2>{tt("The portfolio on the map of Mexico", "El portafolio en el mapa de México")}</h2>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<div id="ddmap" style="height:520px;border-radius:12px;background:#dfe6e4;z-index:0"></div>
+<div class="small muted" style="margin-top:8px"><span style="color:#b39500">●</span> {tt("PV seen on the roof", "FV vista en el techo")} &nbsp; <span style="color:#6b7a78">○</span> {tt("operating, no PV seen", "en operación, sin FV vista")} &nbsp; <span style="color:#9aa4ad">●</span> {tt("in development", "en desarrollo")}</div></div>
+<div><div class="card"><h2>{tt("What ARGIA brings", "Lo que ARGIA aporta")}</h2><p class="small muted" style="margin-top:0">{tt("One partner for the energy of the whole portfolio.", "Un solo socio para la energía de todo el portafolio.")}</p></div>{offer_html}</div></div>
+<div class="card" style="margin-top:16px"><h2>{tt("Properties, ranked", "Propiedades, en orden de prioridad")}</h2><p class="small muted" style="margin-top:0">{tt("Properties with PV already on the roof first (an O&M contract can start now), then by estimated yearly savings. All sizes are estimates from public data and satellite imagery, to be confirmed by a site audit.", "Primero las propiedades con FV ya instalada (un contrato de O&M puede iniciar ya), luego por ahorro anual estimado. Todos los tamaños son estimaciones con datos públicos e imagen satelital, a confirmar con una visita.")}</p>
+<div style="overflow-x:auto"><table class="t sortable"><tr><th>{tt("Property", "Propiedad")}</th><th>{tt("City", "Ciudad")}</th><th>{tt("Status", "Estado")}</th><th>{tt("GLA m²", "ABR m²")}</th><th>{tt("Parking", "Cajones")}</th><th>{tt("PV seen kWp", "FV vista kWp")}</th><th>{tt("New PV kWp", "FV nueva kWp")}</th><th>MWh/{tt("year", "año")}</th><th>LED</th><th>{tt("Savings/year", "Ahorro/año")}</th><th>{tt("Opportunities", "Oportunidades")}</th></tr>{rows}</table></div></div>
+<div class="grid g2e"><div class="card"><h2>{tt("Assumptions", "Supuestos")}</h2><table class="t nosort">{arows}</table></div>
+<div class="card"><h2>{tt("Sources and limits", "Fuentes y límites")}</h2><p class="small">{tt("Properties, areas, anchors, parking and opening dates come from the public pages of", "Propiedades, áreas, anclas, cajones y fechas de apertura vienen de las páginas públicas de")} <a href="{UI.e(co.get("url", ""))}" rel="noopener" target="_blank">{UI.e(co.get("name", ""))}</a>. {tt("Locations from the published addresses (approximate where marked). PV on roofs as seen on satellite imagery of unknown date; who owns it (the property or an anchor tenant) is not known.", "Ubicaciones a partir de las direcciones publicadas (aproximadas donde se indica). FV en techos según imagen satelital de fecha desconocida; no se sabe quién es dueño (la propiedad o una tienda ancla).")}</p>
+<p class="small">{tt("Every figure on this page is an estimate for a first conversation, not an offer. A site audit, the CFE bills and the roof drawings turn it into a proposal.", "Cada cifra de esta página es una estimación para una primera conversación, no una oferta. Una visita, los recibos de CFE y los planos de techos la convierten en propuesta.")}</p></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>(function(){{var P={json.dumps(pts, ensure_ascii=False).replace("</", "<\\/")};var LB={lb};
+var m=L.map('ddmap',{{scrollWheelZoom:false}});
+var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}}).addTo(m);
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}});
+L.control.layers({{'Streets':st,'Satellite':sat}}).addTo(m);
+function esc(s){{return String(s).replace(/[&<>"]/g,function(c){{return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c];}});}}
+function n0(v){{return Number(v).toLocaleString('en-US');}}
+var b=[];P.forEach(function(p){{b.push([p.lat,p.lon]);
+var mk=L.circleMarker([p.lat,p.lon],{{radius:p.pv?11:8,color:'#131317',weight:2,fillColor:p.c,fillOpacity:.95}}).addTo(m);
+mk.bindPopup((p.ph?'<img src="'+esc(p.ph)+'" referrerpolicy="origin" alt="" style="display:block;width:240px;height:135px;object-fit:cover;border-radius:6px;margin-bottom:6px;background:#dfe6e4">':'')
++'<b>'+esc(p.name)+'</b><div class="small muted">'+esc(p.city)+' · '+esc(p.st)+'</div><table style="width:100%;margin:6px 0;font-size:12.5px">'
++(p.pv?'<tr><td>'+LB.pv+'</td><td style="text-align:right"><b>'+n0(p.pv)+'</b></td></tr>':'')
++'<tr><td>'+LB.nk+'</td><td style="text-align:right"><b>'+n0(p.nk)+'</b></td></tr><tr><td>'+LB.v+'</td><td style="text-align:right"><b>'+esc(p.v)+'</b></td></tr></table>'
++(p.approx?'<div class="small muted"><i>'+LB.approx+'</i></div>':'')+'<a href="/dd/'+esc(p.code)+'">'+LB.open+' ›</a>',{{minWidth:240,maxWidth:260}});}});
+if(b.length)m.fitBounds(b,{{padding:[30,30],maxZoom:12}});}})();</script>"""
+    return page(tt("Due diligence", "Due diligence"), body, "dd")
+
+
+@app.get("/dd/<code>", endpoint="dd_prop")
+def dd_prop(code):
+    tt = t()
+    pf = _dd()
+    p = pf.prop(code)
+    if p is None:
+        abort(404)
+    e = DD.estimate(p, pf.assumptions)
+    k = gmaps_key()
+    pics = "".join(f'<figure style="margin:0"><img src="{UI.e(sat_photo(p.lat, p.lon, bld, 640, 360))}" referrerpolicy="origin" alt="" '
+                   f'style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;background:#dfe6e4">'
+                   f'<figcaption class="small muted" style="margin-top:4px">{UI.e(cap)}</figcaption></figure>'
+                   for bld, cap in ((True, tt("The building", "El edificio")), (False, tt("The surroundings", "El entorno"))))
+    src = "Google" if k else "Esri, Maxar, Earthstar Geographics"
+    facts = [(tt("Address", "Dirección"), UI.e(p.address or "-")),
+             (tt("Type", "Tipo"), UI.e(tt(p.kind, p.kind_es or p.kind) or "-")),
+             (tt("Gross leasable area", "Área bruta rentable"), (UI.num(p.gla_m2) + " m²") if p.gla_m2 else "-"),
+             (tt("Roof area used here", "Área de techo considerada"), (UI.num(e["roof_m2"]) + " m²") if e["roof_m2"] else "-"),
+             (tt("Units", "Locales"), UI.e(p.units or "-")),
+             (tt("Anchor tenants", "Tiendas ancla"), UI.e(", ".join(p.anchors) or "-")),
+             (tt("Parking spaces", "Cajones de estacionamiento"), UI.num(p.parking) if p.parking else "-"),
+             (tt("Opened", "Apertura"), UI.e(p.opened or "-")),
+             (tt("Location", "Ubicación"), f'{p.lat:.5f}, {p.lon:.5f}' + (f' <i class="muted">({tt("approximate", "aproximada")})</i>' if p.approx else ""))]
+    if p.notes:
+        facts.append((tt("Notes", "Notas"), UI.e(tt(p.notes, p.notes_es or p.notes))))
+    if p.sources:
+        facts.append((tt("Sources", "Fuentes"), "<br>".join(f'<a href="{UI.e(u)}" rel="noopener" target="_blank">{UI.e(u.split("//", 1)[-1][:70])}</a>' for u in p.sources)))
+    frows = "".join(f'<tr><td class="muted">{h}</td><td>{v}</td></tr>' for h, v in facts)
+    y = UI.num(e["yield"])
+    est = [(tt("PV seen on the roof (est.)", "FV vista en el techo (est.)"), (f'{UI.num(e["existing_kwp"])} kWp · {UI.num(e["existing_mwh"])} MWh/' + tt("year", "año")) if e["existing_kwp"] else tt("none seen", "no se ve")),
+           (tt("New rooftop PV", "FV nueva en techo"), f'{UI.num(e["new_roof_kwp"])} kWp'),
+           (tt("Solar carport", "Estacionamiento solar"), f'{UI.num(e["carport_kwp"])} kWp'),
+           (tt("New PV production", "Producción FV nueva"), f'{UI.num(e["new_mwh"])} MWh/' + tt("year", "año") + f' ({y} kWh/kWp)'),
+           (tt("PV savings", "Ahorro FV"), f'{_mxn_m(e["pv_mxn"])} MXN/' + tt("year", "año")),
+           (tt("LED parking fixtures", "Luminarias LED estacionamiento"), f'{UI.num(e["led_fixtures"])} · {UI.num(e["led_mwh"], 1)} MWh/' + tt("year", "año") + f' · {_mxn_m(e["led_mxn"])} MXN'),
+           (tt("CO₂ avoided", "CO₂ evitado"), f'{UI.num(e["co2_t"])} t/' + tt("year", "año"))]
+    erows = "".join(f'<tr><td class="muted">{UI.e(h)}</td><td class="n"><b>{v}</b></td></tr>' for h, v in est)
+    site = reg().site(p.code)
+    links = (f'<a class="btn ghost sm" href="/sites/{p.code}/">{tt("Open in the platform", "Abrir en la plataforma")}</a>' if site else "")
+    body = f"""<div class="small"><a href="/dd/">‹ {tt("Due diligence", "Due diligence")}</a></div>
+<div class="card phead" style="grid-template-columns:minmax(0,1fr) auto"><div class="phmain"><div class="kick">{UI.e(tt(p.kind, p.kind_es or p.kind))} · {UI.e(p.city)}, {UI.e(p.state)}</div><h1>{UI.e(p.name)}</h1>
+<div class="phfacts">{_dd_status(p, tt)}<span>{tt("Est. savings a year", "Ahorro est. al año")} <b>{_mxn_m(e["value_mxn"])} MXN</b></span><span>{tt("New PV", "FV nueva")} <b>{UI.num(e["new_kwp"])} kWp</b></span></div>
+<div style="margin-top:8px">{_dd_opps(e, tt)}</div></div><div class="phact">{links}</div></div>
+<div class="grid g2e">{pics}</div><div class="small muted" style="margin-top:4px">{tt("Imagery", "Imagen")}: {src}</div>
+<div class="grid g2e"><div class="card"><h2>{tt("Facts", "Datos")}</h2><table class="t nosort">{frows}</table></div>
+<div class="card"><h2>{tt("Estimates", "Estimaciones")}</h2><table class="t nosort">{erows}</table>
+<p class="small muted">{tt("Estimates from the assumptions on the due diligence page; to be confirmed by a site audit and the CFE bills.", "Estimaciones con los supuestos de la página de due diligence; a confirmar con una visita y los recibos de CFE.")}</p></div></div>"""
+    return page(p.name, body, "dd")
 
 
 def main(argv: List[str]) -> int:

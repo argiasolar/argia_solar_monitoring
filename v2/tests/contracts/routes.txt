@@ -84,6 +84,8 @@ prologis_app  GET    /audit/
 prologis_app  GET    /availability/
 prologis_app  GET    /availability/annual
 prologis_app  GET    /brand/<name>
+prologis_app  GET    /dd/
+prologis_app  GET    /dd/<code>
 prologis_app  GET    /docs/
 prologis_app  GET    /docs/<int:doc_id>/download
 prologis_app  GET    /export.zip

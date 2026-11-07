@@ -1,0 +1,16 @@
+[Unit]
+# v363: ARGIA for Grupo MRP upload malware scan (as Prologis).
+Description=ARGIA for Grupo MRP upload malware scan (v363)
+After=argia-mrp.service
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/argia/bundle
+Environment=HOME=/root
+Environment=ARGIA_V2_DIR=/root/argia_v2/v2
+Environment=ARGIA_PL_DIR=/opt/argia/mrp
+Environment=ARGIA_PL_DB=/opt/argia/mrp/mrp.db
+Environment=ARGIA_PL_FILES=/opt/argia/mrp/files
+Environment=ARGIA_PL_REGISTRY=/opt/argia/mrp/registry.json
+UMask=0077
+Nice=10
+ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py --scan-uploads

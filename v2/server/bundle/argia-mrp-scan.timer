@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA for Grupo MRP upload malware scan every 5 minutes (v363)
+[Timer]
+OnCalendar=*:4/5
+RandomizedDelaySec=20
+Persistent=true
+[Install]
+WantedBy=timers.target

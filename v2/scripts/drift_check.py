@@ -66,6 +66,9 @@ EXPLICIT: List[Tuple[str, str]] = [
     # v337: irritec.argia.com.mx (ARGIA for Irritec, a second instance of the same app)
     ("v2/server/bundle/irritec.argia.com.mx.conf", "/etc/nginx/sites-enabled/irritec.argia.com.mx.conf"),
     ("v2/server/bundle/argia-irritec.logrotate", "/etc/logrotate.d/argia-irritec"),
+    # v363: mrp.argia.com.mx (ARGIA for Grupo MRP, a third instance of the same app)
+    ("v2/server/bundle/mrp.argia.com.mx.conf", "/etc/nginx/sites-enabled/mrp.argia.com.mx.conf"),
+    ("v2/server/bundle/argia-mrp.logrotate", "/etc/logrotate.d/argia-mrp"),
 ]
 # bundle files that are deliberately NOT deployed anywhere
 NOT_DEPLOYED = {
@@ -76,6 +79,7 @@ NOT_DEPLOYED = {
     "prologis.argia.com.mx.http.conf",  # v292: the same, for prologis.argia.com.mx
     "cpa.argia.com.mx.http.conf",       # v296: the same, for cpa.argia.com.mx
     "irritec.argia.com.mx.http.conf",   # v337: the same, for irritec.argia.com.mx
+    "mrp.argia.com.mx.http.conf",       # v363: the same, for mrp.argia.com.mx
 }
 BUNDLE_EXTS = (".py", ".sh", ".sql")
 
@@ -97,6 +101,8 @@ SMOKE_HTTP: List[Tuple[str, str, Tuple[int, ...]]] = [
     ("prologis-favicon", "https://prologis.argia.com.mx/favicon.png", (200,)),   # v300: tab icon, public
     ("irritec-login", "https://irritec.argia.com.mx/login", (200,)),      # v337: ARGIA for Irritec
     ("irritec-wall", "https://irritec.argia.com.mx/", (302,)),
+    ("mrp-login", "https://mrp.argia.com.mx/login", (200,)),              # v363: ARGIA for Grupo MRP
+    ("mrp-wall", "https://mrp.argia.com.mx/", (302,)),
     ("cpa-root", "https://cpa.argia.com.mx/", (401,)),             # v296: its own sign-in (HTTP Basic)
     ("cpa-favicon", "https://cpa.argia.com.mx/favicon.png", (200,)),
     ("old-report", "https://report.argia.com.mx/", (301,)),

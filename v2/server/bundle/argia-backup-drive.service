@@ -1,0 +1,13 @@
+[Unit]
+# v365: copy last night's sealed backups (argia-dbdump, 03:30) to the shared
+# drive ARGIA_MONT_ARCHIVE, folder "ARGIA server backups/YYYY-MM", check
+# Drive's md5 of every copy, keep 30 nights + 12 monthly copies there.
+# Plain (not encrypted) backups are refused. Status: /root/argia_backups/drive_status.json
+Description=ARGIA backups to Google Drive (v365)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+Environment=HOME=/root
+Nice=10
+ExecStart=/root/argia_v2/v2/pi/run_job.sh backup-drive backup_to_drive.py

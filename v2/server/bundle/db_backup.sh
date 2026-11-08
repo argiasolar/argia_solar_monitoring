@@ -27,6 +27,14 @@ AUTH_DB="${ARGIA_AUTH_DB:-/opt/argia/auth/users.db}"
 PG_DUMP_CMD="${ARGIA_PG_DUMP_CMD:-runuser -u postgres -- pg_dump -Fc argia_mont}"
 mkdir -p "$OUT" "$OUT/reports"
 stamp="$(date +%Y%m%d)"
+# v365: a failed night must not leave its half-written files behind (6-7 Nov 2026: two 3.9 GB
+# .prologis_*.tmp stayed, the rotation never saw them, the disk reached 93 %). This run removes
+# its own leftovers on any exit, and the leftovers of earlier runs (older than an hour) first.
+trap 'rm -f "$OUT/.argia_mont_$stamp.tmp" "$OUT/.prologis_$stamp.tmp" "$OUT"/*.age.tmp' EXIT
+find "$OUT" -maxdepth 1 -type f -name '.*.tmp' -mmin +60 -print -delete | sed "s|^|$(date -Is) removed leftover |"
+# v365: the Prologis lighting documents (4.5 GB, copies of the project files kept on Tomasz's
+# laptop and Drive) are not archived every night: the archive went from 8 MB to 3.9 GB
+PL_EXCLUDES=(--exclude=./lighting/docs)
 ENCRYPT=0
 if [ -s "$RECIPIENTS" ]; then
   if command -v age >/dev/null; then ENCRYPT=1
@@ -104,14 +112,20 @@ assert dst.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 dst.close(); src.close()
 EOF2
   then
-    if tar -czf "$OUT/.prologis_$stamp.tmp" -C "$ptmp" prologis.db -C "$PL_DIR" \
-          --exclude=prologis.db --exclude='prologis.db-*' --exclude=secret.key --exclude=lost+found . \
+    # v365: exit 1 = "file changed as we read it" (the running platform touches its folder while
+    # tar reads it; the database itself comes from the consistent copy above) is accepted;
+    # 2 or more is a real failure
+    trc=0
+    tar -czf "$OUT/.prologis_$stamp.tmp" --warning=no-file-changed "${PL_EXCLUDES[@]}" -C "$ptmp" prologis.db -C "$PL_DIR" \
+          --exclude=prologis.db --exclude='prologis.db-*' --exclude=secret.key --exclude=lost+found . || trc=$?
+    if [ "$trc" -le 1 ] && gzip -t "$OUT/.prologis_$stamp.tmp" \
        && mv "$OUT/.prologis_$stamp.tmp" "$OUT/prologis_$stamp.tar.gz"; then
       CHECKS[prologis]="sqlite-integrity,tar"
       pl_file="$(seal "$OUT/prologis_$stamp.tar.gz")"
       pl_latest="$(latest prologis_latest.tar.gz "$pl_file")"
     else
-      echo "$(date -Is) prologis archive FAILED (main backup unaffected)"
+      echo "$(date -Is) prologis archive FAILED (tar exit $trc; main backup unaffected)"
+      rm -f "$OUT/.prologis_$stamp.tmp"
     fi
   else
     echo "$(date -Is) prologis db backup FAILED (main backup unaffected)"

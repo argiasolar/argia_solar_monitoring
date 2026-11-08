@@ -12,6 +12,7 @@ argia-cpa-gen  |  *:4/5  |  cpa_gen.py
 argia-dailyperf  |  *-*-* 19:00:00 America/Mexico_City  |  daily_perf_mail.py
 argia-dash-update  |  *-*-* 06..20:02/10:00 America/Mexico_City  |  dashboard_update.py
 argia-dbdump  |  *-*-* 03:30:00  |  db_backup.sh
+argia-backup-drive  |  *-*-* 04:15:00  |  backup_to_drive.py
 argia-demo-annexes  |  *-*-* 07:40:00 America/Mexico_City  |  demo_annexes.py
 argia-demo-gen  |  *:2/5  |  demo_gen.py
 argia-drift  |  *-*-* 06:30:00 America/Mexico_City  |  drift_check.py

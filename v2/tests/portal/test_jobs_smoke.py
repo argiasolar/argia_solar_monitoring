@@ -78,6 +78,7 @@ NOT_RUNNABLE_HERE = {
     "soiling_check": "reads the Google Sheet",
     "archive_month_pg": "uploads to Google Drive",
     "telemetry_archive": "uploads to Google Drive",
+    "backup_to_drive": "uploads to Google Drive (v365; planning tested in tests/unit/test_v365_backup_drive.py)",
     "fin_drive_ingest": "reads Google Drive",
     "ags_ingest": "downloads the Golden Standard from the web",
     "ticket_mail_in": "reads the IMAP mailbox",

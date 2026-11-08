@@ -114,7 +114,10 @@ BACKUP_MAX_H = 26.0
 # v319: a backup is sealed (.age) once the recipients file exists - either form counts as fresh
 FRESH_FILES = [("backup-dump", ("/root/argia_backups/argia_mont_latest.dump.age", "/root/argia_backups/argia_mont_latest.dump")),
                ("backup-users", ("/root/argia_backups/users_latest.db.age", "/root/argia_backups/users_latest.db")),
-               ("portfolio-snapshot", ("/root/argia_backups/portfolio_latest.json",))]
+               ("portfolio-snapshot", ("/root/argia_backups/portfolio_latest.json",)),
+               # v365: the Prologis archive failed 6-7 Nov 2026 and nothing said so
+               ("backup-prologis", ("/root/argia_backups/prologis_latest.tar.gz.age", "/root/argia_backups/prologis_latest.tar.gz"))]
+DRIVE_STATUS = "/root/argia_backups/drive_status.json"     # v365: written by backup_to_drive.py
 BACKUP_DIR = "/root/argia_backups"
 BACKUP_RECIPIENTS = "/opt/argia/backup_recipients.txt"
 PL_CONTAINER = "/opt/argia/prologis.luks"
@@ -276,6 +279,28 @@ def encryption_checks(names: Sequence[str], recipients_set: bool, container: boo
     return [enc, vault]
 
 
+def drive_check(status: Optional[dict], age_h: Optional[float], max_h: float = 30.0) -> dict:
+    """v365: last night's copy to Google Drive. Pure."""
+    if status is None or age_h is None:
+        return {"check": "backup-drive", "ok": False, "detail": "no Drive copy yet (drive_status.json missing)"}
+    if age_h > max_h:
+        return {"check": "backup-drive", "ok": False, "detail": f"last Drive copy {age_h:.0f} h ago"}
+    if not status.get("ok"):
+        errs = "; ".join(str(e) for e in (status.get("errors") or [])[:2]) or "failed"
+        return {"check": "backup-drive", "ok": False, "detail": errs[:200]}
+    n = len(status.get("uploaded") or []) + len(status.get("skipped") or [])
+    return {"check": "backup-drive", "ok": True, "detail": f"{n} files of {status.get('stamp')} on Drive"}
+
+
+def _json_file(path: str) -> Optional[dict]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def timers_inactive() -> List[str]:
     out = []
     for line in _run(["systemctl", "list-unit-files", "argia-*.timer", "--no-legend"]).splitlines():
@@ -383,6 +408,7 @@ def build_report(repo: str = REPO) -> dict:
     names = sorted(os.listdir(BACKUP_DIR)) if os.path.isdir(BACKUP_DIR) else []
     smoke += encryption_checks(names, os.path.exists(BACKUP_RECIPIENTS) and os.path.getsize(BACKUP_RECIPIENTS) > 0,
                                os.path.exists(PL_CONTAINER), os.path.ismount(PL_MOUNT))
+    smoke.append(drive_check(_json_file(DRIVE_STATUS), file_age_h(DRIVE_STATUS)))
     inactive = timers_inactive()
     smoke.append({"check": "timers-active", "ok": not inactive,
                   "detail": "inactive: " + ", ".join(inactive) if inactive else "all active"})

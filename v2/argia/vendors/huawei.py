@@ -183,7 +183,7 @@ class HuaweiClient:
             station_codes = ",".join(str(c).strip() for c in station_codes if str(c).strip())
         if not station_codes:
             return []
-        self.login()
+        self._ensure_logged_in()        # v366: reuse the telemetry session, never a second login
         body = {"stationCodes": station_codes, "beginTime": int(begin_ms),
                 "endTime": int(end_ms), "language": language}
         payload = self._post_json("/getAlarmList", body)

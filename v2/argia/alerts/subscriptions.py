@@ -57,7 +57,8 @@ _PLANT_PREFIXES = ("plant-dark", "plant-stale", "inverter-silent",
                    # 19:00 mail - "<metric>:<plant>:<sn>"
                    "inverter_temp_high", "inverter_fault", "inverter_relative",
                    "inverter_silent", "string_fault", "energy_daily_pct",
-                   "plant_offline", "plant_twin_yield", "data_stale")
+                   "plant_offline", "plant_twin_yield", "data_stale",
+                   "vendor_alarm")                           # v366
 
 
 PORTFOLIOS_ENV = "ARGIA_MAIL_PORTFOLIOS"

@@ -34,6 +34,7 @@ METRIC_PHRASE: Dict[str, str] = {
     "energy_daily_pct": "production far below expected",
     "plant_offline": "plant produced nothing",
     "plant_twin_yield": "below its twin plant",
+    "vendor_alarm": "alarm in the inverter maker's portal",
     "data_stale": "telemetry gap",
     "daily_digest": "daily digest",
     "plant-dark": "no telemetry today",

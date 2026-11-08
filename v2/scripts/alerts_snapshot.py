@@ -32,6 +32,7 @@ EXIT CODES
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import logging
 import sys
@@ -53,6 +54,7 @@ from argia.analytics.acute import (
 from argia.core.alerts_state import (
     create_alerts_tab_if_missing,
     load_alerts_ledger,
+    resolve_alert,
     write_ledger,
 )
 from argia.core.config import load_portfolio
@@ -62,6 +64,7 @@ from argia.core.time_utils import UTC, now_mx
 from argia.core.job_log import instrument
 from argia.telemetry.fresh import drop_repeats
 from argia.alerts import grading
+from argia.alerts import vendor_alarms as VA
 
 logging.basicConfig(
     level=logging.INFO,
@@ -309,6 +312,12 @@ def main(argv=None) -> int:
         absent_gap_hours=span_h if span_h >= 2.0 else None,
         configured_inverters=configured, rated_kw=rated, vendor_thermal=vendor,
         loss_note=loss_notes(portfolio.active_plants(), now_utc), counters=counters)
+    # v366: the vendor's own alarms (FusionSolar), from the state file the
+    # telemetry job refreshes every 15 min - unusable state = no change
+    va_state = VA.read_state()
+    if not VA.usable(va_state, now_utc):
+        log.info("vendor alarms: no fresh FusionSolar alarm list - none opened or closed")
+    breaches = breaches + VA.breaches(va_state, configured, now_utc)
     candidates = grading.grade_all([candidate_from_acute_breach(b) for b in breaches], tier="acute")
     for c in candidates:
         log.info("ACUTE [%s] %s", c.severity, c.message)
@@ -335,6 +344,19 @@ def main(argv=None) -> int:
     log.info("Reconcile (acute, no-resolve): %s", result.summary())
     for r in result.opened:
         log.info("OPEN   %s  %s", r.alert_id, r.message)
+    # v366: a vendor alarm closes when the vendor no longer lists it (only
+    # from a fresh, successful fetch; the daily tier never touches them)
+    clear = set(VA.cleared_keys(result.records, {c.alert_key for c in candidates if c.metric == VA.METRIC},
+                                va_state, now_utc))
+    va_resolved = 0
+    if clear:
+        recs = list(result.records)
+        for i, r in enumerate(recs):
+            if r.alert_key in clear and (r.is_open() or r.is_silenced()):
+                recs[i] = resolve_alert(r, now_utc)
+                va_resolved += 1
+                log.info("RESOLVE %s  %s (FusionSolar no longer lists it)", r.alert_id, r.message)
+        result = dataclasses.replace(result, records=recs)
 
     # v196: mail newly OPEN alerts to the 'maintenance' subscribers -
     # v223: CRITICAL only between the morning mails; a WARNING opened
@@ -354,7 +376,7 @@ def main(argv=None) -> int:
     if args.dry_run:
         log.info("[DRY RUN] no rows written")
         return 0
-    if result.opened or result.touched or mailed:
+    if result.opened or result.touched or mailed or va_resolved:
         n = write_ledger(sheets, records)
         log.info("Wrote %d alert row(s) to the Alerts ledger", n)
     else:

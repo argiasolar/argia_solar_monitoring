@@ -119,6 +119,7 @@ CATEGORY_FOR_METRIC = {
     "inverter_silent": "inverter/comms", "inverter_relative": "inverter/offline",
     "string_fault": "array/string", "plant_offline": "electrical/protection",
     "data_stale": "comms/site", "energy_daily_pct": "other", "plant_twin_yield": "other",
+    "vendor_alarm": "inverter/fault",
 }
 
 ROOT_CAUSES: List[Tuple[str, str]] = [

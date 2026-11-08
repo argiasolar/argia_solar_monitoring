@@ -20,9 +20,9 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 ## 2. What runs when (pio06, systemd timers; MX = America/Mexico_City)
 | Timer | When | Does |
 |---|---|---|
-| argia-telemetry | every 5 min 05–21 MX | 5-minute inverter telemetry, Growatt + Huawei (`telemetry_5m.py --skip-brand SOLAREDGE`) |
+| argia-telemetry | every 5 min 05–21 MX | 5-minute inverter telemetry, Growatt + Huawei (`telemetry_5m.py --skip-brand SOLAREDGE`). v366: on the quarter hours it also reads FusionSolar's alarm list on the same session and writes the ACTIVE alarms to `/root/argia_logs/huawei_alarms.json` (`ok:false` on a failed fetch) |
 | argia-telemetry-se | :03/:23/:43 06–20 MX | SolarEdge telemetry |
-| argia-alerts-snap | :00/:30 07–19 MX | acute alerts (engine → `alert_ledger`) + ledger mail |
+| argia-alerts-snap | :00/:30 07–19 MX | acute alerts (engine → `alert_ledger`) + ledger mail. v366: (1) an inverter at 0 W for 30 min or more (3+ readings, day counter flat) while a sibling makes 5 kW or more opens `inverter_relative` (the daily key); (2) every active FusionSolar alarm opens one `vendor_alarm` per device (datalogger at most WARNING) and closes when FusionSolar no longer lists it - only from a fresh (40 min), successful fetch |
 | argia-mailer | :07/:37 every hour | server health (`alert_mailer.py`): watches only the solar-monitoring chain (`monitor.MONITORING_UNITS`), writes `/root/argia_backups/health.json` for the office Pi (push to the phone); mail only as the last resort - a CRITICAL monitoring problem still active after 6 h, to the administrator, once a day (v305; no WARNING or recovery mails) |
 | argia-kpi | 06:00 MX | KPI end-of-day (`kpi_eod.py --dense-irradiance`) → `daily_production` |
 | argia-recon-close | 1st 06:10 MX | monthly close (`recon_close.py`) - closed months are frozen |

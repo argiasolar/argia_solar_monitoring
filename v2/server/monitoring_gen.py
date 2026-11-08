@@ -32,6 +32,7 @@ sys.path.insert(0, '/root/argia_v2/v2')
 # v302: a reading that only repeats the inverter's last values (logger
 # offline, the vendor cloud answering with stale data) is not live data
 from argia.telemetry.fresh import not_repeat, repeat_cte   # noqa: E402
+from argia.analytics.acute import zero_while_producing     # noqa: E402  (v366)
 try:
     from argia.alerts.fault_catalog import explain_fault, is_normal_state
 except Exception:                                     # noqa: BLE001
@@ -732,6 +733,15 @@ except RuntimeError:
 
 
 # ------------------------------------------------------------- semaphore
+DEVICE_METRICS = ('inverter_relative', 'inverter_fault', 'vendor_alarm')
+
+
+def device_alerts(pk):
+    """v366: OPEN CRITICAL alerts that name a device problem - a plant with
+    one of these is never shown green, whatever the newest readings say."""
+    return [a for a in ALERTS_OPEN.get(pk, []) if a['sev'] == 'CRITICAL' and a['metric'] in DEVICE_METRICS]
+
+
 def semaphore(pk):
     """(cls, label_en, label_es) for a plant RIGHT NOW (today's data)."""
     invs = LATEST.get(TODAY, {}).get(pk, [])
@@ -753,10 +763,19 @@ def semaphore(pk):
             return 'warn', f'{silent}/{conf_n} inverter(s) SILENT today', f'{silent}/{conf_n} inversor(es) SIN DATOS hoy'
         if faults:
             return 'warn', f'{len(faults)} inverter(s) flag fault', f'{len(faults)} inversor(es) con falla'
+        # v366: a unit REPORTING 0 W while a sibling produces (Vitalmex 7 Nov:
+        # 2 of 3 inverters stopped, the tile stayed green all day)
+        zeros = zero_while_producing({i['sn']: i['power_w'] for i in powered})
+        if zeros:
+            return 'warn', f'{len(zeros)}/{conf_n} inverter(s) at 0 W while others produce', \
+                f'{len(zeros)}/{conf_n} inversor(es) en 0 W mientras los demás producen'
         if len(fresh) < len(invs):
             return 'warn', f'{len(invs)-len(fresh)}/{len(invs)} inverters stale', f'{len(invs)-len(fresh)}/{len(invs)} inversores sin señal'
         if powered and len(zero_power) == len(powered) and NOW_MX.hour in range(9, 17):
             return 'warn', 'zero power midday', 'potencia cero a mediodía'
+        dev = device_alerts(pk)
+        if dev:
+            return 'warn', f'{len(dev)} critical device alert(s) open', f'{len(dev)} alerta(s) crítica(s) de equipo abierta(s)'
         return 'good', 'all reporting', 'todo reportando'
     return 'off', 'night', 'noche'
 
@@ -1408,11 +1427,15 @@ def plant_page(pk, d, skin='old'):
     inv_cells = []
     portal = VENDOR_PORTAL.get(str(meta.get('brand', '')).upper())
     peers = peer_ratios({i['sn']: i['etoday'] for i in invs}, RATED.get(pk, {}))
+    # v366: on the live day, a unit at 0 W while a sibling produces is down - never "OK"
+    zero_now = set(zero_while_producing({i['sn']: i['power_w'] for i in invs
+                                         if i['age_min'] <= STALE_MIN and i['power_w'] is not None})) if live else set()
     for i in sorted(invs, key=lambda v: inverter_sort(pk, v['sn'])):
         stale = live and i['age_min'] > STALE_MIN
         fault = i['status'] == 3
-        pill_cls = 'bad' if stale else ('warn' if fault else 'good')
-        pill_txt = ('stale' if stale else ((i['fault'] or 'fault') if fault else 'OK'))
+        down = i['sn'] in zero_now
+        pill_cls = 'bad' if (stale or down) else ('warn' if fault else 'good')
+        pill_txt = ('stale' if stale else ('0 W - others produce' if down else ((i['fault'] or 'fault') if fault else 'OK')))
         # Reason column: the catalog's human explanation; normal
         # operating states stay quiet, unknown codes say so honestly.
         detail = ''
@@ -1982,16 +2005,20 @@ def circle_px(kwp):
     return int(round(max(24.0, min(64.0, d))))
 
 
-def map_status(age_min, kwh_today, in_window):
-    """('live'|'stale'|'dark'|'night', tile-pill class). Same
+def map_status(age_min, kwh_today, in_window, units_down=0):
+    """('live'|'partial'|'stale'|'dark'|'night', tile-pill class). Same
     thresholds the alert mailer uses (STALE_MIN, production window):
-    the map must never disagree with the alerts. Pure."""
+    the map must never disagree with the alerts. v366: ``units_down`` =
+    inverters at 0 W while a sibling produces, or with an open critical
+    device alert - such a plant is 'partial' (amber), never 'live'. Pure."""
     if not in_window:
         return 'night', 'off'
     if age_min is None or (kwh_today or 0) <= 0:
         return 'dark', 'bad'
     if age_min > STALE_MIN:
         return 'stale', 'warn'
+    if units_down:
+        return 'partial', 'warn'
     return 'live', 'good'
 
 
@@ -2045,7 +2072,9 @@ def portfolio_rows():
         life_kwh, life_mxn = life.get(pk, (0.0, 0.0))
         is_ppa = meta['portfolio'] == 'PPA'
         tariff = cur_tariff.get(pk, 0.0) if is_ppa else 0.0
-        status, pill = map_status(age, e_today, in_window)
+        _now = [i for i in LATEST.get(TODAY, {}).get(pk, []) if i['age_min'] <= STALE_MIN and i['power_w'] is not None]
+        down = set(zero_while_producing({i['sn']: i['power_w'] for i in _now})) | {a['sn'] or '*' for a in device_alerts(pk)}
+        status, pill = map_status(age, e_today, in_window, len(down))
         rows.append({
             'key': pk, 'name': meta['customer'],
             'label': display_name(meta['customer']),
@@ -2113,7 +2142,7 @@ def portfolio_page(skin='old'):
     # per plant - SAG's contracted factor differs from the national one,
     # so a single fleet scalar would overstate the total (v186)
     co2 = sum(r['life_mwh'] * co2_factor(None, r['key']) for r in rows)
-    n_live = sum(1 for r in rows if r['status'] == 'live')
+    n_live = sum(1 for r in rows if r['status'] in ('live', 'partial'))
     data_js = json.dumps(rows, ensure_ascii=False)
     office_js = json.dumps(OFFICE, ensure_ascii=False)
     # v177.1 (Tomasz): NO lifetime tiles up top - they crowded the row
@@ -2132,7 +2161,7 @@ def portfolio_page(skin='old'):
     # plant legend under the map (v183, Tomasz): every plant with
     # name, code, city, kWp and an include/exclude checkbox, split
     # PPA / CAPEX, dots in the marker colors + status ring.
-    _ST_RING = {'live': '#1e8e3e', 'stale': '#f9ab00',
+    _ST_RING = {'live': '#1e8e3e', 'partial': '#f9ab00', 'stale': '#f9ab00',
                 'dark': '#c5221f', 'night': '#9aa0a6'}
 
     def _leg_rows(subset):
@@ -2210,6 +2239,7 @@ Circle area tracks installed kWp · blue = PPA, teal = CAPEX · click a plant to
 .pmark.capex{{background:rgba(13,148,136,.88)}}
 .pmark.st-live{{border-color:#1e8e3e;animation:ppulse 2.4s ease-out infinite}}
 .pmark.st-stale{{border-color:#f9ab00}}
+.pmark.st-partial{{border-color:#f9ab00;animation:ppulse 2.4s ease-out infinite}}
 .pmark.st-dark{{border-color:#c5221f;background:rgba(197,34,31,.82)}}
 .pmark.st-night{{opacity:.75;border-color:#9aa0a6}}
 @keyframes ppulse{{0%{{box-shadow:0 0 0 0 rgba(30,142,62,.45)}}
@@ -2300,7 +2330,7 @@ var BY={{}};P.forEach(function(p){{BY[p.key]=p;}});
 function mapTiles(){{
  var sel=P.filter(function(p){{return !HID[p.key];}});
  var sum=function(f){{return sel.reduce(function(a,p){{return a+(f(p)||0);}},0);}};
- var nl=sel.filter(function(p){{return p.status==='live';}}).length;
+ var nl=sel.filter(function(p){{return p.status==='live'||p.status==='partial';}}).length;
  var set=function(id,v){{var e=document.getElementById(id);if(e)e.textContent=v;}};
  set('mt_kwp',nf(sum(function(p){{return p.kwp;}}))+' kWp');set('mt_n',sel.length);
  set('mt_live',nf(sum(function(p){{return p.live_kw;}}))+' kW');set('mt_nlive',nl+'/'+sel.length);

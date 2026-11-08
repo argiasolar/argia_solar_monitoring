@@ -102,6 +102,7 @@ from argia.vendors.solaredge import (
     SolarEdgeClient,
 )
 from argia.vendors import solaredge_dormant as SED
+from argia.alerts import vendor_alarms as VA
 from argia.vendors.solaredge_telemetry import (
     SolarEdgeTelemetryRow,
     fetch_inverter_telemetry as fetch_solaredge_telemetry,
@@ -702,7 +703,40 @@ def _run_huawei(portfolio, sheets, date_iso, only_plant,
             total_errors += 1
             skipped += 1
 
+    if not dry_run:
+        _refresh_huawei_alarms(huawei_client, plants, log)
     return all_common, processed, skipped, total_errors
+
+
+def _refresh_huawei_alarms(client, plants, log, state_file: Optional[str] = None) -> Optional[dict]:
+    """v366: FusionSolar's own alarm list -> the active-alarm state file the
+    acute alert job reads (argia.alerts.vendor_alarms). Every ALARM_EVERY_MIN
+    minutes on the session the telemetry already holds. Never fails the
+    telemetry run: an error is written as a failed fetch (ok=false), which
+    opens and closes nothing."""
+    path = state_file or VA.STATE_FILE
+    now = now_utc()
+    prev = VA.read_state(path)
+    if not VA.due(now_mx(), VA.last_fetch(prev) if (prev or {}).get("ok") else None, now):
+        return None
+    by_station = {str(p.site_id).strip(): p.plant_key for p in plants if str(p.site_id or "").strip()}
+    if not by_station:
+        return None
+    end_ms = int(now.timestamp() * 1000)
+    begin_ms = end_ms - VA.LOOKBACK_DAYS * 86400 * 1000
+    try:
+        raw = client.fetch_alarms(sorted(by_station), begin_ms, end_ms)
+        state = VA.to_state(raw, by_station, now)
+        log.info("Huawei alarms: %d active on %d station(s)%s", len(state["alarms"]), len(by_station),
+                 "".join(f" | {a['plant_key']} {a['dev_name']}: {a['name']}" for a in state["alarms"][:6]))
+    except Exception as e:  # noqa: BLE001
+        state = VA.to_state([], by_station, now, ok=False, error=f"{type(e).__name__}: {e}")
+        log.warning("Huawei alarm list failed (%s) - alarms neither opened nor closed this time", e)
+    try:
+        VA.write_state(state, path)
+    except OSError as e:
+        log.warning("Huawei alarm state not written: %s", e)
+    return state
 
 
 def _run_solaredge(portfolio, sheets, date_iso, only_plant,

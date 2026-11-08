@@ -419,6 +419,8 @@ _ISSUE_WHY = {
     "plant_offline": "Telemetry arrived but every inverter stayed at zero "
                      "all day.",
     "plant_twin_yield": "Its twin site under the same sky did much better.",
+    "vendor_alarm": "The inverter maker's own portal (FusionSolar) raised this alarm "
+                    "on the device; the message quotes its name and cause.",
     "data_stale": "The engine saw a long gap in this plant's telemetry.",
     "plant-dark": "Nothing has arrived from this plant since midnight. "
                   "The inverters may still be producing - it is the data "

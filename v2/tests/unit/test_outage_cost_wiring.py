@@ -133,7 +133,8 @@ class TestTheHuaweiAlarmCallIsWired:
         blk = HUAWEI.split("def fetch_alarms(")[1].split("\n    def ")[0]
         for k in ("stationCodes", "beginTime", "endTime", "language"):
             assert k in blk, k
-        assert "self.login()" in blk
+        # v366: the telemetry job's session, not a second login next to it
+        assert "self._ensure_logged_in()" in blk and "self.login()" not in blk
 
     def test_a_failure_reply_yields_no_alarms_rather_than_raising(self):
         blk = HUAWEI.split("def fetch_alarms(")[1].split("\n    def ")[0]

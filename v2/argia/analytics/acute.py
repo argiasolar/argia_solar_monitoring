@@ -12,7 +12,15 @@ Selection rule: only conditions where a SINGLE snapshot is evidence -
                       (MEX2 6 Oct 10:25: three inverters "0 W" while each
                       counter rose 5.2 kWh in 10 min; 27 such snapshots
                       in 30 days). A single inverter at 0 is transient
-                      too, so per-inverter zero stays daily-only.
+                      too, so per-inverter zero stays daily-only - EXCEPT
+                      (v366) a run of at least ZERO_RUN_MIN minutes of 0 W
+                      next to a producing sibling with the unit's own day
+                      counter flat: that is a stopped inverter, not a blip
+                      (Vitalmex 7 Nov 2026: Inverters 1 and 3 at 0 W from
+                      07:45 while Inverter 2 made 110 kW; the plant stayed
+                      green for a day). It opens the daily tier's
+                      ``inverter_relative`` key, so the daily run owns its
+                      resolution.
 - data_stale (acute)  the plant's newest sample is older than N minutes of
                       daylight; stateless, tolerant of one flaky poll.
 
@@ -87,6 +95,58 @@ SILENT_CRIT_MIN = 180
 SIBLING_MIN_W = 5000.0
 """A sibling counts as 'producing' above this (daylight, not dusk)."""
 
+# v366 - an inverter REPORTING 0 W while a sibling produces (the silence
+# rule above only sees units that stop answering). Evidence bar: every
+# reading of the unit for ZERO_RUN_MIN minutes at or below ZERO_W, at least
+# ZERO_MIN_SAMPLES of them, its day counter not grown by COUNTER_FLAT_KWH
+# over the run (a growing counter = the vendor's power field, not the unit:
+# MEX2 6 Oct), and a sibling at >= SIBLING_MIN_W in its newest reading.
+ZERO_W = 50.0
+ZERO_RUN_MIN = 30
+ZERO_MIN_SAMPLES = 3
+COUNTER_FLAT_KWH = 0.1
+
+
+def zero_while_producing(powers: Dict[str, Optional[float]], min_sibling_w: float = SIBLING_MIN_W,
+                         zero_w: float = ZERO_W) -> List[str]:
+    """Units of ONE plant at or below ``zero_w`` while another unit makes at
+    least ``min_sibling_w`` - from {sn: newest power_w}; None (no value) is
+    neither. The one-snapshot view the live pages use. Pure."""
+    vals = {sn: p for sn, p in powers.items() if p is not None}
+    if not vals or max(vals.values()) < min_sibling_w:
+        return []
+    return sorted(sn for sn, p in vals.items() if p <= zero_w)
+
+
+def zero_runs(samples, now_utc: dt.datetime, plant: str,
+              counters: Optional[Dict[Tuple[str, str], List[Tuple[dt.datetime, float]]]] = None,
+              ) -> Dict[str, Tuple[dt.datetime, int]]:
+    """{sn: (start of its current 0 W run, readings in it)} for the units of
+    ``plant`` whose newest readings are at or below ZERO_W for at least
+    ZERO_RUN_MIN minutes (ZERO_MIN_SAMPLES readings or more) with the day
+    counter flat over the run. Readings without power are skipped. Pure."""
+    by_sn: Dict[str, List[Tuple[dt.datetime, float]]] = {}
+    for s in samples:
+        if s[0] is None or str(s[1]).strip() != plant or s[3] is None:
+            continue
+        by_sn.setdefault(str(s[2]).strip(), []).append((s[0], float(s[3])))
+    out: Dict[str, Tuple[dt.datetime, int]] = {}
+    for sn, seq in by_sn.items():
+        seq.sort()
+        start, n = None, 0
+        for ts, p in reversed(seq):
+            if p > ZERO_W:
+                break
+            start, n = ts, n + 1
+        if start is None or n < ZERO_MIN_SAMPLES or (now_utc - start).total_seconds() < ZERO_RUN_MIN * 60:
+            continue
+        cseq = (counters or {}).get((plant, sn)) or []
+        run_e = [e for t, e in cseq if t >= start]
+        if run_e and max(run_e) - min(run_e) >= COUNTER_FLAT_KWH:
+            continue            # the counter moved: the vendor's zero, not the unit
+        out[sn] = (start, n)
+    return out
+
 # v313: a 0 W reading is no evidence of a dark plant when the inverter's
 # day counter grew since its previous sample (no older than this).
 COUNTER_GAP_MAX_MIN = 20
@@ -147,7 +207,7 @@ def vendor_thermal_state(rows, interval_min: int = INTERVAL_MIN) -> Dict[Tuple[s
 
 @dataclass(frozen=True)
 class AcuteBreach:
-    metric: str            # inverter_fault | inverter_temp_high | plant_offline | data_stale
+    metric: str            # inverter_fault | inverter_temp_high | plant_offline | data_stale | inverter_relative (v366) | vendor_alarm (v366)
     plant_key: str
     inverter_sn: str       # "" for plant-level
     severity: Severity
@@ -349,6 +409,32 @@ def evaluate_acute(
                              f"when it reappears "
                              f"[{'CRITICAL' if crit else 'WARNING'}]"),
                 ))
+
+    # --- per-inverter: reporting 0 W while a sibling produces (v366) ---
+    # Not limited to the dark-check hours: a sibling at >= SIBLING_MIN_W is
+    # the daylight proof (Vitalmex stopped at 07:42).
+    for plant, rows in sorted(fresh_by_plant.items()):
+        if plant not in active_plants:
+            continue
+        producing = [r for r in rows if (r[3] or 0) >= SIBLING_MIN_W]
+        if not producing:
+            continue
+        allowed = set((configured_inverters or {}).get(plant) or [])
+        max_kw = max(r[3] for r in producing) / 1000.0
+        for sn, (start, n) in sorted(zero_runs(samples, now_utc, plant, counters).items()):
+            if allowed and sn not in allowed:
+                continue
+            if (plant, sn) not in {(r[1], str(r[2]).strip()) for r in rows}:
+                continue        # its newest reading is not fresh: the silence rule's case
+            mins = (now_utc - start).total_seconds() / 60.0
+            breaches.append(AcuteBreach(
+                metric="inverter_relative", plant_key=plant, inverter_sn=sn,
+                severity=Severity.CRITICAL, value=round(mins),
+                message=(f"{plant} {sn}: 0 W for {mins:.0f} min (since {utc_to_mx(start):%H:%M} MX, "
+                         f"{n} readings, day counter flat) while {len(producing)} sibling(s) produce "
+                         f"up to {max_kw:.0f} kW - inverter stopped; check the vendor portal alarms "
+                         f"[CRITICAL]"),
+            ))
 
     # --- plant-level: acute data gap ---
     for plant in sorted(active_plants):

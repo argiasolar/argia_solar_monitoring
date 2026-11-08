@@ -112,6 +112,18 @@ _CATALOG: Dict[str, Dict[str, str]] = {
             "per-hour production for a gap, and consider soiling or "
             "curtailment."),
     },
+    "vendor_alarm": {
+        "meaning": (
+            "The inverter maker's own monitoring portal (Huawei FusionSolar) "
+            "raised this alarm on the device. The message quotes the vendor's "
+            "alarm name, severity and cause - nothing here is ARGIA's guess. "
+            "It stays open until the vendor no longer lists it."),
+        "check": (
+            "Open the alarm in FusionSolar (Alarms > the alarm > Comments) and "
+            "follow its handling suggestion BEFORE resetting anything - for a "
+            "device fault it may say not to switch the DC side back on. Open a "
+            "ticket; contact the vendor's support when it says so."),
+    },
     "plant_twin_yield": {
         "meaning": (
             "This plant's yield per installed kW fell well below its "

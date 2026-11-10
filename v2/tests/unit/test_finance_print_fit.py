@@ -16,6 +16,18 @@ These tests pin the print stylesheet that makes the page fit on its own. The
 first two are cheap and always run; the last actually drives headless chromium
 with the production flags and reads the text back out of the PDF, and skips
 where no chromium is installed.
+
+v368 (Tomasz, 10 Nov 2026: "fix it") - the render test failed although the PDF
+was complete: in the narrower print layout the headers wrap onto two lines
+("Exp." / "revenue"), and ``pdftotext -layout`` reads the page line by line, so
+"Exp. revenue" was never found. A false alarm in the harness, not a clipped
+report (checked by eye on the PDF, and on pio06 with the mail's own chromium).
+The text is now read in content order (``-raw``, whitespace collapsed), where a
+wrapped header stays one phrase, and the whole header row must appear in order.
+The old regression guard (drop the print CSS -> columns lost) had also stopped
+proving anything: Chromium 141 shrinks the screen layout to the sheet by itself,
+and the guard only "passed" because of the same wrapping. It now forces a page
+wider than the sheet and requires the checker to report the lost columns.
 """
 from __future__ import annotations
 
@@ -42,6 +54,15 @@ SRC = (V2 / "argia" / "finance" / "webreport.py").read_text(encoding="utf-8")
 # every column of the per-asset table, as the reader sees it
 COLUMNS = ("Asset", "Type", "Exp. revenue", "Actual revenue", "O&M",
            "Debt service", "Loan position", "DSCR exp.", "DSCR act.")
+
+# the header row as it reads in content order (pdftotext -raw, whitespace collapsed)
+HEADER_ROW = " ".join(COLUMNS)
+
+
+def _lost(text: str) -> list:
+    """The columns whose header is missing from the PDF text (wrapped or not)."""
+    return [c for c in COLUMNS if c not in text]
+
 
 # the exact flags scripts/financial_mail.py::render_pdf uses
 MAIL_FLAGS = ["--headless=new", "--disable-gpu", "--no-sandbox",
@@ -99,6 +120,8 @@ class TestTheRenderedPdfKeepsEveryColumn:
         return None
 
     def _pdf_text(self, html: str) -> str:
+        """The PDF's text in content order, whitespace collapsed to single
+        spaces (a header wrapped onto two lines reads as one phrase)."""
         chromium = self._chromium()
         if not chromium or not shutil.which("pdftotext"):
             pytest.skip("needs chromium and pdftotext")
@@ -109,36 +132,31 @@ class TestTheRenderedPdfKeepsEveryColumn:
                 [chromium, *MAIL_FLAGS, f"--print-to-pdf={pdf}", f"file://{src}"],
                 capture_output=True, text=True, timeout=180)
             assert pdf.exists() and pdf.stat().st_size > 5000, r.stderr[-400:]
-            subprocess.run(["pdftotext", "-layout", str(pdf), str(pdf) + ".txt"],
+            subprocess.run(["pdftotext", "-raw", str(pdf), str(pdf) + ".txt"],
                            check=True, timeout=60)
-            return Path(str(pdf) + ".txt").read_text(encoding="utf-8", errors="ignore")
+            raw = Path(str(pdf) + ".txt").read_text(encoding="utf-8", errors="ignore")
+            return re.sub(r"\s+", " ", raw)
 
     def test_every_per_asset_column_survives_the_headless_render(self):
         text = self._pdf_text(_html())
-        missing = [c for c in COLUMNS if c not in text]
-        assert not missing, (
-            f"columns clipped off the emailed PDF: {missing}. The print CSS no "
+        assert len(_lost(text)) == 0, (
+            f"columns clipped off the emailed PDF: {_lost(text)}. The print CSS no "
             f"longer makes the page fit A4 - see the module docstring.")
+        assert HEADER_ROW in text, "the per-asset header row is not complete and in order"
+        assert re.search(r"PORTFOLIO [\d,]+ [\d,]+ [\d,]+ [\d,]+ \d+% \d+%", text), \
+            "the PORTFOLIO row lost figures"
 
-    def test_the_regression_itself_is_reproducible(self):
-        """Guard against a false pass: with the print block removed, the same
-        render must LOSE columns. If this stops failing, the test above is no
-        longer proving anything."""
-        html = _html()
-        start = html.index("@media print")
-        depth, i = 0, html.index("{", start)
-        while True:                                   # walk to the matching brace
-            if html[i] == "{":
-                depth += 1
-            elif html[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    break
-            i += 1
-        text = self._pdf_text(html[:start] + html[i + 1:])
-        assert [c for c in COLUMNS if c not in text], (
-            "removing the print CSS no longer truncates the PDF - either the "
-            "layout changed or this harness stopped exercising the real path")
+    def test_the_checker_catches_a_page_wider_than_the_sheet(self):
+        """Guard against a false pass: force the page wider than A4 and the
+        checker must report the columns chromium clips off the right edge.
+        If this stops failing, the test above is no longer proving anything."""
+        html = _html().replace(
+            "</style>", "@media print{ .wrap{max-width:none!important;width:1600px!important}"
+                        " table{min-width:1500px!important} }</style>", 1)
+        lost = _lost(self._pdf_text(html))
+        assert lost and "DSCR act." in lost, (
+            "a 1600px page no longer loses columns - either chromium started "
+            "shrinking print pages to fit or this harness stopped exercising the real path")
 
 
 # --------------------------------------------------------------------------

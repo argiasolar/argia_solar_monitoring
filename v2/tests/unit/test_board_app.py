@@ -128,6 +128,42 @@ def test_card_lifecycle_through_the_api(env):
     assert c.get("/board/api/state", headers=as_("tomasz")).get_json()["cards"] == []
 
 
+def test_v367_parents_and_unblocking_cards_through_the_api(env):
+    c, b, _ = env
+    b.s.set_member("vit", "viewer", "tomasz")
+    top = post(c, "/board/api/cards", "tomasz", {"title": "engine.argia.com.mx"}).get_json()["card"]
+    kid = post(c, "/board/api/cards", "tomasz", {"title": "New offer page", "col": "doing", "parent_id": top["id"]}).get_json()["card"]
+    assert kid["parent_id"] == top["id"]
+    st = c.get("/board/api/state", headers=as_("tomasz")).get_json()
+    got = {x["id"]: x for x in st["cards"]}
+    assert (got[top["id"]]["kids_total"], got[top["id"]]["kids_done"]) == (1, 0)
+    d = c.get(f"/board/api/cards/{top['id']}", headers=as_("tomasz")).get_json()
+    assert [x["id"] for x in d["related"]["children"]] == [kid["id"]] and d["related"]["parent"] is None
+    assert post(c, "/board/api/cards", "tomasz", {"title": "x", "parent_id": kid["id"]}).status_code == 400   # one level
+    # blocked -> unblocking card (owner and due from the panel); viewers cannot create it
+    post(c, f"/board/api/cards/{kid['id']}", "tomasz", {"blocked": True, "blocked_reason": "Waiting for the CFE quote"})
+    assert post(c, f"/board/api/cards/{kid['id']}/unblock", "vit", {}).status_code == 403
+    assert post(c, f"/board/api/cards/{kid['id']}/unblock", "tomasz", {}, csrf=False).status_code == 403
+    r = post(c, f"/board/api/cards/{kid['id']}/unblock", "tomasz", {"assignee": "arturo", "due": "2026-11-14"})
+    assert r.status_code == 201
+    u, blocked = r.get_json()["card"], r.get_json()["blocked"]
+    assert u["title"] == "Unblock: New offer page" and u["col"] == "todo" and u["unblocks_id"] == kid["id"]
+    assert u["parent_id"] == top["id"] and blocked["unblock_open"] == 1
+    assert post(c, f"/board/api/cards/{top['id']}/unblock", "tomasz", {}).status_code == 400              # not blocked
+    assert post(c, f"/board/api/cards/{kid['id']}/unblock", "tomasz", {"assignee": "ghost"}).status_code == 400
+    # done -> the card is unblocked
+    post(c, f"/board/api/cards/{u['id']}/move", "tomasz", {"col": "done", "order": [u["id"]]})
+    assert b.card(kid["id"])["blocked"] is False
+
+
+def test_v367_page_has_navigation_parent_filter_and_unblock_ui(env):
+    c, _, _ = env
+    h = c.get("/board/", headers=as_("tomasz")).get_data(as_text=True)
+    for needle in ('id="dprev"', 'id="dnext"', 'id="dpos"', 'id="fpar"', "function step(", "function navList(",
+                   "/unblock'", "ub_make", "f_parent", "parent_id:c.id", "board_par"):
+        assert needle in h, needle
+
+
 @pytest.mark.parametrize("body,code", [
     ({"title": ""}, 400), ({"title": "x", "col": "later"}, 400), ({"title": "x", "assignee": "ghost"}, 400),
     ({"title": "x", "due": "tomorrow"}, 400), ({"title": "x", "blocked": True}, 400), ({"title": "ok"}, 201),

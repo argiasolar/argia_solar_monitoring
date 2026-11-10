@@ -203,7 +203,7 @@ def api_card(cid):
     if err:
         return err
     return _run(lambda: jsonify({'card': _card_json(board().card(cid)), 'events': board().history(cid),
-                                 'files': board().files(cid)}))
+                                 'files': board().files(cid), 'related': board().related(cid)}))
 
 
 def files_dir() -> str:
@@ -267,6 +267,17 @@ def api_move(cid):
     d = _body()
     return _run(lambda: jsonify({'card': _card_json(board().move(
         who[0], cid, d.get('col'), d.get('order'), d.get('assignee'), usernames()))}))
+
+
+@app.post('/board/api/cards/<int:cid>/unblock')
+def api_unblock(cid):
+    """v367: create the card that unblocks a blocked card (owner and due date
+    in the body). Moving its last open one to Done unblocks the card."""
+    who, err = _guard('create', write=True)
+    if err:
+        return err
+    return _run(lambda: (jsonify({'card': _card_json(board().create_unblocker(who[0], cid, _body(), usernames())),
+                                  'blocked': _card_json(board().card(cid))}), 201))
 
 
 @app.post('/board/api/cards/<int:cid>/comment')
@@ -353,7 +364,7 @@ def page_board():
 
 @app.get('/board/members/')
 def page_members():
-    me_, role = actor(), role_of(actor())
+    role = role_of(actor())
     if role is None:
         return no_access()
     if role != 'owner':
@@ -395,6 +406,7 @@ TOOLBAR = '''<div class="bbar">
  <input id="q" type="search" autocomplete="off" data-ph-en="Search cards" data-ph-es="Buscar tarjetas" placeholder="Search cards">
  <select id="fwho" aria-label="Person"></select>
  <select id="fproc" aria-label="Process"></select>
+ <select id="fpar" aria-label="Parent card" hidden></select>
  <span id="chips" class="bchips"></span>
  <span class="bgrow"></span>
  <button type="button" class="bbtn ghost" id="lanes" aria-pressed="false"></button>
@@ -404,7 +416,9 @@ TOOLBAR = '''<div class="bbar">
 
 DRAWER = '''<div id="scrim" class="scrim" hidden></div>
 <aside id="drawer" class="drawer" hidden aria-label="Card">
- <div class="dhead"><span id="dnum" class="mono muted"></span><button type="button" class="ib dclose" id="dclose" aria-label="Close">&times;</button></div>
+ <div class="dhead"><span id="dnum" class="mono muted"></span>
+  <span class="dnav"><button type="button" id="dprev" aria-label="Previous card">&#8249;</button><span id="dpos" class="mono"></span><button type="button" id="dnext" aria-label="Next card">&#8250;</button></span>
+  <button type="button" class="ib dclose" id="dclose" aria-label="Close">&times;</button></div>
  <div id="dbody" class="dbody"></div>
 </aside>'''
 
@@ -503,6 +517,34 @@ CSS = r'''
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--deep);color:#fff;padding:9px 16px;border-radius:9px;font-size:13px;z-index:90}
 .toast.bad{background:#c2554e}
 .seedbox{background:#fff;border:1px dashed var(--teal);border-radius:12px;padding:16px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+/* v367: parents, unblocking cards, moving through cards with the panel open */
+.dnav{display:flex;align-items:center;gap:6px;margin-left:auto;margin-right:10px}
+.dnav button{width:30px;height:30px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--deep);font-size:19px;line-height:1;cursor:pointer}
+.dnav button:hover:not(:disabled){border-color:var(--teal)}
+.dnav button:disabled{opacity:.35;cursor:default}
+#dpos{font-size:11.5px;color:var(--muted);min-width:44px;text-align:center}
+.bc.cur{outline:2px solid var(--teal);outline-offset:1px}
+.bc.parent{border-top:3px solid #3b6fb6}
+.bc .par{font:600 10.5px ui-monospace,Consolas,monospace;background:#eef1fb;color:#3b6fb6;border-radius:5px;padding:1px 5px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bc .prog{display:flex;align-items:center;gap:6px;font:700 11px ui-monospace,Consolas,monospace;color:#3b6fb6}
+.bc .prog i{display:block;height:5px;border-radius:3px;background:var(--line);flex:1;overflow:hidden}
+.bc .prog i b{display:block;height:100%;background:#3b6fb6}
+.bc .unb{font-size:11.5px;color:#b26a00;font-weight:600;overflow-wrap:anywhere}
+.rel{display:flex;flex-direction:column;gap:6px}
+.rc{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 8px;color:var(--ink);font-size:13px;cursor:pointer;background:#fff;font-family:inherit;text-align:left;width:100%}
+.rc:hover{border-color:var(--teal)}
+.rc .cn{font:600 10.5px ui-monospace,Consolas,monospace;color:#8b95a1;flex:none}
+.rc .ct{flex:1;min-width:0;overflow-wrap:anywhere}
+.rc .cc{font-size:11px;color:var(--muted);flex:none}
+.rc.done .ct{text-decoration:line-through;color:var(--muted)}
+.rc.blk{border-left:3px solid #c2554e}
+.ubox{border:1px solid #f0c6c2;background:#fff7f6;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.kadd{display:flex;gap:6px}.kadd input{flex:1}
+a.cref{color:var(--teal2);font-weight:700;cursor:pointer;text-decoration:none}
+@media(min-width:1000px){.scrim{display:none!important}body.dopen .board{margin-right:min(520px,45vw)}}
+.dgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dgrid>label{min-width:0}
+.drawer select,.drawer input:not([type=checkbox]){width:100%;max-width:100%;box-sizing:border-box;min-width:0}
+@media(max-width:520px){.dgrid{grid-template-columns:minmax(0,1fr)}}
 '''
 
 JS = r'''
@@ -523,7 +565,7 @@ function ini(u){var n=nm(u).trim().split(/\s+/);return ((n[0]||'?')[0]+(n.length
 function av(u){return u?'<span class="av" style="background:'+col4(u)+'" title="'+esc(nm(u))+'">'+esc(ini(u))+'</span>':'<span class="av none" title="'+esc(tt('Unassigned','Sin asignar'))+'">?</span>';}
 var PROC={};S.procs.forEach(function(p){PROC[p.key]=p;});
 var COLS=S.cols;
-var F={q:LS.get('board_q',''),who:LS.get('board_who',''),proc:LS.get('board_proc',''),chip:'',lanes:LS.get('board_lanes','0')==='1'};
+var F={q:LS.get('board_q',''),who:LS.get('board_who',''),proc:LS.get('board_proc',''),par:+LS.get('board_par','0')||0,chip:'',lanes:LS.get('board_lanes','0')==='1'};
 var boardEl=document.getElementById('board');
 var open=null, dirty=false, busy=false;
 
@@ -534,6 +576,9 @@ function api(method,url,body){
 function toast(msg,bad){var t=document.createElement('div');t.className='toast'+(bad?' bad':'');t.textContent=msg;document.body.appendChild(t);setTimeout(function(){t.remove();},bad?4200:1800);}
 function reload(){return api('GET','/board/api/state').then(function(d){S=d;S.people.forEach(function(p){PEOPLE[p.username]=p.name||p.username;});render();}).catch(function(e){toast(e.message,true);});}
 function upsert(c){for(var i=0;i<S.cards.length;i++){if(S.cards[i].id===c.id){S.cards[i]=c;return;}}S.cards.push(c);}
+function byId(id){for(var i=0;i<S.cards.length;i++){if(S.cards[i].id===id)return S.cards[i];}return null;}
+function numOf(id){return 'SB-'+('000'+id).slice(-4);}
+function short(t,n){t=String(t||'');return t.length>n?t.slice(0,n-1)+'\u2026':t;}
 
 /* ------------------------------------------------------------ filters */
 function match(c){
@@ -541,6 +586,7 @@ function match(c){
  if(F.who&&F.who!=='__me'&&F.who!=='__none'&&c.assignee!==F.who)return false;
  if(F.who==='__none'&&c.assignee)return false;
  if(F.proc&&c.process!==F.proc)return false;
+ if(F.par&&c.id!==F.par&&c.parent_id!==F.par)return false;
  if(F.chip==='blocked'&&!c.blocked)return false;
  if(F.chip==='overdue'&&!c.overdue)return false;
  if(F.chip==='stuck'&&!c.aging)return false;
@@ -559,6 +605,11 @@ function toolbar(){
  var p=document.getElementById('fproc');
  p.innerHTML='<option value="">'+esc(tt('All processes','Todos los procesos'))+'</option>'+S.procs.map(function(x){return '<option value="'+x.key+'">'+x.key+' '+esc(tt(x.en,x.es))+'</option>';}).join('');
  p.value=F.proc;
+ var pars=S.cards.filter(function(c){return c.kids_total>0;}).sort(function(a,b){return a.title.localeCompare(b.title);});
+ if(F.par&&!pars.some(function(c){return c.id===F.par;})){F.par=0;LS.set('board_par','0');}
+ var fp=document.getElementById('fpar');fp.hidden=!pars.length;
+ fp.innerHTML='<option value="0">'+esc(tt('All parent cards','Todas las tarjetas padre'))+'</option>'+pars.map(function(c){return '<option value="'+c.id+'">'+esc(short(c.title,48))+' ('+c.kids_done+'/'+c.kids_total+')</option>';}).join('');
+ fp.value=String(F.par);
  var nb=0,nd=0,ns=0;S.cards.forEach(function(c){if(c.blocked)nb++;if(c.overdue)nd++;if(c.aging)ns++;});
  document.getElementById('chips').innerHTML=
   '<button type="button" class="bchip blk'+(F.chip==='blocked'?' on':'')+'" data-chip="blocked">'+tx('Blocked','Bloqueadas')+' '+nb+'</button>'+
@@ -572,15 +623,19 @@ function toolbar(){
 
 /* -------------------------------------------------------------- render */
 function cardHtml(c,over){
+ var pc=c.parent_id?byId(c.parent_id):null;
+ var par=c.parent_id?'<span class="par" title="'+esc(tt('Under','Bajo')+' '+numOf(c.parent_id)+(pc?' '+pc.title:''))+'">&#8627; '+esc(pc?short(pc.title,28):numOf(c.parent_id))+'</span>':'';
+ var prog=c.kids_total?'<div class="prog" title="'+esc(tt('Cards under this one: done / all','Tarjetas bajo esta: hechas / todas'))+'"><i><b style="width:'+Math.round(100*c.kids_done/c.kids_total)+'%"></b></i>'+c.kids_done+'/'+c.kids_total+'</div>':'';
+ var unb=c.unblocks_id?'<div class="unb">&#128275; '+esc(tt('Unblocks','Desbloquea'))+' '+numOf(c.unblocks_id)+'</div>':'';
  var due=c.due?'<span class="due'+(c.overdue?' late':'')+'" title="'+esc(tt('Due','Vence'))+'">'+esc(c.due.slice(5).replace('-','/'))+'</span>':'';
  var age=(c.col!=='done'&&c.col!=='backlog'&&c.days>0)?'<span class="age '+(c.aging||'')+'" title="'+esc(tt('Days in this column','Días en esta columna'))+'">'+c.days+'d</span>':'';
  var pri=c.priority==='high'?'<span class="pri-high" title="'+esc(tt('High priority','Prioridad alta'))+'">&#9650;</span>':c.priority==='low'?'<span class="pri-low" title="'+esc(tt('Low priority','Prioridad baja'))+'">&#9660;</span>':'';
  var proc=c.process?'<span class="proc" title="'+esc(PROC[c.process]?tt(PROC[c.process].en,PROC[c.process].es):'')+'">'+esc(c.process)+'</span>':'';
  var cm=(c.comments?'<span title="'+esc(tt('Comments','Comentarios'))+'">&#128172; '+c.comments+'</span>':'')+(c.files?' <span title="'+esc(tt('Attachments','Adjuntos'))+'">&#128206; '+c.files+'</span>':'');
- return '<div class="bc'+(c.blocked?' blocked':'')+(over?' overwip':'')+(can('move')?'':' ro')+'" data-id="'+c.id+'" tabindex="0" role="button" aria-label="'+esc(c.number+' '+c.title)+'">'+
-  '<div class="meta">'+pri+'<span class="num">'+esc(c.number)+'</span>'+proc+due+age+'</div>'+
-  '<div class="t">'+esc(c.title)+'</div>'+
-  (c.blocked?'<div class="blk">&#9940; '+esc(c.blocked_reason)+'</div>':'')+
+ return '<div class="bc'+(c.blocked?' blocked':'')+(c.kids_total?' parent':'')+(c.id===open?' cur':'')+(over?' overwip':'')+(can('move')?'':' ro')+'" data-id="'+c.id+'" tabindex="0" role="button" aria-label="'+esc(c.number+' '+c.title)+'">'+
+  '<div class="meta">'+pri+'<span class="num">'+esc(c.number)+'</span>'+proc+par+due+age+'</div>'+
+  '<div class="t">'+esc(c.title)+'</div>'+prog+unb+
+  (c.blocked?'<div class="blk">&#9940; '+esc(c.blocked_reason)+(c.unblock_open?' <span class="muted">('+c.unblock_open+' '+esc(tt('unblocking card open','tarjeta de desbloqueo abierta'))+')</span>':'')+'</div>':'')+
   '<div class="foot">'+av(c.assignee)+'<span class="meta">'+cm+'</span><span class="sp"></span>'+(can('move')?'<button type="button" class="handle" aria-label="Drag">&#8942;&#8942;</button>':'')+'</div></div>';
 }
 function colHead(k){
@@ -618,12 +673,14 @@ function render(){
   h+='</div>';
  }
  boardEl.innerHTML=h;
+ if(open)navUpdate();
 }
 
 /* ------------------------------------------------------------ toolbar events */
 document.getElementById('q').addEventListener('input',function(e){F.q=e.target.value;LS.set('board_q',F.q);render();});
 document.getElementById('fwho').addEventListener('change',function(e){F.who=e.target.value;LS.set('board_who',F.who);render();});
 document.getElementById('fproc').addEventListener('change',function(e){F.proc=e.target.value;LS.set('board_proc',F.proc);render();});
+document.getElementById('fpar').addEventListener('change',function(e){F.par=+e.target.value||0;LS.set('board_par',String(F.par));render();});
 document.getElementById('chips').addEventListener('click',function(e){var b=e.target.closest('[data-chip]');if(!b)return;F.chip=F.chip===b.dataset.chip?'':b.dataset.chip;render();});
 document.getElementById('lanes').addEventListener('click',function(){F.lanes=!F.lanes;LS.set('board_lanes',F.lanes?'1':'0');render();});
 function laneDefault(){return F.lanes&&boardEl.querySelector('.blist[data-lane="'+S.me+'"]')?S.me:null;}
@@ -643,7 +700,7 @@ function quickAdd(col,lane){
  list.insertBefore(f,list.firstChild);
  var ta=f.querySelector('textarea');ta.focus();
  function go(){var title=ta.value.trim();if(!title){render();return;}
-  var body={title:title,col:col};if(list.dataset.lane)body.assignee=list.dataset.lane;else if(F.who&&F.who.indexOf('__')!==0)body.assignee=F.who;else if(F.who==='__me')body.assignee=S.me;
+  var body={title:title,col:col};if(F.par)body.parent_id=F.par;if(list.dataset.lane)body.assignee=list.dataset.lane;else if(F.who&&F.who.indexOf('__')!==0)body.assignee=F.who;else if(F.who==='__me')body.assignee=S.me;
   ta.disabled=true;api('POST','/board/api/cards',body).then(function(d){upsert(d.card);render();quickAdd(col,lane);}).catch(function(x){ta.disabled=false;toast(x.message,true);});}
  f.querySelector('.bbtn').onclick=go;f.querySelector('.ghost').onclick=function(){render();};
  ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();go();}if(e.key==='Escape'){render();}});
@@ -706,12 +763,43 @@ document.addEventListener('pointerup',function(e){
  endDrag(false);
 });
 document.addEventListener('pointercancel',function(){if(D&&D.started)endDrag(true);D=null;});
-document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(D&&D.started){endDrag(true);}else if(open){closeCard();}}});
+document.addEventListener('keydown',function(e){
+ if(e.key==='Escape'){if(D&&D.started){endDrag(true);}else if(open){closeCard();}return;}
+ /* v367: move through the cards with the panel open - J / K or the arrow keys outside a field, Alt+arrow anywhere */
+ if(!open||e.ctrlKey||e.metaKey)return;
+ var t=e.target,inField=t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||t.isContentEditable);
+ var nx=(e.key==='ArrowDown'||(!e.altKey&&e.key==='j')),pv=(e.key==='ArrowUp'||(!e.altKey&&e.key==='k'));
+ if((nx||pv)&&(e.altKey||!inField)){e.preventDefault();step(nx?1:-1);}
+});
 
 /* ------------------------------------------------------------------- drawer */
 var drawer=document.getElementById('drawer'),scrim=document.getElementById('scrim'),dbody=document.getElementById('dbody');
-function closeCard(){if(dirty&&!window.confirm(tt('Discard your changes?','¿Descartar tus cambios?')))return;open=null;dirty=false;drawer.hidden=true;scrim.hidden=true;}
+function closeCard(){if(dirty&&!window.confirm(tt('Discard your changes?','¿Descartar tus cambios?')))return;open=null;dirty=false;drawer.hidden=true;scrim.hidden=true;
+ document.body.classList.remove('dopen');boardEl.querySelectorAll('.bc.cur').forEach(function(x){x.classList.remove('cur');});
+ try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}}
 document.getElementById('dclose').onclick=closeCard;scrim.onclick=closeCard;
+/* v367: the cards in the order you see them (columns left to right, top to bottom; lanes row by row) */
+var LASTI=0;
+function navList(){return [].slice.call(boardEl.querySelectorAll('.bc')).map(function(x){return +x.dataset.id;});}
+function navUpdate(){
+ var l=navList(),i=l.indexOf(open);if(i>=0)LASTI=i;
+ document.getElementById('dpos').textContent=i>=0?(i+1)+'/'+l.length:'-/'+l.length;
+ document.getElementById('dprev').disabled=i<=0&&!(i<0&&l.length);
+ document.getElementById('dnext').disabled=i<0?!l.length:i>=l.length-1;
+ boardEl.querySelectorAll('.bc.cur').forEach(function(x){if(+x.dataset.id!==open)x.classList.remove('cur');});
+ var el=boardEl.querySelector('.bc[data-id="'+open+'"]');if(el){el.classList.add('cur');}
+}
+function step(d){
+ var l=navList();if(!l.length)return;var i=l.indexOf(open),j;
+ if(i<0){j=d>0?Math.min(LASTI,l.length-1):Math.max(LASTI-1,0);}else{j=i+d;}
+ if(j<0||j>=l.length)return;
+ openCard(l[j]);
+ var el=boardEl.querySelector('.bc[data-id="'+l[j]+'"]');if(el&&el.scrollIntoView)el.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+document.getElementById('dprev').onclick=function(){step(-1);};
+document.getElementById('dnext').onclick=function(){step(1);};
+document.getElementById('dprev').title=tt('Previous card (K or arrow up)','Tarjeta anterior (K o flecha arriba)');
+document.getElementById('dnext').title=tt('Next card (J or arrow down)','Tarjeta siguiente (J o flecha abajo)');
 function when(ts){var d=new Date(ts);if(isNaN(d))return ts;return d.toLocaleString(lang()==='es'?'es-MX':'en-GB',{timeZone:'America/Mexico_City',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}
 function colName(k){var c=COLS.filter(function(x){return x.key===k;})[0];return c?tt(c.en,c.es):k;}
 var FILES=[];
@@ -724,7 +812,14 @@ function evHtml(e){
  var who='<span class="who">'+esc(nm(e.actor))+'</span><span class="when">'+esc(when(e.ts))+'</span>',m=e.meta||{},t='';
  if(e.kind==='comment')return '<div class="ev">'+av(e.actor)+'<div class="bd">'+who+'<div class="txt">'+esc(e.body)+'</div>'+filesHtml(e)+'</div></div>';
  if(e.kind==='attachment')return '<div class="ev">'+av(e.actor)+'<div class="bd">'+who+' '+esc(tt('added files','agregó archivos'))+filesHtml(e)+'</div></div>';
- if(e.kind==='created')t=tt('created the card','creó la tarjeta');
+ if(e.kind==='created'){t=tt('created the card','creó la tarjeta');
+  if(m.unblocks)t+=' '+tt('to unblock','para desbloquear')+' '+ref(m.unblocks);
+  else if(m.parent)t+=' '+tt('under','bajo')+' '+ref(m.parent);}
+ else if(e.kind==='parent')t=(m.to?tt('put it under','la puso bajo')+' '+ref(m.to):tt('took it out of','la sacó de')+' '+ref(m.from))+(e.body?' ('+esc(e.body)+')':'');
+ else if(e.kind==='child_added')t=tt('put','puso')+' '+ref(m.child)+' '+tt('under this card','bajo esta tarjeta');
+ else if(e.kind==='child_removed')t=tt('took','sacó')+' '+ref(m.child)+' '+tt('out of this card','de esta tarjeta');
+ else if(e.kind==='unblock_task')t=tt('created the unblocking card','creó la tarjeta de desbloqueo')+' '+ref(m.card);
+ else if(e.kind==='unblocked'&&m.auto)t=tt('unblocked it automatically:','la desbloqueó automáticamente:')+' '+ref(m.by)+' '+tt('is done','está hecha');
  else if(e.kind==='moved')t=tt('moved it','la movió')+': '+colName(m.from)+' &rarr; '+colName(m.to);
  else if(e.kind==='assigned')t=tt('assigned it to','la asignó a')+' '+esc(nm(m.to));
  else if(e.kind==='blocked')t=tt('marked it blocked','la marcó bloqueada')+': '+esc(e.body);
@@ -736,19 +831,37 @@ function evHtml(e){
  else t=esc(e.kind);
  return '<div class="ev sys">'+av(e.actor)+'<div class="bd">'+who+' '+t+'</div></div>';
 }
+function ref(id){return id?'<a class="cref" data-open="'+(+id)+'">'+numOf(+id)+'</a>':'';}
+function relHtml(x){return '<button type="button" class="rc'+(x.col==='done'?' done':'')+(x.blocked?' blk':'')+'" data-open="'+x.id+'"><span class="cn">'+esc(x.number)+'</span><span class="ct">'+esc(x.title)+'</span><span class="cc">'+esc(colName(x.col))+(x.assignee?' &middot; '+esc(nm(x.assignee)):'')+'</span></button>';}
+var REL={children:[],unblockers:[],parent:null,unblocks:null};
 function opt(v,label,sel){return '<option value="'+esc(v)+'"'+(v===sel?' selected':'')+'>'+esc(label)+'</option>';}
 var PEND=[];
 function pendDraw(){var p=document.getElementById('pend');if(!p)return;p.innerHTML=PEND.map(function(f,i){var img=/^image\//.test(f.type)?'<img src="'+URL.createObjectURL(f)+'" alt="">':'&#128206;';return '<span class="pchip">'+img+'<span>'+esc(f.name)+' <span class="muted">'+fsize(f.size)+'</span></span><button type="button" data-unpend="'+i+'" aria-label="remove">&times;</button></span>';}).join('');
  p.querySelectorAll('[data-unpend]').forEach(function(b){b.onclick=function(){PEND.splice(+b.dataset.unpend,1);pendDraw();};});}
 function addFiles(list){[].slice.call(list||[]).forEach(function(f){PEND.push(f);});dirty=true;pendDraw();}
 function stamp(){var d=new Date(),z=function(n){return (n<10?'0':'')+n;};return d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+z(d.getHours())+z(d.getMinutes())+z(d.getSeconds());}
-function drawCard(c,events,files){
- FILES=files||[];PEND=[];
+function drawCard(c,events,files,rel){
+ FILES=files||[];PEND=[];REL=rel||{children:[],unblockers:[],parent:null,unblocks:null};
  var ro=!can('edit'),dis=ro?' disabled':'';
  document.getElementById('dnum').textContent=c.number+(c.days?' · '+c.days+(lang()==='es'?' días en ':' days in ')+colName(c.col):'');
  var people=opt('',tt('Unassigned','Sin asignar'),c.assignee||'')+S.people.map(function(p){return opt(p.username,p.name,c.assignee);}).join('');
  var procs=opt('',tt('No process','Sin proceso'),c.process||'')+S.procs.map(function(p){return opt(p.key,p.key+' '+tt(p.en,p.es),c.process);}).join('');
  var cols=COLS.map(function(x){return opt(x.key,tt(x.en,x.es),c.col);}).join('');
+ var pars,pdis=dis;
+ if(c.kids_total>0){pars=opt('',tt('This card is a parent','Esta tarjeta es padre')+' ('+c.kids_done+'/'+c.kids_total+')','');pdis=' disabled';}
+ else{var cand=S.cards.filter(function(x){return !x.parent_id&&x.id!==c.id&&!x.unblocks_id;}).sort(function(a,b){return (b.kids_total-a.kids_total)||a.title.localeCompare(b.title);});
+  if(c.parent_id&&!cand.some(function(x){return x.id===c.parent_id;}))cand.unshift({id:c.parent_id,number:numOf(c.parent_id),title:REL.parent?REL.parent.title:''});
+  pars=opt('',tt('No parent','Sin tarjeta padre'),String(c.parent_id||''))+cand.map(function(x){return opt(String(x.id),numOf(x.id)+' '+short(x.title,50),String(c.parent_id||''));}).join('');}
+ var openUnb=REL.unblockers.filter(function(x){return x.col!=='done';}).length;
+ var ubPeople=opt('',tt('Who can unblock it?','¿Quién puede desbloquearla?'),'')+S.people.map(function(p){return opt(p.username,p.name,'');}).join('');
+ var ubox=can('create')?'<div class="ubox" id="ubox"><label class="inl"><input type="checkbox" id="ub_make"'+(openUnb||c.blocked?'':' checked')+'> '+tx('Create an unblocking card in This week','Crear una tarjeta de desbloqueo en Esta semana')+'</label>'+
+   '<div class="dgrid"><label>'+tx('Unblocking owner','Responsable del desbloqueo')+'<select id="ub_who">'+ubPeople+'</select></label><label>'+tx('Unblock by','Desbloquear para')+'<input type="date" id="ub_due"></label></div>'+
+   (openUnb?'<div class="muted" style="font-size:12px">'+tx('There is already an open unblocking card.','Ya hay una tarjeta de desbloqueo abierta.')+'</div>':'')+'</div>':'';
+ var relBlock=(REL.parent?'<div><div class="kicker" style="margin-bottom:6px">'+tx('Under','Bajo')+'</div><div class="rel">'+relHtml(REL.parent)+'</div></div>':'')+
+  (REL.unblocks?'<div><div class="kicker" style="margin-bottom:6px">'+tx('This card unblocks','Esta tarjeta desbloquea')+'</div><div class="rel">'+relHtml(REL.unblocks)+'</div></div>':'')+
+  (REL.unblockers.length?'<div><div class="kicker" style="margin-bottom:6px">'+tx('Unblocking cards','Tarjetas de desbloqueo')+'</div><div class="rel">'+REL.unblockers.map(relHtml).join('')+'</div></div>':'')+
+  (!c.parent_id&&!c.unblocks_id&&(REL.children.length||can('create'))?'<div><div class="kicker" style="margin-bottom:6px">'+tx('Cards under this one','Tarjetas bajo esta')+(REL.children.length?' ('+c.kids_done+'/'+c.kids_total+' '+tt('done','hechas')+')':'')+'</div><div class="rel">'+REL.children.map(relHtml).join('')+'</div>'+
+   (can('create')?'<div class="kadd" style="margin-top:6px"><input id="k_title" maxlength="200" placeholder="'+esc(tt('+ Add a card under this one (Enter)','+ Agregar una tarjeta bajo esta (Enter)'))+'"></div>':'')+'</div>':'');
  var pris=[['high',tt('High','Alta')],['normal',tt('Normal','Normal')],['low',tt('Low','Baja')]].map(function(p){return opt(p[0],p[1],c.priority);}).join('');
  var wl=(c.watchers||[]).map(function(u){return '<span class="wchip">'+av(u)+esc(nm(u))+(can('watch')?'<button type="button" data-unwatch="'+esc(u)+'" aria-label="remove">&times;</button>':'')+'</span>';}).join('');
  var wadd=S.people.filter(function(p){return (c.watchers||[]).indexOf(p.username)<0;}).map(function(p){return opt(p.username,p.name,'');}).join('');
@@ -760,11 +873,13 @@ function drawCard(c,events,files){
    '<label>'+tx('Process','Proceso')+'<select id="f_process"'+dis+'>'+procs+'</select></label>'+
    '<label>'+tx('Priority','Prioridad')+'<select id="f_priority"'+dis+'>'+pris+'</select></label>'+
    '<label>'+tx('Due date','Fecha límite')+'<input type="date" id="f_due" value="'+esc(c.due||'')+'"'+dis+'></label>'+
+   '<label>'+tx('Parent card','Tarjeta padre')+'<select id="f_parent"'+pdis+'>'+pars+'</select></label>'+
    '<label class="inl" style="align-self:end"><input type="checkbox" id="f_blocked"'+(c.blocked?' checked':'')+dis+'> '+tx('Blocked','Bloqueada')+'</label>'+
   '</div>'+
-  '<label id="l_reason"'+(c.blocked?'':' hidden')+'>'+tx('Why is it blocked? Who can unblock it?','¿Por qué está bloqueada? ¿Quién puede desbloquearla?')+'<input id="f_blocked_reason" maxlength="500" value="'+esc(c.blocked_reason||'')+'"'+dis+'></label>'+
+  '<div id="l_reason" class="rel"'+(c.blocked?'':' hidden')+'><label>'+tx('Why is it blocked? Who can unblock it?','¿Por qué está bloqueada? ¿Quién puede desbloquearla?')+'<input id="f_blocked_reason" maxlength="500" value="'+esc(c.blocked_reason||'')+'"'+dis+'></label>'+(ro?'':ubox)+'</div>'+
   '<label>'+tx('Description','Descripción')+'<textarea id="f_description" maxlength="8000"'+dis+'>'+esc(c.description||'')+'</textarea></label>'+
   (ro?'':'<div class="drow"><button type="button" class="bbtn" id="dsave">'+tx('Save','Guardar')+'</button><span class="dmsg" id="dmsg"></span><span class="bgrow"></span>'+(can('archive')?'<button type="button" class="bbtn danger" id="darch">'+tx('Archive','Archivar')+'</button>':'')+'</div>')+
+  relBlock+
   '<div><div class="kicker" style="margin-bottom:6px">'+tx('Watchers','Seguidores')+'</div><div class="wlist">'+(wl||'<span class="muted">-</span>')+
    (can('watch')&&wadd?'<select id="wadd"><option value="">'+esc(tt('+ Add watcher','+ Agregar seguidor'))+'</option>'+wadd+'</select>':'')+'</div></div>'+
   '<div class="tl"><div class="kicker">'+tx('Comments and history','Comentarios e historial')+'</div>'+
@@ -772,9 +887,11 @@ function drawCard(c,events,files){
     '<div class="drow"><button type="button" class="bbtn ghost" id="dcomm">'+tx('Post comment','Publicar comentario')+'</button><button type="button" class="bbtn ghost" id="dattach">&#128206; '+tx('Attach files','Adjuntar archivos')+'</button><input type="file" id="f_files" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.txt,.csv,.xlsx,.docx,.pptx,.zip,.kmz,.dwg,.mp4"></div>':'')+
    '<div id="evs">'+events.slice().reverse().map(evHtml).join('')+'</div></div>';
  dirty=false;
- ['f_title','f_assignee','f_process','f_priority','f_due','f_blocked','f_blocked_reason','f_description'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){dirty=true;});el.addEventListener('change',function(){dirty=true;});}});
+ ['f_title','f_assignee','f_process','f_priority','f_due','f_parent','f_blocked','f_blocked_reason','f_description'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){dirty=true;});el.addEventListener('change',function(){dirty=true;});}});
  var fb=document.getElementById('f_blocked');if(fb)fb.addEventListener('change',function(){document.getElementById('l_reason').hidden=!fb.checked;if(fb.checked)document.getElementById('f_blocked_reason').focus();});
  var sv=document.getElementById('dsave');if(sv)sv.onclick=function(){save(c);};
+ var kt=document.getElementById('k_title');if(kt)kt.addEventListener('keydown',function(e){if(e.key!=='Enter')return;e.preventDefault();var v=kt.value.trim();if(!v)return;kt.disabled=true;
+  api('POST','/board/api/cards',{title:v,col:'backlog',parent_id:c.id,process:c.process||''}).then(function(d){upsert(d.card);render();var keep=dirty;openCard(c.id,true);dirty=keep;toast(tt('Added ','Agregada ')+d.card.number);}).catch(function(x){kt.disabled=false;toast(x.message,true);});});
  var fc=document.getElementById('f_col');if(fc)fc.onchange=function(){moveTo(c,fc.value);};
  var cm=document.getElementById('dcomm'),ct=document.getElementById('f_comment');
  if(cm){cm.onclick=function(){comment(c,ct);};ct.addEventListener('keydown',function(e){if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){comment(c,ct);}});
@@ -788,17 +905,29 @@ function drawCard(c,events,files){
   if(ar.dataset.sure!=='1'){ar.dataset.sure='1';ar.innerHTML=tx('Click again to archive','Haz clic otra vez para archivar');return;}
   api('POST','/board/api/cards/'+c.id+'/archive',{}).then(function(){S.cards=S.cards.filter(function(x){return x.id!==c.id;});dirty=false;closeCard();render();toast(tt('Archived','Archivada'));}).catch(function(x){toast(x.message,true);});};
 }
-function openCard(id){
- open=id;drawer.hidden=false;scrim.hidden=false;dbody.innerHTML='<div class="muted">...</div>';
- api('GET','/board/api/cards/'+id).then(function(d){if(open!==id)return;upsert(d.card);drawCard(d.card,d.events,d.files);}).catch(function(x){toast(x.message,true);closeCard();});
+function openCard(id,force){
+ if(open&&open!==id&&dirty&&!force&&!window.confirm(tt('Discard your changes?','¿Descartar tus cambios?')))return;
+ if(open!==id)dirty=false;
+ open=id;drawer.hidden=false;scrim.hidden=false;document.body.classList.add('dopen');
+ if(!dbody.firstChild||dbody.dataset.card!==String(id))dbody.innerHTML='<div class="muted">...</div>';
+ dbody.dataset.card=String(id);navUpdate();
+ try{history.replaceState(null,'','#'+numOf(id));}catch(e){}
+ api('GET','/board/api/cards/'+id).then(function(d){if(open!==id)return;upsert(d.card);drawCard(d.card,d.events,d.files,d.related);navUpdate();}).catch(function(x){toast(x.message,true);dirty=false;closeCard();});
 }
+dbody.addEventListener('click',function(e){var a=e.target.closest('[data-open]');if(a){e.preventDefault();openCard(+a.dataset.open);}});
 function msg(t,bad){var m=document.getElementById('dmsg');if(m){m.className='dmsg '+(bad?'bad':'ok');m.textContent=t;}}
 function save(c){
- var body={},map={title:'f_title',assignee:'f_assignee',process:'f_process',priority:'f_priority',due:'f_due',description:'f_description',blocked_reason:'f_blocked_reason'};
- Object.keys(map).forEach(function(k){var v=document.getElementById(map[k]).value;if(String(c[k]==null?'':c[k])!==v)body[k]=v;});
+ var body={},map={title:'f_title',assignee:'f_assignee',process:'f_process',priority:'f_priority',due:'f_due',description:'f_description',blocked_reason:'f_blocked_reason',parent_id:'f_parent'};
+ Object.keys(map).forEach(function(k){var el=document.getElementById(map[k]);if(!el||el.disabled)return;var v=el.value;if(String(c[k]==null?'':c[k])!==v)body[k]=v;});
  var b=document.getElementById('f_blocked').checked;if(b!==!!c.blocked)body.blocked=b;
- if(!Object.keys(body).length){msg(tt('Nothing changed','Sin cambios'));return;}
- api('POST','/board/api/cards/'+c.id,body).then(function(d){upsert(d.card);render();dirty=false;msg(tt('Saved','Guardado'));openCard(c.id);}).catch(function(x){msg(x.message,true);});
+ var um=document.getElementById('ub_make'),wantUnb=b&&um&&um.checked;
+ var ub=wantUnb?{assignee:document.getElementById('ub_who').value,due:document.getElementById('ub_due').value}:null;
+ if(!Object.keys(body).length&&!ub){msg(tt('Nothing changed','Sin cambios'));return;}
+ var first=Object.keys(body).length?api('POST','/board/api/cards/'+c.id,body):Promise.resolve({card:c});
+ first.then(function(d){upsert(d.card);dirty=false;
+   if(!ub)return d;
+   return api('POST','/board/api/cards/'+c.id+'/unblock',ub).then(function(u){upsert(u.card);upsert(u.blocked);toast(tt('Unblocking card ','Tarjeta de desbloqueo ')+u.card.number);return u;});})
+  .then(function(){render();msg(tt('Saved','Guardado'));openCard(c.id,true);}).catch(function(x){msg(x.message,true);reload();});
 }
 function moveTo(c,col){
  var order=sorted(S.cards.filter(function(x){return x.col===col&&x.id!==c.id;})).map(function(x){return x.id;});order.push(c.id);

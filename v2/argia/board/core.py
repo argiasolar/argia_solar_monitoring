@@ -99,7 +99,11 @@ def check_upload(filename, data: bytes):
     return name, ext, FILE_EXT[ext], False
 
 
-EDITABLE = ('title', 'description', 'assignee', 'process', 'priority', 'due', 'blocked', 'blocked_reason')
+EDITABLE = ('title', 'description', 'assignee', 'process', 'priority', 'due', 'blocked', 'blocked_reason', 'parent_id')
+
+# v367: one level of grouping - a parent card ("engine.argia.com.mx") and the
+# cards under it. A parent has no parent; a card under a parent has no children.
+UNBLOCK_PREFIX = 'Unblock: '
 
 
 class Invalid(ValueError):
@@ -171,6 +175,8 @@ def validate(data: Dict, partial: bool = False, people: Optional[Iterable[str]] 
             v = _bool(v)
         elif k == 'blocked_reason':
             v = clean_text(v, MAX_REASON)
+        elif k == 'parent_id':
+            v = parse_card_id(v, 'Parent')
         out[k] = v
     if 'blocked' in out:
         if out['blocked'] and not out.get('blocked_reason', data.get('blocked_reason')):
@@ -178,6 +184,27 @@ def validate(data: Dict, partial: bool = False, people: Optional[Iterable[str]] 
         if not out['blocked']:
             out['blocked_reason'] = ''
     return out
+
+
+def parse_card_id(value, what: str = 'Card') -> Optional[int]:
+    """'' / None / 0 -> None; a positive integer (or 'SB-0012') -> int. Pure."""
+    if isinstance(value, bool):
+        raise Invalid(f'{what} must be a card number.')
+    if value is None:
+        return None
+    s = clean_text(value, 20).upper()
+    if s.startswith('SB-'):
+        s = s[3:]
+    if s in ('', '0'):
+        return None
+    if not s.isdigit():
+        raise Invalid(f'{what} must be a card number, got "{s}".')
+    return int(s)
+
+
+def unblock_title(title: str) -> str:
+    """The title of the card that unblocks ``title``. Pure."""
+    return (UNBLOCK_PREFIX + clean_text(title, MAX_TITLE))[:MAX_TITLE]
 
 
 def validate_col(col) -> str:

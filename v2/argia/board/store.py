@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS board_file (
     ts          timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_board_file_card ON board_file (card_id);
+-- v367: a parent card (one level) and the card a task unblocks
+ALTER TABLE board_card ADD COLUMN IF NOT EXISTS parent_id int REFERENCES board_card(id) ON DELETE SET NULL;
+ALTER TABLE board_card ADD COLUMN IF NOT EXISTS unblocks_id int REFERENCES board_card(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_board_card_parent ON board_card (parent_id);
+CREATE INDEX IF NOT EXISTS idx_board_card_unblocks ON board_card (unblocks_id);
 CREATE TABLE IF NOT EXISTS board_member (
     username text PRIMARY KEY,
     role     text NOT NULL CHECK (role IN ('editor','viewer')),
@@ -75,7 +80,8 @@ CREATE TABLE IF NOT EXISTS board_member (
 """
 
 CARD_FIELDS = ('id', 'title', 'description', 'col', 'position', 'assignee', 'process', 'priority', 'due',
-               'blocked', 'blocked_reason', 'archived', 'created_by', 'created_at', 'updated_at', 'col_since', 'done_at')
+               'blocked', 'blocked_reason', 'archived', 'created_by', 'created_at', 'updated_at', 'col_since', 'done_at',
+               'parent_id', 'unblocks_id')
 
 
 def q(value) -> str:
@@ -101,10 +107,13 @@ def _now() -> str:
 # ---------------------------------------------------------------- PostgreSQL
 _CARD_SELECT = ("SELECT c.id, c.title, c.description, c.col, c.position, c.assignee, c.process, c.priority,"
                 " c.due, c.blocked, c.blocked_reason, c.archived, c.created_by, c.created_at, c.updated_at,"
-                " c.col_since, c.done_at,"
+                " c.col_since, c.done_at, c.parent_id, c.unblocks_id,"
                 " (SELECT coalesce(json_agg(w.username ORDER BY w.username), '[]'::json) FROM board_watcher w WHERE w.card_id = c.id) AS watchers,"
                 " (SELECT count(*) FROM board_event e WHERE e.card_id = c.id AND e.kind = 'comment') AS comments,"
-                " (SELECT count(*) FROM board_file f WHERE f.card_id = c.id) AS files"
+                " (SELECT count(*) FROM board_file f WHERE f.card_id = c.id) AS files,"
+                " (SELECT count(*) FROM board_card k WHERE k.parent_id = c.id AND NOT k.archived) AS kids_total,"
+                " (SELECT count(*) FROM board_card k WHERE k.parent_id = c.id AND NOT k.archived AND k.col = 'done') AS kids_done,"
+                " (SELECT count(*) FROM board_card u WHERE u.unblocks_id = c.id AND NOT u.archived AND u.col <> 'done') AS unblock_open"
                 " FROM board_card c")
 
 
@@ -139,13 +148,23 @@ class PgStore:
     def count_all(self) -> int:
         return int(self._json("SELECT count(*) FROM board_card;") or 0)
 
+    def children(self, card_id: int) -> List[Dict]:
+        """v367: the live cards under a parent."""
+        return self._list(f"{_CARD_SELECT} WHERE c.parent_id = {int(card_id)} AND NOT c.archived ORDER BY c.id")
+
+    def unblockers(self, card_id: int) -> List[Dict]:
+        """v367: the live cards that unblock a card."""
+        return self._list(f"{_CARD_SELECT} WHERE c.unblocks_id = {int(card_id)} AND NOT c.archived ORDER BY c.id")
+
     def max_position(self, col: str) -> float:
         v = self._json(f"SELECT coalesce(max(position), 0) FROM board_card WHERE col = {q(col)} AND NOT archived;")
         return float(v or 0)
 
     def insert_card(self, fields: Dict, actor: str, position: float) -> int:
-        cols = ['title', 'description', 'col', 'assignee', 'process', 'priority', 'due', 'blocked', 'blocked_reason']
-        vals = [q(fields.get(c, '' if c not in ('due', 'blocked') else (None if c == 'due' else False))) for c in cols]
+        cols = ['title', 'description', 'col', 'assignee', 'process', 'priority', 'due', 'blocked', 'blocked_reason',
+                'parent_id', 'unblocks_id']
+        empty = {'due': None, 'blocked': False, 'parent_id': None, 'unblocks_id': None}
+        vals = [q(fields.get(c, empty.get(c, ''))) for c in cols]
         done = 'now()' if fields.get('col') == 'done' else 'NULL'
         out = self._run(f"INSERT INTO board_card ({', '.join(cols)}, position, created_by, done_at)"
                         f" VALUES ({', '.join(vals)}, {q(float(position))}, {q(actor)}, {done}) RETURNING id;")
@@ -228,6 +247,11 @@ class MemStore:
         r['watchers'] = sorted(u for cid, u in self.watchers if cid == c['id'])
         r['comments'] = sum(1 for e in self.ev if e['card_id'] == c['id'] and e['kind'] == 'comment')
         r['files'] = sum(1 for f in self.fl if f['card_id'] == c['id'])
+        kids = [k for k in self.cards.values() if k.get('parent_id') == c['id'] and not k['archived']]
+        r['kids_total'] = len(kids)
+        r['kids_done'] = sum(1 for k in kids if k['col'] == 'done')
+        r['unblock_open'] = sum(1 for k in self.cards.values()
+                                if k.get('unblocks_id') == c['id'] and not k['archived'] and k['col'] != 'done')
         return r
 
     def list_cards(self, done_window_days: int) -> List[Dict]:
@@ -249,6 +273,14 @@ class MemStore:
     def count_all(self) -> int:
         return len(self.cards)
 
+    def children(self, card_id: int) -> List[Dict]:
+        return [self._out(k) for _, k in sorted(self.cards.items())
+                if k.get('parent_id') == int(card_id) and not k['archived']]
+
+    def unblockers(self, card_id: int) -> List[Dict]:
+        return [self._out(k) for _, k in sorted(self.cards.items())
+                if k.get('unblocks_id') == int(card_id) and not k['archived']]
+
     def max_position(self, col: str) -> float:
         return max([c['position'] for c in self.cards.values() if c['col'] == col and not c['archived']] or [0.0])
 
@@ -260,7 +292,8 @@ class MemStore:
              'process': fields.get('process', ''), 'priority': fields.get('priority', 'normal'), 'due': fields.get('due'),
              'blocked': bool(fields.get('blocked', False)), 'blocked_reason': fields.get('blocked_reason', ''),
              'archived': False, 'created_by': actor, 'created_at': ts, 'updated_at': ts, 'col_since': ts,
-             'done_at': ts if fields.get('col') == 'done' else None}
+             'done_at': ts if fields.get('col') == 'done' else None,
+             'parent_id': fields.get('parent_id'), 'unblocks_id': fields.get('unblocks_id')}
         self.cards[self._id] = c
         return self._id
 

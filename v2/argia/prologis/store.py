@@ -50,6 +50,7 @@ PERMS = {
     "light_claim_new": {"viewer", "manager", "operator", "admin"},  # v356: any Prologis user reports a failed LED fixture
     "light_work": {"operator", "admin"},                  # v356: ARGIA works warranty claims and keeps the lighting calendar
     "light_request": {"manager", "operator", "admin"},    # v356: Prologis managers request an audit date
+    "site_pin": {"manager", "operator", "admin"},         # v369: place a solar site's pin and save its picture
 }
 TICKET_STATUSES = [("NEW", "New", "Nuevo"), ("RESPONDED", "Responded", "Atendido"),
                    ("IN_PROGRESS", "In progress", "En curso"),
@@ -143,6 +144,8 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     _handover.ensure(c)
     from argia.prologis import lightops as _lightops   # v356: lighting warranty claims and calendar
     _lightops.ensure(c)
+    from argia.prologis import sitepins as _sitepins   # v369: solar site pins placed by hand
+    _sitepins.ensure(c)
     return c
 
 

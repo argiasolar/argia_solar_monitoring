@@ -95,6 +95,7 @@ from argia.prologis import lighting as LT                 # noqa: E402  (v345)
 from argia.prologis import totp as TOTP                   # noqa: E402
 from argia.prologis import xlsx as XL                     # noqa: E402
 from argia.prologis import dd as DD                       # noqa: E402  (v363)
+from argia.prologis import sitepins as SP                 # noqa: E402  (v369)
 
 DATA_DIR = os.environ.get("ARGIA_PL_DIR", "/opt/argia/prologis")
 FILES_DIR = os.environ.get("ARGIA_PL_FILES", os.path.join(DATA_DIR, "files"))
@@ -212,7 +213,12 @@ def _close(_exc):
 
 
 def reg() -> R.Registry:
-    return R.load()
+    """The site registry with the pins placed by hand in the portal (v369)."""
+    rg = R.load()
+    try:
+        return R.apply_pins(rg, SP.pins(db()))
+    except RuntimeError:                               # outside a request (no database handle): the file as is
+        return rg
 
 
 def ip() -> str:
@@ -887,7 +893,7 @@ def sites():
     rows = ""
     op = rg.operating
     yday = now.date() - dt.timedelta(days=1)
-    for s in sorted(rg.sites, key=lambda x: (not x.operating, x.park, x.code)):
+    for s in sorted(rg.sites, key=lambda x: (not x.operating, x.market or "MEXICO", x.park, x.code)):
         x = lv[s.code]
         if s.operating:
             i = op.index(s)
@@ -899,7 +905,9 @@ def sites():
             extra = f'<td class="n">{UI.num(e30 / 1000, 1)}</td><td class="n">{UI.num(e30 / s.kwp / 30, 2)}</td><td class="n">{pr * 100:.1f}%</td><td class="n">{av * 100:.2f}%</td>'
         else:
             extra = f'<td class="n" colspan="4"><span class="muted small">PTO {UI.e(s.pto)}</span></td>'
-        rows += (f'<tr><td><a href="/sites/{s.code}/"><b>{UI.e(s.name)}</b></a><div class="small muted">{s.code} · {UI.e(s.city)}</div></td>'
+        sub = " · ".join(x for x in (s.code, UI.e(s.city), UI.e(s.customer)) if x)
+        need_ = "".join(f' <span class="pill s-lime" title="{UI.e(tt(*SCOPE_LBL[k]))}">{UI.e(tt(*SCOPE_LBL[k]))[:1]}</span>' for k in R.SCOPES if k in s.scope)
+        rows += (f'<tr><td><a href="/sites/{s.code}/"><b>{UI.e(s.name)}</b></a>{need_}<div class="small muted">{sub}</div></td>'
                  f'<td>{UI.status_pill(x.status, tt)}</td><td class="n">{UI.num(s.kwp, 0)}</td><td class="n">{UI.num(x.kw_now)}</td>'
                  f'<td class="n">{UI.num(x.kwh_today)}</td>{extra}</tr>')
     body = f"""<div class="kick">{tt("Sites", "Sitios")}</div><h1 class="pt">{tt("Every rooftop, live", "Cada techo, en vivo")}</h1>{_sites_tabs("list", tt)}
@@ -952,12 +960,178 @@ def site_page(code):
                if eqs else f'<p class="small muted">{tt("Not registered yet - filled at onboarding.", "Aún sin registrar - se llena en el onboarding.")}</p>')
     body = f"""<div class="kick">{UI.e(s.park)} · {UI.e(s.city)}</div><h1 class="pt">{UI.e(s.name)}</h1>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px"><span class="chip">{s.code}</span><span class="chip">{UI.num(s.kwp, 1)} kWp</span><span class="chip">PTO {UI.e(s.pto)}</span>
-<span class="chip">{UI.e(s.monitoring)}</span><span class="chip">{UI.e(s.address)}</span></div>{live_cards}
+<span class="chip">{UI.e(s.monitoring)}</span><span class="chip">{UI.e(s.address)}</span>{_loc_chip(s, tt)}</div>{_service_card(s, tt)}{live_cards}
 <div class="grid g2e"><div class="card"><h2>{tt("Tickets", "Tickets")}<span class="r"><a class="btn sm ghost" href="/shop/">{tt("Order a service", "Pedir servicio")}</a> <a class="btn sm" href="/tickets/new?site={s.code}">{tt("New", "Nuevo")}</a></span></h2><table class="t">{trs}</table></div>
 <div class="card"><h2>{tt("Documents", "Documentos")}<span class="r"><a href="/docs/?site={s.code}">{tt("Folder", "Carpeta")} ›</a></span></h2><table class="t">{drs}</table></div></div>
 <div class="card" style="margin-top:16px"><h2>{tt("Equipment", "Equipos")}<span class="r"><a href="/assets/?site={s.code}">{tt("Register", "Registro")} ›</a></span></h2>{eq_html}</div>
-{_ho_card(c, s, tt)}"""
+{_ho_card(c, s, tt)}
+{_location_card(s, tt)}"""
     return page(s.name, body, "sites", sample=s.operating)
+
+
+# ------------------------------------------------------------- v369: Prologis PM package, pins and site pictures
+SCOPE_LBL = {"pm": ("Preventive maintenance", "Mantenimiento preventivo"), "cleaning": ("Cleaning", "Limpieza"),
+             "thermography": ("Thermography", "Termografía")}
+
+
+def _service_card(s: R.Site, tt) -> str:
+    """What Prologis's PM package says about the site: tenant, export scheme, since when it runs, the services
+    Prologis asks for and the last cleaning. Nothing when the registry has none of it."""
+    if not (s.customer or s.scope or s.scheme or s.in_operation or s.last_cleaning):
+        return ""
+    facts = []
+    if s.customer:
+        facts.append((tt("Tenant", "Inquilino"), UI.e(s.customer)))
+    if s.solar_id:
+        facts.append((tt("Solar ID", "ID solar"), UI.e(s.solar_id)))
+    if s.scheme:
+        facts.append((tt("Interconnection", "Interconexión"), UI.e(s.scheme)))
+    if s.in_operation:
+        facts.append((tt("In operation since", "En operación desde"), UI.e(s.in_operation)))
+    if s.last_cleaning:
+        m = s.months_since_cleaning(today_mx())
+        facts.append((tt("Last cleaning", "Última limpieza"), f"{UI.e(s.last_cleaning)} · {m} {tt('months ago', 'meses')}"))
+    else:
+        facts.append((tt("Last cleaning", "Última limpieza"), tt("not recorded", "sin registro")))
+    if s.pl_priority is not None:
+        facts.append((tt("Prologis priority score", "Puntaje de prioridad Prologis"), f"{s.pl_priority:g}"))
+    chips = "".join(f'<span class="pill s-lime">{UI.e(tt(*SCOPE_LBL[k]))}</span>' for k in R.SCOPES if k in s.scope) \
+        or f'<span class="small muted">{tt("No service requested yet", "Aún sin servicios solicitados")}</span>'
+    rows = "".join(f'<tr><td class="muted">{k}</td><td><b>{v}</b></td></tr>' for k, v in facts)
+    order = (f'<a class="btn sm" href="/shop/">{tt("Order these services", "Pedir estos servicios")}</a>'
+             if s.scope and S.can(g.user["role"], "order") else "")
+    return (f'<div class="card" style="margin-top:16px"><h2>{tt("Maintenance requested by Prologis", "Mantenimiento solicitado por Prologis")}'
+            f'<span class="r">{order}</span></h2><div class="legend" style="gap:8px;margin-bottom:10px">{chips}</div>'
+            f'<table class="t">{rows}</table><p class="small muted" style="margin-top:8px">'
+            f'{tt("Source: Prologis PM package, November 2026.", "Fuente: paquete de mantenimiento de Prologis, noviembre 2026.")}</p></div>')
+
+
+def _loc_chip(s: R.Site, tt) -> str:
+    if s.geo_approx:
+        return f'<a class="chip" href="#location" style="border-color:#e0a100">📍 {tt("Approximate location - place the pin", "Ubicación aproximada - coloque el pin")}</a>'
+    return f'<a class="chip" href="#location">📍 {tt("Location and picture", "Ubicación e imagen")}</a>'
+
+
+def _photo_v(code: str) -> str:
+    f = site_photo(code)
+    if not f:
+        return ""
+    st = os.stat(f)
+    return f"{st.st_mtime_ns:x}{st.st_size:x}"[-12:]
+
+
+def _location_card(s: R.Site, tt) -> str:
+    """The site on a map you can zoom and pan; people allowed to (Prologis managers, ARGIA) drag the pin to the
+    building, save it, and save the satellite picture at the pin or upload their own."""
+    can_pin = S.can(g.user["role"], "site_pin")
+    ver = _photo_v(s.code)
+    if s.pinned_by:
+        cap = tt(f"Pin placed by hand by {s.pinned_by}", f"Pin colocado a mano por {s.pinned_by}")
+    elif not s.geo_approx:
+        cap = tt("The pin marks the building", "El pin marca la nave") + (f" ({UI.e(s.geo_note)})" if s.geo_note else "")
+    else:
+        cap = tt("Approximate location - place the pin on the building and save it", "Ubicación aproximada - coloque el pin sobre la nave y guárdelo") \
+            + (f" ({UI.e(s.geo_note)})" if s.geo_note else "")
+    cfg = json.dumps({"lat": s.lat, "lon": s.lon, "z": 18 if s.geo_approx else 19, "pin": True})
+    edit = photo_forms = ""
+    if can_pin:
+        reset = (f'<button class="btn sm ghost" name="reset" value="1" formnovalidate>{tt("Back to the registry point", "Volver al punto del registro")}</button>'
+                 if s.pinned_by else "")
+        edit = (f'<form method="post" action="/sites/{s.code}/pin" class="pinbar" id="pinf">{csrf_field()}'
+                f'<input type="hidden" name="lat"><input type="hidden" name="lon">'
+                f'<button type="button" class="btn sm" id="pinedit">📍 {tt("Move pin", "Mover pin")}</button>'
+                f'<span id="pinhelp" class="small muted" hidden>{tt("Drag the pin, or click the building on the map.", "Arrastre el pin o haga clic en la nave en el mapa.")}</span>'
+                f'<label class="small" id="pinpic" hidden><input type="checkbox" name="photo" value="1" checked> {tt("also save the satellite picture here", "guardar también la imagen satelital aquí")}</label>'
+                f'<button class="btn sm" id="pinsave" hidden>{tt("Save position", "Guardar posición")}</button>'
+                f'<button type="button" class="btn sm ghost" id="pincancel" hidden>{tt("Cancel", "Cancelar")}</button>{reset}</form>')
+        photo_forms = (f'<form method="post" action="/sites/{s.code}/photo" class="pinbar">{csrf_field()}<input type="hidden" name="src" value="map">'
+                       f'<button class="btn sm ghost">🛰 {tt("Save satellite picture at the pin", "Guardar imagen satelital en el pin")}</button></form>'
+                       f'<form method="post" action="/sites/{s.code}/photo" enctype="multipart/form-data" class="pinbar">{csrf_field()}'
+                       f'<input type="hidden" name="src" value="upload"><input type="file" name="file" accept=".jpg,.jpeg,.png" required>'
+                       f'<button class="btn sm ghost">{tt("Upload a picture", "Subir una imagen")}</button></form>')
+    pic = (f'<img src="/sites/{s.code}/photo.jpg?v={ver}" alt="{UI.e(s.name)}" style="width:100%;border-radius:12px;display:block">'
+           if ver else f'<div class="small muted" style="padding:30px 10px;text-align:center;border:1px dashed var(--line);border-radius:12px">'
+           f'{tt("No picture yet.", "Aún sin imagen.")} {tt("Place the pin on the building, then save the satellite picture or upload one.", "Coloque el pin sobre la nave, luego guarde la imagen satelital o suba una.") if can_pin else ""}</div>')
+    icon = UI.MAP_PIN.replace('class="satpin"', 'class="lpin"').replace("'", "&#39;")
+    msg = {"saved": tt("Position saved.", "Posición guardada."), "reset": tt("Back to the registry point.", "De vuelta al punto del registro."),
+           "photo": tt("Picture saved.", "Imagen guardada."), "nophoto": tt("Position saved, but no satellite picture could be fetched - try again or upload one.",
+                                                                              "Posición guardada, pero no se pudo obtener la imagen satelital - intente de nuevo o suba una.")
+           }.get(request.args.get("pin", ""), "")
+    return f"""<div class="card" style="margin-top:16px" id="location"><h2>{tt("Location and picture", "Ubicación e imagen")}
+<span class="r"><a href="{UI.e(LT.google_maps_url(s.lat, s.lon))}" target="_blank" rel="noopener">{tt("Open in Google Maps (satellite)", "Abrir en Google Maps (satélite)")} ›</a></span></h2>
+{f'<p class="small" style="color:var(--teal)"><b>{msg}</b></p>' if msg else ""}
+<div class="grid g2"><div><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<div id="pmap" class="pmap"></div>{edit}<div class="small muted" style="margin-top:6px">{UI.e(cap)} · Esri World Imagery</div></div>
+<div>{pic}{photo_forms}</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>(function(){{var C={cfg};var m=L.map('pmap',{{scrollWheelZoom:true,maxZoom:21}}).setView([C.lat,C.lon],C.z);
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxNativeZoom:19,maxZoom:21}}).addTo(m);
+var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxNativeZoom:19,maxZoom:21}});
+L.control.layers({{'{tt("Satellite", "Satélite")}':sat,'{tt("Streets", "Calles")}':st}}).addTo(m);L.control.scale({{imperial:false}}).addTo(m);
+var ic=L.divIcon({{html:'{icon}',className:'lpinwrap',iconSize:[34,46],iconAnchor:[17,46]}});
+var mk=L.marker([C.lat,C.lon],{{icon:ic,keyboard:false}}).addTo(m);
+var f=document.getElementById('pinf');if(!f)return;var b=document.getElementById('pinedit'),sv=document.getElementById('pinsave'),cn=document.getElementById('pincancel'),hp=document.getElementById('pinhelp'),pp=document.getElementById('pinpic'),on=false;
+function put(ll){{mk.setLatLng(ll);f.lat.value=ll.lat.toFixed(6);f.lon.value=ll.lng.toFixed(6);sv.hidden=false;pp.hidden=false;}}
+b.addEventListener('click',function(){{on=true;b.hidden=true;hp.hidden=false;cn.hidden=false;m.getContainer().classList.add('pinning');
+mk.dragging.enable();mk.on('dragend',function(){{put(mk.getLatLng());}});}});
+m.on('click',function(e){{if(on)put(e.latlng);}});
+cn.addEventListener('click',function(){{location.reload();}});}})();</script></div>"""
+
+
+def _gkey_safe() -> str:
+    try:
+        return gmaps_key()
+    except Exception:                                  # noqa: BLE001
+        return ""
+
+
+@app.post("/sites/<code>/pin")
+def site_pin(code):
+    """v369: save the building's position dragged on the map (and, ticked by default, the satellite picture
+    there), or go back to the registry's point."""
+    need("site_pin")
+    raw = R.load().site(code) or abort(404)
+    c = db()
+    if request.form.get("reset"):
+        SP.clear_pin(c, raw.code, g.user["username"], ip())
+        return redirect(f"/sites/{raw.code}/?pin=reset#location")
+    try:
+        lat, lon = SP.set_pin(c, raw.code, request.form.get("lat"), request.form.get("lon"), (raw.lat, raw.lon),
+                              g.user["username"], ip())
+    except SP.Invalid as ex:
+        return Response(f"Position not saved: {html.escape(str(ex))}.", status=400, mimetype="text/plain")
+    if request.form.get("photo"):
+        try:
+            data, src = SP.fetch_satellite(lat, lon, _gkey_safe())
+            SP.save_photo(PHOTO_DIR, raw.code, data)
+            S.audit(c, g.user["username"], ip(), "site_photo", raw.code, f"satellite ({src}) at {lat},{lon}")
+        except SP.Invalid:
+            return redirect(f"/sites/{raw.code}/?pin=nophoto#location")
+        return redirect(f"/sites/{raw.code}/?pin=photo#location")
+    return redirect(f"/sites/{raw.code}/?pin=saved#location")
+
+
+@app.post("/sites/<code>/photo")
+def site_photo_save(code):
+    """v369: the site picture - the satellite view at the current pin, or a JPEG/PNG uploaded by hand."""
+    need("site_pin")
+    s = reg().site(code) or abort(404)
+    c = db()
+    try:
+        if request.form.get("src") == "upload":
+            f = request.files.get("file")
+            if not f:
+                raise SP.Invalid("no file")
+            data = SP.as_jpeg(f.read(SP.MAX_PHOTO + 1))
+            how = f"upload {os.path.basename(f.filename or '')[:60]}"
+        else:
+            data, src = SP.fetch_satellite(s.lat, s.lon, _gkey_safe())
+            how = f"satellite ({src}) at {s.lat},{s.lon}"
+        SP.save_photo(PHOTO_DIR, s.code, data)
+    except SP.Invalid as ex:
+        return Response(f"Picture not saved: {html.escape(str(ex))}.", status=400, mimetype="text/plain")
+    S.audit(c, g.user["username"], ip(), "site_photo", s.code, how)
+    return redirect(f"/sites/{s.code}/?pin=photo#location")
 
 
 # ------------------------------------------------------------- v338: site handover from Prologis to ARGIA

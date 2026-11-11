@@ -191,6 +191,8 @@ prologis_app  POST   /shop/add
 prologis_app  POST   /shop/cart/remove
 prologis_app  POST   /shop/checkout
 prologis_app  POST   /sites/<code>/handover
+prologis_app  POST   /sites/<code>/photo
+prologis_app  POST   /sites/<code>/pin
 prologis_app  POST   /tickets/<number>/approve
 prologis_app  POST   /tickets/<number>/comment
 prologis_app  POST   /tickets/<number>/eta

@@ -3,5 +3,4 @@ Description=ARGIA PPA monthly performance report (v374): drafts, PDFs and Excel 
 [Service]
 Type=oneshot
 Environment=HOME=/root
-Environment=PGOPTIONS=-c statement_timeout=120000
 ExecStart=/root/argia_v2/v2/pi/run_job.sh ppamonthly ppa_monthly_gen.py /www/hosting/portal.argia.com.mx/www

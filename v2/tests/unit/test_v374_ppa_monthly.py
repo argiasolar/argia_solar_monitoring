@@ -350,6 +350,31 @@ class TestAccess:
         assert "/tmp/argia_ppamonthly.lock" in sh and "--publish" in sh and "flock -w" in sh
 
 
+class TestUnitFiles:
+    """v375: the v374 unit had Environment=PGOPTIONS=-c statement_timeout=120000 unquoted - systemd split it at the
+    space, psql passed a bare '-c' to the server and the first run failed ('invalid command-line argument')."""
+
+    def test_no_unquoted_environment_value_with_a_space(self):
+        assert self._bad("Environment=PGOPTIONS=-c statement_timeout=120000")         # the v374 line
+        assert not self._bad("Environment=HOME=/root") and not self._bad('Environment="PGOPTIONS=-c x=1"')
+        bad = []
+        for u in sorted((V2 / "server" / "bundle").glob("argia-*.service")):
+            for ln in u.read_text(encoding="utf-8").splitlines():
+                # one assignment per line unless quoted: systemd splits an unquoted value at every space
+                if ln.startswith("Environment=") and len(re.findall(r'"[^"]*"|\S+', ln[len("Environment="):])) > 1:
+                    bad.append(f"{u.name}: {ln}")
+        assert bad == [], bad
+
+    @staticmethod
+    def _bad(ln):
+        return len(re.findall(r'"[^"]*"|\S+', ln[len("Environment="):])) > 1
+
+    def test_the_timeout_travels_with_the_sql(self):
+        src = (V2 / "scripts" / "ppa_monthly_gen.py").read_text(encoding="utf-8")
+        assert "SET statement_timeout = '120s'; " in src
+        assert "PGOPTIONS" not in (V2 / "server" / "bundle" / "argia-ppa-monthly.service").read_text(encoding="utf-8")
+
+
 class TestPublishButton:
     @pytest.fixture()
     def client(self, tmp_path, monkeypatch):

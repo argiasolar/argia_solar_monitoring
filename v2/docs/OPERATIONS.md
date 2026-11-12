@@ -38,6 +38,7 @@ nginx is hand-managed from the repo (`server/bundle/*.conf`).
 | argia-invoice | 1st 07:30 MX | monthly invoices for PPA plants |
 | argia-cfe-ingest / argia-cfe-push | 09:15 MX / 15:45 UTC | CFE tariff CSV from the Pi → `cfe_tariff`; push to the ARGIA Engine |
 | argia-dailyperf | 19:00 MX | daily PPA performance mail |
+| argia-ppa-monthly | 07:40 MX | PPA monthly performance report (v374): every month's draft page, Excel and PDFs under /ppa-report/; published months are copied from /opt/argia/ppa_report/published/ and never re-rendered; publish = setup app button (pi/ppa_publish.sh) |
 | argia-strings | 21:15 MX | string-level daily aggregates |
 | argia-recon | 23:50 MX | nightly reconciliation vs vendor counters (+14-day retry) |
 | argia-finmail-weekly, argia-finmail-monthly | Fri 23:59 / 1st 23:59 MX | financial mail |

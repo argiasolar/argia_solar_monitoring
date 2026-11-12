@@ -107,6 +107,10 @@ def landing():
          'Resumen de flota, PPA, CAPEX, desempeño por planta, financiero.', ''),
         ('monitor', 'Monitoring', 'Monitoreo', '/monitoring/', 'Live inverters, alerts, temperatures, peers.',
          'Inversores en vivo, alertas, temperaturas, pares.', ''),
+        # v374: the PPA monthly performance report (staff + invited stakeholders; nginx/auth gate the pages)
+        ('pperf', 'PPA monthly report', 'Reporte mensual PPA', '/ppa-report/',
+         'Every month of the PPA portfolio: promise, weather, engineering, money. PDF and Excel.',
+         'Cada mes del portafolio PPA: promesa, clima, ingeniería, dinero. PDF y Excel.', ''),
         ('map', 'Map', 'Mapa', '/map/', 'The fleet on one map, status and today\'s numbers.',
          'La flota en un mapa, estado y cifras de hoy.', ''),
         ('engine', 'Engine', 'Engine', '/engine/', 'Sizing and proposals.', 'Dimensionamiento y propuestas.', 'engine.argia.com.mx'),

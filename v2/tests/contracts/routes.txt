@@ -209,6 +209,7 @@ setup_app  GET    /healthz
 setup_app  GET    /people/
 setup_app  GET    /plants/
 setup_app  GET    /plants/calendar
+setup_app  GET    /ppa-report/
 setup_app  GET    /system/
 setup_app  POST   /account/change
 setup_app  POST   /account/profile
@@ -235,6 +236,7 @@ setup_app  POST   /maint/kwh
 setup_app  POST   /password
 setup_app  POST   /plants/calendar/reissue
 setup_app  POST   /plants/calendar/reissue/apply
+setup_app  POST   /ppa-report/publish
 setup_app  POST   /settings
 setup_app  POST   /suspend
 setup_app  POST   /update

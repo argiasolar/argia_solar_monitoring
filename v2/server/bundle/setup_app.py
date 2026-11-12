@@ -48,9 +48,10 @@ NGINX_GROUP = os.environ.get('ARGIA_NGINX_GROUP', 'www-data')
 
 PLANTS = ['gto1', 'mex1', 'mex2', 'nl1', 'slp1', 'slp2',
           'gto2', 'qro1', 'nl2', 'mex3', 'tam1', 'gto3', 'slp3']
-AREAS = ['financial'] + PLANTS + ['capex', 'monitoring']
+AREAS = ['financial'] + PLANTS + ['capex', 'monitoring', 'ppa_report']   # v374: as auth_core.AREAS
 AREA_LABEL = {'financial': 'Financial Report', 'capex': 'CAPEX overview',
               'monitoring': 'Live monitoring portal',
+              'ppa_report': 'PPA monthly report',
               **{p: p.upper() + ' plant page' for p in PLANTS}}
 
 app = Flask(__name__)
@@ -1458,6 +1459,60 @@ def calendar_reissue_apply():
         return _post_done(to=back, msg='recalculate: could not start - ' + (r.stderr or '')[-200:])
     return _post_done(to=back, msg=f'recalculation of {ym} started by {me} - the log is under the invoice line; '
                                    'refresh in a minute')
+
+
+# ------------------------------------------------------------------ v374: PPA monthly report - publish
+PPA_PUBLISH_SH = os.environ.get('ARGIA_PPA_PUBLISH_SH', '/root/argia_v2/v2/pi/ppa_publish.sh')
+PPA_STORE = os.environ.get('ARGIA_PPA_REPORT_DIR', '/opt/argia/ppa_report')
+
+
+def _ppa_published(ym):
+    return os.path.exists(os.path.join(PPA_STORE, 'published', ym, 'report.json'))
+
+
+@app.get('/ppa-report/')
+def ppa_report_confirm():
+    """The report page's 'Publish this month' (admins only) lands here: one more look, then freeze."""
+    me, is_global, _org = actor()
+    if not is_global:
+        return page('<div class="card"><p>Only ARGIA administrators publish the PPA monthly report.</p></div>')
+    ym = _ym_or_none(request.args.get('month'))
+    today = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=6)).strftime('%Y-%m')
+    if not ym or ym >= today:
+        return page('<div class="card"><p>Only a complete month can be published.</p></div>')
+    if _ppa_published(ym):
+        return page(f'<div class="card"><p>{ym} is already published - a published month never changes. '
+                    f'<a href="/ppa-report/{ym}/">Open it</a></p></div>')
+    body = (f'<div class="card"><h2>Publish the PPA monthly report of {ym}</h2>'
+            f'<p class="note">Publishing freezes the month as the data stands now: the page, both PDFs and the Excel '
+            f'keep these numbers for good, even if data arrives later. Check the <a href="/ppa-report/{ym}/" '
+            f'target="_blank">draft</a> first.</p>'
+            f'<form method="post" action="/setup/ppa-report/publish"><input type="hidden" name="csrf" value="{CSRF}">'
+            f'<input type="hidden" name="month" value="{ym}">'
+            f'<p><label><input type="checkbox" name="confirm" value="yes" required> I checked the draft of {ym}: publish it '
+            f'as {html.escape(me)}</label></p><p><button class="btn">Publish {ym}</button> '
+            f'<a class="btn" href="/ppa-report/{ym}/">Cancel</a></p></form></div>')
+    return page(body, title=('Publish PPA report', 'Publicar reporte PPA'), sub=(ym, ym))
+
+
+@app.post('/ppa-report/publish')
+def ppa_report_publish():
+    me = _maint_guard()
+    if not me:
+        return stale_page()
+    ym = _ym_or_none(request.form.get('month'))
+    if not ym or request.form.get('confirm') != 'yes':
+        return page('<div class="card"><p>Not confirmed - nothing was published.</p></div>')
+    try:
+        r = _sh(['bash', PPA_PUBLISH_SH, ym, me], timeout=420)
+        out = (r.stdout or '') + (r.stderr or '')
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return page(f'<div class="card"><p>The publication could not run ({html.escape(str(e))}) - nothing was '
+                    f'published.</p></div>')
+    if r.returncode == 0 and 'PUBLISHED ' + ym in out:
+        return redirect(f'/ppa-report/{ym}/', code=303)
+    return page(f'<div class="card"><h2>{ym} was NOT published</h2><pre style="white-space:pre-wrap;font-size:12.5px">'
+                f'{html.escape(out[-4000:])}</pre><p><a href="/ppa-report/{ym}/">Back to the report</a></p></div>')
 
 
 @app.get('/plants/calendar')

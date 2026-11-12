@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA PPA monthly performance report, daily 07:40 Mexico City (after the KPI, loss and daily-report jobs)
+[Timer]
+OnCalendar=*-*-* 07:40:00 America/Mexico_City
+Persistent=true
+[Install]
+WantedBy=timers.target

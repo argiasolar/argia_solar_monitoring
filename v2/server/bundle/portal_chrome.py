@@ -57,6 +57,8 @@ SECTIONS = {
         ('performance', 'Performance', 'Desempeño'), ('design', 'Design (EPI)', 'Diseño (EPI)'),
         ('losses', 'Losses (MXN)', 'Pérdidas (MXN)'),
         ('recon', 'Reconciliation', 'Conciliación')]),
+    # v374 (Tomasz, 12 Nov 2026): the PPA monthly performance report - one month per page, PDF + Excel
+    'ppa-report': ('PPA monthly report', 'Reporte mensual PPA', []),
     'map': ('Map', 'Mapa', []),
     'engine': ('Engine', 'Engine', []),
     'ags': ('ARGIA Golden Standard', 'ARGIA Golden Standard', []),
@@ -140,6 +142,8 @@ _ICONS = {
     'ask': '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.8-2.5 2.1-2.5 3.7"/><circle cx="12" cy="17" r=".7" fill="currentColor"/>',
     'user': '<circle cx="12" cy="8.5" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
     'report': '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    # v374: the PPA monthly performance report - a month sheet with a rising bar
+    'pperf': '<rect x="3.5" y="4" width="17" height="16.5" rx="2"/><path d="M3.5 8.5h17"/><path d="M8 3v3M16 3v3"/><path d="M8 17v-3M12 17v-5M16 17v-2.5"/>',
     'monitor': '<path d="M3 14h4l3-7 4 10 3-6h4"/>',
     'map': '<path d="M3 6.5 9 4l6 2.5 6-2.5v13.5L15 20l-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>',
     'engine': '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',

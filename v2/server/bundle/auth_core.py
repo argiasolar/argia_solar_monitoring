@@ -30,7 +30,7 @@ import time
 
 PLANTS = ['gto1', 'mex1', 'mex2', 'nl1', 'slp1', 'slp2',
           'gto2', 'qro1', 'nl2', 'mex3', 'tam1', 'gto3', 'slp3']
-AREAS = ['financial'] + PLANTS + ['capex', 'monitoring']
+AREAS = ['financial'] + PLANTS + ['capex', 'monitoring', 'ppa_report']   # v374: the PPA monthly report (staff + invited stakeholders)
 # v328: the CAPEX plants, one list (it was spelled out twice)
 CAPEX_PLANTS = ('gto2', 'qro1', 'nl2', 'mex3', 'tam1', 'gto3', 'slp3')
 
@@ -93,6 +93,8 @@ except ImportError:                       # tests importing auth_core alone
     _SLUGS = {}
 PREFIX_AREA.update({
     '/report/': ALL, '/assets/': ALL,
+    # v374: the PPA monthly performance report - ARGIA staff (level argia) and the stakeholders granted it
+    '/ppa-report/': 'ppa_report',
     # v214 (Tomasz): the CFE tariff explorer is open to every signed-in
     # user, as the old /cfe/ page was - the rest of Setup stays ADMIN
     '/setup/cfe/': ALL,

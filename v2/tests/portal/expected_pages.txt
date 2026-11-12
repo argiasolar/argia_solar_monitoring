@@ -12,6 +12,7 @@ map/index.html
 monitoring/budenheim/d/<date>.html
 monitoring/budenheim/index.html
 monitoring/capex/index.html
+monitoring/design/index.html
 monitoring/gto1/index.html
 monitoring/gto2/index.html
 monitoring/hirschmann/d/<date>.html

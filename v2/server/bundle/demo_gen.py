@@ -805,6 +805,7 @@ def write_pages(PG, keys):
         ('monitoring/performance/index.html', PG.monitoring_performance()),
         ('monitoring/recon/index.html', PG.monitoring_recon()),
         ('monitoring/losses/index.html', PG.monitoring_losses()),
+        ('monitoring/design/index.html', PG.monitoring_design()),
         ('monitoring/recon/reconciliation.csv', MG.recon_csv(MG.RECON_M, MG.RECON_D)),
         ('map/index.html', PG.map_page()),
         ('savings/index.html', savings_page(PG, have)),

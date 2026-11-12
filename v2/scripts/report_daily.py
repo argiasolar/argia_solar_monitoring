@@ -104,7 +104,10 @@ def main(argv=None) -> int:
         log.error("bootstrap failed: %s", e)
         return 3
 
-    data = build_report_data(sheets, portfolio, date_iso)
+    # v370: the internal edition measures 'Of design' against the HelioScope
+    # as-connected designs (server-only file); client editions do not pass them
+    from argia.kpi import design_model
+    data = build_report_data(sheets, portfolio, date_iso, designs=design_model.load())
     n_kpi = sum(1 for p in data.plants if p.energy_kwh is not None)
     if n_kpi == 0:
         log.warning("no KPI rows for %s - nothing to report "

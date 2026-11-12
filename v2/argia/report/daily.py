@@ -105,6 +105,7 @@ class ReportData:
     date_iso: str
     plants: List[PlantDay]
     alerts: List[AlertRecord]
+    helioscope: Tuple[str, ...] = ()     # v370: plants whose 'Of design' is the HelioScope design
 
 
 # ------------------------------------------------------------- pure logic
@@ -779,9 +780,14 @@ def _render_html(data: ReportData) -> str:
         f'(~300 samples/day, trapezoidal), validated to &lt;1% against an '
         f'independent weather model; snapshot/cloud-model fallback when '
         f'the fetch fails - KPI records the source per day. '
-        f'Of design = production vs the contract design estimate '
-        f'(PVsyst/Helioscope monthly kWh &#247; calendar days) - '
-        f'static, unaffected by sensor outages. The portfolio %% counts '
+        + (f'Of design = production vs the HelioScope as-connected design '
+           f'(Nov 2026, {", ".join(data.helioscope)}: monthly kWh aged 0.55 '
+           f'per cent a year from interconnection &#247; calendar days); '
+           f'other plants vs the contract design estimate - '
+           if data.helioscope else
+           'Of design = production vs the contract design estimate '
+           '(PVsyst/Helioscope monthly kWh &#247; calendar days) - ')
+        + f'static, unaffected by sensor outages. The portfolio % counts '
         f'only plants whose sun was reliably measured that day; energy, '
         f'income and CO&#8322; always count every plant. Income (est.) = '
         f'energy &#215; PPA tariff, before billing adjustments. '
@@ -915,8 +921,18 @@ def synthesize_live_energy(invs) -> Optional[float]:
 
 
 def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
-                      date_iso: str) -> ReportData:
-    """Read KPI_Daily + Alerts + telemetry and assemble the report model."""
+                      date_iso: str, designs=None) -> ReportData:
+    """Read KPI_Daily + Alerts + telemetry and assemble the report model.
+
+    ``designs`` (v370, argia.kpi.design_model): only the INTERNAL report
+    passes them - there 'Of design' is the plant's HelioScope as-connected
+    design. Client and demo editions keep the contract design estimate
+    (Tomasz, 12 Nov 2026: internal only)."""
+    designs = designs or {}
+    try:
+        _day = dt.date.fromisoformat(date_iso)
+    except ValueError:
+        _day, designs = None, {}
     # plant-level from KPI_Daily
     kpi: Dict[str, Dict] = {}
     from argia.kpi.pg_kpi_source import kpi_grid
@@ -1040,10 +1056,12 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                     # figure speaks only once expected-so-far reaches
                     # 5% of the design day (or 25 kWh when no design):
                     # below that, honest dashes.
-                    design_day = (k.get("design")
-                                  or design_kwh_for_day(
-                                      design_map, plant.plant_key,
-                                      date_iso))
+                    design_day = (
+                        designs[plant.plant_key].design_kwh_day(_day)
+                        if plant.plant_key in designs else
+                        (k.get("design")
+                         or design_kwh_for_day(design_map, plant.plant_key,
+                                               date_iso)))
                     floor = (0.05 * design_day) if design_day else 25.0
                     if live_e and live_e >= floor:
                         expected = live_e
@@ -1063,9 +1081,11 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             status_note=note, inverters=invs,
             kwp_dc=getattr(plant, "kwp_dc", None),
             tariff_mxn_per_kwh=getattr(plant, "tariff_mxn_per_kwh", None),
-            design_kwh=(k.get("design")
-                        or design_kwh_for_day(design_map,
-                                              plant.plant_key, date_iso)),
+            design_kwh=(round(designs[plant.plant_key].design_kwh_day(_day), 1)
+                        if plant.plant_key in designs else
+                        (k.get("design")
+                         or design_kwh_for_day(design_map,
+                                               plant.plant_key, date_iso))),
             maintenance_note=(
                 maintenance_badge_text(maint_by_plant[plant.plant_key])
                 if plant.plant_key in maint_by_plant else None),
@@ -1078,4 +1098,6 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
     sev_rank = {"CRITICAL": 0, "WARNING": 1}
     alerts.sort(key=lambda a: (sev_rank.get(a.severity, 2), a.plant_key,
                                a.inverter_sn))
-    return ReportData(date_iso=date_iso, plants=plants, alerts=alerts)
+    return ReportData(date_iso=date_iso, plants=plants, alerts=alerts,
+                      helioscope=tuple(sorted(
+                          p.plant_key for p in plants if p.plant_key in designs)))

@@ -35,6 +35,11 @@ import report_gen as RG                            # noqa: E402  (loads PG)
 import monitoring_gen as MG                        # noqa: E402  (loads PG)
 import losses_view as LV                           # noqa: E402  (v264)
 import app_view as AV                              # noqa: E402  (v268)
+try:                                               # v370 - a checkout without it must not stop the portal
+    import design_view as DV                       # noqa: E402
+    from argia.kpi import design_model as DM       # noqa: E402
+except ImportError:                                # pragma: no cover
+    DV = DM = None
 
 t, ti, ico, tile, pill = C.t, C.ti, C.ico, C.tile, C.pill
 PPA, CAPEX = RG.PPA, RG.CAPEX
@@ -397,6 +402,31 @@ def monitoring_losses():
                     body, 'losses')
 
 
+# ------------------------------------------------------------ v370 design
+# The HelioScope as-connected designs (server-only file) - never on the demo instance, which shows
+# invented plants to prospects: there the page says no design is loaded.
+DESIGNS = {} if (DM is None or os.environ.get('ARGIA_INSTANCE') == 'demo') else DM.load()
+try:
+    DESIGN_DATA = DV.normalise(MG.q(DV.SELECT_SQL)) if DESIGNS else {}
+    DESIGN_CONTRACT = DV.contracts(MG.q(DV.CONTRACT_SQL)) if DESIGNS else {}
+except Exception:                     # the page must never stop the portal
+    DESIGN_DATA, DESIGN_CONTRACT = {}, {}
+
+
+def monitoring_design():
+    """/monitoring/design/ - each PPA plant against its HelioScope design, EPI (v370, internal)."""
+    plants = {k: {"portfolio": v.get("portfolio"), "kwp": v.get("kwp")} for k, v in MG.PLANTS.items()}
+    if DV is None:
+        body = '<div class="card"><p>' + t('The design module is not installed on this server.', 'El módulo de diseño no está instalado en este servidor.') + '</p></div>'
+    else:
+        body = DV.render(DESIGNS, DESIGN_DATA, DESIGN_CONTRACT, plants, dt.date.fromisoformat(MG.TODAY), name,
+                         lambda k: f'/monitoring/{C.slug(k)}/')
+    return mon_wrap('Design baseline', 'Línea base de diseño',
+                    'HelioScope as connected · energy performance index (EPI) · internal',
+                    'HelioScope tal como está conectado · índice de desempeño energético (EPI) · interno',
+                    body, 'design')
+
+
 def mon_wrap(title_en, title_es, kicker_en, kicker_es, body, on, buttons=''):
     """A monitoring_gen page body (skin='portal') under the portal chrome."""
     head = (f'<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px">'
@@ -713,6 +743,7 @@ def main():
     write('monitoring/performance/index.html', monitoring_performance()); n += 1
     write('monitoring/recon/index.html', monitoring_recon()); n += 1
     write('monitoring/losses/index.html', monitoring_losses()); n += 1
+    write('monitoring/design/index.html', monitoring_design()); n += 1
     write('monitoring/recon/reconciliation.csv', MG.recon_csv(MG.RECON_M, MG.RECON_D)); n += 1   # v242: the accountant's export
     # parity phase: not-yet-rebuilt destinations land on the old site
     write('report/financial/index.html', financial_report()); n += 1

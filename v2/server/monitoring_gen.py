@@ -33,6 +33,22 @@ sys.path.insert(0, '/root/argia_v2/v2')
 # offline, the vendor cloud answering with stale data) is not live data
 from argia.telemetry.fresh import not_repeat, repeat_cte   # noqa: E402
 from argia.analytics.acute import zero_while_producing     # noqa: E402  (v366)
+# v372: the HelioScope as-connected designs (server-only file) are the INTERNAL expectation of the PPA
+# plants on these pages; never on the demo instance; the checkout missing it changes nothing
+try:
+    from argia.kpi import design_model as _DM
+    DESIGNS = {} if os.environ.get('ARGIA_INSTANCE') == 'demo' else _DM.load()
+except Exception:                                     # noqa: BLE001
+    _DM, DESIGNS = None, {}
+
+
+def design_expected(pk, day, irr, stored):
+    """The design for the measured sun when the plant has one, else the stored expected (v372)."""
+    if not DESIGNS or _DM is None:
+        return stored
+    return _DM.internal_expected(DESIGNS, pk, day, irr, stored)[0]
+
+
 try:
     from argia.alerts.fault_catalog import explain_fault, is_normal_state
 except Exception:                                     # noqa: BLE001
@@ -411,12 +427,13 @@ for r in q("SELECT plant_key, snap_date::text, daily_kwh"
         VENDOR_DAY[(r[0], r[1])] = f(r[2])
 
 DAILY = {}        # plant -> [(date, energy, expected-or-None)]
-for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh"
+for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh, irradiance_kwh_m2"
            " FROM daily_production"
            f" WHERE prod_date >= DATE '{TODAY}' - 31 ORDER BY 1, 2;"):
     if len(r) >= 4:
         DAILY.setdefault(r[0], []).append(
-            (r[1], f(r[2]), f(r[3]) if r[3] not in ('', None) else None))
+            (r[1], f(r[2]), design_expected(r[0], r[1], r[4] if len(r) > 4 else None,
+                                            f(r[3]) if r[3] not in ('', None) else None)))
 
 # v264/v266: the day's loss (scripts/loss_daily.py) - expected with 100%
 # availability (peers, else the weather model) and the cause. Missing table
@@ -624,9 +641,10 @@ COVERAGE_SHOW = 0.95          # below this the page says how much of the time ha
 
 def perf_summary(rows, today, first_dates, min_pr_days=MIN_PR_DAYS, pr_max=PR_MAX):
     """rows: (plant_key, 'YYYY-MM-DD', pr, pr_stc, availability,
-    energy_kwh, expected_kwh[, avail_coverage]) for the last 30 days as
+    energy_kwh, expected_kwh[, avail_coverage[, irradiance_kwh_m2]]) for the last 30 days as
     strings ('' = NULL); first_dates: plant -> its first daily_production
-    date. Pure."""
+    date. v372: with the irradiance, a plant with a design is judged against the design for the
+    measured sun (design_expected). Pure given DESIGNS."""
     import datetime as _dt
     from argia.kpi.availability import window as _avail_window
     end = _dt.date.fromisoformat(today) - _dt.timedelta(days=1)
@@ -635,6 +653,8 @@ def perf_summary(rows, today, first_dates, min_pr_days=MIN_PR_DAYS, pr_max=PR_MA
     for r in rows:
         if len(r) < 7:
             continue
+        if len(r) > 8:
+            r = list(r[:6]) + [design_expected(r[0], r[1], r[8], r[6])] + list(r[7:8])
         by.setdefault(r[0], []).append(r)
     out = {}
     for pk, rs in by.items():
@@ -672,6 +692,7 @@ FIRST_DATES = {r[0]: r[1] for r in q(
 PERF = perf_summary(q(
     "SELECT plant_key, prod_date::text, pr, pr_stc, availability, energy_kwh, expected_kwh,"
     " avail_coverage"
+    ", irradiance_kwh_m2"                              # v372: the design's expectation (perf_summary)
     f" FROM daily_production WHERE prod_date >= DATE '{TODAY}' - 30;"), TODAY, FIRST_DATES)
 
 PR_TREND = {}   # plant -> [(date, pr)] last 30d, for sparklines
@@ -1137,7 +1158,10 @@ def intraday_svg(pk, kwp, pr, d):
     stack = {h: [invs[sn].get(h, 0.0) for sn in sns] for h in hours}
     totals = {h: sum(stack[h]) for h in hours}
     irr = IRR_H.get(d, {}).get(pk, {})
-    theo = {h: irr[h] * kwp * pr / 1000.0 for h in hours if irr.get(h) is not None}
+    per_sun = kwp * pr                                   # kWh per kWh/m2: nameplate x clean PR
+    if pk in DESIGNS:                                    # v372: the design's own month, aged
+        per_sun = DESIGNS[pk].factor(dt.date.fromisoformat(d))
+    theo = {h: irr[h] * per_sun / 1000.0 for h in hours if irr.get(h) is not None}
     vmax = max(list(totals.values()) + list(theo.values()) + [1.0]) * 1.12
     cloud = CLOUD_H.get(d, {}).get(pk, {})
 

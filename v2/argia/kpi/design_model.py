@@ -102,6 +102,15 @@ class Design:
     def expected_kwh(self, day: dt.date, irradiance_kwh_m2: float) -> float:
         return self.per_irradiance(day.month) * irradiance_kwh_m2 * self.ageing(day)
 
+    def factor(self, day: dt.date) -> float:
+        """Design kWh per kWh/m2 of measured sun on ``day`` (aged) - the design's 'expected factor x kWp'."""
+        return self.per_irradiance(day.month) * self.ageing(day)
+
+    def clean_expected_kwh(self, day: dt.date, irradiance_kwh_m2: float) -> float:
+        """The design's expectation with clean modules (its own soiling loss of the month put back)."""
+        soil = self.months[day.month - 1].soiling_pct or 0.0
+        return self.expected_kwh(day, irradiance_kwh_m2) / (1.0 - soil / 100.0)
+
     def resource(self, year: int, month: int, measured_kwh_m2: float, days_measured: int) -> Optional[float]:
         """Measured sun vs the design year's sun for the same days (1.0 = a typical month). Pure."""
         if days_measured <= 0:
@@ -264,3 +273,40 @@ def design_vs_contract(design: Design, year: int, contract_kwh: Mapping[int, flo
     if len([m for m in range(1, 13) if (contract_kwh.get(m) or 0) > 0]) < 12:
         return None
     return design.design_kwh_year(year) / sum(contract_kwh[m] for m in range(1, 13))
+
+
+# ------------------------------------------------------------------ v372: one internal expectation
+def internal_expected(designs: Mapping[str, Design], plant_key: str, day, irradiance, stored) -> Tuple[Optional[float], str]:
+    """(expected kWh, basis) for INTERNAL readers (v372, Tomasz 12 Nov 2026: "Separate internal figure"):
+    the plant's design for the sun that was measured ('design'), else the stored kWp x sun x factor
+    ('factor'). The stored daily_production.expected_kwh itself is never changed - it is the invoice
+    annex 'teorica'. Pure."""
+    d = designs.get(str(plant_key).upper()) if designs else None
+    try:
+        irr = float(irradiance) if irradiance not in (None, "") else None
+    except (TypeError, ValueError):
+        irr = None
+    if d is not None and irr is not None and irr > 0:
+        if not isinstance(day, dt.date):
+            day = dt.date.fromisoformat(str(day)[:10])
+        if day >= d.cod:
+            return round(d.expected_kwh(day, irr), 2), "design"
+    try:
+        return (float(stored) if stored not in (None, "") else None), "factor"
+    except (TypeError, ValueError):
+        return None, "factor"
+
+
+def soiling_drift(design: Design, day: dt.date, energy, irradiance) -> Optional[float]:
+    """1 - actual / clean-module design expectation, never negative: soiling plus every other loss the
+    design does not foresee - against the design's own month (seasonal), not a flat baseline. Pure."""
+    try:
+        e, irr = float(energy), float(irradiance)
+    except (TypeError, ValueError):
+        return None
+    if irr <= 0 or day < design.cod:
+        return None
+    clean = design.clean_expected_kwh(day, irr)
+    if clean <= 0 or e / clean > 1.5:              # an undercounted sun, not a clean plant
+        return None
+    return round(max(0.0, 1.0 - e / clean), 4)

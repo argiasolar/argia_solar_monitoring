@@ -77,10 +77,15 @@ def plants() -> Dict[str, dict]:
     return out
 
 
-def production(d0: dt.date, d1: dt.date) -> Dict[Tuple[str, str], Tuple[Optional[float], Optional[float]]]:
-    """(plant, day) -> (energy_kwh, weather expected_kwh)."""
-    return {(r[0], r[1]): (_f(r[2]), _f(r[3])) for r in psql_rows(
-        "SELECT plant_key, prod_date::text, energy_kwh, expected_kwh FROM daily_production"
+def production(d0: dt.date, d1: dt.date, designs=None) -> Dict[Tuple[str, str], Tuple[Optional[float], Optional[float]]]:
+    """(plant, day) -> (energy_kwh, weather expected_kwh).
+
+    v372: a plant with a HelioScope design gets the design for the measured sun as its weather
+    expectation (seasonal soiling and heat) instead of kWp x sun x the flat factor; the rest of the
+    method (peers first, the plant's usual ratio, the 10 % tolerance) is unchanged."""
+    from argia.kpi.design_model import internal_expected
+    return {(r[0], r[1]): (_f(r[2]), internal_expected(designs or {}, r[0], r[1], r[4], r[3])[0]) for r in psql_rows(
+        "SELECT plant_key, prod_date::text, energy_kwh, expected_kwh, irradiance_kwh_m2 FROM daily_production"
         f" WHERE prod_date BETWEEN DATE '{d0}' AND DATE '{d1}';")}
 
 
@@ -136,7 +141,8 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
     P = plants()
     groups = L.peer_groups({k: (v["lat"], v["lon"]) for k, v in P.items()})
     c0 = d0 - dt.timedelta(days=CALIB_WINDOW_DAYS)
-    prod = production(c0, d1)
+    from argia.kpi import design_model           # v372
+    prod = production(c0, d1, design_model.load())
     tar, th, sl = tariffs(d0, d1), thermal(d0, d1), slots(d0, d1)
     cnt = counters(d0, d1)
 

@@ -179,17 +179,19 @@ def gather_yesterday_cost(today: dt.date):
         from argia.store.pgq import psql_rows
         rows = psql_rows(
             "SET statement_timeout='20s';"
-            " SELECT dp.plant_key, dp.expected_kwh, dp.energy_kwh, p.tariff_mxn_per_kwh"
+            " SELECT dp.plant_key, dp.expected_kwh, dp.energy_kwh, p.tariff_mxn_per_kwh, dp.irradiance_kwh_m2"
             "   FROM daily_production dp JOIN plant p ON p.plant_key = dp.plant_key"
             f"  WHERE dp.prod_date = '{d}' AND p.active;")
     except Exception as e:                       # noqa: BLE001
         LOG.warning("cost of yesterday unavailable (%s) - report goes out without it", e)
         return {}, 0.0, None
     per, pairs = {}, []
+    from argia.kpi import design_model as DM      # v372
+    designs = DM.load()
     for r in rows:
         try:
             pk = r[0]
-            exp = float(r[1]) if r[1] not in (None, "") else None
+            exp = DM.internal_expected(designs, pk, d, r[4] if len(r) > 4 else None, r[1])[0]
             act = float(r[2]) if r[2] not in (None, "") else None
             tariff = M.tariff_mxn(None, float(r[3]) if r[3] not in (None, "") else None)
         except (TypeError, ValueError, IndexError):
@@ -214,17 +216,26 @@ def gather_mtd(today: dt.date):
     out = {}
     if d1 < d0:                     # the 1st: no closed days yet
         return out
+    from argia.kpi import design_model as DM      # v372: the design for the measured sun, where loaded
+    designs = DM.load()
+    acc = {}
     for r in psql_rows(
-            "SELECT plant_key, coalesce(sum(energy_kwh),0),"
-            " coalesce(sum(CASE WHEN expected_kwh IS NOT NULL"
-            "  THEN energy_kwh END),0), coalesce(sum(expected_kwh),0)"
+            "SELECT plant_key, prod_date::text, energy_kwh, expected_kwh, irradiance_kwh_m2"
             f" FROM daily_production WHERE prod_date BETWEEN '{d0}'"
-            f" AND '{d1}' GROUP BY 1;"):
-        if len(r) >= 4:
+            f" AND '{d1}';"):
+        if len(r) >= 5:
             try:
-                out[r[0]] = (float(r[1]), float(r[2]), float(r[3]))
+                e = float(r[2]) if r[2] not in (None, "") else 0.0
             except ValueError:
-                pass
+                continue
+            x, _b = DM.internal_expected(designs, r[0], r[1], r[4], r[3])
+            a = acc.setdefault(r[0], [0.0, 0.0, 0.0])
+            a[0] += e
+            if x is not None:
+                a[1] += e
+                a[2] += x
+    for k, (tot, paired, exp) in acc.items():
+        out[k] = (tot, paired, exp)
     return out
 
 

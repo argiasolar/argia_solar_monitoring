@@ -91,8 +91,12 @@ logging.basicConfig(
 log = logging.getLogger("argia.alerts_daily")
 
 
-def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
-    """KPI_Daily rows for one day: plant_key -> {energy, sy, expected, data_class}."""
+def _read_kpi_day(sheets: SheetsClient, date_iso: str, designs=None) -> Dict[str, Dict]:
+    """KPI_Daily rows for one day: plant_key -> {energy, sy, expected, data_class}.
+
+    v372: for a plant with a HelioScope design (argia.kpi.design_model) 'expected' is the design for
+    the measured sun, so the energy_daily_pct rule judges it against how the plant is built (internal;
+    the stored expected_kwh, the annex 'teorica', is unchanged)."""
     out: Dict[str, Dict] = {}
     from argia.kpi.pg_kpi_source import kpi_grid
     data = kpi_grid(sheets, "A1:ZZ")          # v190: sheet or PG
@@ -101,7 +105,7 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
     header = [normalize_text(h) for h in data[0]]
     idx = {name: header.index(name) for name in
            ("date_iso", "plant_key", "energy_kwh", "specific_yield",
-            "expected_kwh", "data_class") if name in header}
+            "expected_kwh", "data_class", "irradiance_kwh_m2") if name in header}
     for row in data[1:]:
         try:
             if date_key(row[idx["date_iso"]]) != date_iso:
@@ -118,6 +122,10 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str) -> Dict[str, Dict]:
             "expected": safe_float(cell("expected_kwh")),
             "data_class": normalize_text(cell("data_class")).lower(),
         }
+        if designs and pk in designs:
+            from argia.kpi.design_model import internal_expected
+            out[pk]["expected"], _basis = internal_expected(
+                designs, pk, date_iso, safe_float(cell("irradiance_kwh_m2")), out[pk]["expected"])
     return out
 
 
@@ -688,7 +696,8 @@ def main(argv=None) -> int:
     string_day, string_baseline = _read_string_samples(portfolio, date_iso)
 
     # --- plant-level aggregates from KPI_Daily (stamped by kpi_eod) ---
-    kpi = _read_kpi_day(sheets, date_iso)
+    from argia.kpi import design_model            # v372
+    kpi = _read_kpi_day(sheets, date_iso, design_model.load())
     log.info("Evaluating %s: %d inverter readings, %d KPI plant rows",
              date_iso, len(readings), len(kpi))
 

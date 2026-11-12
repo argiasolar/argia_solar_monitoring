@@ -783,6 +783,9 @@ def _render_html(data: ReportData) -> str:
         + (f'Of design = production vs the HelioScope as-connected design '
            f'(Nov 2026, {", ".join(data.helioscope)}: monthly kWh aged 0.55 '
            f'per cent a year from interconnection &#247; calendar days); '
+           f'for the same plants Theoretical and Of plan are the design for '
+           f'the measured sun and Soiling/drift is measured against the '
+           f'design with clean modules (its month); '
            f'other plants vs the contract design estimate - '
            if data.helioscope else
            'Of design = production vs the contract design estimate '
@@ -958,6 +961,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             "av": safe_float(cell("availability")),
             "soil": safe_float(cell("soiling_loss_pct")),
             "cloud": safe_float(cell("cloud_coverage_pct")),
+            "irr": safe_float(cell("irradiance_kwh_m2")),
             "design": safe_float(cell("design_kwh")),
             "dc": normalize_text(cell("data_class")).lower() or "no_data",
             "note": normalize_text(cell("status_note")),
@@ -1071,12 +1075,23 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                                 "from measured irradiance, pro-rated to "
                                 "the last complete hour - final numbers "
                                 "in tomorrow's 07:05 report.")
+        soil = k.get("soil")
+        if plant.plant_key in designs and dc != "live" and k.get("energy") is not None:
+            # v372 (internal edition): Theoretical, Of plan and Soiling/drift come from the plant's
+            # HelioScope design for the sun that was measured (seasonal soiling and heat), not the
+            # flat kWp x sun x factor that the customer annex keeps as its 'teorica'.
+            from argia.kpi.design_model import internal_expected, soiling_drift
+            x, basis = internal_expected(designs, plant.plant_key, _day, k.get("irr"), expected)
+            if basis == "design":
+                expected = round(x, 1)
+                pp = round(energy / expected, 4) if expected else pp
+                soil = soiling_drift(designs[plant.plant_key], _day, energy, k.get("irr"))
         plants.append(PlantDay(
             plant_key=plant.plant_key,
             name=getattr(plant, "customer", "") or plant.plant_key,
             energy_kwh=energy, expected_kwh=expected,
             production_pct=pp, pr=k.get("pr"),
-            availability=avail_val, soiling=k.get("soil"),
+            availability=avail_val, soiling=soil,
             cloud_pct=cloud_val, data_class=dc,
             status_note=note, inverters=invs,
             kwp_dc=getattr(plant, "kwp_dc", None),

@@ -243,6 +243,25 @@ def t() -> UI.T:
     return UI.T(request.cookies.get("pl_lang") or lang or "en")
 
 
+# v376 (Tomasz, 13 Nov 2026, mrp.argia.com.mx): "turn off the security that requires authenticator for this
+# moment". A dated, per-instance exception: ARGIA_PL_MFA_OFF_UNTIL=YYYY-MM-DD in that instance's unit only. Until
+# that day (inclusive, Mexico City) a correct password signs in without the authenticator; the day after, MFA is
+# required again by itself. Every such sign-in is audited as login_ok_no_mfa. Prologis and Irritec never set it.
+MFA_OFF_UNTIL = (os.environ.get("ARGIA_PL_MFA_OFF_UNTIL") or "").strip()
+
+
+def mfa_off(today: Optional[dt.date] = None, until: Optional[str] = None) -> bool:
+    u = MFA_OFF_UNTIL if until is None else until
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", u or ""):
+        return False
+    try:
+        end = dt.date.fromisoformat(u)
+    except ValueError:
+        return False
+    today = today or (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=6)).date()
+    return today <= end
+
+
 @app.before_request
 def _guard():
     g.user = None
@@ -256,9 +275,9 @@ def _guard():
     if request.method == "POST" and request.endpoint not in ("logout",):
         if not hmac.compare_digest(request.form.get("csrf", ""), csrf_token()):
             abort(400)
-    if not row["mfa_ok"] and request.endpoint not in ("mfa", "mfa_post", "logout"):
+    if not row["mfa_ok"] and not mfa_off() and request.endpoint not in ("mfa", "mfa_post", "logout"):
         return redirect("/mfa")
-    if row["mfa_ok"] and row["must_change"] and request.endpoint not in ("password", "password_post", "logout"):
+    if (row["mfa_ok"] or mfa_off()) and row["must_change"] and request.endpoint not in ("password", "password_post", "logout"):
         return redirect("/password")
     return None
 
@@ -414,7 +433,7 @@ def _login_page(msg: str = "", status: int = 200) -> Response:
 <label>{tt("User", "Usuario")}</label><input name="username" autocomplete="username" required autofocus>
 <label>{tt("Password", "Contraseña")}</label><input name="password" type="password" autocomplete="current-password" required>
 <div style="margin-top:16px"><button class="btn" type="submit">{tt("Continue", "Continuar")}</button></div>
-<p class="muted small" style="margin-top:18px">{tt("A second factor (authenticator app) is required after the password.", "Después de la contraseña se requiere un segundo factor (app autenticadora).")}
+<p class="muted small" style="margin-top:18px">{tt(f"For now (until {MFA_OFF_UNTIL}) the password alone signs you in." if mfa_off() else "A second factor (authenticator app) is required after the password.", f"Por ahora (hasta el {MFA_OFF_UNTIL}) basta la contraseña." if mfa_off() else "Después de la contraseña se requiere un segundo factor (app autenticadora).")}
 <a href="/lang/{"es" if tt.lang == "en" else "en"}">{"Español" if tt.lang == "en" else "English"}</a> {privacy_link(tt)}</p></form></div></div></body></html>"""
     return Response(html_, status=status, mimetype="text/html")
 
@@ -442,10 +461,19 @@ def login_post():
         S.audit(c, u, ip(), "login_fail", u)
         return _login_page("Wrong user or password. / Usuario o contraseña incorrectos.", 401)
     S.clear_fail(c, f"u:{u}")
+    nxt = request.form.get("next") or "/"
+    nxt = nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"
+    if mfa_off():                                 # v376: the instance's dated exception
+        sid = S.new_session(c, u, ip(), now, mfa_ok=True)
+        c.execute("UPDATE users SET last_login_utc=? WHERE username=?", (S.now_utc(), u))
+        c.commit()
+        S.audit(c, u, ip(), "login_ok_no_mfa", u, f"MFA exception until {MFA_OFF_UNTIL}")
+        r = redirect(nxt)
+        r.set_cookie(COOKIE, sid, httponly=True, secure=SECURE_COOKIE, samesite="Lax")
+        return r
     sid = S.new_session(c, u, ip(), now, mfa_ok=False)
     S.audit(c, u, ip(), "login_password_ok", u)
-    nxt = request.form.get("next") or "/"
-    r = redirect("/mfa?next=" + (nxt if nxt.startswith("/") and not nxt.startswith("//") else "/"))
+    r = redirect("/mfa?next=" + nxt)
     r.set_cookie(COOKIE, sid, httponly=True, secure=SECURE_COOKIE, samesite="Lax")
     return r
 
@@ -3686,7 +3714,9 @@ def security_page():
     tt = t()
     items = [
         (tt("Separate platform", "Plataforma separada"), tt("Own login, own user database and own file store, apart from every other ARGIA customer.", "Acceso, base de usuarios y almacén de archivos propios, separados de cualquier otro cliente de ARGIA.")),
-        (tt("Two-factor sign-in", "Acceso con dos factores"), tt("Password (scrypt-hashed, 12+ characters) plus an authenticator code (TOTP) for every user.", "Contraseña (scrypt, 12+ caracteres) más código de app autenticadora (TOTP) para cada usuario.")),
+        ((tt("Sign-in (temporary exception)", "Acceso (excepción temporal)"), tt(f"Until {MFA_OFF_UNTIL} a password alone signs in; from the next day an authenticator code (TOTP) is required again for every user. Every sign-in is logged.", f"Hasta el {MFA_OFF_UNTIL} basta la contraseña; desde el día siguiente se vuelve a exigir el código de app autenticadora (TOTP) a cada usuario. Todo acceso queda registrado."))
+         if mfa_off() else
+         (tt("Two-factor sign-in", "Acceso con dos factores"), tt("Password (scrypt-hashed, 12+ characters) plus an authenticator code (TOTP) for every user.", "Contraseña (scrypt, 12+ caracteres) más código de app autenticadora (TOTP) para cada usuario."))),
         (tt("Least privilege", "Mínimo privilegio"), tt("Four roles; Prologis managers approve dispatches, ARGIA operators work tickets, only administrators manage users.", "Cuatro roles; los gerentes de Prologis aprueban despachos, los operadores de ARGIA trabajan tickets, solo administradores gestionan usuarios.")),
         (tt("Encryption in transit", "Cifrado en tránsito"), tt("TLS 1.2 / 1.3 only, HSTS, strict content-security policy.", "Solo TLS 1.2 / 1.3, HSTS, política de contenido estricta.")),
         (tt("Every action logged", "Todo queda registrado"), tt("Sign-ins, failures, uploads, downloads, ticket and user changes - downloadable by Prologis managers.", "Accesos, fallos, cargas, descargas, cambios de tickets y usuarios - descargable por gerentes de Prologis.")),
@@ -5794,6 +5824,36 @@ def main(argv: List[str]) -> int:
         c = S.connect()
         pw = S.create_user(c, argv[2], argv[3], argv[4], "ARGIA", "admin", "cli")
         print(f"admin {argv[2]} created. One-time password (change at first sign-in, then enrol MFA): {pw}")
+        return 0
+    if len(argv) >= 2 and argv[1] == "--add-user":
+        # v376: --add-user USER 'Full name' EMAIL ORG ROLE [--simple-password] [--password-stdin]; the operator
+        # types the password (getpass twice, or one line on stdin piped by the Windows runner, which asks twice,
+        # masked): never on the command line, in a file or in a log
+        args = [x for x in argv[2:] if x not in ("--simple-password", "--password-stdin")]
+        simple = "--simple-password" in argv
+        if len(args) != 5:
+            print("usage: prologis_app.py --add-user USER 'Full name' EMAIL ORG ROLE [--simple-password] [--password-stdin]")
+            return 2
+        if simple and not mfa_off():
+            print("refused: --simple-password only while this instance's dated MFA exception (ARGIA_PL_MFA_OFF_UNTIL) runs")
+            return 2
+        if "--password-stdin" in argv:
+            pw = sys.stdin.readline().rstrip("\r\n")
+        else:
+            import getpass
+            pw = getpass.getpass(f"Password for {args[0]}: ")
+            if pw != getpass.getpass("Same password again: "):
+                print("the two passwords differ - nothing created")
+                return 1
+        os.makedirs(DATA_DIR, mode=0o700, exist_ok=True)
+        c = S.connect()
+        try:
+            S.create_user_with_password(c, args[0], args[1], args[2], args[3], args[4], pw, "console", allow_simple=simple)
+        except ValueError as exc:
+            print(f"not created: {exc}")
+            return 1
+        print(f"user {args[0].strip().lower()} created ({args[4]}, {args[3]}); password as typed, no forced change"
+              + (f"; MFA not asked until {MFA_OFF_UNTIL}" if mfa_off() else "; authenticator enrolment at first sign-in"))
         return 0
     if len(argv) >= 3 and argv[1] == "--seed-catalog":
         with open(argv[2], encoding="utf-8") as fh:

@@ -232,6 +232,35 @@ def create_user(c, username: str, name: str, email: str, org: str, role: str, by
     return pw
 
 
+SIMPLE_MIN = 8          # v376: the shortest password an operator may set while the instance's MFA exception runs
+
+
+def create_user_with_password(c, username: str, name: str, email: str, org: str, role: str, pw: str, by: str,
+                              allow_simple: bool = False, ip: str = "") -> None:
+    """v376: a user whose password the operator types at the server console (never passes through anyone else).
+    Normal rules unless allow_simple (only while the instance's dated MFA exception runs): then 8+ characters.
+    No forced change at first sign-in - the operator chose it."""
+    u = (username or "").strip().lower()
+    if not u or not all(ch.isalnum() or ch in "._-@" for ch in u):
+        raise ValueError("invalid user name")
+    if role not in ROLES:
+        raise ValueError("invalid role")
+    if user(c, u):
+        raise ValueError("user exists")
+    if allow_simple:
+        if len(pw or "") < SIMPLE_MIN:
+            raise ValueError(f"at least {SIMPLE_MIN} characters")
+    else:
+        prob = password_problem(pw, u)
+        if prob:
+            raise ValueError(prob)
+    c.execute("INSERT INTO users (username,name,email,org,role,pw,created_utc,must_change) VALUES (?,?,?,?,?,?,?,0)",
+              (u, name.strip()[:80], email.strip().lower()[:120], org.strip()[:40] or "Prologis", role, hash_pw(pw), now_utc()))
+    c.commit()
+    audit(c, by, ip, "user_create", u, f"role={role} org={org} password set at the console"
+          + (" (simple password allowed: MFA exception)" if allow_simple else ""))
+
+
 def set_role(c, username: str, role: str, by: str, ip: str = "") -> None:
     if role not in ROLES:
         raise ValueError("invalid role")

@@ -17,6 +17,8 @@ Environment=ARGIA_PL_DB=/opt/argia/mrp/mrp.db
 Environment=ARGIA_PL_FILES=/opt/argia/mrp/files
 Environment=ARGIA_PL_REGISTRY=/opt/argia/mrp/registry.json
 Environment=ARGIA_PL_PORT=8522
+# v376 (Tomasz, 13 Nov 2026): no authenticator on MRP until this day; MFA comes back by itself the day after
+Environment=ARGIA_PL_MFA_OFF_UNTIL=2026-12-31
 ExecStart=/usr/bin/python3 /opt/argia/bundle/prologis_app.py
 Restart=always
 RestartSec=3

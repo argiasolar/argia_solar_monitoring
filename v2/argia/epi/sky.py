@@ -176,3 +176,12 @@ def poa(ghi: float, ts: dt.datetime, lat: float, lon: float, tilt: float, surf_a
     ground = ghi * albedo * (1 - math.cos(_R(tilt))) * 0.5
     direct = max(dni * aoi_projection(tilt, surf_az, sp.zenith, sp.azimuth), 0.0)
     return Poa(direct + sky + ground, direct, sky, ground, dni, dhi)
+
+
+def clear_sky_ghi_haurwitz(zenith: float) -> float:
+    """Haurwitz (1945) clear-sky GHI, as pvlib.clearsky.haurwitz: a shape for
+    gap filling when no measured irradiance exists (never an expected energy)."""
+    cosz = math.cos(_R(zenith))
+    if cosz <= 0:
+        return 0.0
+    return 1098.0 * cosz * math.exp(-0.059 / cosz)

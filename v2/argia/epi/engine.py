@@ -82,6 +82,9 @@ class Avail:
     up: int = 0
     down: int = 0
     missing: int = 0
+    up_by_counter: int = 0      # part of `up`: silent, but the day counter proves production (gaps.py)
+    down_by_counter: int = 0    # part of `down`: silent, and the counter proves no production
+    by_ac_power: int = 0        # judged on AC power because string data was absent
 
     @property
     def value(self) -> Optional[float]:
@@ -154,6 +157,33 @@ def stable(prev: Optional[Station], cur: Station, nxt: Optional[Station]) -> boo
     return max(vals) / min(vals) <= 1 + STABLE_BAND
 
 
+def expected_inverter_w(pm: M.PlantModel, strs: Sequence[M.StringDef], st: Station,
+                        sun: Optional[sky.SunPos] = None) -> Tuple[float, List[Tuple[M.StringDef, float, float]]]:
+    """Capped expected DC of one inverter for one station sample, and the per-string
+    (string, G_poa, expected W after the limit). Strings before their COD are left out."""
+    sun = sun or sky.sun_position(st.ts, pm.lat, pm.lon)
+    local = st.ts.astimezone(dt.timezone(dt.timedelta(hours=-6)))
+    live = []
+    cache: Dict[Tuple[float, float], float] = {}
+    for s in strs:
+        d = M.degradation_factor(s.module, s.cod, local.date())
+        if d is None:
+            continue
+        key = (s.tilt, s.azimuth)
+        if key not in cache:
+            cache[key] = sky.poa(st.ghi, st.ts, pm.lat, pm.lon, s.tilt, s.azimuth, sun=sun).poa_global
+        g = cache[key]
+        e = M.expected_string_w(s.kwp, d, g, M.pr0(pm.b, M.t_cell(st.t_panel, g), g),
+                                pm.soiling_pct[local.month - 1], pm.bias[local.month - 1])
+        live.append((s, g, e))
+    if not live:
+        return 0.0, []
+    lim = pm.ac_limit_kw.get(strs[0].inverter)
+    scale = M.cap_scale([e for _, _, e in live], lim) if lim else 1.0
+    out = [(s, g, e * scale) for s, g, e in live]
+    return sum(e for _, _, e in out), out
+
+
 def run_plant(pm: M.PlantModel,
               strings: Sequence[M.StringDef],
               channel_of: Mapping[str, Channel],                 # uid -> channel
@@ -161,7 +191,12 @@ def run_plant(pm: M.PlantModel,
               station: Mapping[int, Station],                    # bucket (epoch // 300) -> station
               samples: Mapping[Tuple[str, int], InvSample],      # (serial, bucket) -> sample
               tz: dt.tzinfo,
-              stability_filter: bool = False) -> Result:
+              stability_filter: bool = False,
+              ac_power_w: Optional[Mapping[Tuple[str, int], float]] = None,
+              gap_verdict: Optional[Mapping[Tuple[str, int], str]] = None) -> Result:
+    """ac_power_w: (serial, bucket) -> inverter AC power, used for availability when the
+    string sample is missing (EPI still needs strings). gap_verdict: (serial, bucket) ->
+    "up"/"down" from the day counter over a silent gap (gaps.reconstruct_day)."""
     res = Result()
     by_inv: Dict[str, List[M.StringDef]] = {}
     for s in strings:
@@ -200,11 +235,29 @@ def run_plant(pm: M.PlantModel,
             lim = pm.ac_limit_kw.get(inv)
             scale = M.cap_scale([e for _, _, e in live], lim) if lim else 1.0
             judged = st.ghi > M.EPI_150                          # Availability-150 uses station irradiance
-            smp = samples.get((sn_of[inv], b))
+            sn = sn_of[inv]
+            smp = samples.get((sn, b))
             if smp is None:
                 if judged:
-                    res.avail.setdefault(inv, Avail()).missing += 1
-                res.count("inverter_missing")
+                    a = res.avail.setdefault(inv, Avail())
+                    pac = (ac_power_w or {}).get((sn, b))
+                    verdict = (gap_verdict or {}).get((sn, b))
+                    if pac is not None:
+                        exp_ac = sum(e * scale for _, _, e in live) * M.INVERTER_EFFICIENCY
+                        a.by_ac_power += 1
+                        if exp_ac > 0 and pac >= M.PRODUCING_SHARE * exp_ac:
+                            a.up += 1
+                        else:
+                            a.down += 1
+                    elif verdict == "up":
+                        a.up += 1
+                        a.up_by_counter += 1
+                    elif verdict == "down":
+                        a.down += 1
+                        a.down_by_counter += 1
+                    else:
+                        a.missing += 1
+                res.count("string_data_missing")
                 continue
             reals = [(s, g, e * scale, channel_of[s.uid].power_w(smp.str_a, smp.mppt_a, smp.mppt_v))
                      for s, g, e in live]

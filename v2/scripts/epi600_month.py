@@ -33,6 +33,8 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from argia.epi import engine as E   # noqa: E402
+from argia.epi import gaps as G     # noqa: E402
+from argia.epi import sky           # noqa: E402
 from argia.epi import model as M    # noqa: E402
 
 MX = dt.timezone(dt.timedelta(hours=-6))   # America/Mexico_City has no DST since Oct 2022
@@ -97,12 +99,96 @@ def load_export(d, key):
                 continue
             b = int(ts_parse(r["ts_utc"]).timestamp()) // 300
             samples[(r["inverter_sn"], b)] = E.InvSample(arr(r["str_a"]) or [], arr(r["mppt_a"]) or [], arr(r["mppt_v"]) or [])
+    ac, ctr = {}, defaultdict(dict)
+    rows = defaultdict(list)
+    with open(os.path.join(d, "telemetry.csv"), encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r["plant_key"] == key:
+                rows[r["inverter_sn"]].append((int(ts_parse(r["ts_utc"]).timestamp()) // 300,
+                                               fnum(r["power_w"]), fnum(r["etoday_kwh"])))
+    stale = {}
+    for sn, rs in rows.items():
+        st_b = G.stale_buckets(rs)
+        stale[sn] = len(st_b)
+        for bk, p, c in rs:
+            if bk in st_b:
+                continue                     # a frozen API record is missing data, not zero production
+            if p is not None:
+                ac[(sn, bk)] = p
+            if c is not None:
+                ctr[sn][bk] = c
+    load_export.stale = stale
     ppv = {}
     with open(os.path.join(d, "detail.csv"), encoding="utf-8") as f:
         for r in csv.DictReader(f):
             if r["plant_key"] == key and fnum(r["ppv_w"]) is not None:
                 ppv[(r["inverter_sn"], int(ts_parse(r["ts_utc"]).timestamp()) // 300)] = float(r["ppv_w"])
-    return station, samples, ppv
+    return station, samples, ppv, ac, ctr
+
+
+def energy_and_gaps(pm, strs_by_inv, sn_of, station, ctr, daily_total=None):
+    """Per inverter-day: counter-conserving 5-minute energy (gaps.py) and the gap verdicts.
+    daily_total: {date: plant kWh} (daily_production): closes UNKNOWN end-of-day slots
+    (rule 3) - the plant residual is spread over every inverter's unknown slots by the
+    same weights; a negative residual is reported and left unknown."""
+    qc = E.station_qc(station, pm.lat, pm.lon)
+    verdict, summary = {}, defaultdict(lambda: defaultdict(float))
+    open_slots = defaultdict(list)          # date -> [(inv, weight)]
+    known_day = defaultdict(float)
+    for inv, sn in sn_of.items():
+        strs = strs_by_inv[inv]
+        kwp = sum(s.kwp for s in strs)
+        days = defaultdict(list)
+        for day in (daily_total or {}):
+            days[day]                                  # a day without any counter sample is all UNKNOWN
+        for bk in ctr.get(sn, {}):
+            days[dt.datetime.fromtimestamp(bk * 300, dt.timezone.utc).astimezone(MX).date()].append(bk)
+        for day, bks in days.items():
+            d0 = int(dt.datetime(day.year, day.month, day.day, tzinfo=MX).timestamp()) // 300
+            slots, w = [], {}
+            for k in range(d0, d0 + 288):
+                tmid = dt.datetime.fromtimestamp(k * 300 + 150, dt.timezone.utc)
+                z = sky.sun_position(tmid, pm.lat, pm.lon).zenith
+                if z >= 90:
+                    continue
+                slots.append(k)
+                s = station.get(k)
+                if s is not None and k not in qc and E.station_valid(s)[0]:
+                    w[k] = E.expected_inverter_w(pm, strs, s)[0]
+                else:
+                    w[k] = sky.clear_sky_ghi_haurwitz(z) * kwp            # shape only
+            rec, gaps = G.reconstruct_day([(k, ctr[sn][k]) for k in bks], slots, w)
+            sm = summary[inv]
+            for s in rec:
+                sm[s.flag + "_slots"] += 1
+                if s.energy_kwh is not None:
+                    sm[s.flag + "_kwh"] += s.energy_kwh
+                    known_day[day] += s.energy_kwh
+                else:
+                    open_slots[day].append((inv, w.get(s.bucket, 0.0)))
+            for g in gaps:
+                sm["gaps"] += 1
+                sm["gap_" + g.availability] += 1
+                if g.availability in ("up", "down"):
+                    for k in range(g.first, g.last + 1):
+                        verdict[(sn, k)] = g.availability
+    for day, opens in open_slots.items():
+        tot = (daily_total or {}).get(day)
+        if tot is None:
+            continue
+        resid = tot - known_day[day]
+        wsum = sum(x for _, x in opens)
+        if resid < -0.5 or wsum <= 0:
+            for inv, _ in opens:
+                summary[inv]["daily_total_conflict_slots"] += 1
+            continue
+        for inv, x in opens:
+            e = max(resid, 0.0) * x / wsum
+            sm = summary[inv]
+            sm["unknown_slots"] -= 1
+            sm["closed_by_daily_slots"] += 1
+            sm["closed_by_daily_kwh"] += e
+    return verdict, summary
 
 
 def main(argv=None):
@@ -140,7 +226,17 @@ def main(argv=None):
         # register corrections proven from data (which input actually carries the string)
         for uid, idx in (plants[name].get("channel_overrides") or {}).items():
             chan[uid] = E.Channel(chan[uid].kind, int(idx))
-        station, samples, ppv = load_export(a.export_dir, key)
+        station, samples, ppv, ac, ctr = load_export(a.export_dir, key)
+        strs_by_inv = defaultdict(list)
+        for s in strs:
+            strs_by_inv[s.inverter].append(s)
+        daily_total = {}
+        dpath = os.path.join(a.export_dir, "daily.csv")
+        if os.path.exists(dpath):
+            for r in csv.DictReader(open(dpath, encoding="utf-8")):
+                if r["plant_key"] == key and fnum(r["energy_kwh"]) is not None:
+                    daily_total[dt.date.fromisoformat(r["prod_date"])] = float(r["energy_kwh"])
+        verdict, esum = energy_and_gaps(pm, strs_by_inv, sn_of, station, ctr, daily_total)
         # integrity check: sum of string powers vs inverter DC
         chk = {}
         for inv, sn in sn_of.items():
@@ -154,7 +250,8 @@ def main(argv=None):
                 den += ppv[(sn, bk)]
                 n += 1
             chk[inv] = (num / den if den else None, n)
-        res = E.run_plant(pm, strs, chan, sn_of, station, samples, MX, stability_filter=a.stability)
+        res = E.run_plant(pm, strs, chan, sn_of, station, samples, MX, stability_filter=a.stability,
+                          ac_power_w=ac, gap_verdict=verdict)
         kwp_inv = defaultdict(float)
         for s in strs:
             kwp_inv[s.inverter] += s.kwp
@@ -163,6 +260,7 @@ def main(argv=None):
         p600, p150 = res.epi600.get("plant", M.Tally()), res.epi150.get("plant", M.Tally())
         av = E.plant_availability(res, kwp_inv)
         print(f"\n=== {name} ({key}) {'stability filter ON' if a.stability else ''}")
+        print(f"  stale inverter records dropped: {getattr(load_export, 'stale', {})}")
         print(f"  EPI-600 {fmt(p600.epi)}  n={p600.n}  band={M.band(p600.epi, p600.n)} | EPI-150 {fmt(p150.epi)} n={p150.n}"
               f" | Availability-150 {fmt(av)} | daily EPI-600 sd {fmt(sd)} over {len(daily)} days")
         for inv in sorted(sn_of):
@@ -170,8 +268,19 @@ def main(argv=None):
             r, n = chk[inv]
             print(f"  {inv} {sn_of[inv]}: EPI-600 {t6.epi if t6.epi is not None else float('nan'):.4f} (n={t6.n})"
                   f"  EPI-150 {t1.epi if t1.epi is not None else float('nan'):.4f}  avail {av_i.value if av_i.value is not None else float('nan'):.4f}"
-                  f" cov {av_i.coverage if av_i.coverage is not None else float('nan'):.3f} (up {av_i.up} down {av_i.down} missing {av_i.missing})"
+                  f" cov {av_i.coverage if av_i.coverage is not None else float('nan'):.3f} (up {av_i.up} down {av_i.down} missing {av_i.missing};"
+                  f" by AC {av_i.by_ac_power}, counter up {av_i.up_by_counter} down {av_i.down_by_counter})"
                   f"  | strings/inverter DC {r if r else float('nan'):.4f} (n={n})")
+        for inv in sorted(sn_of):
+            sm = esum[inv]
+            print(f"  {inv} energy: measured {sm['measured_kwh']:.0f} kWh ({sm['measured_slots']:.0f} slots), reconstructed "
+                  f"{sm['reconstructed_kwh']:.0f} kWh ({sm['reconstructed_slots']:.0f} slots, {sm['gaps']:.0f} gaps: up {sm['gap_up']:.0f}"
+                  f" down {sm['gap_down']:.0f} unknown {sm['gap_unknown']:.0f}), closed by the daily total {sm['closed_by_daily_kwh']:.0f} kWh"
+                  f" ({sm['closed_by_daily_slots']:.0f} slots), still unknown {sm['unknown_slots']:.0f} slots")
+        e_tot = sum(sm["measured_kwh"] + sm["reconstructed_kwh"] + sm["closed_by_daily_kwh"] for sm in esum.values())
+        d_tot = sum(daily_total.values())
+        if d_tot:
+            print(f"  energy check: engine {e_tot:.1f} kWh vs daily_production {d_tot:.1f} kWh ({len(daily_total)} days): ratio {e_tot / d_tot:.4f}")
         low = sorted(((t.epi, k) for k, t in res.epi600.items() if ":" in k and t.epi is not None and t.n >= 50))
         print("  lowest strings EPI-600:", ", ".join(f"{k} {e:.3f}" for e, k in low[:6]))
         print("  excluded:", ", ".join(f"{k}={v}" for k, v in sorted(res.reasons.items())))

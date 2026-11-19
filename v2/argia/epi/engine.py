@@ -104,6 +104,7 @@ class Result:
     avail: Dict[str, Avail] = field(default_factory=dict)       # key: inverter label
     daily600: Dict[dt.date, M.Tally] = field(default_factory=dict)
     reasons: Dict[str, int] = field(default_factory=dict)       # why buckets / samples were left out
+    steps600: set = field(default_factory=set)                  # distinct 5-minute steps in the plant EPI-600
 
     def _t(self, d, k):
         return d.setdefault(k, M.Tally())
@@ -284,6 +285,7 @@ def run_plant(pm: M.PlantModel,
                     for k in ("plant", inv, s.uid):
                         res._t(res.epi600, k).add(p, e, STEP_H)
                     res._t(res.daily600, day).add(p, e, STEP_H)
+                    res.steps600.add(b)
     return res
 
 

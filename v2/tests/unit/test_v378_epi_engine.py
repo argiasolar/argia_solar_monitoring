@@ -90,6 +90,7 @@ def test_known_performance_is_recovered_exactly():
     station, samples = _day(pm, strs, 0.95)
     res = E.run_plant(pm, strs, chan, sn_of, station, samples, MX)
     assert res.epi600["plant"].epi == pytest.approx(0.95, abs=1e-9)
+    assert 0 < len(res.steps600) <= len(station)                # distinct 5-minute steps, for the 200-step rule
     assert res.epi150["INV2"].epi == pytest.approx(0.95, abs=1e-9)
     assert "INV2:PV2" not in res.epi600                     # before its COD: does not exist
     p = res.epi600["plant"]

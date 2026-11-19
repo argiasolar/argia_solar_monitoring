@@ -261,7 +261,8 @@ def main(argv=None):
         av = E.plant_availability(res, kwp_inv)
         print(f"\n=== {name} ({key}) {'stability filter ON' if a.stability else ''}")
         print(f"  stale inverter records dropped: {getattr(load_export, 'stale', {})}")
-        print(f"  EPI-600 {fmt(p600.epi)}  n={p600.n}  band={M.band(p600.epi, p600.n)} | EPI-150 {fmt(p150.epi)} n={p150.n}"
+        steps = len(res.steps600)
+        print(f"  EPI-600 {fmt(p600.epi)}  steps={steps} (string samples {p600.n})  band={M.band(p600.epi, steps)} | EPI-150 {fmt(p150.epi)} n={p150.n}"
               f" | Availability-150 {fmt(av)} | daily EPI-600 sd {fmt(sd)} over {len(daily)} days")
         for inv in sorted(sn_of):
             t6, t1, av_i = res.epi600.get(inv, M.Tally()), res.epi150.get(inv, M.Tally()), res.avail.get(inv, E.Avail())
@@ -284,9 +285,21 @@ def main(argv=None):
         low = sorted(((t.epi, k) for k, t in res.epi600.items() if ":" in k and t.epi is not None and t.n >= 50))
         print("  lowest strings EPI-600:", ", ".join(f"{k} {e:.3f}" for e, k in low[:6]))
         print("  excluded:", ", ".join(f"{k}={v}" for k, v in sorted(res.reasons.items())))
-        report[name] = {"epi600": p600.epi, "n600": p600.n, "epi150": p150.epi, "avail": av, "daily_sd": sd,
-                        "inverters": {inv: {"epi600": res.epi600.get(inv, M.Tally()).epi, "strings_vs_dc": chk[inv][0]} for inv in sn_of},
-                        "strings": {k: {"epi600": t.epi, "n": t.n} for k, t in res.epi600.items() if ":" in k}}
+        report[name] = {
+            "key": key, "stability_filter": a.stability,
+            "epi600": p600.epi, "n600": p600.n, "steps600": steps, "band": M.band(p600.epi, steps), "epi150": p150.epi, "n150": p150.n,
+            "avail": av, "daily_sd": sd, "days_with_epi": len(res.daily600),
+            "energy_kwh": e_tot, "daily_production_kwh": d_tot,
+            "excluded": dict(res.reasons), "stale_records": dict(getattr(load_export, "stale", {})),
+            "daily": {str(d): {"epi600": t.epi, "n": t.n} for d, t in sorted(res.daily600.items())},
+            "inverters": {inv: {
+                "sn": sn_of[inv], "kwp": kwp_inv[inv],
+                "epi600": res.epi600.get(inv, M.Tally()).epi, "n600": res.epi600.get(inv, M.Tally()).n,
+                "epi150": res.epi150.get(inv, M.Tally()).epi,
+                "avail": res.avail.get(inv, E.Avail()).value, "coverage": res.avail.get(inv, E.Avail()).coverage,
+                "avail_counts": vars(res.avail.get(inv, E.Avail())),
+                "strings_vs_dc": chk[inv][0], "energy": dict(esum[inv])} for inv in sn_of},
+            "strings": {k: {"epi600": t.epi, "n": t.n} for k, t in res.epi600.items() if ":" in k}}
     if a.json_out:
         json.dump(report, open(a.json_out, "w", encoding="utf-8"), indent=1, default=str)
     return 0

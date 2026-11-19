@@ -140,3 +140,13 @@ def test_card_scripts_parse(js, tmp_path):
     f.write_text(js, encoding="utf-8")
     r = subprocess.run([node, "--check", str(f)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-400:]
+
+
+def test_wide_cards_beat_the_portal_card_rule():
+    """v383.1: the two big cards use up to 1600 px, centred on the window. The portal scopes the
+    monitoring CSS under .monbody, and '.monbody .card{margin:14px 0}' silently cancelled the
+    centring once (cards ran 76 px off screen) - the rule must carry .monbody .card.<cls>."""
+    for css, cls in ((SH.CSS, "slcard"), (H.CSS, "evcard")):
+        assert f".card.{cls},.monbody .card.{cls}{{width:min(1600px,calc(100vw - 32px))" in css
+        assert "margin-left:calc(50% - min(800px,50vw - 16px))" in css
+    assert ".slcard .slnm{white-space:nowrap}" in SH.CSS

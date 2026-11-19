@@ -215,6 +215,8 @@ def render(p: dict) -> str:
 
 
 CSS = '''
+/* v383: wider than the 1280 px page, centred on the window (Tomasz: use the sides) */
+.card.slcard,.monbody .card.slcard{width:min(1600px,calc(100vw - 32px));max-width:none;margin-left:calc(50% - min(800px,50vw - 16px));margin-right:0;box-sizing:border-box}
 .slcard .slintro{font-size:13.5px;color:#3c4043;margin:0 0 8px;max-width:980px}
 .slcard .slchk{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:#5f6368;margin-bottom:10px}
 .slcard .slchk span.ok b{color:#137333}.slcard .slchk span.bad b{color:#b06000}
@@ -232,6 +234,7 @@ CSS = '''
 .slcard .slside{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 28px;font-size:13px;align-items:start}
 .slcard .sllegend{display:contents}
 .slcard .slcol,.slcard .slflag{min-width:0}
+.slcard .slnm{white-space:nowrap}
 .slcard .sltk{float:right;margin-left:8px;font-size:12px;padding:1px 8px;border-radius:6px;border:1px solid #c5221f;color:#c5221f;text-decoration:none;white-space:nowrap}
 .slcard .sltk:hover{background:#fce8e6}
 .slcard .sltk.open{border-color:#1e8e3e;color:#1e8e3e}
@@ -244,6 +247,7 @@ CSS = '''
 .slcard .sllegend table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:10px}
 .slcard .sllegend td{padding:3px 4px;border-bottom:1px solid #f0f1f3;text-align:left;white-space:normal;vertical-align:top}
 .slcard .sllegend td.r{text-align:right;white-space:nowrap}
+.slcard .sllegend td.r .note,.monbody .slcard .sllegend td.r .note{white-space:nowrap}
 .slcard .sw{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-2px;margin-right:6px}
 .slcard .sq{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:6px}
 .slcard .slsum{margin-bottom:8px;font-size:12.5px;color:#3c4043}
@@ -357,7 +361,7 @@ document.querySelectorAll('.slcard').forEach(function(card){
  // ----------------------------------------------------------------- legend
  function legend(cnt){var l=L(),h=[];
   h.push('<div class="slcol"><h4>'+(l?'Inversores':'Inverters')+'</h4><table>');
-  P.inv.forEach(function(v){h.push('<tr><td><span class="sq" style="background:'+v.col+'"></span><b>'+E(v.il)+'</b>'+(dname(v.sn)?'<br><span class="note">'+(l?'en el plano: ':'on the drawing: ')+E(dname(v.sn))+'</span>':'')+
+  P.inv.forEach(function(v){h.push('<tr><td><span class="slnm"><span class="sq" style="background:'+v.col+'"></span><b>'+E(v.il)+'</b></span>'+(dname(v.sn)?'<br><span class="note">'+(l?'en el plano: ':'on the drawing: ')+E(dname(v.sn))+'</span>':'')+
    '</td><td><span class="note">'+E(v.sn)+'<br>'+E(v.model)+'</span></td><td class="r">'+v.n+(l?' cad.':' str.')+(v.placed!==v.n?'<br><span class="note">'+v.placed+(l?' en plano':' on drawing')+'</span>':'')+
    (v.kwp?'<br><span class="note">'+num(v.kwp,1)+' kWp</span>':'')+'</td></tr>');});
   h.push('</table></div><div class="slcol">');

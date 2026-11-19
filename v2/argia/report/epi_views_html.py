@@ -87,6 +87,8 @@ def render(pk: str, p: dict, live: bool) -> str:
 
 
 CSS = '''
+/* v383: wider than the 1280 px page, centred on the window (Tomasz: use the sides) */
+.card.evcard,.monbody .card.evcard{width:min(1600px,calc(100vw - 32px));max-width:none;margin-left:calc(50% - min(800px,50vw - 16px));margin-right:0;box-sizing:border-box}
 .evcard .evtk{display:inline-block;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid #c5221f;color:#c5221f;text-decoration:none}
 .evcard .evtk:hover{background:#fce8e6}
 .evcard .evtk.open{border-color:#1e8e3e;color:#1e8e3e}

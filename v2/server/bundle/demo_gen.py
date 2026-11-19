@@ -404,6 +404,47 @@ def psql_public(sql, opts=READ_ONLY):
     return [ln.split('\t') for ln in r.stdout.splitlines() if ln.strip()]
 
 
+# v382.3: inverter serials. The portal shows every inverter as "Inverter 3 (JGMAE65009)" /
+# "Inverter 3 <span class="sn">JGMAE65009</span>" (v230); a serial is not a customer name, so the
+# name scan let 185 demo pages carry them. On the demo the label stays and the serial goes; any
+# other occurrence (a table cell, an id, JSON) becomes a neutral code; one left = nothing published.
+def real_serials():
+    """Every inverter serial in public.inverter, active or not."""
+    return sorted({r[0].strip() for r in psql_public('SELECT inverter_sn FROM public.inverter;') if r and r[0].strip()})
+
+
+def serial_codes(serials):
+    """{serial: 'SN-0001', ...} in sorted order; serials shorter than 6 characters are not
+    distinctive enough to scan for and are left out. Pure."""
+    return {sn: f'SN-{i:04d}' for i, sn in enumerate(sorted(s for s in set(serials) if len(s) >= 6), 1)}
+
+
+def scrub_serials(text, codes):
+    """'Inverter 3 (SN)' -> 'Inverter 3'; 'Inverter 3 <span class="sn">SN</span>' -> 'Inverter 3';
+    every other SN -> its code. Data URIs untouched. Returns (text, n). Pure."""
+    body, keep = _mask(text)
+    n = 0
+    for sn in sorted(codes, key=lambda s: (-len(s), s)):
+        e = re.escape(sn)
+        for rx, new in ((r'\s*\(' + e + r'\)', ''), (r'\s*<span class="sn">' + e + r'</span>', ''),
+                        (r'(?<![A-Za-z0-9])' + e + r'(?![A-Za-z0-9])', codes[sn])):
+            body, c = re.subn(rx, new, body, flags=re.IGNORECASE)
+            n += c
+    return _unmask(body, keep), n
+
+
+def serial_leaks(text, codes):
+    """[(serial, context)] for every real serial still in the text, anywhere, any case. Pure."""
+    body, _ = _mask(text)
+    up = body.upper()
+    out = []
+    for sn in codes:
+        i = up.find(sn.upper())
+        if i >= 0:
+            out.append((sn, body[max(0, i - 40):i + len(sn) + 40].replace('\n', ' ')))
+    return out
+
+
 def demo_schema_ok():
     """search_path=demo,public silently falls through to the real tables
     when a demo view is missing - so check the views exist AND that the
@@ -913,11 +954,12 @@ def main(argv=None):
     # 2) the portal generator, unchanged, writing into the staging folder;
     # the real names are read BEFORE configure() replaces the slug table
     rules = build_rules(real_names())
+    codes = serial_codes(real_serials())
     uris = client_logo_uris()
     PG, keys, demo_names = load_portal(stage)
     rels = write_pages(PG, keys)
     # 3) scrub + the leak gate
-    scrubbed, found = 0, []
+    scrubbed, serials, found = 0, 0, []
     for rel in rels:
         p = os.path.join(stage, rel)
         with open(p, encoding='utf-8') as fh:
@@ -926,7 +968,9 @@ def main(argv=None):
         text, _ = unlink_absent(text)
         text, n = scrub(text, rules, demo_names)
         scrubbed += n
-        hits = leaks(text, rules) + [(nm, 'its logo image') for nm in logo_leaks(text, uris)] + customer_cards(text)
+        text, n = scrub_serials(text, codes)
+        serials += n
+        hits = leaks(text, rules) + [(nm, 'its logo image') for nm in logo_leaks(text, uris)] + customer_cards(text) + serial_leaks(text, codes)
         if hits:
             found += [(rel, tok, ctx) for tok, ctx in hits]
         with open(p, 'w', encoding='utf-8') as fh:
@@ -939,7 +983,7 @@ def main(argv=None):
         return 1
     publish(stage, out)
     print(f'demo_gen: wrote {len(rels)} pages + {n_assets} assets under {out} '
-          f'({len(keys)} plants, all PPA; {scrubbed} name(s) scrubbed; 0 leaks)')
+          f'({len(keys)} plants, all PPA; {scrubbed} name(s) and {serials} serial(s) scrubbed; 0 leaks)')
     return 0
 
 

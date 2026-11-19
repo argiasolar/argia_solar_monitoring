@@ -178,9 +178,23 @@ def real_name_hits(out, names):
 class TestProofAndInventory:
     def test_the_proof_line(self, demo, psql):
         _, so, _ = demo
-        m = re.search(r"demo_gen: wrote (\d+) pages \+ (\d+) assets .* \((\d+) plants, all PPA; \d+ name\(s\) scrubbed; 0 leaks\)", so)
+        m = re.search(r"demo_gen: wrote (\d+) pages \+ (\d+) assets .* \((\d+) plants, all PPA; \d+ name\(s\) and (\d+) serial\(s\) scrubbed; 0 leaks\)", so)
         assert m, so
         assert int(m.group(3)) == int(psql("SELECT count(*) FROM plant WHERE active")[0][0])
+        assert int(m.group(4)) > 0                       # v382.3: the pages did carry serials
+
+    def test_no_inverter_serial_on_any_demo_file(self, demo, psql):
+        """v382.3: every serial of public.inverter, active or not, in any case, on no page or file."""
+        out, _, _ = demo
+        sers = [r[0].strip().upper() for r in psql("SELECT inverter_sn FROM inverter") if r and len(r[0].strip()) >= 6]
+        assert sers
+        hits = []
+        for rel in all_files(out):
+            p = out / rel
+            if p.suffix in (".html", ".csv", ".json", ".js", ".txt"):
+                up = p.read_text(encoding="utf-8", errors="replace").upper()
+                hits += [(rel, s) for s in sers if s in up]
+        assert hits == [], hits[:10]
 
     def test_only_the_demo_sections_exist(self, demo):
         out, _, _ = demo

@@ -306,3 +306,24 @@ def test_generator_wiring_is_fail_soft():
     assert "except Exception" in body and "return ''" in body
     page = src[src.index("def plant_page"):]
     assert page.index("{epi_views_card(pk, d)}") < page.index("{string_layout_card(pk, d)}")
+
+
+def test_the_demo_never_shows_the_card():
+    """v382.2: the card reached demo.argia.com.mx on 19 Nov (layout names like SAG_INV1_MPPT1_C3 are
+    abbreviations the demo's name scan cannot see). The demo switches the card off, and its publish
+    gate refuses any page that still carries it."""
+    import sys
+    sys.path.insert(0, str(V2 / "server" / "bundle"))
+    import demo_gen as DG
+    src = (V2 / "server" / "bundle" / "demo_gen.py").read_text(encoding="utf-8")
+    assert "MG.EPI_CFG, MG.EPI_B = {}, None" in src
+    page = H.card("DEMO", V.apply_mtd(json.loads(json.dumps(_p_for_demo())), None, 1))
+    assert DG.customer_cards(page) == [('class="card evcard"', "a customer-engineering card")]
+    assert DG.customer_cards('<div class="card slcard" id="slX">') != []
+    assert DG.customer_cards(H.pending_card()) == [] and DG.customer_cards("<p>plain page</p>") == []
+    assert "+ customer_cards(text)" in src                       # wired into the publish gate
+
+
+def _p_for_demo():
+    (pm, strs, chan, sn_of), station, samples, ac, _tel = synth(lambda u, t: 1.0)
+    return V.build(pm, strs, chan, sn_of, station, samples, ac, DAY, MX)

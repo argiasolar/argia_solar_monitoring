@@ -572,6 +572,10 @@ def configure(PG):
     # v317: the string layouts are the customers' own drawings (names, logos, roofs) - never on the demo
     assert hasattr(MG, 'LAYOUTS'), 'monitoring_gen changed: LAYOUTS not found'
     MG.LAYOUTS.clear()
+    # v382.2: the EPI troubleshooting card carries the layout string names, inverter serials and
+    # work-order labels - customer engineering data like the drawings - never on the demo
+    assert hasattr(MG, 'EPI_B') and hasattr(MG, 'EPI_CFG'), 'monitoring_gen changed: EPI_B / EPI_CFG not found'
+    MG.EPI_CFG, MG.EPI_B = {}, None
     # chrome: host, sub-tabs, no Ask / account / app
     C.PORTAL_HOST = DEMO_HOST
     C.SECTIONS = {
@@ -870,6 +874,17 @@ def load_portal(outroot):
     return PG, keys, demo_names
 
 
+# v382.2: cards built from customer engineering data (string layout drawings, EPI troubleshooting
+# views with layout names and serials). Their names are abbreviations ("SAG_INV1_MPPT1_C3") that
+# the name scan cannot see, so the card itself is the leak: one on any page = nothing published.
+CUSTOMER_CARDS = ('class="card slcard"', 'class="card evcard"')
+
+
+def customer_cards(text):
+    """[(card marker, why)] for every customer-engineering card on a demo page."""
+    return [(m, 'a customer-engineering card') for m in CUSTOMER_CARDS if m in text]
+
+
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     out = os.path.abspath(argv[1] if len(argv) > 1 else DEMO_ROOT)
@@ -911,7 +926,7 @@ def main(argv=None):
         text, _ = unlink_absent(text)
         text, n = scrub(text, rules, demo_names)
         scrubbed += n
-        hits = leaks(text, rules) + [(nm, 'its logo image') for nm in logo_leaks(text, uris)]
+        hits = leaks(text, rules) + [(nm, 'its logo image') for nm in logo_leaks(text, uris)] + customer_cards(text)
         if hits:
             found += [(rel, tok, ctx) for tok, ctx in hits]
         with open(p, 'w', encoding='utf-8') as fh:

@@ -56,3 +56,36 @@ def test_wired_into_the_publish_gate():
     assert "text, n = scrub_serials(text, codes)" in src
     assert "+ serial_leaks(text, codes)" in src
     assert "SELECT inverter_sn FROM public.inverter;" in src           # every serial, active or not
+
+
+def _reference_scrub(text, codes):
+    """The v382.3 scrub (three searches per serial) - the reference v382.4 must equal."""
+    import re
+    body, keep = DG._mask(text)
+    n = 0
+    for sn in sorted(codes, key=lambda s: (-len(s), s)):
+        e = re.escape(sn)
+        for rx, new in ((r"\s*\(" + e + r"\)", ""), (r'\s*<span class="sn">' + e + r"</span>", ""),
+                        (r"(?<![A-Za-z0-9])" + e + r"(?![A-Za-z0-9])", codes[sn])):
+            body, c = re.subn(rx, new, body, flags=re.IGNORECASE)
+            n += c
+    return DG._unmask(body, keep), n
+
+
+def test_one_pass_scrub_equals_the_reference_on_random_pages():
+    """v382.4: one combined pattern (the demo run took 209 s with three searches per serial)."""
+    import random
+    rnd = random.Random(7)
+    sers = [f"{rnd.choice(['ZZQ', 'ZZR', 'YYP'])}{rnd.randint(10**6, 10**9)}{rnd.choice('ABCDTU')}" for _ in range(60)]
+    sers += ["ABCDEF7788", "ABCDEF77889"]                                 # one serial inside another
+    codes = DG.serial_codes(sers)
+    forms = ['Inverter {i} ({s})', 'Inverter {i} <span class="sn">{s}</span>', '<td>{s}</td>', '{{"sn":"{s}"}}',
+             'inverter {l}', 'x{s}y', 'data:image/png;base64,AA{s}AA', 'id="inv-{s}"']
+    for _ in range(300):
+        page = "".join(rnd.choice(forms).format(i=rnd.randint(1, 9), s=s, l=s.lower()) + " lorem "
+                       for s in (rnd.choice(sers) for _ in range(rnd.randint(1, 30))))
+        ref = _reference_scrub(page, codes)
+        assert DG.scrub_serials(page, codes) == ref
+        left = DG._mask(ref[0])[0].upper()
+        assert bool(DG.serial_leaks(ref[0], codes)) == any(s.upper() in left for s in codes)
+    assert DG.scrub_serials("no serial here", {}) == ("no serial here", 0) and DG.serial_leaks("x", {}) == []

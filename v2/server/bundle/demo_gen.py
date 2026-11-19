@@ -419,28 +419,49 @@ def serial_codes(serials):
     return {sn: f'SN-{i:04d}' for i, sn in enumerate(sorted(s for s in set(serials) if len(s) >= 6), 1)}
 
 
+_SERIAL_RX = {}
+
+
+def _serial_rx(codes):
+    """One compiled pattern for every serial (v382.4: three searches per serial per page made the
+    demo run 209 s instead of about 100 s). Longest serial first, so a serial that contains another
+    is matched whole."""
+    key = tuple(sorted(codes))
+    if key not in _SERIAL_RX:
+        alt = '|'.join(re.escape(s) for s in sorted(codes, key=lambda s: (-len(s), s)))
+        _SERIAL_RX.clear()
+        _SERIAL_RX[key] = (
+            re.compile(r'(?P<par>\s*\((?:' + alt + r')\))|(?P<span>\s*<span class="sn">(?:' + alt + r')</span>)'
+                       r'|(?<![A-Za-z0-9])(?P<bare>' + alt + r')(?![A-Za-z0-9])', re.IGNORECASE),
+            re.compile(alt, re.IGNORECASE))
+    return _SERIAL_RX[key]
+
+
 def scrub_serials(text, codes):
     """'Inverter 3 (SN)' -> 'Inverter 3'; 'Inverter 3 <span class="sn">SN</span>' -> 'Inverter 3';
     every other SN -> its code. Data URIs untouched. Returns (text, n). Pure."""
+    if not codes:
+        return text, 0
+    rx, _any = _serial_rx(codes)
+    up = {s.upper(): c for s, c in codes.items()}
     body, keep = _mask(text)
-    n = 0
-    for sn in sorted(codes, key=lambda s: (-len(s), s)):
-        e = re.escape(sn)
-        for rx, new in ((r'\s*\(' + e + r'\)', ''), (r'\s*<span class="sn">' + e + r'</span>', ''),
-                        (r'(?<![A-Za-z0-9])' + e + r'(?![A-Za-z0-9])', codes[sn])):
-            body, c = re.subn(rx, new, body, flags=re.IGNORECASE)
-            n += c
+    body, n = rx.subn(lambda m: up[m.group('bare').upper()] if m.group('bare') else '', body)
     return _unmask(body, keep), n
 
 
 def serial_leaks(text, codes):
     """[(serial, context)] for every real serial still in the text, anywhere, any case. Pure."""
+    if not codes:
+        return []
+    _rx, anyrx = _serial_rx(codes)
     body, _ = _mask(text)
-    up = body.upper()
-    out = []
-    for sn in codes:
-        i = up.find(sn.upper())
-        if i >= 0:
+    by_up = {s.upper(): s for s in codes}
+    out, seen = [], set()
+    for m in anyrx.finditer(body):
+        sn = by_up[m.group(0).upper()]
+        if sn not in seen:
+            seen.add(sn)
+            i = m.start()
             out.append((sn, body[max(0, i - 40):i + len(sn) + 40].replace('\n', ' ')))
     return out
 

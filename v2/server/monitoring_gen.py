@@ -339,6 +339,25 @@ for r in q("SELECT plant_key, coalesce(inverter_sn,''), metric, severity,"
 
 # v226: the maintenance ticket behind an alert (open tickets only) -
 # {alert_key: (number, status)}; empty before the first ticket exists
+# v383: open tickets per plant, so the string / inverter views show the ticket that
+# already covers an input instead of offering a second one (argia.maintenance.ticket_links)
+try:
+    from argia.maintenance import ticket_links as TL
+except Exception:                                     # noqa: BLE001
+    TL = None
+OPEN_TICKETS = []                                     # [(number, plant_key, inverter_sn, title)]
+if TL is not None:
+    try:
+        OPEN_TICKETS = [tuple(r[:4]) for r in q(TL.OPEN_SQL) if len(r) >= 4]
+    except RuntimeError:                              # no ticket table yet
+        OPEN_TICKETS = []
+
+
+def tickets_on(pk):
+    """Ticket buttons only on internal plant pages: PPA plants (CAPEX owners see their own page)."""
+    return TL is not None and PLANTS.get(pk, {}).get('portfolio') == 'PPA'
+
+
 TICKET_BY_ALERT = {}
 try:
     for r in q("SELECT a.alert_key, t.number, t.status FROM ticket_alert a JOIN ticket t ON t.id = a.ticket_id"
@@ -1389,6 +1408,9 @@ def string_layout_card(pk, d):
                                 day=SLA.evaluate_daily(strings, _per_string(strings, ah), normal), **common)
             else:
                 p = SLH.payload(pk, lay, labels, live=live, source='none', **common)
+        if tickets_on(pk):                            # v383
+            p['tk'] = {'on': True, 'open': TL.layout_open(strings, pk, OPEN_TICKETS), 'day': d,
+                       'pn': display_name(PLANTS[pk].get('customer') or pk)}
         return SLH.card(p)
     except Exception as e:                            # noqa: BLE001  (a card must never cost the page)
         print(f'monitoring_gen: string layout card {pk} {d} failed: {e}', file=sys.stderr)
@@ -1419,7 +1441,13 @@ def epi_views_card(pk, d):
         by_sn = {sn: label for sn, label, _r in CONFIG_INV.get(pk, [])}
         inv_labels = {inv: by_sn.get(sn, inv) for inv, sn in EPI_CFG[pk].sn_of.items()}
         p = EPI_B.card_payload(pk, dt.date.fromisoformat(d), inv_labels)
-        return EPH.pending_card() if p is None else EPH.card(pk, p, live=d == TODAY)
+        if p is None:
+            return EPH.pending_card()
+        if tickets_on(pk):                            # v383
+            cfg = EPI_CFG[pk]
+            tokens = {u: TL.input_token(c.kind, c.index) for u, c in cfg.channel_of.items()}
+            p['tk'] = TL.epi_tickets(p, pk, display_name(PLANTS[pk].get('customer') or pk), OPEN_TICKETS, tokens)
+        return EPH.card(pk, p, live=d == TODAY)
     except Exception as e:                            # noqa: BLE001  (a card must never cost the page)
         print(f'monitoring_gen: EPI views card {pk} {d} failed: {e}', file=sys.stderr)
         return ''

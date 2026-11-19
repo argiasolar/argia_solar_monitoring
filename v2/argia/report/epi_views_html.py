@@ -87,6 +87,12 @@ def render(pk: str, p: dict, live: bool) -> str:
 
 
 CSS = '''
+.evcard .evtk{display:inline-block;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid #c5221f;color:#c5221f;text-decoration:none}
+.evcard .evtk:hover{background:#fce8e6}
+.evcard .evtk.open{border-color:#1e8e3e;color:#1e8e3e}
+.evcard .evtks{margin-top:8px}
+.evcard .evtkrow{margin-top:4px}
+
 .evcard .evhead{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin:4px 0 8px}
 .evband{display:inline-block;padding:1px 8px;border-radius:10px;color:#fff;font-size:12px}
 .ev-green{background:#1e8e3e}.ev-amber{background:#b26a00}.ev-red{background:#c5221f}.ev-suspect{background:#6a3fb5}.ev-insufficient{background:#7a8494}
@@ -109,6 +115,10 @@ var L=function(){return (document.documentElement.lang==='es'||(function(){try{r
 function tx(a){return a[L()];}
 function el(tag,attrs,txt){var e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(txt!=null)e.textContent=txt;return e;}
 function pct(x){return x==null?'n/a':(x*100).toFixed(1)+' %';}
+// v383: a prefilled ticket, or the open ticket that already covers it
+function tkcell(e){if(!e)return '';
+ if(e.open)return '<a class="evtk open" href="/maintenance/t/'+encodeURIComponent(e.open)+'/">'+e.open+' '+tx(['open','abierto'])+'</a>';
+ return '<a class="evtk" href="'+e.url.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'">'+tx(['Open ticket','Abrir ticket'])+'</a>';}
 document.querySelectorAll('.evcard').forEach(function(card){
  var P=JSON.parse(card.querySelector('.evdata').textContent), C=JSON.parse(card.dataset.colors);
  var svg=card.querySelector('.evsvg'), leg=card.querySelector('.evleg'), panel=card.querySelector('.evpanel'), sum=card.querySelector('.evsum'), tip=card.querySelector('.evtip');
@@ -161,7 +171,9 @@ document.querySelectorAll('.evcard').forEach(function(card){
    return '<button type="button" data-inv="'+v.inv+'" class="'+(hidden[v.inv]?'off':'')+'"><span class="evsw" style="background:'+c+'"></span><b>'+v.name+'</b><br>'+
     tx(['strings ','cadenas '])+v.producing+' / '+v.n_strings+' · EPI-600 '+pct(v.epi600_mtd)+' ('+tx(['MTD','mes'])+') · '+pct(v.epi600_day)+' ('+tx(['day','día'])+')<br>Avail-150 '+pct(v.avail_mtd)+
     (v.gaps.length?' · <span class="evflag">'+v.gaps.length+' '+tx(['gap(s)','hueco(s)'])+'</span>':'')+(v.from_ac.length?' · '+tx(['AC used ','CA usada '])+v.from_ac.length+'×':'')+'</button>';}).join('');
-  panel.innerHTML='<div class="note">'+tx(['Click an inverter to hide or show it.','Haga clic en un inversor para ocultarlo o mostrarlo.'])+'</div><div class="evinv">'+rows+'</div>';
+  var TI=(P.tk||{}).i||{}, tks=P.inverters.filter(function(v){return TI[v.inv];}).map(function(v){var g=v.gaps.reduce(function(a,b){return b.pct_peers<a.pct_peers?b:a;},v.gaps[0]);
+   return '<tr><td><b>'+v.name+'</b> '+g.pct_peers+'% '+tx(['vs peers','vs pares'])+' '+g.from+'-'+g.to+(v.gaps.length>1?' (+'+(v.gaps.length-1)+')':'')+'</td><td>'+tkcell(TI[v.inv])+'</td></tr>';}).join('');
+  panel.innerHTML='<div class="note">'+tx(['Click an inverter to hide or show it.','Haga clic en un inversor para ocultarlo o mostrarlo.'])+'</div><div class="evinv">'+rows+'</div>'+(tks?'<table class="evtks">'+tks+'</table>':'');
   panel.querySelectorAll('[data-inv]').forEach(function(b){b.onclick=function(){hidden[b.dataset.inv]=!hidden[b.dataset.inv];draw();};});
   sum.innerHTML='';
  }
@@ -182,8 +194,10 @@ document.querySelectorAll('.evcard').forEach(function(card){
    (S.zero.length?legItem('#5b0f1e',tx(['no output','sin salida']),1):'')+(S.mixed_planes?'<span>'+tx(['(strings on different roof planes: colours use each string\'s own design; the band is drawn from the raw values)','(cadenas en planos distintos: los colores usan el diseño propio de cada cadena; la banda se dibuja con los valores medidos)'])+'</span>':'');
   var btns=P.inverters.map(function(v,k){return '<button type="button" data-sel="'+v.inv+'" class="'+(v.inv===sel?'on':'')+'"><span class="evsw" style="background:'+C[k%C.length]+'"></span>'+v.name+' · '+pct(v.epi600_mtd)+'</button>';}).join('');
   var wo=function(u){var k=S.uids.indexOf(u);return S.wo&&S.wo[k]?'<br><span class="note">'+S.wo[k]+'</span>':'';};
-  var lst=S.out.map(function(o){return '<tr><td>'+o.label+wo(o.uid)+'</td><td>'+(o.pct>0?'+':'')+o.pct+'%</td><td>'+o.minutes+' min</td></tr>';}).join('');
-  var zl=S.zero.map(function(u){return '<tr><td class="evflag">'+S.labels[S.uids.indexOf(u)]+wo(u)+'</td><td colspan="2" class="evflag">'+tx(['no output','sin salida'])+'</td></tr>';}).join('');
+  var TK=(P.tk||{}).s||{};
+  var tkl=function(u){var c=tkcell(TK[u]);return c?'<div class="evtkrow">'+c+'</div>':'';};
+  var lst=S.out.map(function(o){return '<tr><td>'+o.label+wo(o.uid)+tkl(o.uid)+'</td><td>'+(o.pct>0?'+':'')+o.pct+'%</td><td>'+o.minutes+' min</td></tr>';}).join('');
+  var zl=S.zero.map(function(u){return '<tr><td class="evflag">'+S.labels[S.uids.indexOf(u)]+wo(u)+tkl(u)+'</td><td colspan="2" class="evflag">'+tx(['no output','sin salida'])+'</td></tr>';}).join('');
   panel.innerHTML='<div class="evinv">'+btns+'</div>'+(lst||zl?'<table>'+zl+lst+'</table>':'<p class="note">'+tx(['All strings inside the band.','Todas las cadenas dentro de la banda.'])+'</p>');
   panel.querySelectorAll('[data-sel]').forEach(function(b){b.onclick=function(){sel=b.dataset.sel;draw();};});
   // summary: one marker per string, EPI-600 month to date

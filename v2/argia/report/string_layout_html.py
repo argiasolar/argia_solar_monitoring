@@ -206,7 +206,7 @@ def render(p: dict) -> str:
 <p class="slintro">{intro}</p>
 <div class="slchk"></div>
 {stale}<div class="slbar">{views}{pics}{timebar}</div>
-<div class="slmain"><div class="sldraw">{pic}</div><div class="slside"><div class="sllegend"></div><div class="slsum"></div><div class="sllist"></div></div></div>
+<div class="slmain"><div class="sldraw">{pic}</div><div class="slside"><div class="sllegend"></div><div class="slflag"><div class="slsum"></div><div class="sllist"></div></div></div></div>
 <div class="slgrid"></div>
 <div class="sltip" role="tooltip"></div>
 <p class="note">{t(*SRC_NOTE[p['src']])} {t('A colour is a pointer for the O&M team, not an alarm.', 'Un color es una pista para O&M, no una alarma.')}</p>{notes}
@@ -226,10 +226,15 @@ CSS = '''
 .slcard .sltime{display:flex;align-items:center;gap:10px;flex:1;min-width:200px;max-width:420px}
 .slcard .sltime input{flex:1;accent-color:#1c2733}
 .slcard .slclock{font-variant-numeric:tabular-nums;min-width:48px}
-.slcard .slmain{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-.slcard .sldraw{flex:3 1 560px;min-width:0}
+.slcard .slmain{display:flex;flex-direction:column;gap:14px}
+.slcard .sldraw{width:100%;min-width:0}
 .slcard .sldraw:empty{display:none}
-.slcard .slside{flex:1 1 260px;font-size:13px;min-width:240px}
+.slcard .slside{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 28px;font-size:13px;align-items:start}
+.slcard .sllegend{display:contents}
+.slcard .slcol,.slcard .slflag{min-width:0}
+.slcard .sltk{float:right;margin-left:8px;font-size:12px;padding:1px 8px;border-radius:6px;border:1px solid #c5221f;color:#c5221f;text-decoration:none;white-space:nowrap}
+.slcard .sltk:hover{background:#fce8e6}
+.slcard .sltk.open{border-color:#1e8e3e;color:#1e8e3e}
 .slcard .slpic{position:relative;width:100%;border-radius:8px;overflow:hidden;border:1px solid #e4e7ea;background:#f1f3f4}
 .slcard .slpic img{display:block;width:100%;height:auto;filter:saturate(.18) contrast(.9) brightness(1.06)}
 .slcard .slsvg{position:absolute;inset:0;width:100%;height:100%}
@@ -351,11 +356,11 @@ document.querySelectorAll('.slcard').forEach(function(card){
  document.addEventListener('click',function(){if(pin!=null){pin=null;tip.style.display='none';}});
  // ----------------------------------------------------------------- legend
  function legend(cnt){var l=L(),h=[];
-  h.push('<h4>'+(l?'Inversores':'Inverters')+'</h4><table>');
+  h.push('<div class="slcol"><h4>'+(l?'Inversores':'Inverters')+'</h4><table>');
   P.inv.forEach(function(v){h.push('<tr><td><span class="sq" style="background:'+v.col+'"></span><b>'+E(v.il)+'</b>'+(dname(v.sn)?'<br><span class="note">'+(l?'en el plano: ':'on the drawing: ')+E(dname(v.sn))+'</span>':'')+
    '</td><td><span class="note">'+E(v.sn)+'<br>'+E(v.model)+'</span></td><td class="r">'+v.n+(l?' cad.':' str.')+(v.placed!==v.n?'<br><span class="note">'+v.placed+(l?' en plano':' on drawing')+'</span>':'')+
    (v.kwp?'<br><span class="note">'+num(v.kwp,1)+' kWp</span>':'')+'</td></tr>');});
-  h.push('</table>');
+  h.push('</table></div><div class="slcol">');
   if(view==='h'){
    h.push('<h4>'+(l?'Color del punto':'Dot colour')+'</h4><table>');
    ['g','a','r','z','d','n'].forEach(function(c){h.push('<tr><td><span class="sw" style="background:'+hcol(c)+'"></span>'+E(P.cls[c][l])+'</td><td class="note">'+E(P.rule[c][l])+'</td><td class="r">'+(cnt[c]||0)+'</td></tr>');});
@@ -363,7 +368,23 @@ document.querySelectorAll('.slcard').forEach(function(card){
   } else {
    h.push('<div class="note" style="margin-bottom:8px">'+(l?'Cada punto y cada panel en el color de su inversor. Borde punteado = entrada por el orden del inversor; anillo naranja = confirmar en sitio.':'Every dot and every panel in its inverter\'s colour. Dashed ring = input by the inverter order; orange ring = confirm on site.')+'</div>');
   }
+  h.push('</div>');
   card.querySelector('.sllegend').innerHTML=h.join('');}
+ // v383: a prefilled ticket for a string that is clearly low (very low or no current), or the
+ // open ticket that already covers its input (P.tk from the generator; absent = no buttons)
+ function tklink(k,c){var T=P.tk;if(!T||!T.on||(c!=='z'&&c!=='r'))return '';var s=P.s[k],l=L();
+  var tok=s.ch[0]==='m'?'MPPT '+s.ch.slice(1):'input '+s.ch.slice(1);
+  var open=(T.open||{})[String(k)];
+  if(open)return '<a class="sltk open" href="/maintenance/t/'+encodeURIComponent(open)+'/">'+E(open)+(l?' abierto':' open')+'</a>';
+  var r=ratio(k),when=(mode==='t'&&nb)?(T.day+' '+P.t[at]):(T.day+(l?' (todo el día)':' (whole day)'));
+  var what=c==='z'?'no current':(r!=null?Math.round(r*100)+'% of its neighbours':'very low');
+  var desc=['Plant: '+T.pn+'. When: '+when+'.','Where: '+s.il+' '+s.sn+', '+tok+(s.mp?' (MPPT '+s.mp+')':'')+(s.cad.length?', string '+s.cad.join(', ')+' on the drawing':'')+'.',
+   (s.n?s.n+' x ':'')+s.mod+(s.kwp?', '+s.kwp+' kWp':'')+'.',
+   (c==='z'?'No current while its neighbours produce.':'Current '+(r!=null?Math.round(r*100)+'%':'below 70%')+' of its neighbours (same plane, same inverter)')+(s.nm!=null?'; its normal is '+Math.round(s.nm*100)+'%.':'.'),
+   'Opened from the plant page, string layout card.'].join('\n');
+  var q='plant='+encodeURIComponent(P.pk)+'&sn='+encodeURIComponent(s.sn)+'&category='+encodeURIComponent('array/string')+'&priority='+(c==='z'?'P2':'P3')+
+   '&title='+encodeURIComponent((s.il+' '+tok+': '+what+' ('+T.day+')').slice(0,140))+'&description='+encodeURIComponent(desc);
+  return '<a class="sltk" href="/maintenance/new/?'+q.replace(/&/g,'&amp;')+'">'+(l?'Abrir ticket':'Open ticket')+'</a>';}
  // ------------------------------------------------------------------ paint
  function paint(){var l=L(),cnt={};checks();
   P.s.forEach(function(s,k){var c=cls(k);cnt[c]=(cnt[c]||0)+1;});
@@ -386,9 +407,9 @@ document.querySelectorAll('.slcard').forEach(function(card){
   sum.innerHTML='<b>'+when+'</b>: '+(cnt.g||0)+(l?' bien, ':' ok, ')+bad.length+(l?' bajas':' low')+(l?' de ':' of ')+P.s.length+(l?' cadenas':' strings')+'.';
   var rank={z:0,r:1,a:2};bad.sort(function(a,b){return rank[cls(a)]-rank[cls(b)]||((ratio(a)||0)-(ratio(b)||0));});
   bad.slice(0,10).forEach(function(k){var s=P.s[k],d=document.createElement('div'),c=cls(k),r=ratio(k);
-   d.innerHTML='<span class="sw" style="background:'+hcol(c)+';box-shadow:0 0 0 2px '+icol(s.sn)+'"></span><b>'+E(s.il)+'</b> · '+sname(s)+': '+(r!=null?pct(r)+(l?' de sus vecinas':' of its neighbours'):E(P.cls[c][l]))+(s.nm!=null?' <span class="note">('+(l?'normal ':'normal ')+pct(s.nm)+')</span>':'');
+   d.innerHTML=tklink(k,c)+'<span class="sw" style="background:'+hcol(c)+';box-shadow:0 0 0 2px '+icol(s.sn)+'"></span><b>'+E(s.il)+'</b> · '+sname(s)+': '+(r!=null?pct(r)+(l?' de sus vecinas':' of its neighbours'):E(P.cls[c][l]))+(s.nm!=null?' <span class="note">('+(l?'normal ':'normal ')+pct(s.nm)+')</span>':'');
    d.addEventListener('mouseenter',function(){highlight(k,true);});d.addEventListener('mouseleave',function(){highlight(k,false);});
-   d.addEventListener('click',function(ev){ev.stopPropagation();pin=k;show(ev,tipHtml(k));});list.appendChild(d);});
+   d.addEventListener('click',function(ev){if(ev.target.closest('a'))return;ev.stopPropagation();pin=k;show(ev,tipHtml(k));});list.appendChild(d);});
   if(bad.length>10){var m=document.createElement('div');m.style.cursor='default';m.textContent='+'+(bad.length-10);list.appendChild(m);}
  }
  if(range){range.addEventListener('input',function(){at=+range.value;paint();});}

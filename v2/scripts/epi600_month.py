@@ -33,6 +33,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from argia.epi import engine as E   # noqa: E402
+from argia.epi import feed as F     # noqa: E402
 from argia.epi import gaps as G     # noqa: E402
 from argia.epi import sky           # noqa: E402
 from argia.epi import model as M    # noqa: E402
@@ -77,46 +78,21 @@ def channel_for(string_id: str, plant_vendor: str) -> E.Channel:
 
 
 def load_export(d, key):
-    station_rows = defaultdict(list)
+    """The export files of one plant -> (station, samples, inverter DC, AC power, counters), via argia.epi.feed."""
+    tel, acrows = [], []
     with open(os.path.join(d, "telemetry.csv"), encoding="utf-8") as f:
         for r in csv.DictReader(f):
             if r["plant_key"] != key:
                 continue
-            t = ts_parse(r["ts_utc"])
-            station_rows[int(t.timestamp()) // 300].append(
-                (t, fnum(r["irradiance_wm2"]), fnum(r["module_temp_c"]), fnum(r["ambient_temp_c"])))
-    station = {}
-    for b, rows in station_rows.items():
-        def avg(i):
-            v = [x[i] for x in rows if x[i] is not None]
-            return sum(v) / len(v) if v else None
-        mean_ts = dt.datetime.fromtimestamp(sum(x[0].timestamp() for x in rows) / len(rows), dt.timezone.utc)
-        station[b] = E.Station(mean_ts, avg(1), avg(2), avg(3))
-    samples = {}
+            ts = ts_parse(r["ts_utc"]).timestamp()
+            tel.append((ts, fnum(r["irradiance_wm2"]), fnum(r["module_temp_c"]), fnum(r["ambient_temp_c"])))
+            acrows.append((r["inverter_sn"], ts, fnum(r["power_w"]), fnum(r["etoday_kwh"])))
+    station = F.station_from_rows(tel)
     with open(os.path.join(d, "strings.csv"), encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            if r["plant_key"] != key:
-                continue
-            b = int(ts_parse(r["ts_utc"]).timestamp()) // 300
-            samples[(r["inverter_sn"], b)] = E.InvSample(arr(r["str_a"]) or [], arr(r["mppt_a"]) or [], arr(r["mppt_v"]) or [])
-    ac, ctr = {}, defaultdict(dict)
-    rows = defaultdict(list)
-    with open(os.path.join(d, "telemetry.csv"), encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            if r["plant_key"] == key:
-                rows[r["inverter_sn"]].append((int(ts_parse(r["ts_utc"]).timestamp()) // 300,
-                                               fnum(r["power_w"]), fnum(r["etoday_kwh"])))
-    stale = {}
-    for sn, rs in rows.items():
-        st_b = G.stale_buckets(rs)
-        stale[sn] = len(st_b)
-        for bk, p, c in rs:
-            if bk in st_b:
-                continue                     # a frozen API record is missing data, not zero production
-            if p is not None:
-                ac[(sn, bk)] = p
-            if c is not None:
-                ctr[sn][bk] = c
+        samples = F.samples_from_rows((r["inverter_sn"], ts_parse(r["ts_utc"]).timestamp(), arr(r["str_a"]) or [],
+                                       arr(r["mppt_a"]) or [], arr(r["mppt_v"]) or [])
+                                      for r in csv.DictReader(f) if r["plant_key"] == key)
+    ac, ctr, stale = F.ac_and_counters(acrows)
     load_export.stale = stale
     ppv = {}
     with open(os.path.join(d, "detail.csv"), encoding="utf-8") as f:

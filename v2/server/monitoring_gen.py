@@ -1395,6 +1395,36 @@ def string_layout_card(pk, d):
         return ''
 
 
+# ------------------------------------------- v382 troubleshooting views
+# Spec v0.7 section 8 (Plant / Inverters / Strings in W per kWp against the
+# EPI design curve). Configuration is server-only (/opt/argia/epi: Arturo's
+# annexes, B_m, inverter limits, plant map); a plant without it has no card.
+# Closed days are cached in /var/lib/argia/epi (argia.epi.live).
+try:
+    from argia.epi import config as EPC
+    from argia.epi import live as EPL
+    from argia.report import epi_views_html as EPH
+    EPI_CFG = EPC.load(EPC.EPI_DIR, LAYOUT_DIR)
+    EPI_B = EPL.Builder(q, EPI_CFG, MX, NOW_MX, {k: EPL.fingerprint(EPC.EPI_DIR, LAYOUT_DIR, k) for k in EPI_CFG})
+except Exception as e:                                # noqa: BLE001
+    EPI_CFG, EPI_B = {}, None
+    print(f'monitoring_gen: EPI views off: {e}', file=sys.stderr)
+
+
+def epi_views_card(pk, d):
+    """The v382 card for one plant-day ('' when the plant has no EPI configuration)."""
+    if EPI_B is None or pk not in EPI_CFG:
+        return ''
+    try:
+        by_sn = {sn: label for sn, label, _r in CONFIG_INV.get(pk, [])}
+        inv_labels = {inv: by_sn.get(sn, inv) for inv, sn in EPI_CFG[pk].sn_of.items()}
+        p = EPI_B.card_payload(pk, dt.date.fromisoformat(d), inv_labels)
+        return EPH.pending_card() if p is None else EPH.card(pk, p, live=d == TODAY)
+    except Exception as e:                            # noqa: BLE001  (a card must never cost the page)
+        print(f'monitoring_gen: EPI views card {pk} {d} failed: {e}', file=sys.stderr)
+        return ''
+
+
 def sev_pill(sev):
     """v305: CRITICAL red, WARNING amber, INFO a grey 'flag' - a possible
     loss without a measured one; shown here, never mailed."""
@@ -1576,6 +1606,7 @@ def plant_page(pk, d, skin='old'):
     body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
+{epi_views_card(pk, d)}
 {string_layout_card(pk, d)}
 <div class="card"><h2 data-en="Inverters - {'latest sample' if live else 'last sample of the day'}" data-es="Inversores - última muestra">Inverters - latest sample</h2>
 <table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>

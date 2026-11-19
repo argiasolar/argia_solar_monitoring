@@ -5636,6 +5636,7 @@ def dd_home():
             "Naves (LED high-bay con sensores), estacionamiento, áreas comunes y áreas de servicio: levantamiento de luminarias, diseño de iluminación, instalación y ahorro medido por propiedad.")),
     ]
     offer_html = "".join(f'<div class="card"><h2 style="margin:0 0 6px;font-size:17px">{UI.e(h)}</h2><p class="small" style="margin:0">{UI.e(d)}</p></div>' for h, d in offer)
+    pts_json = json.dumps(pts, ensure_ascii=False).replace("</", "<\\/")   # outside the f-string: Python 3.11 allows no backslash in one
     body = f"""<div class="hero"><div class="k">{tt("Due diligence", "Due diligence")} · {UI.e(pf.as_of)}</div>
 <h1>{UI.e(tt(pf.title, pf.title_es or pf.title))}</h1><div class="sub">{UI.e(tt(co.get("about", ""), co.get("about_es") or co.get("about", "")))}</div>
 <div class="kpis"><div class="kpi"><div class="l">{tt("Properties", "Propiedades")}</div><div class="v">{tot["properties"]}</div><div class="d">{tot["operating"]} {tt("operating", "en operación")} · {tot["development"]} {tt("in development", "en desarrollo")}</div></div>
@@ -5654,7 +5655,7 @@ def dd_home():
 <div class="card"><h2>{tt("Sources and limits", "Fuentes y límites")}</h2><p class="small">{tt("Properties, areas, anchors, parking and opening dates come from the public pages of", "Propiedades, áreas, anclas, cajones y fechas de apertura vienen de las páginas públicas de")} <a href="{UI.e(co.get("url", ""))}" rel="noopener" target="_blank">{UI.e(co.get("name", ""))}</a>. {tt("Locations from the published addresses (approximate where marked). PV on roofs as seen on satellite imagery of unknown date; who owns it (the property or an anchor tenant) is not known.", "Ubicaciones a partir de las direcciones publicadas (aproximadas donde se indica). FV en techos según imagen satelital de fecha desconocida; no se sabe quién es dueño (la propiedad o una tienda ancla).")}</p>
 <p class="small">{tt("Every figure on this page is an estimate for a first conversation, not an offer. A site audit, the CFE bills and the roof drawings turn it into a proposal.", "Cada cifra de esta página es una estimación para una primera conversación, no una oferta. Una visita, los recibos de CFE y los planos de techos la convierten en propuesta.")}</p></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>(function(){{var P={json.dumps(pts, ensure_ascii=False).replace("</", "<\\/")};var LB={lb};
+<script>(function(){{var P={pts_json};var LB={lb};
 var m=L.map('ddmap',{{scrollWheelZoom:false}});
 var st=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri',maxZoom:19}}).addTo(m);
 var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'&copy; Esri, Maxar, Earthstar Geographics',maxZoom:19}});

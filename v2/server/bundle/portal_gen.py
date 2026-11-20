@@ -380,9 +380,15 @@ def monitoring_plant(k, d):
  <div style="flex:1"></div>
  <div class="monctl" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">{picker}{buttons}<a class="btn" href="/report/{C.slug(k)}/">{ico("report", 15, "#053b38", 2)} {t("Open report", "Abrir reporte")}</a></div>
 </div>'''
-    extra = '<style>' + C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES + '</style>'
+    extra = ('<style>' + C.scoped_css(MG.STYLE, '.monbody') + C.skin_reset('.monbody') + MON_OVERRIDES
+             + PLANT_WIDE + '</style>')
     return C.page(name(k), head + f'<div class="monbody">{body}</div>', 'monitoring', '',
                   refresh=(300 if live else 0), extra_head=extra)
+
+
+# v384 (Tomasz): the live plant page uses up to 1600 px - header, tabs and every card - instead of
+# the portal's 1280 px; on a smaller screen it is the window, as before
+PLANT_WIDE = '.wrap,.phrow,.tabs{max-width:1600px}'
 
 
 # ------------------------------------------------------------ v264 losses

@@ -120,6 +120,9 @@ def build(pm: M.PlantModel, strings: Sequence[M.StringDef], channel_of: Mapping[
     res = E.run_plant(pm, list(strings), channel_of, sn_of, {b: station[b] for b in buckets if b in station},
                       samples, tz, ac_power_w=ac_power_w)
     day_t = tallies(res)
+    # v384: the day's insolation from the valid station samples (kWh/m2), for the week / month view
+    gv = [g for g in ghi if g is not None]
+    day_t['insol'] = round(sum(gv) * 5 / 60 / 1000, 2) if gv else None
     inverters, string_views, inv_series = [], {}, {}
     for inv in sorted(by_inv):
         strs = by_inv[inv]
@@ -178,6 +181,14 @@ def apply_mtd(payload: dict, mtd: Optional[dict], mtd_days: Optional[int] = None
                   'avail_mtd': _avail(total['avail'].get(i['inv']))})
         sv = payload['strings'][i['inv']]
         sv['epi600_mtd'] = {u: _ratio(total['epi600'].get(u)) for u in sv['uids']}
+        # v384: over the month, a string with no data or below ZERO_SHARE of its design is
+        # "not producing"; the inverter's EPI-600 on its producing strings leaves them out
+        # (Arturo's mock-up: "17 of 18 strings producing | EPI-600 87.1 % (92.2 % on producing strings)")
+        idle = [u for u in sv['uids'] if sv['epi600_mtd'][u] is None or sv['epi600_mtd'][u] < ZERO_SHARE]
+        sv['idle_mtd'] = idle
+        live = [total['epi600'][u] for u in sv['uids'] if u not in idle and u in total['epi600']]
+        i['producing_mtd'] = len(sv['uids']) - len(idle)
+        i['epi600_mtd_producing'] = _ratio([sum(x[0] for x in live), sum(x[1] for x in live), sum(x[2] for x in live)]) if live else None
     return payload
 
 
@@ -271,6 +282,27 @@ def tallies(res: E.Result) -> dict:
     return {'epi600': {k: [t.real_wh, t.expected_wh, t.n] for k, t in res.epi600.items()},
             'avail': {k: [a.up, a.down, a.missing] for k, a in res.avail.items()},
             'steps600': len(res.steps600)}
+
+
+def period(days: Sequence[Tuple[str, Optional[dict]]], keys: Mapping[str, Sequence[str]]) -> dict:
+    """v384: the week / month view from per-day tallies. ``days``: [(iso day, tallies or None)];
+    ``keys``: {'inv': [...], 'str': [...]}. Daily EPI-600 per plant, inverter and string (None where
+    the day has no valid sample at G_poa >= 600 or is not computed yet), insolation, and the period's
+    own EPI-600 as a ratio of sums (never an average of daily ratios)."""
+    out = {'days': [d for d, _t in days], 'computed': sum(1 for _d, t in days if t is not None),
+           'insol': [t.get('insol') if t else None for _d, t in days],
+           'plant': [_ratio(t['epi600'].get('plant')) if t else None for _d, t in days], 'inv': {}, 'str': {}}
+    for part in ('inv', 'str'):
+        for k in keys.get(part, []):
+            out[part][k] = [_ratio(t['epi600'].get(k)) if t else None for _d, t in days]
+    wanted = set(keys.get('inv', [])) | {'plant'}
+    for name, span in (('sum', days), ('sum7', days[-7:])):
+        total = {}
+        for _d, t in span:
+            if t:
+                total = merge_tallies(total, t)
+        out[name] = {k: _ratio(v) for k, v in (total.get('epi600') or {}).items() if k in wanted}
+    return out
 
 
 def merge_tallies(a: dict, b: dict) -> dict:

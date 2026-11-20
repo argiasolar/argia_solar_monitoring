@@ -72,13 +72,15 @@ def render(pk: str, p: dict, live: bool) -> str:
                'Las comparaciones dentro de la planta - inversor contra inversor, cadena contra cadena - usan el mismo sensor y son confiables.')
     seg = ('<div class="evseg">' + ''.join(
         f'<button type="button" data-v="{v}" data-en="{en}" data-es="{es}">{en}</button>'
-        for v, en, es in (('p', 'Plant', 'Planta'), ('i', 'Inverters', 'Inversores'), ('s', 'Strings', 'Cadenas'))) + '</div>')
+        for v, en, es in (('p', 'Plant', 'Planta'), ('i', 'Inverters', 'Inversores'), ('s', 'Strings', 'Cadenas'),
+                          ('w', 'Week', 'Semana'), ('m', 'Month', 'Mes'))) + '</div>')
     return f'''<div class="card evcard" id="ev{pk}" data-colors='{_embed(INV_COLORS)}'>
 <h2 data-en="Troubleshooting: plant, inverters, strings" data-es="Diagnóstico: planta, inversores, cadenas">Troubleshooting: plant, inverters, strings</h2>
 {head}
 <div class="evmain"><div class="evchart"><svg class="evsvg" viewBox="0 0 940 330" preserveAspectRatio="none"></svg><div class="evleg"></div></div>
 <div class="evside">{seg}<div class="evpanel"></div></div></div>
 <div class="evsum"></div>
+<div class="evby"></div>
 <div class="evtip" role="tooltip"></div>
 <p class="note">{caveat}</p>
 <p class="note">{t(rules_en, rules_es)}</p>
@@ -87,8 +89,6 @@ def render(pk: str, p: dict, live: bool) -> str:
 
 
 CSS = '''
-/* v383: wider than the 1280 px page, centred on the window (Tomasz: use the sides) */
-.card.evcard,.monbody .card.evcard{width:min(1600px,calc(100vw - 32px));max-width:none;margin-left:calc(50% - min(800px,50vw - 16px));margin-right:0;box-sizing:border-box}
 .evcard .evtk{display:inline-block;white-space:nowrap;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid #c5221f;color:#c5221f;text-decoration:none}
 .evcard .evtk:hover{background:#fce8e6}
 .evcard .evtk.open{border-color:#1e8e3e;color:#1e8e3e}
@@ -104,8 +104,11 @@ CSS = '''
 .evseg button.on{background:#1c2733;color:#fff;border-color:#1c2733}.evinv button.on{border-color:#1c2733;box-shadow:inset 3px 0 0 #1c2733}.evinv button.off{opacity:.45}
 .evpanel{font-size:12.5px}.evpanel table{width:100%;border-collapse:collapse}.evpanel td{padding:3px 2px;border-bottom:1px solid #eceef0}
 .evinv{display:flex;flex-direction:column;gap:3px;margin:6px 0}.evsw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
-.evleg{font-size:12px;color:#5f6368;margin-top:4px}.evleg span{margin-right:12px}
+.evleg{font-size:12px;color:#5f6368;margin-top:4px}.evleg span{margin-right:12px;white-space:nowrap;display:inline-block}
+.evcard .evleg svg{display:inline-block;vertical-align:middle}   /* the portal sets svg{display:block} */
 .evsum{margin-top:8px}.evsum svg{width:100%;height:auto}
+.evby{margin-top:18px;border-top:1px solid #eceef0;padding-top:10px}.evh3{font-size:14px;margin:4px 0 2px}
+.evbyinv{margin:12px 0 4px}.evbyh{font-size:13px;color:#3c4043;margin:0 0 2px}.evbysvg{width:100%;height:auto;display:block}
 .evtip{position:fixed;display:none;background:#1c2733;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px;pointer-events:none;z-index:50;max-width:280px}
 .evflag{color:#c5221f;font-weight:600}
 @media(max-width:820px){.evmain{flex-direction:column}.evside{width:100%}}
@@ -141,25 +144,30 @@ document.querySelectorAll('.evcard').forEach(function(card){
    svg.appendChild(el('text',{x:W-PR-4,y:12,'font-size':11,fill:'#b9bec4'},'W/m²'));}
   P.t.forEach(function(s,i){if(s.slice(3)==='00'){svg.appendChild(el('text',{x:X(i),y:H-8,'text-anchor':'middle','font-size':11,fill:'#80868b'},s));}});
  }
+ // v384: the day's sunshine as a yellow area behind the lines, on its own W/m2 scale (right)
+ function sun(gmax){var Y=function(v){return PT+(H-PT-PB)*(1-v/gmax);},d='',seg=[];
+  function flush(){if(seg.length>1){d+='M'+X(seg[0][0]).toFixed(1)+','+(H-PB)+seg.map(function(q){return 'L'+X(q[0]).toFixed(1)+','+Y(q[1]).toFixed(1);}).join('')+'L'+X(seg[seg.length-1][0]).toFixed(1)+','+(H-PB)+'Z';}seg=[];}
+  P.ghi.forEach(function(v,i){if(v==null)flush();else seg.push([i,v]);});flush();
+  if(d)svg.appendChild(el('path',{d:d,fill:'#f9d65c',opacity:.28,stroke:'#f2c14e','stroke-width':1}));}
+ function sunLeg(){return '<span><svg width="22" height="8"><rect width="22" height="8" fill="#f9d65c" opacity=".5"/></svg> '+tx(['sunshine: station irradiance (right, W/m²)','sol: irradiancia de estación (der., W/m²)'])+'</span>';}
  function mx(arrs){var m=1;arrs.forEach(function(a){a.forEach(function(v){if(v!=null&&v>m)m=v;});});return m*1.08;}
  function clear(){while(svg.firstChild)svg.removeChild(svg.firstChild);leg.innerHTML='';}
  function legItem(color,label,dash){return '<span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="'+color+'" stroke-width="2"'+(dash?' stroke-dasharray="5 3"':'')+'/></svg> '+label+'</span>';}
  function drawPlant(){
   var vmax=mx([P.plant.ac_kw,P.plant.design_kw]), gmax=mx([P.ghi]);
   var Y=function(v){return PT+(H-PT-PB)*(1-v/vmax);}, YG=function(v){return PT+(H-PT-PB)*(1-v/gmax);};
-  axes(vmax,'kW',gmax);
-  var g=path(P.ghi,YG); if(g)svg.appendChild(el('path',{d:g,fill:'none',stroke:'#f2c14e','stroke-width':1.4,opacity:.8}));
+  axes(vmax,'kW',gmax); sun(gmax);
   svg.appendChild(el('path',{d:path(P.plant.design_kw,Y),fill:'none',stroke:'#1c2733','stroke-width':1.6,'stroke-dasharray':'7 4'}));
   svg.appendChild(el('path',{d:path(P.plant.ac_kw,Y),fill:'none',stroke:'#2f6fdb','stroke-width':2.2}));
-  leg.innerHTML=legItem('#2f6fdb',tx(['PV generation (AC)','Generación FV (CA)']))+legItem('#1c2733',tx(['Design (EPI model, measured weather)','Diseño (modelo EPI, clima medido)']),1)+legItem('#f2c14e',tx(['Station irradiance (right)','Irradiancia de estación (der.)']));
+  leg.innerHTML=legItem('#2f6fdb',tx(['PV generation (AC)','Generación FV (CA)']))+legItem('#1c2733',tx(['Design (EPI model, measured weather)','Diseño (modelo EPI, clima medido)']),1)+sunLeg();
   panel.innerHTML='<table><tr><td>'+tx(['EPI-600 this day','EPI-600 del día'])+'</td><td><b>'+pct(P.plant.epi600_day)+'</b></td></tr><tr><td>'+tx(['EPI-600 month to date','EPI-600 mes a la fecha'])+'</td><td><b>'+pct(P.plant.epi600_mtd)+'</b></td></tr></table>'+
    '<p class="note" style="margin-top:8px"><b>'+tx(['Battery','Batería'])+'</b>: '+tx(['no battery connected. The panel and the battery series activate on their own when a battery is registered.','sin batería conectada. El panel y la serie de batería se activan solas cuando se registre una batería.'])+'</p>';
   sum.innerHTML='';
  }
  function drawInverters(){
   var all=[];P.inverters.forEach(function(v){if(!hidden[v.inv]){all.push(v.w);all.push(v.design);}});
-  var vmax=mx(all.length?all:[[1]]), Y=function(v){return PT+(H-PT-PB)*(1-v/vmax);};
-  axes(vmax,'W/kWp');
+  var vmax=mx(all.length?all:[[1]]), Y=function(v){return PT+(H-PT-PB)*(1-v/vmax);}, gmax=mx([P.ghi]);
+  axes(vmax,'W/kWp',gmax); sun(gmax);
   P.inverters.forEach(function(v,k){if(hidden[v.inv])return;var c=C[k%C.length];
    v.gaps.forEach(function(g){svg.appendChild(el('rect',{x:X(g.i0)-2,y:PT,width:Math.max(X(g.i1)-X(g.i0)+4,4),height:H-PT-PB,fill:c,opacity:.10}));});
    svg.appendChild(el('path',{d:path(v.design,Y),fill:'none',stroke:c,'stroke-width':1.2,'stroke-dasharray':'5 4',opacity:.75}));
@@ -168,7 +176,7 @@ document.querySelectorAll('.evcard').forEach(function(card){
     svg.appendChild(el('circle',{cx:x,cy:y,r:4,fill:'none',stroke:c,'stroke-width':2}));
     label(Math.min(x+6,W-PR-170),Math.min(y+16,H-PB-4),v.name+' '+g.pct_peers+'% '+tx(['vs peers','vs pares'])+' '+g.from+'-'+g.to,c);});
   });
-  leg.innerHTML=P.inverters.map(function(v,k){return legItem(C[k%C.length],v.name);}).join('')+legItem('#80868b',tx(['design of each inverter','diseño de cada inversor']),1);
+  leg.innerHTML=P.inverters.map(function(v,k){return legItem(C[k%C.length],v.name);}).join('')+legItem('#80868b',tx(['design of each inverter','diseño de cada inversor']),1)+sunLeg();
   var rows=P.inverters.map(function(v,k){var c=C[k%C.length];
    return '<button type="button" data-inv="'+v.inv+'" class="'+(hidden[v.inv]?'off':'')+'"><span class="evsw" style="background:'+c+'"></span><b>'+v.name+'</b><br>'+
     tx(['strings ','cadenas '])+v.producing+' / '+v.n_strings+' · EPI-600 '+pct(v.epi600_mtd)+' ('+tx(['MTD','mes'])+') · '+pct(v.epi600_day)+' ('+tx(['day','día'])+')<br>Avail-150 '+pct(v.avail_mtd)+
@@ -181,8 +189,8 @@ document.querySelectorAll('.evcard').forEach(function(card){
  }
  function drawStrings(){
   var S=P.strings[sel]; if(!S){return;}
-  var all=[S.hi].concat(S.w), vmax=mx(all), Y=function(v){return PT+(H-PT-PB)*(1-v/vmax);};
-  axes(vmax,'W/kWp');
+  var all=[S.hi].concat(S.w), vmax=mx(all), Y=function(v){return PT+(H-PT-PB)*(1-v/vmax);}, gmax=mx([P.ghi]);
+  axes(vmax,'W/kWp',gmax); sun(gmax);
   var up='',dn='';for(var i=0;i<n;i++){if(S.hi[i]==null||S.lo[i]==null)continue;up+=(up?'L':'M')+X(i).toFixed(1)+','+Y(S.hi[i]).toFixed(1);}
   for(var j=n-1;j>=0;j--){if(S.hi[j]==null||S.lo[j]==null)continue;dn+='L'+X(j).toFixed(1)+','+Y(S.lo[j]).toFixed(1);}
   if(up)svg.appendChild(el('path',{d:up+dn+'Z',fill:'#dfe3e8',opacity:.8}));
@@ -192,7 +200,7 @@ document.querySelectorAll('.evcard').forEach(function(card){
   S.out.forEach(function(o){var k=S.uids.indexOf(o.uid),c=o.pct<0?'#d64545':'#2f6fdb';
    svg.appendChild(el('path',{d:path(S.w[k],Y),fill:'none',stroke:c,'stroke-width':1.8}));
    var v=S.w[k][o.i];if(v!=null){label(Math.min(X(o.i)+5,W-PR-120),Math.max(Y(v)-6,PT+10),S.labels[k]+' ('+(o.pct>0?'+':'')+o.pct+'%)',c);}});
-  leg.innerHTML='<span><svg width="22" height="8"><rect width="22" height="8" fill="#dfe3e8"/></svg> '+tx(['band of the strings','banda de las cadenas'])+'</span>'+legItem('#1c2733',tx(['median of the inverter','mediana del inversor']))+legItem('#d64545',tx(['below the band','bajo la banda']))+legItem('#2f6fdb',tx(['above the band','sobre la banda']))+
+  leg.innerHTML=sunLeg()+'<span><svg width="22" height="8"><rect width="22" height="8" fill="#dfe3e8"/></svg> '+tx(['band of the strings','banda de las cadenas'])+'</span>'+legItem('#1c2733',tx(['median of the inverter','mediana del inversor']))+legItem('#d64545',tx(['below the band','bajo la banda']))+legItem('#2f6fdb',tx(['above the band','sobre la banda']))+
    (S.zero.length?legItem('#5b0f1e',tx(['no output','sin salida']),1):'')+(S.mixed_planes?'<span>'+tx(['(strings on different roof planes: colours use each string\'s own design; the band is drawn from the raw values)','(cadenas en planos distintos: los colores usan el diseño propio de cada cadena; la banda se dibuja con los valores medidos)'])+'</span>':'');
   var btns=P.inverters.map(function(v,k){return '<button type="button" data-sel="'+v.inv+'" class="'+(v.inv===sel?'on':'')+'"><span class="evsw" style="background:'+C[k%C.length]+'"></span>'+v.name+' · '+pct(v.epi600_mtd)+'</button>';}).join('');
   var wo=function(u){var k=S.uids.indexOf(u);return S.wo&&S.wo[k]?'<br><span class="note">'+S.wo[k]+'</span>':'';};
@@ -202,18 +210,80 @@ document.querySelectorAll('.evcard').forEach(function(card){
   var zl=S.zero.map(function(u){return '<tr><td class="evflag">'+S.labels[S.uids.indexOf(u)]+wo(u)+tkl(u)+'</td><td colspan="2" class="evflag">'+tx(['no output','sin salida'])+'</td></tr>';}).join('');
   panel.innerHTML='<div class="evinv">'+btns+'</div>'+(lst||zl?'<table>'+zl+lst+'</table>':'<p class="note">'+tx(['All strings inside the band.','Todas las cadenas dentro de la banda.'])+'</p>');
   panel.querySelectorAll('[data-sel]').forEach(function(b){b.onclick=function(){sel=b.dataset.sel;draw();};});
-  // summary: one marker per string, EPI-600 month to date
-  var m=S.uids.length, w=Math.max(m*56,300), s='<svg viewBox="0 0 '+w+' 56" width="'+w+'" style="max-width:100%;height:auto">';
-  S.uids.forEach(function(u,k){var e=S.epi600_mtd[u], x=26+k*56, z=S.zero.indexOf(u)>=0;
-   var col=z?'#5b0f1e':e==null?'#a3a8ae':e>=0.97?'#1e8e3e':e>=0.93?'#b26a00':'#c5221f';
-   s+=z?'<text x="'+x+'" y="22" text-anchor="middle" font-size="18" fill="'+col+'">✕</text>':'<circle cx="'+x+'" cy="16" r="8" fill="'+col+'"/>';
-   s+='<text x="'+x+'" y="38" text-anchor="middle" font-size="10" fill="#5f6368">'+S.labels[k].split(':').pop()+'</text><text x="'+x+'" y="51" text-anchor="middle" font-size="10" fill="#1c2733">'+(z?tx(['no output','sin salida']):(e==null?'n/a':Math.round(e*100)+'%'))+'</text>';});
-  sum.innerHTML='<div class="note">'+tx(['Each string, EPI-600 month to date (green 97 % or more, amber 93-97 %, red below 93 %; ✕ = no output this day):','Cada cadena, EPI-600 mes a la fecha (verde 97 % o más, ámbar 93-97 %, rojo bajo 93 %; ✕ = sin salida este día):'])+'</div>'+s+'</svg>';
+  sum.innerHTML='';
+ }
+ // v384: EPI-600 month to date by string, one chart per inverter (Arturo's mock-up, spec section 8.4)
+ function byStrings(){var box=card.querySelector('.evby');if(!box)return;var out=['<h3 class="evh3">'+tx(['EPI-600 by string and inverter, month to date','EPI-600 por cadena e inversor, mes a la fecha'])+'</h3>'+
+   '<p class="note">'+tx(['Each dot is one string; the band behind it is the target band. A cross is a string with no output this month.','Cada punto es una cadena; la banda detrás es la banda objetivo. Una cruz es una cadena sin salida este mes.'])+'</p>'];
+  P.inverters.forEach(function(v){var S=P.strings[v.inv];if(!S)return;var m=S.uids.length;
+   var vals=S.uids.filter(function(u){return S.idle_mtd.indexOf(u)<0;}).map(function(u){return S.epi600_mtd[u];});
+   var top=Math.max(1.0,(Math.ceil(Math.max.apply(null,vals.concat([1]))*100)+2)/100), bot=Math.min(0.85,(Math.floor(Math.min.apply(null,vals.concat([0.85]))*100)-2)/100);
+   var Wc=Math.max(1400,m*46+120),Hc=170,L=46,R=110,T=10,B=26,Yc=function(e){return T+(Hc-T-B)*(1-(Math.min(Math.max(e,bot),top)-bot)/(top-bot));},Xc=function(k){return L+(k+0.5)*(Wc-L-R)/m;};
+   var s='<svg viewBox="0 0 '+Wc+' '+Hc+'" class="evbysvg" preserveAspectRatio="xMidYMid meet">';
+   [[0.97,top,'#e6f4ea',tx(['green: 97 % or more','verde: 97 % o más']),'#1e8e3e'],[0.93,0.97,'#fef7e0',tx(['amber: 93 to 97 %','ámbar: 93 a 97 %']),'#b26a00'],[bot,0.93,'#fce8e6',tx(['red: below 93 %','rojo: bajo 93 %']),'#c5221f']].forEach(function(b){
+    if(b[1]<=bot)return;var y0=Yc(b[1]),y1=Yc(Math.max(b[0],bot));s+='<rect x="'+L+'" y="'+y0.toFixed(1)+'" width="'+(Wc-L)+'" height="'+(y1-y0).toFixed(1)+'" fill="'+b[2]+'"/><text x="'+(Wc-6)+'" y="'+(y0+13).toFixed(1)+'" text-anchor="end" font-size="10.5" fill="'+b[4]+'">'+b[3]+'</text>';});
+   [bot,0.93,0.97,1.0].concat(top>1.0?[top]:[]).forEach(function(e){s+='<text x="'+(L-6)+'" y="'+(Yc(e)+4).toFixed(1)+'" text-anchor="end" font-size="10" fill="#80868b">'+Math.round(e*100)+'</text>';});
+   s+='<text x="12" y="'+((Hc-B+T)/2)+'" font-size="10" fill="#80868b" transform="rotate(-90 12 '+((Hc-B+T)/2)+')" text-anchor="middle">EPI-600 (%)</text>';
+   S.uids.forEach(function(u,k){var e=S.epi600_mtd[u],x=Xc(k),idle=S.idle_mtd.indexOf(u)>=0,lab=S.labels[k].split(':').pop();
+    s+='<text x="'+x.toFixed(1)+'" y="'+(Hc-8)+'" text-anchor="middle" font-size="10" fill="#5f6368">'+lab+'</text>';
+    if(idle){var y=Yc(bot)-8-(k>0&&S.idle_mtd.indexOf(S.uids[k-1])>=0&&(k%2)?13:0);s+='<text x="'+x.toFixed(1)+'" y="'+(y+5).toFixed(1)+'" text-anchor="middle" font-size="15" font-weight="700" fill="#c5221f">✕</text><text x="'+x.toFixed(1)+'" y="'+(y-10).toFixed(1)+'" text-anchor="middle" font-size="9.5" fill="#c5221f">'+(e==null?tx(['no data','sin datos']):tx(['no output','sin salida']))+'</text>';return;}
+    var col=e>=0.97?'#1e8e3e':e>=0.93?'#e8a317':'#d93025',y=Yc(e);
+    s+='<line x1="'+x.toFixed(1)+'" y1="'+(Hc-B)+'" x2="'+x.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="#dadce0"/><circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="5.5" fill="'+col+'"><title>'+S.labels[k]+(S.wo&&S.wo[k]?' · '+S.wo[k]:'')+': '+(e*100).toFixed(1)+' %</title></circle>'+
+     '<text x="'+x.toFixed(1)+'" y="'+(y-9).toFixed(1)+'" text-anchor="middle" font-size="10" fill="#3c4043">'+Math.round(e*100)+'</text>';});
+   s+='</svg>';
+   out.push('<div class="evbyinv"><div class="evbyh"><b>'+v.name+'</b> &nbsp;|&nbsp; '+v.producing_mtd+' '+tx(['of','de'])+' '+m+' '+tx(['strings producing','cadenas produciendo'])+' &nbsp;|&nbsp; EPI-600 <b>'+pct(v.epi600_mtd)+'</b> ('+pct(v.epi600_mtd_producing)+' '+tx(['on producing strings','en cadenas que producen'])+')</div>'+s+'</div>');});
+  box.innerHTML=out.join('');}
+ // v384: week (7 days) and month (30 days) - daily EPI-600 per inverter over the target bands, the day's
+ // insolation as yellow bars (right, kWh/m2), and a strings x days map; a day not computed yet is empty
+ function drawPeriod(nd){var Hh=P.hist;if(!Hh){panel.innerHTML='<p class="note">'+tx(['No history yet.','Aún sin historial.'])+'</p>';return;}
+  var a=Math.max(0,Hh.days.length-nd), D=Hh.days.slice(a), m=D.length, sl=function(arr){return arr.slice(a);};
+  var Xd=function(i){return PL+(i+0.5)*(W-PL-PR)/m;}, bw=(W-PL-PR)/m;
+  var vals=[];sl(Hh.plant).forEach(function(v){if(v!=null)vals.push(v);});P.inverters.forEach(function(v){sl(Hh.inv[v.inv]||[]).forEach(function(e){if(e!=null)vals.push(e);});});
+  var lo=Math.min(0.85,(Math.floor(Math.min.apply(null,vals.concat([0.85]))*100)-2)/100), hi=Math.max(1.05,(Math.ceil(Math.max.apply(null,vals.concat([1.0]))*100)+2)/100);
+  var Y=function(e){return PT+(H-PT-PB)*(1-(Math.min(Math.max(e,lo),hi)-lo)/(hi-lo));};
+  var ins=sl(Hh.insol), imax=Math.max.apply(null,ins.filter(function(v){return v!=null;}).concat([1]))*1.15, YI=function(v){return PT+(H-PT-PB)*(1-v/imax);};
+  [[0.97,hi,'#e6f4ea'],[0.93,0.97,'#fef7e0'],[lo,0.93,'#fce8e6']].forEach(function(b){svg.appendChild(el('rect',{x:PL,y:Y(b[1]),width:W-PL-PR,height:Y(b[0])-Y(b[1]),fill:b[2]}));});
+  ins.forEach(function(v,i){if(v==null)return;svg.appendChild(el('rect',{x:Xd(i)-bw*0.32,y:YI(v),width:bw*0.64,height:H-PB-YI(v),fill:'#f9d65c',opacity:.45}));});
+  [lo,0.93,0.97,1.0,hi].forEach(function(e){var y=Y(e);svg.appendChild(el('line',{x1:PL,x2:W-PR,y1:y,y2:y,stroke:'#e3e6ea'}));svg.appendChild(el('text',{x:PL-6,y:y+4,'text-anchor':'end','font-size':11,fill:'#80868b'},Math.round(e*100)));});
+  for(var k2=0;k2<=4;k2++){var v2=imax*k2/4;svg.appendChild(el('text',{x:W-PR+6,y:YI(v2)+4,'font-size':11,fill:'#b9a04e'},v2.toFixed(1)));}
+  svg.appendChild(el('text',{x:4,y:12,'font-size':11,fill:'#80868b'},'EPI-600 %'));svg.appendChild(el('text',{x:W-PR-4,y:12,'font-size':11,fill:'#b9a04e'},'kWh/m²'));
+  D.forEach(function(d,i){if(m<=10||i%2===0||i===m-1)svg.appendChild(el('text',{x:Xd(i),y:H-8,'text-anchor':'middle','font-size':10.5,fill:'#80868b'},(m<=10?d.slice(5):d.slice(8))));});
+  function pl(arr,c,wd,dash){var dd='',pen=false;arr.forEach(function(v,i){if(v==null){pen=false;return;}dd+=(pen?'L':'M')+Xd(i).toFixed(1)+','+Y(v).toFixed(1);pen=true;});
+   if(dd)svg.appendChild(el('path',{d:dd,fill:'none',stroke:c,'stroke-width':wd,'stroke-dasharray':dash||''}));
+   arr.forEach(function(v,i){if(v!=null)svg.appendChild(el('circle',{cx:Xd(i),cy:Y(v),r:wd>2?3.2:2.4,fill:c}));});}
+  P.inverters.forEach(function(v,k){if(!hidden[v.inv])pl(sl(Hh.inv[v.inv]||[]),C[k%C.length],1.6);});
+  pl(sl(Hh.plant),'#1c2733',2.6);
+  leg.innerHTML=legItem('#1c2733',tx(['plant','planta']))+P.inverters.map(function(v,k){return legItem(C[k%C.length],v.name);}).join('')+
+   '<span><svg width="22" height="8"><rect width="22" height="8" fill="#f9d65c" opacity=".6"/></svg> '+tx(['sunshine: insolation of the day (right)','sol: insolación del día (der.)'])+'</span>';
+  // period figures: a ratio of the sums of the days shown (not an average of daily ratios)
+  var rows=P.inverters.map(function(v,k){var arr=sl(Hh.inv[v.inv]||[]),red=arr.filter(function(e){return e!=null&&e<0.93;}).length,ok=arr.filter(function(e){return e!=null;}).length;
+   var ps=(nd===7?Hh.sum7:Hh.sum)||{};
+   return '<button type="button" data-inv="'+v.inv+'" class="'+(hidden[v.inv]?'off':'')+'"><span class="evsw" style="background:'+C[k%C.length]+'"></span><b>'+v.name+'</b><br>'+
+    'EPI-600 '+(nd===7?tx(['week ','semana ']):tx(['30 days ','30 días ']))+'<b>'+pct(ps[v.inv])+'</b> · '+tx(['days below 93 %: ','días bajo 93 %: '])+red+' '+tx(['of','de'])+' '+ok+'</button>';}).join('');
+  var got=D.length-sl(Hh.plant).filter(function(e){return e==null;}).length;
+  var pp=(nd===7?Hh.sum7:Hh.sum)||{};
+  panel.innerHTML='<table><tr><td>'+tx(['Plant EPI-600, ','EPI-600 de la planta, '])+(nd===7?tx(['last 7 days','últimos 7 días']):tx(['last 30 days','últimos 30 días']))+'</td><td><b>'+pct(pp.plant)+'</b></td></tr></table><div class="note">'+tx(['Days with a value: ','Días con valor: '])+got+' '+tx(['of','de'])+' '+m+'. '+tx(['A day without a value had no valid sample at 600 W/m² or more, or is still being computed.','Un día sin valor no tuvo muestra válida con 600 W/m² o más, o aún se está calculando.'])+'</div><div class="evinv">'+rows+'</div>';
+  panel.querySelectorAll('[data-inv]').forEach(function(b){b.onclick=function(){hidden[b.dataset.inv]=!hidden[b.dataset.inv];draw();};});
+  // strings x days map, every inverter
+  var cw=Math.max(10,Math.min(28,Math.floor(820/m))), s='<div class="note">'+tx(['Each string by day: daily EPI-600 (green 97 % or more, amber 93-97 %, red below 93 %, grey no value, dark red below 5 % = no output). A whole column in red is the whole plant that day (clouds over the station, a sensor) - a row that stays red is the string.','Cada cadena por día: EPI-600 diario (verde 97 % o más, ámbar 93-97 %, rojo bajo 93 %, gris sin valor, rojo oscuro bajo 5 % = sin salida). Una columna completa en rojo es toda la planta ese día (nubes sobre la estación, un sensor) - una fila que sigue en rojo es la cadena.'])+'</div>';
+  P.inverters.forEach(function(v){var S=P.strings[v.inv];if(!S)return;var Wm=110+m*cw,Hm=14+S.uids.length*13;
+   var g='<svg viewBox="0 0 '+Wm+' '+Hm+'" width="'+Wm+'" style="max-width:100%;height:auto;display:block;margin:6px 0 2px"><text x="0" y="10" font-size="11" font-weight="700" fill="#1c2733">'+v.name+'</text>';
+   S.uids.forEach(function(u,r){var arr=sl(Hh.str[u]||[]),y=14+r*13;g+='<text x="104" y="'+(y+10)+'" text-anchor="end" font-size="9.5" fill="#5f6368">'+S.labels[r].split(':').pop()+'</text>';
+    arr.forEach(function(e,i){var c=e==null?'#e8eaed':e<0.05?'#5b0f1e':e>=0.97?'#34a853':e>=0.93?'#f4b400':'#ea4335';
+     g+='<rect x="'+(110+i*cw)+'" y="'+y+'" width="'+(cw-1.5)+'" height="11.5" rx="2" fill="'+c+'"><title>'+S.labels[r]+' '+D[i]+': '+(e==null?'n/a':(e*100).toFixed(1)+' %')+'</title></rect>';});});
+   s+=g+'</svg>';});
+  sum.innerHTML=s;
  }
  function draw(){clear();card.querySelectorAll('.evseg button').forEach(function(b){b.classList.toggle('on',b.dataset.v===view);});
-  if(view==='p')drawPlant();else if(view==='i')drawInverters();else drawStrings();}
+  if(view==='p')drawPlant();else if(view==='i')drawInverters();else if(view==='s')drawStrings();else drawPeriod(view==='w'?7:30);}
  card.querySelectorAll('.evseg button').forEach(function(b){b.onclick=function(){view=b.dataset.v;draw();};});
- svg.addEventListener('mousemove',function(ev){var r=svg.getBoundingClientRect(),xr=(ev.clientX-r.left)/r.width*W,i=Math.round((xr-PL)/((W-PL-PR)/Math.max(n-1,1)));
+ byStrings();
+ svg.addEventListener('mousemove',function(ev){var r=svg.getBoundingClientRect(),xr=(ev.clientX-r.left)/r.width*W;
+  if(view==='w'||view==='m'){var Hh=P.hist;if(!Hh){return;}var nd=view==='w'?7:30,a0=Math.max(0,Hh.days.length-nd),m=Hh.days.length-a0,j=Math.floor((xr-PL)/((W-PL-PR)/m));
+   if(j<0||j>=m){tip.style.display='none';return;}var q=a0+j,hh='<b>'+Hh.days[q]+'</b><br>'+tx(['insolation ','insolación '])+(Hh.insol[q]==null?'n/a':Hh.insol[q]+' kWh/m²')+'<br>'+tx(['plant ','planta '])+pct(Hh.plant[q]);
+   P.inverters.forEach(function(v){if(!hidden[v.inv])hh+='<br>'+v.name+': '+pct((Hh.inv[v.inv]||[])[q]);});
+   tip.innerHTML=hh;tip.style.display='block';tip.style.left=(ev.clientX+14)+'px';tip.style.top=(ev.clientY+10)+'px';return;}
+  var i=Math.round((xr-PL)/((W-PL-PR)/Math.max(n-1,1)));
   if(i<0||i>=n){tip.style.display='none';return;}var h='<b>'+P.t[i]+'</b>';
   if(view==='p'){h+='<br>'+tx(['AC ','CA '])+(P.plant.ac_kw[i]==null?'n/a':P.plant.ac_kw[i]+' kW')+'<br>'+tx(['design ','diseño '])+(P.plant.design_kw[i]==null?'n/a':P.plant.design_kw[i]+' kW')+'<br>GHI '+(P.ghi[i]==null?'n/a':P.ghi[i]+' W/m²');}
   else if(view==='i'){P.inverters.forEach(function(v){if(!hidden[v.inv])h+='<br>'+v.name+': '+(v.w[i]==null?'n/a':v.w[i])+' / '+(v.design[i]==null?'n/a':v.design[i])+' W/kWp';});}

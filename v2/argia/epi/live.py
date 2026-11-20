@@ -26,9 +26,10 @@ from argia.epi import views as V
 from argia.epi.config import FILES, PlantConfig
 
 CACHE_DIR = os.environ.get('ARGIA_EPI_CACHE', '/var/lib/argia/epi')
-RULES_VERSION = 'v382'
+RULES_VERSION = 'v384'                  # v384: tallies carry the day's insolation
 SETTLE_H = 6
-FILL_PER_RUN = 3
+FILL_PER_RUN = 6                        # v384: the 30-day history refills the cache faster
+HIST_DAYS = 30
 Query = Callable[[str], List[List[str]]]
 _KEY = re.compile(r'^[A-Z0-9]{2,12}$')
 
@@ -163,4 +164,20 @@ class Builder:
                    if any(s.cod <= day.replace(day=k) for s in self.configs[key].strings))
         V.apply_mtd(p, mtd, n)                   # p is this call's own copy (built or read from the cache)
         p['plant']['mtd_days_expected'] = days
+        p['hist'] = self.history(key, day, p, inv_labels)
         return p
+
+    def history(self, key: str, day: dt.date, p: dict, inv_labels=None, n_days: Optional[int] = None) -> dict:
+        """v384: the n_days up to ``day`` (the week view is its last 7) from the day tallies; a day not
+        computed yet stays empty and is filled by later runs within the budget."""
+        cfg = self.configs[key]
+        n_days = HIST_DAYS if n_days is None else n_days
+        days = []
+        for k in range(n_days - 1, -1, -1):
+            dd = day - dt.timedelta(days=k)
+            if dd == day:
+                days.append((dd.isoformat(), p['tallies']))
+            elif any(s.cod <= dd for s in cfg.strings):
+                days.append((dd.isoformat(), self.day_tallies(key, dd, inv_labels)))
+        keys = {'inv': [i['inv'] for i in p['inverters']], 'str': [u for sv in p['strings'].values() for u in sv['uids']]}
+        return V.period(days, keys)

@@ -256,7 +256,8 @@ class FakeDB:
         return out
 
 
-def test_live_cache_budget_and_mtd(tmp_path):
+def test_live_cache_budget_and_mtd(tmp_path, monkeypatch):
+    monkeypatch.setattr(L, "HIST_DAYS", 1)          # v384: these test the budget and the cache, not the history
     epi, lay = config_dirs(tmp_path)
     cfgs = C.load(epi, lay)
     fp = {"DEMO": L.fingerprint(epi, lay, "DEMO")}
@@ -283,7 +284,8 @@ def test_live_cache_budget_and_mtd(tmp_path):
     assert b4.card_payload("DEMO", dt.date(2026, 3, 1)) is None
 
 
-def test_today_and_unsettled_days_are_not_cached(tmp_path):
+def test_today_and_unsettled_days_are_not_cached(tmp_path, monkeypatch):
+    monkeypatch.setattr(L, "HIST_DAYS", 1)          # v384: these test the budget and the cache, not the history
     epi, lay = config_dirs(tmp_path)
     cfgs = C.load(epi, lay)
     fp = {"DEMO": L.fingerprint(epi, lay, "DEMO")}
@@ -305,7 +307,9 @@ def test_generator_wiring_is_fail_soft():
     body = src[src.index("def epi_views_card"):src.index("def sev_pill")]
     assert "except Exception" in body and "return ''" in body
     page = src[src.index("def plant_page"):]
-    assert page.index("{epi_views_card(pk, d)}") < page.index("{string_layout_card(pk, d)}")
+    # v384: the card is computed first (its numbers feed the inverter table), drawn before the layout card
+    assert page.index("epi_html = epi_views_card(pk, d)") < page.index("inv_cells = []")
+    assert page.index("{epi_html}") < page.index("{string_layout_card(pk, d)}")
 
 
 def test_the_demo_never_shows_the_card():

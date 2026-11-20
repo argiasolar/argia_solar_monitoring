@@ -215,8 +215,6 @@ def render(p: dict) -> str:
 
 
 CSS = '''
-/* v383: wider than the 1280 px page, centred on the window (Tomasz: use the sides) */
-.card.slcard,.monbody .card.slcard{width:min(1600px,calc(100vw - 32px));max-width:none;margin-left:calc(50% - min(800px,50vw - 16px));margin-right:0;box-sizing:border-box}
 .slcard .slintro{font-size:13.5px;color:#3c4043;margin:0 0 8px;max-width:980px}
 .slcard .slchk{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:#5f6368;margin-bottom:10px}
 .slcard .slchk span.ok b{color:#137333}.slcard .slchk span.bad b{color:#b06000}

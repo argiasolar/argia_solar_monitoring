@@ -142,11 +142,12 @@ def test_card_scripts_parse(js, tmp_path):
     assert r.returncode == 0, r.stderr[-400:]
 
 
-def test_wide_cards_beat_the_portal_card_rule():
-    """v383.1: the two big cards use up to 1600 px, centred on the window. The portal scopes the
-    monitoring CSS under .monbody, and '.monbody .card{margin:14px 0}' silently cancelled the
-    centring once (cards ran 76 px off screen) - the rule must carry .monbody .card.<cls>."""
-    for css, cls in ((SH.CSS, "slcard"), (H.CSS, "evcard")):
-        assert f".card.{cls},.monbody .card.{cls}{{width:min(1600px,calc(100vw - 32px))" in css
-        assert "margin-left:calc(50% - min(800px,50vw - 16px))" in css
+def test_the_whole_plant_page_is_wide_not_just_two_cards():
+    """v384 (Tomasz): the whole live plant page uses up to 1600 px; the v383.1 breakout of the two
+    cards is gone (with the page wide it would push them past the other cards)."""
+    pg = (V2 / "server" / "bundle" / "portal_gen.py").read_text(encoding="utf-8")
+    assert "PLANT_WIDE = '.wrap,.phrow,.tabs{max-width:1600px}'" in pg
+    assert "MON_OVERRIDES\n             + PLANT_WIDE" in pg
+    for css in (SH.CSS, H.CSS):
+        assert "100vw" not in css and "margin-left:calc(50%" not in css
     assert ".slcard .slnm{white-space:nowrap}" in SH.CSS

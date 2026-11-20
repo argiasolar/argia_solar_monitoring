@@ -1433,6 +1433,25 @@ except Exception as e:                                # noqa: BLE001
     print(f'monitoring_gen: EPI views off: {e}', file=sys.stderr)
 
 
+EPI_LAST = {}                                         # (plant, day) -> the card's payload, for the inverter table
+
+
+def epi_inv_cols(pk, d, sn):
+    """v384: (kWh/kWp, strings producing, EPI-600 day / MTD) cells of the inverter table (' - ' when the
+    plant has no EPI configuration or the card was not computed for this day)."""
+    p = EPI_LAST.get((pk, d))
+    inv = next((i for i in (p or {}).get('inverters', []) if i.get('sn') == sn), None)
+    if inv is None:
+        return '<td> - </td><td> - </td><td> - </td>'
+    pct = lambda x: ' - ' if x is None else f'{100 * x:.1f}%'
+    ek = next((r['etoday'] for r in LATEST.get(d, {}).get(pk, []) if r['sn'] == sn), None)
+    yld = ' - ' if (ek is None or not inv.get('kwp')) else f"{ek / inv['kwp']:.2f}"
+    strs = f"{inv['producing']} / {inv['n_strings']}"
+    if inv['producing'] < inv['n_strings']:
+        strs = f'<span class="pill bad">{strs}</span>'
+    return f'<td>{yld}</td><td>{strs}</td><td>{pct(inv.get("epi600_day"))} / {pct(inv.get("epi600_mtd"))}</td>'
+
+
 def epi_views_card(pk, d):
     """The v382 card for one plant-day ('' when the plant has no EPI configuration)."""
     if EPI_B is None or pk not in EPI_CFG:
@@ -1443,6 +1462,7 @@ def epi_views_card(pk, d):
         p = EPI_B.card_payload(pk, dt.date.fromisoformat(d), inv_labels)
         if p is None:
             return EPH.pending_card()
+        EPI_LAST[(pk, d)] = p                         # v384: the inverter table reads its EPI columns from here
         if tickets_on(pk):                            # v383
             cfg = EPI_CFG[pk]
             tokens = {u: TL.input_token(c.kind, c.index) for u, c in cfg.channel_of.items()}
@@ -1500,6 +1520,7 @@ def plant_page(pk, d, skin='old'):
     portal adds its own header and chrome."""
     meta = PLANTS[pk]
     live = d == TODAY
+    epi_html = epi_views_card(pk, d)                  # v384: first, its numbers feed the inverter table
     invs = LATEST.get(d, {}).get(pk, [])
     etodays = [i['etoday'] for i in invs if i['etoday'] is not None]
     day_kwh = sum(etodays) if etodays else None
@@ -1546,6 +1567,7 @@ def plant_page(pk, d, skin='old'):
             f'<td>{pill_html}'
             f'{(" <span class=note>" + esc(detail) + "</span>") if detail else ""}</td>'
             f'<td>{fmt_kw(i["power_w"])}</td><td>{fmt_kwh(i["etoday"])}</td>'
+            f'{epi_inv_cols(pk, d, i["sn"])}'
             f'<td>{peer_html}</td>'
             f'<td>{temp}</td><td>{esc(i["last_mx"])}</td></tr>')
     # configured inverters that never answered this day - the dead ones
@@ -1569,7 +1591,7 @@ def plant_page(pk, d, skin='old'):
             f' ({(rated or 0):,.0f} kW) but never reported" data-es="configurado'
             ' activo pero sin reportar">configured active'
             f' ({(rated or 0):,.0f} kW) but never reported</span></td>'
-            '<td> - </td><td> - </td><td> - </td><td> - </td><td> - </td></tr>')
+            '<td> - </td><td> - </td><td> - </td><td> - </td><td> - </td><td> - </td><td> - </td><td> - </td></tr>')
     recon_rows = ''.join(
         f'<tr><td>{esc(r[0])}</td><td>{fmt_kwh(f(r[1]))}</td>'
         f'<td>{fmt_kwh(f(r[2]))}</td><td>{fmt_kwh(f(r[3]))}</td>'
@@ -1634,12 +1656,12 @@ def plant_page(pk, d, skin='old'):
     body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
-{epi_views_card(pk, d)}
+{epi_html}
 {string_layout_card(pk, d)}
 <div class="card"><h2 data-en="Inverters - {'latest sample' if live else 'last sample of the day'}" data-es="Inversores - última muestra">Inverters - latest sample</h2>
-<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
-<p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% - the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail."
- data-es="vs pares = kWh por kW nominal de este inversor contra la mediana de los demás inversores de la planta (ámbar < 85%, rojo < 70%). °C = temperatura interna, última muestra / pico del día (ámbar ≥ 65, rojo ≥ 75). El estado proviene de la bandera del propio inversor.">vs peers = kWh per rated kW against the median of the other inverters (amber &lt; 85%, red &lt; 70%). °C = internal temperature, latest / day peak (amber ≥ 65, red ≥ 75).</p></div>
+<table><tr><th data-en="Inverter" data-es="Inversor">Inverter</th><th>Status</th><th data-en="Power kW" data-es="Potencia kW">Power kW</th><th>EDay kWh</th><th data-en="kWh/kWp" data-es="kWh/kWp">kWh/kWp</th><th data-en="Strings" data-es="Cadenas">Strings</th><th data-en="EPI-600 day / MTD" data-es="EPI-600 día / mes">EPI-600 day / MTD</th><th data-en="vs peers" data-es="vs pares">vs peers</th><th data-en="°C now / peak" data-es="°C ahora / pico">°C now / peak</th><th data-en="Time MX" data-es="Hora MX">Time MX</th></tr>{''.join(inv_cells)}</table>
+<p class="note" data-en="vs peers = this inverter's kWh per rated kW against the median of the plant's other producing inverters (amber < 85%, red < 70% - the inverter_relative alert rule). °C = internal temperature, latest sample / day peak (amber ≥ 65, red ≥ 75). Status comes from the inverter's own status flag; raw vendor state strings are shown as detail. kWh/kWp = energy today over the inverter's kWp (Annex A). Strings = strings with output today / strings. EPI-600 = the troubleshooting card's index, this day / month to date."
+ data-es="vs pares = kWh por kW nominal de este inversor contra la mediana de los demás inversores de la planta (ámbar < 85%, rojo < 70%). °C = temperatura interna, última muestra / pico del día (ámbar ≥ 65, rojo ≥ 75). El estado proviene de la bandera del propio inversor. kWh/kWp = energía de hoy entre los kWp del inversor (Anexo A). Cadenas = cadenas con salida hoy / cadenas. EPI-600 = el índice de la tarjeta de diagnóstico, este día / mes a la fecha.">vs peers = kWh per rated kW against the median of the other inverters (amber &lt; 85%, red &lt; 70%). °C = internal temperature, latest / day peak (amber ≥ 65, red ≥ 75). kWh/kWp = energy today over the inverter's kWp (Annex A). Strings = strings with output today / strings. EPI-600 = the troubleshooting card's index, this day / month to date.</p></div>
 {thermal_card(pk, d)}
 {alerts_card(pk) if live else ''}
 <div class="card"><h2 data-en="Last 7 days - production (click a date)" data-es="Últimos 7 días - producción (clic en la fecha)">Last 7 days - production (click a date)</h2>

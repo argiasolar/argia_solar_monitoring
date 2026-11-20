@@ -84,8 +84,8 @@ class TestPeers:
         assert '>vs peers</th>' in SRC
         assert "peer_ratios({i['sn']: i['etoday'] for i in invs}, RATED.get(pk, {}))" in SRC
         assert "amber < 85%, red < 70%" in SRC
-        # silent-inverter rows keep the column count (7 cells)
-        assert "'<td> - </td><td> - </td><td> - </td><td> - </td><td> - </td></tr>'" in SRC
+        # silent-inverter rows keep the column count (10 cells since v384: kWh/kWp, strings, EPI-600)
+        assert "'<td> - </td><td> - </td><td> - </td><td> - </td><td> - </td><td> - </td><td> - </td><td> - </td></tr>'" in SRC
 
 
 class TestOpenAlerts:

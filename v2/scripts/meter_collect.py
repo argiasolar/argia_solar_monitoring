@@ -150,9 +150,11 @@ class Sessions:
         return self._web
 
 
-def discover(pf, keys: Optional[List[str]], ses: "Sessions") -> List[dict]:
+def discover(pf, keys: Optional[List[str]], ses: "Sessions", failed: Optional[set] = None) -> List[dict]:
+    """The meters the vendors list; plants whose question failed are added to ``failed``."""
     from argia.core.normalize import growatt_site_ids
     meters = []
+    failed = set() if failed is None else failed
     for key, p in sorted(pf.plants.items()):
         if not p.active or (keys and key not in keys):
             continue
@@ -172,22 +174,34 @@ def discover(pf, keys: Optional[List[str]], ses: "Sessions") -> List[dict]:
                                        "meter_id": f"{m['datalog_sn']}:{m['addr']}", **m})
                     time.sleep(GROWATT_PAUSE_S)
         except Exception as e:  # noqa: BLE001 - one plant never stops the others
+            failed.add(key)
             LOG.warning("discovery %s failed: %s %s", key, type(e).__name__, str(e)[:200])
     return meters
 
 
+def merge_discovery(fresh: List[dict], failed: set, previous: List[dict]) -> List[dict]:
+    """A plant whose question failed keeps the meters it had (a failed Huawei login must not
+    make SAG and Vitalmex disappear for a day). Pure."""
+    return fresh + [m for m in previous if m["plant_key"] in failed]
+
+
 def load_meters(pf, keys, rediscover: bool, dry_run: bool, ses: "Sessions") -> List[dict]:
     path = os.path.join(STATE_DIR, "meters.json")
+    previous: List[dict] = []
     try:
         with open(path, encoding="utf-8") as fh:
             st = json.load(fh)
+        previous = st["meters"]
         age_h = (time.time() - st["fetched"]) / 3600.0
         if not rediscover and age_h < DISCOVER_EVERY_H:
-            return [m for m in st["meters"] if not keys or m["plant_key"] in keys]
+            return [m for m in previous if not keys or m["plant_key"] in keys]
     except (OSError, ValueError, KeyError):
         pass
-    meters = discover(pf, keys, ses)
-    if not dry_run and not keys and meters:
+    failed: set = set()
+    meters = merge_discovery(discover(pf, keys, ses, failed), failed, previous)
+    if failed:
+        LOG.warning("discovery incomplete (%s) - asked again next run", ", ".join(sorted(failed)))
+    elif not dry_run and not keys and meters:
         os.makedirs(STATE_DIR, exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:

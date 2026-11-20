@@ -303,3 +303,22 @@ def test_one_huawei_login_per_run_and_never_a_retry(monkeypatch):
     monkeypatch.setattr(HW, "HuaweiClient", Ok)
     ses = MC.Sessions()
     assert ses.huawei() is ses.huawei() and logins.count(2) == 1       # every meter shares the one session
+
+
+def test_a_failed_discovery_keeps_the_known_meters_and_is_not_cached(tmp_path, monkeypatch):
+    prev = [{"plant_key": "A", "brand": "HUAWEI", "meter_id": "1"}, {"plant_key": "B", "brand": "GROWATT", "meter_id": "x:36"}]
+    assert MC.merge_discovery([{"plant_key": "B", "brand": "GROWATT", "meter_id": "x:36"}], {"A"}, prev) == \
+        [prev[1], prev[0]]
+    import json as _j
+    st = tmp_path / "meters.json"
+    st.write_text(_j.dumps({"fetched": 0, "meters": prev}))                # stale: asks again
+    monkeypatch.setattr(MC, "STATE_DIR", str(tmp_path))
+
+    def disc(pf, keys, ses, failed):
+        failed.add("A")
+        return [prev[1]]
+
+    monkeypatch.setattr(MC, "discover", disc)
+    got = MC.load_meters(None, None, False, False, None)
+    assert {m["plant_key"] for m in got} == {"A", "B"}
+    assert _j.loads(st.read_text())["fetched"] == 0                        # not rewritten: next run asks again

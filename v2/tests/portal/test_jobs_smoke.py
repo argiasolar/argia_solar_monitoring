@@ -76,6 +76,7 @@ SELECT g, i.plant_key, i.inverter_sn, 1, round((i.rated_kw * 600)::numeric, 2), 
 NOT_RUNNABLE_HERE = {
     "telemetry_5m": "calls the Growatt / Huawei / SolarEdge APIs",
     "string_daily": "calls the Growatt API for string data",
+    "meter_collect": "calls the Huawei / Growatt APIs for the grid meters (v385)",
     "satellite_check": "calls the satellite irradiance service on the internet",
     "soiling_check": "reads the Google Sheet",
     "archive_month_pg": "uploads to Google Drive",

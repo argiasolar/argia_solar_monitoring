@@ -1964,6 +1964,23 @@ CREATE TABLE public.loss_daily (
 ALTER TABLE ONLY public.loss_daily
     ADD CONSTRAINT loss_daily_pkey PRIMARY KEY (plant_key, prod_date);
 
+-- v385: meter_sample (scripts/meter_collect.py via argia/telemetry/meter.py creates it on pio06)
+CREATE TABLE public.meter_sample (
+    ts_utc timestamp with time zone NOT NULL,
+    plant_key text NOT NULL,
+    meter_id text NOT NULL,
+    grid_w real,
+    imp_total_kwh double precision,
+    exp_total_kwh double precision,
+    imp_day_kwh real,
+    exp_day_kwh real
+);
+
+ALTER TABLE ONLY public.meter_sample
+    ADD CONSTRAINT meter_sample_pkey PRIMARY KEY (plant_key, meter_id, ts_utc);
+
+CREATE INDEX idx_meter_sample_ts ON public.meter_sample USING btree (ts_utc);
+
 --
 -- v279: demo.argia.com.mx - the demo schema (server/bundle/demo_schema.sql), as pg_dump prints it
 --

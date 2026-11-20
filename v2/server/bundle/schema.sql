@@ -124,6 +124,21 @@ CREATE TABLE IF NOT EXISTS string_sample (
 );
 CREATE INDEX IF NOT EXISTS idx_string_sample_ts ON string_sample (ts_utc);
 
+-- v385: grid meter 5-minute samples (scripts/meter_collect.py via argia/telemetry/meter.py;
+-- grid_w > 0 = import, < 0 = export)
+CREATE TABLE IF NOT EXISTS meter_sample (
+    ts_utc        timestamptz NOT NULL,
+    plant_key     text NOT NULL,
+    meter_id      text NOT NULL,
+    grid_w        real,
+    imp_total_kwh double precision,
+    exp_total_kwh double precision,
+    imp_day_kwh   real,
+    exp_day_kwh   real,
+    PRIMARY KEY (plant_key, meter_id, ts_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_meter_sample_ts ON meter_sample (ts_utc);
+
 CREATE TABLE IF NOT EXISTS telemetry (
     ts_utc          timestamptz NOT NULL,
     plant_key       text NOT NULL,

@@ -1,0 +1,8 @@
+[Unit]
+Description=ARGIA grid meters every 15 min, day and night (at :02 :17 :32 :47 MX, between telemetry ticks)
+[Timer]
+OnCalendar=*-*-* *:02/15:00 America/Mexico_City
+Persistent=false
+AccuracySec=1s
+[Install]
+WantedBy=timers.target

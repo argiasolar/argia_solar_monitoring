@@ -454,6 +454,40 @@ for r in q("SELECT plant_key, prod_date::text, energy_kwh, expected_kwh, irradia
             (r[1], f(r[2]), design_expected(r[0], r[1], r[4] if len(r) > 4 else None,
                                             f(r[3]) if r[3] not in ('', None) else None)))
 
+# v385: the grid meters (scripts/meter_collect.py -> meter_sample) - consumption and solar coverage.
+# Missing table (before the first collection) or a failed read = no card, never a crash.
+METER_DAY, METER_HOUR = {}, {}   # (plant, date) -> {'imp','exp','basis'} / {hour: [imp, exp]}
+try:
+    from argia.telemetry import meter as MTR
+    from argia.report import consumption_html as CONS
+    _ms = {}
+    for r in q("SELECT plant_key, meter_id, to_char(ts_utc AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), grid_w,"
+               " imp_total_kwh, exp_total_kwh, imp_day_kwh, exp_day_kwh FROM meter_sample"
+               f" WHERE ts_utc > DATE '{TODAY}' - 33 ORDER BY 1, 2, 3;"):
+        if len(r) >= 8:
+            _ms.setdefault((r[0], r[1]), []).append(MTR.MeterSample(
+                dt.datetime.fromisoformat(r[2]).replace(tzinfo=dt.timezone.utc), r[0], r[1],
+                f(r[3]), f(r[4]), f(r[5]), f(r[6]), f(r[7])))
+    for (pk, _mid), ss in _ms.items():
+        for d in sorted({s.ts_utc.astimezone(MX).date().isoformat() for s in ss}):
+            e = MTR.day_energy(ss, d, MX)
+            if e is None:
+                continue
+            acc = METER_DAY.setdefault((pk, d), {'imp': 0.0, 'exp': 0.0, 'basis': set()})
+            acc['imp'] += e['imp']
+            acc['exp'] += e['exp']
+            acc['basis'].add(e['basis'])
+        for (d, h), (imp, exp) in MTR.integrate(ss, MX, by_hour=True).items():
+            hh = METER_HOUR.setdefault((pk, d), {}).setdefault(h, [0.0, 0.0])
+            hh[0] += imp
+            hh[1] += exp
+    del _ms
+except Exception as _e:                                   # noqa: BLE001
+    print(f'meter data unavailable: {type(_e).__name__}: {str(_e)[:200]}', file=sys.stderr)
+    MTR = CONS = None
+    METER_DAY, METER_HOUR = {}, {}
+
+
 # v264/v266: the day's loss (scripts/loss_daily.py) - expected with 100%
 # availability (peers, else the weather model) and the cause. Missing table
 # (first deploy) = no loss columns, never a crash.
@@ -1436,6 +1470,38 @@ except Exception as e:                                # noqa: BLE001
 EPI_LAST = {}                                         # (plant, day) -> the card's payload, for the inverter table
 
 
+def pv_day(pk, d):
+    """v385: the plant's solar of a day - the daily production row, else (today) the inverters' counters."""
+    for dd, e, _x in DAILY.get(pk, []):
+        if dd == d and e is not None:
+            return e
+    invs = _HM.get(d, {}).get(pk, {})
+    vals = [max(v for v in by_h.values() if v is not None) for by_h in invs.values()
+            if any(v is not None for v in by_h.values())]
+    return sum(vals) if vals else None
+
+
+def meter_card(pk, d):
+    """v385: consumption and solar coverage (grid meter + inverters); '' for plants without a meter."""
+    if CONS is None or not any(k[0] == pk for k in METER_DAY):
+        return ''
+    days = []
+    for k in range(29, -1, -1):
+        dd = (dt.date.fromisoformat(d) - dt.timedelta(days=k)).isoformat()
+        m = METER_DAY.get((pk, dd))
+        b = MTR.balance(pv_day(pk, dd), m['imp'], m['exp']) if m else None
+        days.append((dd, b, ', '.join(sorted(m['basis'])) if m else ''))
+    pvh = {}
+    for by_h in HOURLY.get(d, {}).get(pk, {}).values():
+        for h, v in by_h.items():
+            pvh[h] = pvh.get(h, 0.0) + (v or 0.0)
+    hours = {}
+    for h, (imp, exp) in METER_HOUR.get((pk, d), {}).items():
+        pv = pvh.get(h, 0.0)
+        hours[h] = {'used': max(pv - exp, 0.0), 'imp': imp, 'exp': exp}
+    return CONS.card(d, hours, days, live=(d == TODAY))
+
+
 def epi_inv_cols(pk, d, sn):
     """v384: (kWh/kWp, strings producing, EPI-600 day / MTD) cells of the inverter table (' - ' when the
     plant has no EPI configuration or the card was not computed for this day)."""
@@ -1656,6 +1722,7 @@ def plant_page(pk, d, skin='old'):
     body += photo + maint_html + completeness_banner(pk, d) + kpis
     body += f'''
 <div class="card"><h2 data-en="Intraday production · 60-min buckets · kWh per inverter" data-es="Producción intradía · bloques de 60 min · kWh por inversor">Intraday production · 60-min buckets · kWh per inverter</h2>{intraday_svg(pk, meta['kwp'], meta['pr'], d)}</div>
+{meter_card(pk, d)}
 {epi_html}
 {string_layout_card(pk, d)}
 <div class="card"><h2 data-en="Inverters - {'latest sample' if live else 'last sample of the day'}" data-es="Inversores - última muestra">Inverters - latest sample</h2>

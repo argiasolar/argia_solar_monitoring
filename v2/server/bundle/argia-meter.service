@@ -1,0 +1,7 @@
+[Unit]
+Description=ARGIA grid meters (v385: consumption and solar coverage) - today's 5-minute meter history, self-healing
+[Service]
+Type=oneshot
+Environment=HOME=/root
+TimeoutStartSec=900
+ExecStart=/root/argia_v2/v2/pi/run_job.sh meter meter_collect.py

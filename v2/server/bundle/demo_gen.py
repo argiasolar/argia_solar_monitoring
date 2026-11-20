@@ -666,6 +666,10 @@ def configure(PG):
     # work-order labels - customer engineering data like the drawings - never on the demo
     assert hasattr(MG, 'EPI_B') and hasattr(MG, 'EPI_CFG'), 'monitoring_gen changed: EPI_B / EPI_CFG not found'
     MG.EPI_CFG, MG.EPI_B = {}, None
+    # v385: a customer's own electricity consumption (grid meter) is the customer's data - never on the demo
+    assert hasattr(MG, 'METER_DAY') and hasattr(MG, 'METER_HOUR'), 'monitoring_gen changed: METER_DAY / METER_HOUR not found'
+    MG.METER_DAY.clear()
+    MG.METER_HOUR.clear()
     # chrome: host, sub-tabs, no Ask / account / app
     C.PORTAL_HOST = DEMO_HOST
     C.SECTIONS = {
@@ -967,7 +971,7 @@ def load_portal(outroot):
 # v382.2: cards built from customer engineering data (string layout drawings, EPI troubleshooting
 # views with layout names and serials). Their names are abbreviations ("SAG_INV1_MPPT1_C3") that
 # the name scan cannot see, so the card itself is the leak: one on any page = nothing published.
-CUSTOMER_CARDS = ('class="card slcard"', 'class="card evcard"')
+CUSTOMER_CARDS = ('class="card slcard"', 'class="card evcard"', 'class="card mtcard"')
 
 
 def customer_cards(text):

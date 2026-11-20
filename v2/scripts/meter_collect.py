@@ -44,7 +44,12 @@ GROWATT_MAX_PAGES = 40
 
 
 class RateLimited(Exception):
-    pass
+    """Huawei said stop for this run. ``code`` '407' = this interface is called too often (the
+    real-time fallback may still be asked), anything else = leave Huawei alone."""
+
+    def __init__(self, msg: str, code: str = ""):
+        super().__init__(msg)
+        self.code = code
 
 
 # ------------------------------------------------------------ vendor answers (pure)
@@ -83,7 +88,7 @@ def huawei_meters(answer: dict) -> List[str]:
 def huawei_check(answer: dict) -> dict:
     if not answer.get("success"):
         if str(answer.get("failCode")) == "407":
-            raise RateLimited("Huawei failCode 407 (access frequency)")
+            raise RateLimited("Huawei failCode 407 (access frequency)", "407")
         if str(answer.get("failCode")) == "305":
             # one session per account: another job logged in after us. Logging in again would
             # end THEIR session, so this run leaves Huawei alone (the self-heal fetches it later).
@@ -232,6 +237,14 @@ def fetch_huawei(client, m: dict, day: str) -> List[M.MeterSample]:
     return [s for s in M.parse_huawei_five_minutes(m["plant_key"], ans) if s.meter_id == m["meter_id"]]
 
 
+def fetch_huawei_now(client, meters: List[dict], now: dt.datetime) -> List[M.MeterSample]:
+    """v386: when the 5-minute history is refused (407), one real-time reading of every Huawei meter
+    (one call), so today's consumption stays current; the history fills the gaps when allowed."""
+    plant_of = {m["meter_id"]: m["plant_key"] for m in meters}
+    ans = huawei_check(client._post_json("/getDevRealKpi", {"devIds": ",".join(sorted(plant_of)), "devTypeId": "17"}))
+    return M.parse_huawei_realtime(plant_of, ans, now)
+
+
 def fetch_growatt(web, m: dict, day: str) -> List[M.MeterSample]:
     web._session.cookies.set("selectedPlantId", m["site_id"])
     rows, start = [], 0
@@ -330,7 +343,7 @@ def main(argv=None) -> int:
     meters = load_meters(pf, keys or list(M.VALIDATED_PLANTS), a.rediscover, a.dry_run, ses)
     LOG.info("meters: %s", ", ".join(f"{m['plant_key']}({m['brand']})" for m in meters) or "none")
     counts = {} if a.days else day_counts()
-    written, huawei_off = 0, False
+    written, huawei_off, huawei_407 = 0, False, False
     for m in sorted(meters, key=lambda m: m["brand"] != "HUAWEI"):    # Huawei first: early in the slot
         days = [d.strip() for d in a.days.split(",") if d.strip()] or \
             days_to_fetch(now.date(), counts.get((m["plant_key"], m["meter_id"]), {}), a.backfill, now.hour)
@@ -350,6 +363,7 @@ def main(argv=None) -> int:
             except RateLimited as e:
                 LOG.warning("%s: %s - Huawei left for the next run", m["plant_key"], e)
                 huawei_off = True
+                huawei_407 = e.code == "407"
                 break
             except Exception as e:  # noqa: BLE001 - one meter-day never stops the rest
                 LOG.warning("%s %s failed: %s %s", m["plant_key"], day, type(e).__name__, str(e)[:200])
@@ -357,6 +371,14 @@ def main(argv=None) -> int:
             if a.dry_run:
                 print(report(m, day, got), flush=True)
             written += M.store(got, dry_run=a.dry_run, log=LOG)
+    hw = [m for m in meters if m["brand"] == "HUAWEI"]
+    if huawei_407 and hw and not a.days and not a.backfill and may_call():
+        try:
+            got = fetch_huawei_now(ses.huawei(), hw, dt.datetime.now(MX))
+            LOG.info("Huawei real-time meter reading instead: %d sample(s)", len(got))
+            written += M.store(got, dry_run=a.dry_run, log=LOG)
+        except Exception as e:  # noqa: BLE001
+            LOG.warning("Huawei real-time meter reading failed too: %s", str(e)[:200])
     LOG.info("meter samples %s: %d", "that would be written" if a.dry_run else "written", written)
     return 0
 

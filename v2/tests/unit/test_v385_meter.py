@@ -232,7 +232,7 @@ def test_card_empty_without_meter_data():
 
 def test_generator_and_demo_wiring():
     src = (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
-    assert src.count("{meter_card(pk, d)}") == 1 and "def meter_card(pk, d)" in src
+    assert src.count("{meter_card(pk, d) if 'evcard' not in epi_html else ''}") == 1 and "def meter_card(pk, d)" in src
     assert "FROM meter_sample" in src and "MTR = CONS = None" in src         # no table = no card, no crash
     demo = (V2 / "server" / "bundle" / "demo_gen.py").read_text(encoding="utf-8")
     assert "MG.METER_DAY.clear()" in demo and "'class=\"card mtcard\"'" in demo

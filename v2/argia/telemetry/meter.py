@@ -91,6 +91,24 @@ def parse_huawei_five_minutes(plant_key: str, payload: Mapping[str, Any]) -> Lis
     return [s for s in out if s.meter_id]
 
 
+def parse_huawei_realtime(plant_of: Mapping[str, str], payload: Mapping[str, Any],
+                          now: dt.datetime) -> List[MeterSample]:
+    """``getDevRealKpi`` (devTypeId 17) answer -> one sample per meter at ``now`` (to the minute;
+    the real-time answer carries no time of its own)."""
+    ts = now.astimezone(UTC).replace(second=0, microsecond=0)
+    out = []
+    for row in (payload or {}).get("data") or []:
+        mid = str(row.get("devId") or "")
+        if mid not in plant_of:
+            continue
+        m = row.get("dataItemMap") or {}
+        p = safe_float(m.get("active_power"))
+        out.append(MeterSample(ts_utc=ts, plant_key=plant_of[mid], meter_id=mid, grid_w=None if p is None else -p,
+                               imp_total_kwh=safe_float(m.get("reverse_active_cap")),
+                               exp_total_kwh=safe_float(m.get("active_cap"))))
+    return out
+
+
 def growatt_time(cal: Mapping[str, Any], tz: dt.tzinfo) -> Optional[dt.datetime]:
     """Java calendar (local time, 0-based month) -> aware UTC datetime."""
     try:
@@ -149,6 +167,65 @@ def integrate(samples: Sequence[MeterSample], tz, by_hour: bool = False) -> Dict
             acc[0] += e
         else:
             acc[1] -= e
+    return out
+
+
+MAX_COUNTER_GAP_S = 3 * 3600   # a lifetime counter difference is exact whatever the gap; longer = a data hole
+
+
+def hourly(samples: Sequence[MeterSample], tz) -> Dict[tuple, List[float]]:
+    """{(local day, hour): [import kWh, export kWh]} of ONE meter. Between two samples the lifetime
+    counters' difference when both have them (exact also with 15-minute real-time readings), else
+    the power held until the next sample (gaps over 15 min skipped). The energy is booked to the
+    hour of the earlier sample."""
+    s = _dedup(samples)
+    out: Dict[tuple, List[float]] = {}
+    for a, b in zip(s, s[1:]):
+        secs = (b.ts_utc - a.ts_utc).total_seconds()
+        if secs <= 0:
+            continue
+        loc = a.ts_utc.astimezone(tz)
+        key = (loc.date().isoformat(), loc.hour)
+        if (None not in (a.imp_total_kwh, b.imp_total_kwh, a.exp_total_kwh, b.exp_total_kwh)
+                and secs <= MAX_COUNTER_GAP_S and b.imp_total_kwh >= a.imp_total_kwh and b.exp_total_kwh >= a.exp_total_kwh):
+            imp, exp = b.imp_total_kwh - a.imp_total_kwh, b.exp_total_kwh - a.exp_total_kwh
+        elif a.grid_w is not None and secs <= MAX_GAP_S:
+            e = a.grid_w * secs / 3600.0 / 1000.0
+            imp, exp = max(e, 0.0), max(-e, 0.0)
+        else:
+            continue
+        acc = out.setdefault(key, [0.0, 0.0])
+        acc[0] += imp
+        acc[1] += exp
+    return out
+
+
+def grid_kw_on(samples: Sequence[MeterSample], times_utc: Sequence[dt.datetime], max_gap_s: int = 20 * 60) -> List[Optional[float]]:
+    """The meter's power (kW, + import) at each of ``times_utc``: linear between the two samples
+    around it when they are at most ``max_gap_s`` apart, None otherwise. Pure."""
+    s = [x for x in _dedup(samples) if x.grid_w is not None]
+    out: List[Optional[float]] = []
+    j = 0
+    for t in times_utc:
+        while j + 1 < len(s) and s[j + 1].ts_utc <= t:
+            j += 1
+        if not s or s[j].ts_utc > t:
+            out.append(None)
+            continue
+        a = s[j]
+        if a.ts_utc == t:
+            out.append(round(a.grid_w / 1000.0, 2))
+            continue
+        if j + 1 >= len(s):
+            out.append(round(a.grid_w / 1000.0, 2) if (t - a.ts_utc).total_seconds() <= 150 else None)
+            continue
+        b = s[j + 1]
+        span = (b.ts_utc - a.ts_utc).total_seconds()
+        if span > max_gap_s:
+            out.append(None)
+            continue
+        f = (t - a.ts_utc).total_seconds() / span
+        out.append(round((a.grid_w + (b.grid_w - a.grid_w) * f) / 1000.0, 2))
     return out
 
 

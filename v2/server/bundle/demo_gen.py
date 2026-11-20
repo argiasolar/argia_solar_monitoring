@@ -314,18 +314,43 @@ def _unmask(text, keep):
     return re.sub(r'@@DATAURI(\d+)@@', lambda m: keep[int(m.group(1))], text)
 
 
+_PARTS = {}
+
+
+def _fold(s):
+    """casefold, plus the one character the regex engine folds differently: the dotless i (U+0131)
+    matches 'i' case-insensitively but casefolds to itself (checked over all of Unicode)."""
+    return s.casefold().replace('\u0131', 'i')
+
+
+def _may_match(folded, tok):
+    """v382.5: a necessary condition for any rule pattern to match - each of the token's words is in
+    the casefolded page (the pattern is those words, case-insensitive, with any separator between
+    them). Lets scrub() and leaks() skip the rules whose name is not on the page at all: same result,
+    the demo run spent about 100 s running all 48 patterns over all 441 pages."""
+    parts = _PARTS.get(tok)
+    if parts is None:
+        parts = _PARTS[tok] = [p.casefold() for p in re.split(r'[\s\-_]+', tok.strip()) if p]
+    return all(p in folded for p in parts)
+
+
 def scrub(text, rules, demo_names):
     """Replace every real-name hit by the plant's demo name ('argia-solar-3'
     inside a URL-ish slug, 'ARGIA SOLAR 3' elsewhere). Returns (text, n). Pure."""
     body, keep = _mask(text)
+    folded = _fold(body)
     n = 0
     for rx, k, tok in rules:
+        if not _may_match(folded, tok):
+            continue
         dn = demo_names.get(k, 'ARGIA SOLAR')
 
         def rep(m, dn=dn):
             s = m.group(0)                     # 'taigene' / 'plastic-omnium' are slugs (URLs, file names)
             return slugify(dn) if (s == s.lower() and ' ' not in s) else dn
         body, c = rx.subn(rep, body)
+        if c:
+            folded = _fold(body)           # later (shorter) rules see the replaced text, as before
         n += c
     return _unmask(body, keep), n
 
@@ -333,8 +358,11 @@ def scrub(text, rules, demo_names):
 def leaks(text, rules):
     """[(token, context)] for every real name still in the text. Pure."""
     body, _ = _mask(text)
+    folded = _fold(body)
     out = []
     for rx, _k, tok in rules:
+        if not _may_match(folded, tok):
+            continue
         for m in rx.finditer(body):
             a, b = max(0, m.start() - 40), min(len(body), m.end() + 40)
             out.append((tok, body[a:b].replace('\n', ' ')))

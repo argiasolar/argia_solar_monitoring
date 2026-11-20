@@ -463,7 +463,9 @@ try:
     _ms = {}
     for r in q("SELECT plant_key, meter_id, to_char(ts_utc AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), grid_w,"
                " imp_total_kwh, exp_total_kwh, imp_day_kwh, exp_day_kwh FROM meter_sample"
-               f" WHERE ts_utc > DATE '{TODAY}' - 33 ORDER BY 1, 2, 3;"):
+               f" WHERE ts_utc > DATE '{TODAY}' - 33"
+               " AND plant_key IN (" + ", ".join(f"'{k}'" for k in MTR.VALIDATED_PLANTS) + ")"
+               " ORDER BY 1, 2, 3;"):
         if len(r) >= 8:
             _ms.setdefault((r[0], r[1]), []).append(MTR.MeterSample(
                 dt.datetime.fromisoformat(r[2]).replace(tzinfo=dt.timezone.utc), r[0], r[1],
@@ -1483,7 +1485,7 @@ def pv_day(pk, d):
 
 def meter_card(pk, d):
     """v385: consumption and solar coverage (grid meter + inverters); '' for plants without a meter."""
-    if CONS is None or not any(k[0] == pk for k in METER_DAY):
+    if CONS is None or pk not in MTR.VALIDATED_PLANTS or not any(k[0] == pk for k in METER_DAY):
         return ''
     days = []
     for k in range(29, -1, -1):

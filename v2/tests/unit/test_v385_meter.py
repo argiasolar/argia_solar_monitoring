@@ -322,3 +322,14 @@ def test_a_failed_discovery_keeps_the_known_meters_and_is_not_cached(tmp_path, m
     got = MC.load_meters(None, None, False, False, None)
     assert {m["plant_key"] for m in got} == {"A", "B"}
     assert _j.loads(st.read_text())["fetched"] == 0                        # not rewritten: next run asks again
+
+
+def test_only_validated_plants_are_collected_and_shown(monkeypatch):
+    """v385.2: the vendors list meters at 7 more plants (some with two meters of unknown purpose);
+    the first deploy collected and showed all of them. Only checked plants, each added by hand."""
+    assert M.VALIDATED_PLANTS == ("MEX1", "MEX2", "SLP1")
+    assert MC.main(["--plants", "GTO3"]) == 2                              # refused before any vendor call
+    src = (V2 / "server" / "monitoring_gen.py").read_text(encoding="utf-8")
+    assert "pk not in MTR.VALIDATED_PLANTS" in src and "MTR.VALIDATED_PLANTS) + \")\"" in src
+    col = (V2 / "scripts" / "meter_collect.py").read_text(encoding="utf-8")
+    assert "keys or list(M.VALIDATED_PLANTS)" in col

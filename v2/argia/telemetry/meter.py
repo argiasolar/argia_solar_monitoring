@@ -34,6 +34,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 from argia.core.normalize import safe_float
 
 LOG = logging.getLogger("argia.meter")
+
+# v385.2: only plants whose meter was checked (what it measures, sign, energy balance against the
+# inverters) are collected and shown. The vendors list meters at more plants (several with two
+# meters, purpose unknown); each is added here after its own check, never automatically.
+VALIDATED_PLANTS = ("MEX1", "MEX2", "SLP1")       # SAG, Vitalmex, Quimica Coyoacan (20 Nov 2026)
 UTC = dt.timezone.utc
 KEEP_DAYS = 800
 MAX_GAP_S = 15 * 60          # a longer silence between two samples is not integrated

@@ -201,7 +201,7 @@ def load_meters(pf, keys, rediscover: bool, dry_run: bool, ses: "Sessions") -> L
     meters = merge_discovery(discover(pf, keys, ses, failed), failed, previous)
     if failed:
         LOG.warning("discovery incomplete (%s) - asked again next run", ", ".join(sorted(failed)))
-    elif not dry_run and not keys and meters:
+    elif not dry_run and sorted(keys or []) == sorted(M.VALIDATED_PLANTS) and meters:
         os.makedirs(STATE_DIR, exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -318,13 +318,16 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     keys = [k.strip().upper() for k in a.plants.split(",") if k.strip()] or None
+    if keys and not a.dry_run and set(keys) - set(M.VALIDATED_PLANTS):
+        LOG.error("only validated plants are stored (%s); use --dry-run to look at others", ", ".join(M.VALIDATED_PLANTS))
+        return 2
     now = dt.datetime.now(MX)
     if not wait_for_telemetry():
         LOG.warning("telemetry still running after 5 min - this run skipped")
         return 0
     pf = _portfolio()
     ses = Sessions()
-    meters = load_meters(pf, keys, a.rediscover, a.dry_run, ses)
+    meters = load_meters(pf, keys or list(M.VALIDATED_PLANTS), a.rediscover, a.dry_run, ses)
     LOG.info("meters: %s", ", ".join(f"{m['plant_key']}({m['brand']})" for m in meters) or "none")
     counts = {} if a.days else day_counts()
     written, huawei_off = 0, False

@@ -670,6 +670,9 @@ def configure(PG):
     assert hasattr(MG, 'METER_DAY') and hasattr(MG, 'METER_HOUR'), 'monitoring_gen changed: METER_DAY / METER_HOUR not found'
     MG.METER_DAY.clear()
     MG.METER_HOUR.clear()
+    # v387: the documentation lives on the portal only - no "?" links on the demo
+    assert hasattr(MG, 'DOCS_BASE'), 'monitoring_gen changed: DOCS_BASE not found'
+    MG.DOCS_BASE = ''
     # chrome: host, sub-tabs, no Ask / account / app
     C.PORTAL_HOST = DEMO_HOST
     C.SECTIONS = {

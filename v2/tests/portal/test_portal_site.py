@@ -37,7 +37,8 @@ APP_PREFIXES = ("/ask/", "/account/", "/setup/", "/maintenance/", "/finance/", "
                 "/login", "/logout", "/session/", "/invoices/")
 STATIC_OUTSIDE_GENERATOR = ("/favicon.png", "/favicon.ico", "/favicon.svg",
                             "/portfolio/assets/", "/assets/",
-                            "/ppa-report/")          # v374: written by scripts/ppa_monthly_gen.py, not portal_gen
+                            "/ppa-report/",          # v374: written by scripts/ppa_monthly_gen.py, not portal_gen
+                            "/docs/")                # v387: built from docs/portal_docs at deploy, not portal_gen
 ARCHIVE = re.compile(r"/d/\d{4}-\d{2}-\d{2}\.html$")
 LINK = re.compile(r"""(?:href|src)=["'](/[^"'#?]*)""")
 EM = chr(0x2014)

@@ -514,6 +514,7 @@ def user_menu():
     return f'''<div class="umenu" id="umenu" role="menu">
  <div class="uwho"><b>…</b><span class="mono muted"></span></div>
  <a href="/account/">{ico("user", 16)} {t("My account", "Mi cuenta")}</a>
+ <a href="/docs/">{ico("report", 16)} {t("How the monitoring works", "Cómo funciona el monitoreo")}</a>
  <div style="display:flex;align-items:center;gap:10px;padding:9px 12px">{ico("globe", 16)} {t("Language", "Idioma")}
   <span class="seg"><button class="lang-btn" data-l="en" onclick="setLang('en',true)">EN</button><button class="lang-btn" data-l="es" onclick="setLang('es',true)">ES</button></span></div>
  <button class="uout" onclick="argiaLogout()">{ico("out", 16)} {t("Log out", "Cerrar sesión")}</button>

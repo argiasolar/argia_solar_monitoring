@@ -1624,18 +1624,36 @@ def alerts_card(pk):
 # v386 (Tomasz): every card on the plant page (and the by-string charts inside the troubleshooting
 # card) folds and unfolds from its title; the choice is kept in this browser (localStorage, keyed by
 # the card's English title, so it holds for every plant and day). Without storage it still folds.
+# v387: the documentation page (docs/portal_docs, installed at /docs/ on the portal); '' = no "?" links (demo)
+DOCS_BASE = '/docs/'
 FOLD_JS = r"""<script>(function(){
 function src(h){var a=h.getAttribute('data-en');if(!a){var s=h.querySelector('[data-en]');a=s?s.getAttribute('data-en'):h.textContent;}return a||'';}
-function key(h){return 'argia_fold:'+src(h).split(' - ')[0].split(' \u00b7 ')[0].split(':')[0].trim().toLowerCase().slice(0,60);}
+function name(h){return src(h).split(' - ')[0].split(' \u00b7 ')[0].split(':')[0].trim().toLowerCase().slice(0,60);}
+function key(h){return 'argia_fold:'+name(h);}
+var DOCS='__DOCS__', DOC=[['intraday production','intraday'],['troubleshooting','troubleshooting'],['strings on the plant layout','strings'],
+ ['inverters','inverters'],['thermal health','thermal'],['open alerts','alerts'],['last 7 days','losses'],['daily reconciliation','reconciliation'],
+ ['consumption and solar coverage','consumption'],['epi-600 by string','epi'],['performance','kpis'],['monthly close','reconciliation']];
+function docOf(h){var n=name(h);for(var i=0;i<DOC.length;i++){if(n.indexOf(DOC[i][0])===0)return DOC[i][1];}return '';}
 function get(k){try{return localStorage.getItem(k)==='1';}catch(e){return false;}}
 function put(k,v){try{if(v)localStorage.setItem(k,'1');else localStorage.removeItem(k);}catch(e){}}
 function wire(box,h){if(!h||h.getAttribute('data-fold'))return;h.setAttribute('data-fold','1');var k=key(h);
+ /* v387: the controls sit beside the title, not inside it - the page's language switch rewrites every
+    [data-en] element, which wiped buttons placed inside a title (v386 showed no fold arrow on most cards) */
+ var ctl=document.createElement('div');ctl.className='cardctl';
+ ctl.style.cssText='position:absolute;top:10px;right:12px;display:flex;gap:6px;align-items:center;z-index:2';
+ if(getComputedStyle(box).position==='static')box.style.position='relative';
+ h.style.paddingRight='70px';h.style.cursor='pointer';
+ var d=DOCS?docOf(h):'';if(d){var q=document.createElement('a');q.href=DOCS+'#'+d;q.className='docq';q.textContent='?';q.target='_blank';q.rel='noopener';
+  q.title='How is this calculated? / ¿Cómo se calcula?';
+  q.style.cssText='display:inline-block;width:24px;height:24px;line-height:22px;text-align:center;border:1px solid #d6dbe1;border-radius:50%;font-size:13px;font-weight:700;color:#0f6b63;text-decoration:none;background:#fff';
+  ctl.appendChild(q);}
  var b=document.createElement('button');b.type='button';b.className='foldbtn';
- b.style.cssText='float:right;margin-left:8px;border:1px solid #d6dbe1;background:#fff;border-radius:6px;padding:0 9px;font-size:13px;line-height:22px;cursor:pointer;color:#5f6368';
- h.insertBefore(b,h.firstChild);h.style.cursor='pointer';
- function set(c){Array.prototype.forEach.call(box.children,function(ch){if(ch!==h&&ch.tagName!=='SCRIPT'&&!ch.classList.contains('evtip'))ch.style.display=c?'none':'';});
-  b.textContent=c?'\u25b8':'\u25be';b.title=c?'Show / Mostrar':'Hide / Ocultar';b.setAttribute('aria-expanded',c?'false':'true');box.classList.toggle('folded',c);}
- set(get(k));h.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('a'))return;var c=!box.classList.contains('folded');set(c);put(k,c);});}
+ b.style.cssText='border:1px solid #d6dbe1;background:#fff;border-radius:6px;padding:0 9px;font-size:13px;line-height:22px;cursor:pointer;color:#5f6368';
+ ctl.appendChild(b);box.insertBefore(ctl,box.firstChild);
+ function set(c){Array.prototype.forEach.call(box.children,function(ch){if(ch!==h&&ch!==ctl&&ch.tagName!=='SCRIPT'&&!ch.classList.contains('evtip'))ch.style.display=c?'none':'';});
+  b.textContent=c?'▸':'▾';b.title=c?'Show / Mostrar':'Hide / Ocultar';b.setAttribute('aria-expanded',c?'false':'true');box.classList.toggle('folded',c);}
+ function flip(){var c=!box.classList.contains('folded');set(c);put(k,c);}
+ set(get(k));h.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('a'))return;flip();});b.addEventListener('click',flip);}
 function run(){document.querySelectorAll('.card').forEach(function(c){var h=c.querySelector(':scope > h2');if(h)wire(c,h);});
  document.querySelectorAll('.evby').forEach(function(c){var h=c.querySelector(':scope > h3');if(h)wire(c,h);});}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
@@ -1801,7 +1819,7 @@ def plant_page(pk, d, skin='old'):
 <table><tr><th data-en="Date" data-es="Fecha">Date</th><th data-en="Interval" data-es="Intervalos">Interval</th><th data-en="Vendor" data-es="Fabricante">Vendor</th><th>KPI</th><th data-en="Compl." data-es="Compl.">Compl.</th><th>Δ%</th><th>Status</th></tr>{recon_rows}</table>
 <p class="note" data-en="The vendor cumulative counter is the billing control; interval data is analytics. A gap in our collection can never shrink an invoice."
  data-es="El contador acumulado del fabricante es el control de facturación; los intervalos son analítica.">The vendor cumulative counter is the billing control; interval data is analytics.</p></div>'''
-    body += FOLD_JS                                   # v386: every card folds, remembered per browser
+    body += FOLD_JS.replace('__DOCS__', DOCS_BASE)    # v386: every card folds; v387: "?" opens its documentation
     if skin == 'portal':
         return {'picker': date_picker(pk, d), 'buttons': live_btn + ref_btn,
                 'body': body, 'sub': sub, 'live': live}

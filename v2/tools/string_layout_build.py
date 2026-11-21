@@ -14,11 +14,11 @@ Where each piece comes from
 * Inverter of a string: the drawing table / label colour; at SAG the
   field-filled 'Mapeo de cadenas' form (27 Jul 2026).
 * Input (channel) of a string, with a confidence per string:
-  'table' (a table names the input), 'order' (string n = input n),
+  'table' (a table names the input; layout_tables.py reads it), 'order' (string n = input n),
   'assumed' (drawing and monitoring disagree: placed where most likely,
   confirm on site), 'none' (not on the drawing: grid only).
 * Inverter areas: the drawing's own modules, by the colour the drawing
-  gives each inverter (Taigene inverters 1-4: from rev. V6.0, same frame).
+  gives each inverter.
 * Helioscope view: the report's 'Detailed Layout' image. The drawing's
   module mask is registered onto the Helioscope module mask (blue): one
   affine by ECC, then each module block refined by its own shift (a
@@ -39,6 +39,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import helio_layout as HL       # noqa: E402
+import layout_tables as LT      # noqa: E402
 
 SRC, OUT, STRINGS_CSV, INVERTERS_CSV = sys.argv[1:5]
 os.makedirs(OUT, exist_ok=True)
@@ -60,10 +61,15 @@ PLANTS = {
     'SLP2': {'drawing': 'SLP2_drawing.pdf', 'src': 'Turística Arizona SLP - Ubicación de módulos FV, rev. V5.0 (11.07.2024)',
              'modules': {RED: 'INV1', (0.0, 0.25, 1.0): 'INV2'},
              'helio': 'SLP2_helio.pdf', 'helio_src': 'Helioscope TURISTICA ARIZONA PPA (E. Mora, 2024)'},
-    'GTO1': {'drawing': 'GTO1_drawing.pdf',
-             'src': 'Taigene - Ubicación de módulos FV, rev. V7.0 (05.11.2025, ampliación 234 kWp); inverters 1-4 from rev. V6.0 (20.11.2024)',
-             'modules': {RED: 'INV5', (0.36, 0.72, 0.36): 'INV6'},
-             'helio': 'GTO1_helio.pdf', 'helio_src': 'Helioscope TAIGENE Proyecto Integro 700 kW AC (A. Gonzalez, 07.10.2026)'},
+    'GTO1': {'drawing': 'GTO1_drawing_v81.pdf',
+             'src': 'Taigene - Ubicación de módulos FV, rev. V8.1 (20.11.2026, all 77 strings numbered)',
+             'modules': {(1.0, 0.0, 1.0): 'INV1', (0.07, 0.61, 0.28): 'INV2', (0.58, 0.15, 0.56): 'INV3',
+                         (0.8, 0.41, 0.16): 'INV4', BLUE: 'INV5', RED: 'INV6'},
+             'helio': 'GTO1_helio_ppa.pdf', 'helio_src': "HelioScope 'PPA Taigene', whole plant 839.28 kWp (A. Gonzalez, 19.11.2026)",
+             # the drawing's module counts replace the workbook's (its expansion counts predate the as-built);
+             # inverter 6 model from Arturo's answers to the EPI-600 review (21.11.2026)
+             'kwp_from_strings': True, 'models': {'INV6': 'Growatt MAX 60KTL3 LV'}, 'line_modules': True,
+             'label_circles': False},
     'MEX1': {'drawing': 'MEX1_drawing.pdf',
              'src': 'SAG - Ubicación de módulos FV, rev. V6.0 (15.07.2026); inputs from the field form Mapeo de cadenas (27.07.2026)',
              'modules': {RED: 'INV1', BLUE: 'INV2', MAGENTA: 'INV3'},
@@ -136,6 +142,20 @@ def module_shapes(page, box, colours, maxsz=40, avoid=()):
     return out
 
 
+def line_modules(page, box, colours, avoid=()):
+    """Modules drawn as loose lines (no box) of the given colours inside box (layout_tables.line_cells)."""
+    hl = []
+    for o in page.lines:
+        inv = colours.get(col(o.get('stroking_color')))
+        w = o['x1'] - o['x0']
+        if not inv or o['bottom'] - o['top'] > 0.5 or not 5 <= w <= 40:
+            continue
+        if box[0] <= o['x0'] and o['x1'] <= box[2] and box[1] <= o['top'] <= box[3]:
+            hl.append((o['x0'], o['x1'], o['top'], inv))
+    return [c for c in LT.line_cells(hl)
+            if not any(abs((c[0] + c[2]) / 2 - a['x']) < 5 and abs((c[1] + c[3]) / 2 - a['y']) < 5 for a in avoid)]
+
+
 def crop_of(shapes, labs, aerial, margin=28):
     xs = [s[0] for s in shapes] + [s[2] for s in shapes] + [lab['x'] for lab in labs]
     ys = [s[1] for s in shapes] + [s[3] for s in shapes] + [lab['y'] for lab in labs]
@@ -188,7 +208,7 @@ SN = {(pk, r['Inverter']): r['Serial number'].strip() for pk, rows in INVS.items
 USED = set()
 
 
-def string_rec(pk, sn, inv, ch, pts, conf, note=None, per=1):
+def string_rec(pk, sn, inv, ch, pts, conf, note=None, per=1, modules=None):
     r = X.get((pk, sn, ch))
     if r is None:
         raise SystemExit(f'{pk} {sn} {ch} ({pts}) is not in the string configuration')
@@ -203,6 +223,10 @@ def string_rec(pk, sn, inv, ch, pts, conf, note=None, per=1):
            'tilt': tilt, 'az': az, 'orient': r['Orientation'], 'group': f'{mod}|{tilt:g}|{az:g}',
            'pos': [{k: (round(v, 1) if isinstance(v, float) else v) for k, v in p.items()} for p in pts],
            'conf': conf if pts else 'none'}
+    if modules is not None:                 # the drawing's count (per string) wins over the workbook
+        watt = re.search(r'(\d+) W\b', mod)
+        rec['modules'] = modules * per
+        rec['kwp'] = round(modules * per * int(watt.group(1)) / 1000.0, 2) if watt else rec['kwp']
     if per > 1:
         rec['per'] = per
     notes = [n for n in (r['Note'], note) if n]
@@ -339,41 +363,48 @@ def mex1(page):
     return labs, out, []
 
 
-def grey_box(page):
-    xs = [o for o in page.lines if col(o.get('stroking_color')) == (0.46, 0.46, 0.46)]
-    return min(o['x0'] for o in xs), min(o['top'] for o in xs), max(o['x1'] for o in xs), max(o['bottom'] for o in xs)
-
-
 def gto1(page):
-    labs = [lab for lab in labels(page, 560, 1010) if lab['size'] == 3.9 and lab['col'] == RED and 1 <= lab['n'] <= 20]
+    """Taigene rev. V8.1: every string numbered (1-77), a table Cadena -> String / MPPT per inverter."""
+    labs = [lab for lab in labels(page, 560, 1026) if lab['size'] == 5.9 and 1 <= lab['n'] <= 77]
     L = by_n(labs)
-    assert sorted(L) == list(range(1, 21)), sorted(L)
-    out = [string_rec('GTO1', SN[('GTO1', 'INV5')], 'INV5', f's{n}', [pt(L[n])], 'table') for n in range(1, 15)]
-    note6 = ('drawing table: 3 MPPT x 2 strings (strings 15-20); monitoring: 2 combined inputs '
-             '(4 strings + 2 strings) - confirm which strings share each input')
-    out.append(string_rec('GTO1', SN[('GTO1', 'INV6')], 'INV6', 'm1', [pt(L[n]) for n in (15, 16, 17, 18)],
-                          'assumed', note6, per=4))
-    out.append(string_rec('GTO1', SN[('GTO1', 'INV6')], 'INV6', 'm2', [pt(L[n]) for n in (19, 20)],
-                          'assumed', note6, per=2))
-    notes = [['Inverters 1-4: the drawings mark each inverter\'s area but number no string, so their strings are '
-              'only in the grid below. Drawing V6.0 gives inverter 1 14 strings and inverter 2 15; the monitoring '
-              'sees 15 on inverter 1 and 14 on inverter 2 (input 15 of inverter 2 reads about 0 A) - confirm on site.',
-              'Inversores 1-4: los planos marcan el área de cada inversor pero no numeran las cadenas, por eso sus '
-              'cadenas están solo en la cuadrícula de abajo. El plano V6.0 da 14 cadenas al inversor 1 y 15 al 2; '
-              'el monitoreo ve 15 en el inversor 1 y 14 en el 2 (la entrada 15 del inversor 2 lee cerca de 0 A) - '
-              'confirmar en sitio.']]
+    assert sorted(L) == list(range(1, 78)), sorted(L)
+    text = page.within_bbox((0, 565, page.width - 190, page.height)).extract_text()
+    cad = LT.cadenas(text)
+    per_inv = LT.split_by_inverter(cad, LT.module_counts(text))
+    assert sorted(per_inv) == [1, 2, 3, 4, 5, 6], per_inv
+    out = []
+    for k in range(1, 6):                       # MAX 124KTL3-X2: 8 MPPT x 2 inputs
+        inv = f'INV{k}'
+        for n in per_inv[k]:
+            panels, st, mp = cad[n]
+            ch, conf, note = f's{LT.growatt_input(mp, st)}', 'table', None
+            if (inv, n) == ('INV1', 15):
+                # table: String 2 - MPPT 8 = input 16, which never carries current; MPPT 8 holds one string
+                # and MPPT 2 two (inputs 3 and 4 both about 8 A at noon), the workbook lists inputs 1-15
+                ch, conf = 's4', 'assumed'
+                note = ('drawing V8.1 table: String 2 - MPPT 8 (input 16, reads 0 A); monitoring: MPPT 2 carries '
+                        '2 strings and MPPT 8 one - placed on input 4, confirm on site which string feeds MPPT 2')
+            out.append(string_rec('GTO1', SN[('GTO1', inv)], inv, ch, [pt(L[n])], conf, note, modules=panels))
+    six = per_inv[6]
+    assert six == [72, 73, 74, 75, 76, 77] and len({cad[n][0] for n in six}) == 1, six
+    note6 = ('drawing V8.1 table: 4 MPPT (strings 72 and 73 alone, 74-75 and 76-77 in pairs); monitoring: '
+             '2 combined inputs (4 strings + 2 strings) - placed by location (west strip 74-77, inner roof 72-73), '
+             'confirm on site which strings share each input')
+    out.append(string_rec('GTO1', SN[('GTO1', 'INV6')], 'INV6', 'm1', [pt(L[n]) for n in (74, 75, 76, 77)],
+                          'assumed', note6, per=4, modules=cad[74][0]))
+    out.append(string_rec('GTO1', SN[('GTO1', 'INV6')], 'INV6', 'm2', [pt(L[n]) for n in (72, 73)],
+                          'assumed', note6, per=2, modules=cad[72][0]))
+    notes = [['Drawing rev. V8.1 numbers all 77 strings. Two places where the drawing and the monitoring '
+              'disagree are marked assumed (orange dashed ring): inverter 1 string 15 (the drawing puts it on '
+              'MPPT 8 input 16, which never carries current, while the monitoring sees a second string on MPPT 2) '
+              'and inverter 6 (the drawing lists 4 MPPT, the inverter reports 2 inputs carrying 4 and 2 strings). '
+              "Module counts per string are the drawing's.",
+              'El plano rev. V8.1 numera las 77 cadenas. Dos puntos donde el plano y el monitoreo no coinciden '
+              'están marcados como supuestos (anillo naranja punteado): inversor 1 cadena 15 (el plano la pone '
+              'en el MPPT 8 entrada 16, que nunca lleva corriente, mientras el monitoreo ve una segunda cadena '
+              'en el MPPT 2) e inversor 6 (el plano indica 4 MPPT, el inversor reporta 2 entradas con 4 y 2 '
+              'cadenas). Los módulos por cadena son los del plano.']]
     return labs, out, notes
-
-
-def gto1_v6_shapes(page7):
-    """Inverters 1-4 module outlines from rev. V6.0, moved into the V7.0 frame."""
-    p6 = page_of('GTO1_drawing_v6.pdf')
-    g6, g7 = grey_box(p6), grey_box(page7)
-    dx, dy = g7[0] - g6[0], g7[1] - g6[1]
-    assert abs((g6[2] - g6[0]) - (g7[2] - g7[0])) < 3 and abs((g6[3] - g6[1]) - (g7[3] - g7[1])) < 3, (g6, g7)
-    cols = {MAGENTA: 'INV1', (0.07, 0.61, 0.28): 'INV2', RED: 'INV3', BLUE: 'INV4'}
-    return [(x0 + dx, y0 + dy, x1 + dx, y1 + dy, inv) for x0, y0, x1, y1, inv
-            in module_shapes(p6, list(g6), cols, maxsz=80) if (x1 - x0) >= 2 and (y1 - y0) >= 2]
 
 
 def clusters(shapes, gap=2.0):
@@ -440,9 +471,10 @@ def build(pk):
     page = page_of(cfg['drawing'])
     labs, strings, notes = BUILD[pk](page)
     aerial = aerial_box(page)
-    shapes = module_shapes(page, aerial, cfg['modules'], avoid=labs)
-    if pk == 'GTO1':
-        shapes += gto1_v6_shapes(page)
+    circles = labs if cfg.get('label_circles', True) else ()     # V8.1 labels sit on the modules, no circle
+    shapes = module_shapes(page, aerial, cfg['modules'], avoid=circles)
+    if cfg.get('line_modules'):
+        shapes += line_modules(page, aerial, cfg['modules'], avoid=circles)
     if pk == 'MEX1':
         shapes = sag_blocks_by_label(shapes, labs, strings)
     box = crop_of(shapes, labs, aerial)
@@ -463,9 +495,14 @@ def build(pk):
                       HL.MISFIT_ES + ' '
                       f'(traslape {hd["fit"]:.0%}, bloques emparejados {hd["paired"]:.0%}), por eso las cadenas solo se marcan en el plano de instalación.'])
     areas += hareas
-    inverters = [{'sn': r['Serial number'].strip(), 'inv': r['Inverter'], 'model': r['Model'],
+    def inv_kwp(r):
+        if not cfg.get('kwp_from_strings'):
+            return fnum(r['DC capacity (kWp)'])
+        return round(sum(s['kwp'] or 0 for s in strings if s['sn'] == r['Serial number'].strip()), 2)
+    inverters = [{'sn': r['Serial number'].strip(), 'inv': r['Inverter'],
+                  'model': cfg.get('models', {}).get(r['Inverter'], r['Model']),
                   'inputs': int(float(r['Monitored inputs'])) if fnum(r['Monitored inputs']) else None,
-                  'kwp': fnum(r['DC capacity (kWp)']), 'planes': r['Planes (tilt / azimuth)'],
+                  'kwp': inv_kwp(r), 'planes': r['Planes (tilt / azimuth)'],
                   'on_drawing': sum(len(s['pos']) and 1 for s in strings if s['sn'] == r['Serial number'].strip()
                                     and any(p['d'] == 'drawing' for p in s['pos']))}
                  for r in INVS[pk]]

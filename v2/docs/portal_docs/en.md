@@ -257,6 +257,8 @@ vs peers = (E_i / P_rated,i) / median over producing peers j != i of (E_j / P_ra
 
 One card, six views, all on the same 5-minute data. The yellow area behind the curves is the station irradiance (right axis), so you see at once how sunny the moment was.
 
+The arrows and the date in the card's top right move to the previous or next day (or any day) and land back on this card; the chosen view and inverter stay the same. **Today** returns to the live day.
+
 ### Plant
 
 ![Plant view: AC generation, design and site consumption](epi_plant)

@@ -39,7 +39,31 @@ def _pct(x):
     return 'n/a' if x is None else f'{x * 100:.1f} %'
 
 
-def render(pk: str, p: dict, live: bool) -> str:
+def day_nav(pk: str, nav: dict) -> str:
+    """v390 (Tomasz: "add a date picker to this graph, so the user doesnt have to go up the page in order to
+    move days back and forth"): previous day / date / next day / today, in the card's own head line. Every link
+    lands back on this card (#ev<pk>). ``nav``: day, today, first (oldest day page), prev / next (the
+    neighbouring days that have a page, or None) and base (the plant's page folder, no trailing slash)."""
+    base, today = nav['base'], nav['today']
+
+    def url(d):
+        return (f'{base}/' if d == today else f'{base}/d/{d}.html') + f'#ev{pk}'
+
+    def arrow(d, sym, en, es, cls):
+        if not d:
+            return f'<span class="evnb off {cls}" aria-disabled="true">{sym}</span>'
+        return (f'<a class="evnb {cls}" href="{url(d)}" title="{en}: {d}" data-en="{sym}" data-es="{sym}" '
+                f'data-title-es="{es}: {d}">{sym}</a>')
+    out = ('<div class="evnav">' + arrow(nav.get('prev'), '&#9664;', 'Previous day', 'Día anterior', 'evprev')
+           + f'<input type="date" class="evdate" value="{nav["day"]}" min="{nav["first"]}" max="{today}" '
+             f'data-base="{base}" data-today="{today}" data-card="ev{pk}" aria-label="Day">'
+           + arrow(nav.get('next'), '&#9654;', 'Next day', 'Día siguiente', 'evnext'))
+    if nav['day'] != today:
+        out += f'<a class="evnb evtoday" href="{url(today)}" data-en="Today" data-es="Hoy">Today</a>'
+    return out + '</div>'
+
+
+def render(pk: str, p: dict, live: bool, nav: dict = None) -> str:
     pl = p['plant']
     band = pl.get('band_mtd') or 'insufficient'
     be, bs = BAND_TEXT.get(band, BAND_TEXT['insufficient'])
@@ -65,7 +89,8 @@ def render(pk: str, p: dict, live: bool) -> str:
     head = (f'<div class="evhead"><div><b>EPI-600</b> {t("month to date", "mes a la fecha")}: <b>{_pct(pl.get("epi600_mtd"))}</b> '
             f'<span class="evband ev-{band}">{t(be, bs)}</span> <span class="note">({pl.get("steps600_mtd", 0)} '
             f'{t("valid 5-min steps", "pasos de 5 min válidos")}{_days(pl)})</span></div>'
-            f'<div class="note">{t("this day", "este día")}: {_pct(pl.get("epi600_day"))}</div></div>')
+            f'<div class="evright">{day_nav(pk, nav) if nav else ""}'
+            f'<div class="note">{t("this day", "este día")}: {_pct(pl.get("epi600_day"))}</div></div></div>')
     caveat = t('Bands are provisional: the station sensors are not yet validated (they read 7 to 21 % below satellite). '
                'Comparisons inside the plant - inverter with inverter, string with string - use the same sensor and are reliable.',
                'Las bandas son provisionales: los sensores de las estaciones aún no están validados (leen 7 a 21 % menos que el satélite). '
@@ -109,6 +134,11 @@ CSS = '''
 .evmain{display:block}.evchart{min-width:0}
 .evsvg{width:100%;height:330px;display:block}.evseg{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px}
 .evhead2{margin:-4px 0 8px}
+.evright{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.evnav{display:flex;align-items:center;gap:4px}
+.evnb{display:inline-block;min-width:30px;text-align:center;border:1px solid #d6dbe1;background:#fff;border-radius:6px;padding:4px 8px;color:#1c2733;text-decoration:none;font-size:13px;line-height:18px}
+.evnb:hover{border-color:#1c2733}.evnb.off{opacity:.35;cursor:default}.evnb.off:hover{border-color:#d6dbe1}
+.evdate{border:1px solid #d6dbe1;border-radius:6px;padding:3px 6px;font:inherit;font-size:13px}
 .evseg button,.evinv button{border:1px solid #d6dbe1;background:#fff;border-radius:6px;padding:5px 8px;text-align:left;cursor:pointer;font:inherit}
 .evseg button.on{background:#1c2733;color:#fff;border-color:#1c2733}.evinv button.on{border-color:#1c2733;box-shadow:inset 3px 0 0 #1c2733}.evinv button.off{opacity:.45}
 .evpanel{font-size:12.5px;margin-top:10px}.evpanel table{width:100%;border-collapse:collapse}.evpanel td{padding:3px 2px;border-bottom:1px solid #eceef0}
@@ -138,6 +168,15 @@ document.querySelectorAll('.evcard').forEach(function(card){
  var P=JSON.parse(card.querySelector('.evdata').textContent), C=JSON.parse(card.dataset.colors);
  var svg=card.querySelector('.evsvg'), leg=card.querySelector('.evleg'), panel=card.querySelector('.evpanel'), sum=card.querySelector('.evsum'), tip=card.querySelector('.evtip');
  var view='i', sel=(P.inverters[0]||{}).inv, hidden={};
+ // v390: the view and the chosen inverter survive a day change (this tab only)
+ var VK='argia_ev_'+card.id;
+ try{var st=JSON.parse(sessionStorage.getItem(VK)||'null');if(st){if(card.querySelector('.evseg button[data-v="'+st.v+'"]'))view=st.v;
+  if(P.inverters.some(function(x){return x.inv===st.sel;}))sel=st.sel;}}catch(e){}
+ function keep(){try{sessionStorage.setItem(VK,JSON.stringify({v:view,sel:sel}));}catch(e){}}
+ var dp=card.querySelector('.evdate');
+ if(dp)dp.addEventListener('change',function(){var d=dp.value;if(!d||d<dp.min||d>dp.max)return;keep();
+  location.href=(d===dp.dataset.today?dp.dataset.base+'/':dp.dataset.base+'/d/'+d+'.html')+'#'+dp.dataset.card;});
+ card.querySelectorAll('.evnav a').forEach(function(a){a.addEventListener('click',keep);});
  var W=940,H=330,PL=50,PR=46,PT=24,PB=26, n=P.t.length;
  var X=function(i){return PL+(n>1?i*(W-PL-PR)/(n-1):0);};
  function path(vals,Y){var d='',pen=false;vals.forEach(function(v,i){if(v==null){pen=false;return;}d+=(pen?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1);pen=true;});return d;}
@@ -256,7 +295,7 @@ document.querySelectorAll('.evcard').forEach(function(card){
   var lst=S.out.map(function(o){return '<tr><td>'+o.label+wo(o.uid)+tkl(o.uid)+'</td><td>'+(o.pct>0?'+':'')+o.pct+'%</td><td>'+o.minutes+' min</td></tr>';}).join('');
   var zl=S.zero.map(function(u){return '<tr><td class="evflag">'+S.labels[S.uids.indexOf(u)]+wo(u)+tkl(u)+'</td><td colspan="2" class="evflag">'+tx(['no output','sin salida'])+'</td></tr>';}).join('');
   panel.innerHTML='<div class="evinv">'+btns+'</div>'+(lst||zl?'<table>'+zl+lst+'</table>':'<p class="note">'+tx(['All strings inside the band.','Todas las cadenas dentro de la banda.'])+'</p>');
-  panel.querySelectorAll('[data-sel]').forEach(function(b){b.onclick=function(){sel=b.dataset.sel;draw();};});
+  panel.querySelectorAll('[data-sel]').forEach(function(b){b.onclick=function(){sel=b.dataset.sel;keep();draw();};});
   sum.innerHTML='';
  }
  // v384: EPI-600 month to date by string, one chart per inverter (Arturo's mock-up, spec section 8.4)
@@ -323,7 +362,7 @@ document.querySelectorAll('.evcard').forEach(function(card){
  }
  function draw(){clear();card.querySelectorAll('.evseg button').forEach(function(b){b.classList.toggle('on',b.dataset.v===view);});
   if(view==='p')drawPlant();else if(view==='i')drawInverters();else if(view==='s')drawStrings();else if(view==='c')drawCons();else drawPeriod(view==='w'?7:30);}
- card.querySelectorAll('.evseg button').forEach(function(b){b.onclick=function(){view=b.dataset.v;draw();};});
+ card.querySelectorAll('.evseg button').forEach(function(b){b.onclick=function(){view=b.dataset.v;keep();draw();};});
  byStrings();
  svg.addEventListener('mousemove',function(ev){var r=svg.getBoundingClientRect(),xr=(ev.clientX-r.left)/r.width*W;
   if(view==='c'){tip.style.display='none';return;}
@@ -346,9 +385,9 @@ document.querySelectorAll('.evcard').forEach(function(card){
 '''
 
 
-def card(pk: str, p: dict, live: bool = False) -> str:
+def card(pk: str, p: dict, live: bool = False, nav: dict = None) -> str:
     p = {k: v for k, v in p.items() if k != 'tallies'}        # the page draws; it does not need the sums
-    return render(pk, p, live) + f'<style>{CSS}</style><script>{JS}</script>'
+    return render(pk, p, live, nav) + f'<style>{CSS}</style><script>{JS}</script>'
 
 
 def pending_card() -> str:

@@ -1557,6 +1557,15 @@ def epi_inv_cols(pk, d, sn):
     return f'<td>{yld}</td><td>{strs}</td><td>{pct(inv.get("epi600_day"))} / {pct(inv.get("epi600_mtd"))}</td>'
 
 
+def day_nav(pk, d):
+    """v390: the troubleshooting card's own day picker - the neighbouring days that have a page."""
+    days = sorted(set(DATES) | {TODAY})
+    i = days.index(d) if d in days else None
+    return {'day': d, 'today': TODAY, 'first': FIRST_DATE, 'base': f'{BASE}/{pk.lower()}',
+            'prev': days[i - 1] if i else None,
+            'next': days[i + 1] if i is not None and i + 1 < len(days) else None}
+
+
 def epi_views_card(pk, d):
     """The v382 card for one plant-day ('' when the plant has no EPI configuration)."""
     if EPI_B is None or pk not in EPI_CFG:
@@ -1575,7 +1584,7 @@ def epi_views_card(pk, d):
             cfg = EPI_CFG[pk]
             tokens = {u: TL.input_token(c.kind, c.index) for u, c in cfg.channel_of.items()}
             p['tk'] = TL.epi_tickets(p, pk, display_name(PLANTS[pk].get('customer') or pk), OPEN_TICKETS, tokens)
-        return EPH.card(pk, p, live=d == TODAY)
+        return EPH.card(pk, p, live=d == TODAY, nav=day_nav(pk, d))
     except Exception as e:                            # noqa: BLE001  (a card must never cost the page)
         print(f'monitoring_gen: EPI views card {pk} {d} failed: {e}', file=sys.stderr)
         return ''

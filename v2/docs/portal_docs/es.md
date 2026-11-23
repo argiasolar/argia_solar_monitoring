@@ -255,6 +255,8 @@ vs pares = (E_i / P_nominal,i) / mediana entre pares productivos j != i de (E_j 
 
 Una tarjeta, seis vistas, todas sobre los mismos datos de 5 minutos. El área amarilla detrás de las curvas es la irradiancia de la estación (eje derecho), así se ve de inmediato qué tan soleado estaba el momento.
 
+Las flechas y la fecha arriba a la derecha de la tarjeta pasan al día anterior o siguiente (o a cualquier día) y vuelven a esta tarjeta; la vista y el inversor elegidos se mantienen. **Hoy** regresa al día en vivo.
+
 ### Planta
 
 ![Vista de planta: generación CA, diseño y consumo del sitio](epi_plant)

@@ -89,6 +89,13 @@ def production(d0: dt.date, d1: dt.date, designs=None) -> Dict[Tuple[str, str], 
         f" WHERE prod_date BETWEEN DATE '{d0}' AND DATE '{d1}';")}
 
 
+def day_quality(d0: dt.date, d1: dt.date) -> Dict[Tuple[str, str], Tuple[bool, Optional[float]]]:
+    """v389: (plant, day) -> (irradiance measured by a station?, availability)."""
+    return {(r[0], r[1]): (L.weather_measured(r[2] or None), _f(r[3])) for r in psql_rows(
+        "SELECT plant_key, prod_date::text, coalesce(irradiance_source, ''), availability FROM daily_production"
+        f" WHERE prod_date BETWEEN DATE '{d0}' AND DATE '{d1}';")}
+
+
 def tariffs(d0: dt.date, d1: dt.date) -> Dict[Tuple[str, str], float]:
     """(plant, 'YYYY-MM') -> PPA tariff of the month."""
     return {(r[0], f"{int(r[1]):04d}-{int(r[2]):02d}"): float(r[3]) for r in psql_rows(
@@ -145,17 +152,28 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
     prod = production(c0, d1, design_model.load())
     tar, th, sl = tariffs(d0, d1), thermal(d0, d1), slots(d0, d1)
     cnt = counters(d0, d1)
+    qual = day_quality(c0, d1)                  # v389
+
+    def measured(k, day):
+        return qual.get((k, day), (True, None))[0]
 
     def sy(k, day):
         e, _ = prod.get((k, day), (None, None))
         return (e / P[k]["kwp"]) if (e is not None and P[k]["kwp"]) else None
 
     def is_healthy(k, day):
+        # v389: an estimated-sun day says nothing about a plant's usual ratios
         e, x = prod.get((k, day), (None, None))
-        return L.healthy(e, x)
+        return measured(k, day) and L.healthy(e, x)
+
+    def peer_ok(p, day):
+        e, x = prod.get((p, day), (None, None))
+        m, av = qual.get((p, day), (True, None))
+        return L.peer_counts(e, x, m, av)
 
     def healthy_peer_yields(k, day):
-        return {p: sy(p, day) for p in groups.get(k, []) if p in P and is_healthy(p, day) and sy(p, day)}
+        # v389: a peer whose sun that day is only estimated is judged by its availability, not the estimate
+        return {p: sy(p, day) for p in groups.get(k, []) if p in P and peer_ok(p, day) and sy(p, day)}
 
     def peer_irradiance(k, day):
         per_slot: Dict[str, list] = defaultdict(list)
@@ -188,7 +206,8 @@ def compute(d0: dt.date, d1: dt.date) -> List[L.LossDay]:
             tariff = (tar.get((k, ds[:7])) or meta["tariff"]) if meta["portfolio"] == "PPA" else None
             return L.compute_day(
                 k, ds, meta["kwp"], actual, weather, healthy_peer_yields(k, ds), peer_ratio, weather_ratio,
-                sl.get((k, ds), {}), peer_irradiance(k, ds), meta["n_inv"], th.get((k, ds), 0.0), tariff, catchup)
+                sl.get((k, ds), {}), peer_irradiance(k, ds), meta["n_inv"], th.get((k, ds), 0.0), tariff, catchup,
+                weather_is_measured=measured(k, ds))
 
         mine = {}
         day = d0

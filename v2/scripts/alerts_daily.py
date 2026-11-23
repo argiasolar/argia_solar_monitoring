@@ -105,7 +105,7 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str, designs=None) -> Dict[str
     header = [normalize_text(h) for h in data[0]]
     idx = {name: header.index(name) for name in
            ("date_iso", "plant_key", "energy_kwh", "specific_yield",
-            "expected_kwh", "data_class", "irradiance_kwh_m2") if name in header}
+            "expected_kwh", "data_class", "irradiance_kwh_m2", "irradiance_source") if name in header}
     for row in data[1:]:
         try:
             if date_key(row[idx["date_iso"]]) != date_iso:
@@ -121,11 +121,41 @@ def _read_kpi_day(sheets: SheetsClient, date_iso: str, designs=None) -> Dict[str
             "sy": safe_float(cell("specific_yield")),
             "expected": safe_float(cell("expected_kwh")),
             "data_class": normalize_text(cell("data_class")).lower(),
+            "irradiance_source": normalize_text(cell("irradiance_source")).lower() or None,
         }
         if designs and pk in designs:
             from argia.kpi.design_model import internal_expected
             out[pk]["expected"], _basis = internal_expected(
                 designs, pk, date_iso, safe_float(cell("irradiance_kwh_m2")), out[pk]["expected"])
+    return out
+
+
+def _loss_verdicts(date_iso: str) -> Dict[str, Tuple[str, Optional[float]]]:
+    """v389: plant -> (expected_basis, expected_kwh) from loss_daily (computed at 06:00 by
+    kpi_eod, before this job). {} when unreadable - then nothing changes but the estimated
+    days, which are left unjudged."""
+    try:
+        from argia.store.pgq import psql_rows
+        return {r[0]: (r[1], safe_float(r[2])) for r in psql_rows(
+            "SELECT plant_key, expected_basis, expected_kwh FROM loss_daily"
+            f" WHERE prod_date = DATE '{date_iso}';") if len(r) >= 3}
+    except Exception as e:  # noqa: BLE001
+        log.warning("loss_daily unreadable (%s) - estimated-sun days stay unjudged", e)
+        return {}
+
+
+def judge_with_peers(kpi: Dict[str, Dict], verdicts: Dict[str, Tuple[str, Optional[float]]]) -> Dict[str, Dict]:
+    """v389 (22 Nov 2026 false alarm at SAG / Vitalmex): a day whose irradiance is estimated
+    (no usable station reading) is judged against the neighbours, or not at all. Pure."""
+    from argia.analytics.losses import judged_expected
+    out = {}
+    for pk, v in kpi.items():
+        basis, lx = verdicts.get(pk, (None, None))
+        x, how = judged_expected(v.get("expected"), v.get("irradiance_source"), basis, lx)
+        if how != "weather":
+            log.info("[%s] irradiance %s is estimated: energy judged %s (%s instead of %s)", pk,
+                     v.get("irradiance_source"), "against peers" if how == "peers" else "not at all", x, v.get("expected"))
+        out[pk] = dict(v, expected=x, expected_how=how)
     return out
 
 
@@ -698,6 +728,7 @@ def main(argv=None) -> int:
     # --- plant-level aggregates from KPI_Daily (stamped by kpi_eod) ---
     from argia.kpi import design_model            # v372
     kpi = _read_kpi_day(sheets, date_iso, design_model.load())
+    kpi = judge_with_peers(kpi, _loss_verdicts(date_iso))          # v389
     log.info("Evaluating %s: %d inverter readings, %d KPI plant rows",
              date_iso, len(readings), len(kpi))
 

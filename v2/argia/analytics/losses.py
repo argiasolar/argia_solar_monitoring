@@ -59,6 +59,18 @@ counters on pio06 - PPA losses fell from $36,362 to $11,262 MXN:
   and ``explain_day`` turns it into the text the pages show on hover / tap.
 
 Pure: no I/O, no database, no clock.
+
+v389 (23 Nov 2026, Tomasz: "it looks only like missing connection in SAG and the SAG weather
+station that triggered the issue in both. This is a false alarm and we have to be able to
+recognize it"). On 22 Nov the SAG datalogger was offline 06:00-12:00; the station behind it
+(shared by Vitalmex and the SMS plant) read 0 W/m2 while the plants produced, the day's
+irradiance fell back to the cloud-cover estimate (4.86 kWh/m2 for a cloudy afternoon) and all
+three plants looked 50 % short. Peers would have shown it, but a peer counted only if it met
+that same inflated estimate - so the bad number disqualified the witnesses that expose it
+(also 30 Oct). Now, on a day whose irradiance is ESTIMATED (not a station reading):
+* a peer counts when it was available (``peer_counts``), not judged against the estimate;
+* without peers the estimate books no underperformance (basis ``weather-estimated``): only
+  what is measured (inverters at 0 W, heat derating) still counts.
 """
 from __future__ import annotations
 
@@ -88,6 +100,8 @@ CATCHUP_MIN_KWH = 20.0       # next-night lifetime step beyond the day counter: 
                              # differences are counter rounding, not a data gap
 MIN_IRRADIANCE_WM2 = 20.0
 SLOT_MIN = 5.0
+PEER_AVAIL_MIN = 0.95        # v389: on an estimated-weather day a peer counts when it was this available
+MEASURED_SOURCES = frozenset({"shinemaster", "shinemaster_history"})    # daily_production.irradiance_source
 
 
 # ------------------------------------------------------------ geography
@@ -110,6 +124,36 @@ def peer_groups(coords: Dict[str, Tuple[Optional[float], Optional[float]]],
 def healthy(actual: Optional[float], weather_expected: Optional[float]) -> bool:
     return bool(actual and weather_expected and weather_expected > 0
                 and actual >= HEALTHY_FRAC * weather_expected)
+
+
+def weather_measured(source: Optional[str]) -> bool:
+    """True when the day's irradiance is a station reading - the plant's own or a neighbour's
+    (``proxy:<plant>``). Unknown (old rows, no column) counts as measured: the behaviour before v389."""
+    return not source or source in MEASURED_SOURCES or source.startswith("proxy:")   # a neighbour's station
+
+
+def peer_counts(actual: Optional[float], weather_expected: Optional[float], measured: bool,
+                availability: Optional[float]) -> bool:
+    """v389: may this plant serve as a peer today? On a measured day: it met its weather
+    expectation (``healthy``). On an estimated day the estimate is the thing in doubt, so
+    the peer must instead have been available (inverters producing) - otherwise a wrong
+    estimate disqualifies exactly the neighbours that would expose it."""
+    if measured:
+        return healthy(actual, weather_expected)
+    return bool(actual and actual > 0 and availability is not None and availability >= PEER_AVAIL_MIN)
+
+
+def judged_expected(expected: Optional[float], irradiance_source: Optional[str],
+                    loss_basis: Optional[str], loss_expected: Optional[float]) -> Tuple[Optional[float], str]:
+    """v389: the expectation a day may be JUDGED by (energy alert, daily report "of expected").
+    A station reading: the stamped expectation, unchanged ("weather"). An estimated sun: the
+    neighbours' figure from loss_daily when it has one ("peers"), else nothing ("estimated"):
+    a cloud-cover guess never raises an energy alarm on its own."""
+    if weather_measured(irradiance_source):
+        return expected, "weather"
+    if loss_basis == "peers" and loss_expected:
+        return float(loss_expected), "peers"
+    return None, "estimated"
 
 
 def calibration(pairs: Iterable[Tuple[Optional[float], Optional[float]]]) -> Optional[float]:
@@ -416,7 +460,8 @@ def compute_day(plant_key: str, day: str, kwp: float, actual: Optional[float],
                 weather_expected: Optional[float], peer_yields: Dict[str, float],
                 peer_ratio: Optional[float], weather_ratio: Optional[float],
                 own_slots: Dict[str, Slot], peer_irradiance: Dict[str, float], n_inverters: int,
-                overheating: float, tariff: Optional[float], catchup: float = 0.0) -> LossDay:
+                overheating: float, tariff: Optional[float], catchup: float = 0.0,
+                weather_is_measured: bool = True) -> LossDay:
     """``peer_yields``: {peer: kWh/kWp that day} for the HEALTHY peers only.
     ``actual`` is the day counter; ``catchup`` the energy a later night's
     lifetime counter proved was made that day (v276) - added before judging."""
@@ -427,6 +472,14 @@ def compute_day(plant_key: str, day: str, kwp: float, actual: Optional[float],
     exp, basis = choose_expected(weather_expected, pe, weather_ratio)
     zero_w, silent, excused = slot_causes_detail(exp, actual, own_slots, peer_irradiance, n_inverters)
     s, tol = tolerate(split_loss(exp, actual, zero_w + silent, overheating, excused), exp, silent)
+    if basis == "weather" and not weather_is_measured:
+        # v389: an estimated sun (no station reading) is not evidence of underperformance -
+        # 22 Nov 2026 booked 2,652 kWh / $5,596 at SAG, Vitalmex and SMS against a cloud-cover
+        # guess. Only what is measured stays: inverters at 0 W and heat derating.
+        basis = "weather-estimated"
+        if s is not None:
+            s = Split(s.unavailability + s.overheating, s.unavailability, s.overheating, 0.0, s.excused)
+            tol = 0.0
     if basis == "weather-model":
         # v277: the raw model with no plausible ratio for this plant (design data or
         # sensor wrong) is not a basis for money or kWh 'lost' - GTO2 and NL2 booked
@@ -444,7 +497,7 @@ def compute_day(plant_key: str, day: str, kwp: float, actual: Optional[float],
         tariff, mxn(s.lost, tariff) if s else None,
         r1(counter), r1(catchup) if catchup else 0.0,
         r3(peer_ratio) if basis == "peers" else None,
-        r3(weather_ratio) if basis == "weather" else None, r1(tol))
+        r3(weather_ratio) if basis in ("weather", "weather-estimated") else None, r1(tol))
 
 
 def totals(days: Iterable[LossDay]) -> Dict[str, float]:
@@ -501,6 +554,13 @@ def explain_day(r: dict, name: Callable[[str], str] = lambda k: k) -> Tuple[str,
         else:
             en.append(f"Expected {_k(exp)} kWh from nearby healthy plants ({peers}) and this plant's usual ratio to them.")
             es.append(f"Esperado {_k(exp)} kWh a partir de plantas vecinas sanas ({peers}) y la relación habitual con ellas.")
+    elif basis == "weather-estimated":
+        en.append(f"Expected {_k(exp)} kWh = an ESTIMATE: no usable weather station reading that day (station offline or "
+                  "implausible), the sun was estimated from cloud cover, and no available neighbour could confirm it. "
+                  "Only measured losses count (inverters at 0 W, heat derating); no underperformance is booked against an estimate.")
+        es.append(f"Esperado {_k(exp)} kWh = una ESTIMACIÓN: sin lectura útil de estación meteorológica ese día (sin conexión "
+                  "o implausible), el sol se estimó por nubosidad y ninguna vecina disponible pudo confirmarlo. Solo cuentan "
+                  "pérdidas medidas (inversores en 0 W, reducción por calor); no se registra bajo desempeño contra una estimación.")
     elif basis == "weather":
         wr = r.get("weather_ratio")
         extra = f" x this plant's usual actual/model ratio {float(wr):.3f} (last 90 days)" if wr else ""

@@ -889,6 +889,17 @@ def live_conditions_from_dashboard(rows, date_iso: str,
     return out
 
 
+def _loss_verdicts(date_iso: str) -> Dict[str, tuple]:
+    """v389: plant -> (expected_basis, expected_kwh) from loss_daily; {} when unreadable."""
+    try:
+        from argia.store.pgq import psql_rows
+        return {r[0]: (r[1], safe_float(r[2])) for r in psql_rows(
+            "SELECT plant_key, expected_basis, expected_kwh FROM loss_daily"
+            f" WHERE prod_date = DATE '{date_iso}';") if len(r) >= 3}
+    except Exception:  # noqa: BLE001 - the report renders regardless
+        return {}
+
+
 def live_expected_from_dashboard(rows, date_iso: str,
                                  now_mx: dt.datetime) -> Dict[str, float]:
     """v85: live 'expected so far' per plant from the Dashboard_Plant
@@ -962,6 +973,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             "soil": safe_float(cell("soiling_loss_pct")),
             "cloud": safe_float(cell("cloud_coverage_pct")),
             "irr": safe_float(cell("irradiance_kwh_m2")),
+            "irr_src": normalize_text(cell("irradiance_source")).lower() or None,
             "design": safe_float(cell("design_kwh")),
             "dc": normalize_text(cell("data_class")).lower() or "no_data",
             "note": normalize_text(cell("status_note")),
@@ -1014,6 +1026,7 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
             inv.rel = rel.get(sn)
 
     plants: List[PlantDay] = []
+    loss_verdicts = _loss_verdicts(date_iso)          # v389
     # v85: live editions borrow "expected so far" from the dashboard's
     # intraday buckets (single engine - no second estimator). Loaded
     # once; a missing/empty tab degrades to the old design-only view.
@@ -1086,6 +1099,18 @@ def build_report_data(sheets: SheetsClient, portfolio: Portfolio,
                 expected = round(x, 1)
                 pp = round(energy / expected, 4) if expected else pp
                 soil = soiling_drift(designs[plant.plant_key], _day, energy, k.get("irr"))
+        if dc != "live" and k.get("energy") is not None:
+            # v389: an estimated sun (no usable station reading) is judged by the neighbours or not at all
+            from argia.analytics.losses import judged_expected
+            basis, lx = loss_verdicts.get(plant.plant_key, (None, None))
+            x, how = judged_expected(expected, k.get("irr_src"), basis, lx)
+            if how != "weather":
+                expected, soil = (round(x, 1) if x else None), None
+                pp = round(energy / expected, 4) if (expected and energy is not None) else None
+                note = ((note + " ") if note else "") + (
+                    "No usable weather-station reading this day: expected is what the neighbouring plants made."
+                    if how == "peers" else
+                    "No usable weather-station reading this day and no neighbour to compare: not judged.")
         plants.append(PlantDay(
             plant_key=plant.plant_key,
             name=getattr(plant, "customer", "") or plant.plant_key,

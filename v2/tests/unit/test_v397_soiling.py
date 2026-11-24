@@ -39,6 +39,13 @@ class TestMeasure:
         m = S.measure(idx, {"2026-11-05": "rain"}, "2026-11-09")
         assert m.reference == 0.9 and m.loss is None and m.current is None
 
+    def test_a_fresh_rain_is_measured_not_replaced_by_an_older_event(self):
+        # Taigene-shaped, 24 Nov: rain on 10 Oct and on the data edge (23 Nov) - the 23 Nov rain
+        # is the last event; with no valid day after it the level is still being measured
+        idx = _index([0.96] * 3 + [0.9] * 40, start="2026-10-11")
+        m = S.measure(idx, {"2026-10-10": "rain", "2026-11-23": "rain"}, "2026-11-23")
+        assert m.last_event.day == "2026-11-23" and m.reference is None and m.loss is None and m.days_since == 0
+
     def test_no_event_no_number(self):
         m = S.measure(_index([0.8] * 10), {}, "2026-11-10")
         assert m.last_event is None and m.loss is None and m.events == ()

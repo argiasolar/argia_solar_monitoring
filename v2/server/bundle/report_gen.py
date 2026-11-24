@@ -1460,7 +1460,7 @@ def soiling_tile(k):
     elif m.loss is None:
         val, cls = ' - ', ''
         sub = (f'{t("since","desde")} {m.last_event.day[5:]} {kind[m.last_event.kind]}: '
-               + t('measuring (needs 6 valid days)', 'midiendo (requiere 6 días válidos)'))
+               + t('measuring (needs 6 valid days after it)', 'midiendo (requiere 6 días válidos después)'))
     else:
         val = f'{m.loss * 100:,.1f}%'
         cls = 'bad' if m.loss >= 0.08 else 'warn' if m.loss >= 0.04 else ''

@@ -85,17 +85,18 @@ def measure(index: Mapping[str, float], events: Mapping[str, str], asof: str) ->
         after = [index[d] for d in days if d > e and (nxt is None or d < nxt)][:N]
         gain = (statistics.median(after) / statistics.median(before) - 1) if len(before) == N and len(after) == N else None
         evs.append(Event(e, events[e], None if gain is None else round(gain, 4)))
-    # the reference is taken after the last event that has valid days after it
-    last = next((e for e in reversed(evs) if [d for d in days if d > e.day][:1]), None)
+    # v398: the last event is the latest one, even before any valid day after it (then the
+    # level is still being measured) - an earlier event must not stand in for a fresh rain
+    last = evs[-1] if evs else None
     ref = cur = loss = rate = since = None
     if last:
+        since = (dt.date.fromisoformat(asof) - dt.date.fromisoformat(last.day)).days
         after = [d for d in days if d > last.day]
         ref = _med([index[d] for d in after[:N]])
         tail = after[N:][-N:]
         if len(tail) == N and ref:
             cur = _med([index[d] for d in tail])
             loss = round(max(0.0, 1 - cur / ref), 4)
-            since = (dt.date.fromisoformat(asof) - dt.date.fromisoformat(last.day)).days
             span = (dt.date.fromisoformat(tail[-1]) - dt.date.fromisoformat(after[N // 2])).days
             rate = round(loss / span, 5) if span > 0 else None
     return Soiling(tuple(evs), last, ref, cur, loss, rate, since)

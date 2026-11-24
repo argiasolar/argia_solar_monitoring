@@ -39,7 +39,7 @@ import urllib.request
 from typing import Dict, List, Tuple
 
 from argia.kpi.satellite import (
-    build_url, drift_check, parse_daily_ghi, ratio_series,
+    build_url, drift_check, parse_daily_ghi, parse_daily_rain, ratio_series,
 )
 from argia.store import pg_mirror
 from argia.store.pgq import psql_exec, psql_rows
@@ -66,6 +66,17 @@ CREATE TABLE IF NOT EXISTS satellite_check (
     created_at      timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (plant_key, check_date)
 );"""
+
+
+RAIN_DDL = ("CREATE TABLE IF NOT EXISTS weather_daily (plant_key text NOT NULL, day date NOT NULL,"
+            " rain_mm real, source text NOT NULL DEFAULT 'open-meteo', PRIMARY KEY (plant_key, day));")
+
+
+def rain_sql(pk: str, rain: dict) -> str:
+    """v397: upsert the plant's daily rain (Open-Meteo, mm) - the soiling log's rain events."""
+    rows = ",".join(f"({_txt(pk)}, DATE '{d}', {float(v):.1f})" for d, v in sorted(rain.items()))
+    return ("INSERT INTO weather_daily (plant_key, day, rain_mm) VALUES " + rows +
+            " ON CONFLICT (plant_key, day) DO UPDATE SET rain_mm = EXCLUDED.rain_mm;")
 
 
 def _txt(s: str) -> str:
@@ -174,11 +185,19 @@ def main(argv=None) -> int:
 
     if not args.dry_run:
         psql_exec(DDL)
+        psql_exec(RAIN_DDL)
 
     failures, unreachable = 0, 0
     for pk, lat, lon in plants:
         try:
-            sat = parse_daily_ghi(fetch_with_retry(build_url(lat, lon), pk))
+            payload = fetch_with_retry(build_url(lat, lon), pk)
+            sat = parse_daily_ghi(payload)
+            rain = parse_daily_rain(payload)        # v397: R11 soiling log
+            if rain and not args.dry_run:
+                try:
+                    psql_exec(rain_sql(pk, rain))
+                except RuntimeError as e:
+                    LOG.warning("%s: rain not stored: %s", pk, e)
         except Exception as e:  # noqa: BLE001 - one plant must not kill the run
             LOG.warning("%s: Open-Meteo unreachable after %d tries: %s - NO_DATA today", pk, FETCH_TRIES, e)
             unreachable += 1

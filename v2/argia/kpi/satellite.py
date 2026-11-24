@@ -52,7 +52,7 @@ def build_url(lat: float, lon: float, past_days: int = PAST_DAYS) -> str:
     return OPEN_METEO_URL + "?" + urlencode({
         "latitude": f"{float(lat):.6f}",
         "longitude": f"{float(lon):.6f}",
-        "daily": "shortwave_radiation_sum",
+        "daily": "shortwave_radiation_sum,precipitation_sum",   # v397: rain for the soiling log (R11)
         "past_days": int(past_days),
         "forecast_days": 1,
         "timezone": "America/Mexico_City",
@@ -86,6 +86,27 @@ def parse_daily_ghi(payload: dict) -> Dict[str, float]:
             continue
         try:
             out[str(t)] = round(float(v) * factor, 3)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def parse_daily_rain(payload: dict) -> Dict[str, float]:
+    """v397 (Arturo's R11): {date_iso: rain mm} from the same Open-Meteo daily response.
+    Only a millimetre unit is accepted; null days are skipped; {} when absent."""
+    try:
+        unit = str(payload["daily_units"]["precipitation_sum"])
+        times = payload["daily"]["time"]
+        vals = payload["daily"]["precipitation_sum"]
+    except (KeyError, TypeError):
+        return {}
+    if unit.strip().lower() != "mm":
+        return {}
+    out: Dict[str, float] = {}
+    for t, v in zip(times, vals):
+        try:
+            if v is not None:
+                out[str(t)] = round(float(v), 1)
         except (TypeError, ValueError):
             continue
     return out

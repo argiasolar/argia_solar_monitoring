@@ -212,12 +212,32 @@ prstc30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr_stc) FROM daily_production WHERE source='v2'"
     f" AND pr_stc IS NOT NULL AND pr_stc <= {PR_MAX} AND prod_date > date '{asof}' - 30{_ST_OK}"
     f" GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}   # temperature-normalized PR (25 degC cell)
+# v397 (Arturo's R11): soiling measured between clean events (rain from the satellite job's
+# Open-Meteo call - weather_daily -, logged cleanings - maintenance_event 'cleaning')
+soil_rows, soil_rain, soil_clean = {}, {}, {}
+for r in q("SELECT plant_key, prod_date::text, pr_stc, irradiance_kwh_m2, availability, coalesce(irradiance_source,'')"
+           f" FROM daily_production WHERE prod_date > date '{asof}' - 75 AND prod_date <= date '{asof}';"):
+    if len(r) >= 6:
+        soil_rows.setdefault(r[0], {})[r[1]] = [f(r[2]) if r[2] else None, f(r[3]) if r[3] else None,
+                                                 f(r[4]) if r[4] else None, r[5], False]
+if q("SELECT count(*) FROM information_schema.tables WHERE table_name = 'weather_daily';")[0][0] not in ('0', ''):
+    for r in q(f"SELECT plant_key, day::text, rain_mm FROM weather_daily WHERE day > date '{asof}' - 75;"):
+        if len(r) >= 3 and r[2]:
+            soil_rain.setdefault(r[0], {})[r[1]] = f(r[2])
+for r in q("SELECT plant_key, (start_ts AT TIME ZONE 'America/Mexico_City')::date::text FROM maintenance_event"
+           f" WHERE category = 'cleaning' AND start_ts > date '{asof}' - 75;"):
+    if len(r) >= 2:
+        soil_clean.setdefault(r[0], {})[r[1]] = 'cleaning'
 station_d = {}   # v396 (R10): key -> [(day, status, reasons, coverage, shared_with)] last 30 days
 if _ST_OK:
     for r in q("SELECT plant_key, prod_date::text, status, coalesce(reasons,''), coverage, coalesce(shared_with,'')"
                f" FROM station_check_daily WHERE prod_date > date '{asof}' - 30 ORDER BY 1, 2;"):
         if len(r) >= 6:
             station_d.setdefault(r[0], []).append((r[1], r[2], r[3], f(r[4]), r[5]))
+    for r in q(f"SELECT plant_key, prod_date::text FROM station_check_daily WHERE coverage < 0.9"
+               f" AND prod_date > date '{asof}' - 75;"):
+        if len(r) >= 2 and r[1] in soil_rows.get(r[0], {}):
+            soil_rows[r[0]][r[1]][4] = True          # the station did not see that day: not a soiling sample
 last_seen = {r[0]: r[1] for r in q(
     "SELECT plant_key, max(prod_date) FROM daily_production GROUP BY plant_key;")}
 
@@ -1427,6 +1447,35 @@ def epi_tile(k):
             f'<div class="tval">{pc(sm["mtd"])}</div><div class="tsub">{sub}</div></div>')
 
 
+def soiling_tile(k):
+    """v397 (Arturo's R11): soiling measured from the plant's own temperature-corrected PR
+    between clean events (rain >= 5 mm, logged cleanings) - loss now against the level right
+    after the last event, the rate per day, and the measured gain of the last event."""
+    from argia.analytics import soiling_measured as SOIL
+    m = SOIL.measure(SOIL.valid_days({d: tuple(v) for d, v in soil_rows.get(k, {}).items()}),
+                     SOIL.clean_events(soil_rain.get(k, {}), soil_clean.get(k, {})), asof)
+    kind = {'rain': t('rain', 'lluvia'), 'cleaning': t('cleaning', 'lavado')}
+    if m.last_event is None:
+        val, sub, cls = ' - ', t('no rain or cleaning logged in 75 days', 'sin lluvia ni lavado registrado en 75 días'), ''
+    elif m.loss is None:
+        val, cls = ' - ', ''
+        sub = (f'{t("since","desde")} {m.last_event.day[5:]} {kind[m.last_event.kind]}: '
+               + t('measuring (needs 6 valid days)', 'midiendo (requiere 6 días válidos)'))
+    else:
+        val = f'{m.loss * 100:,.1f}%'
+        cls = 'bad' if m.loss >= 0.08 else 'warn' if m.loss >= 0.04 else ''
+        sub = (f'{t("since","desde")} {m.last_event.day[5:]} {kind[m.last_event.kind]} ({m.days_since} {t("days","días")})'
+               + (f', {m.rate_per_day * 100:,.2f}%/{t("day","día")}' if m.rate_per_day else ''))
+    gains = [e for e in m.events if e.gain is not None]
+    if gains:
+        e = gains[-1]
+        sub += f'<br>{t("gain of","ganancia de")} {kind[e.kind]} {e.day[5:]}: {e.gain * 100:+.1f}%'
+    tip = ti("Measured, not modelled: the temperature-corrected PR (energy ÷ kWp × irradiance, at 25 °C cell) on valid days (measured sun of 3 kWh/m2 or more, availability ≥ 98%, station coverage ≥ 90%) is compared right after the last clean event - a logged module cleaning or a day with 5 mm of rain or more - and over the last 3 valid days. The loss is a lower bound (a rain does not wash everything). After each event the gain is measured the same way: 3 valid days after against 3 before. Amber from 4%, red from 8%.",
+             "Medido, no modelado: el PR corregido por temperatura (energía ÷ kWp × irradiancia, a celda de 25 °C) en días válidos (sol medido de 3 kWh/m2 o más, disponibilidad ≥ 98%, cobertura de estación ≥ 90%) se compara justo después del último evento de limpieza - un lavado registrado o un día con 5 mm de lluvia o más - y en los últimos 3 días válidos. La pérdida es una cota inferior (una lluvia no lava todo). Tras cada evento se mide la ganancia igual: 3 días válidos después contra 3 antes. Ámbar desde 4%, rojo desde 8%.")
+    return (f'<div class="tile {cls}" id="t_soil"><div class="tlabel">{t("Soiling, measured","Suciedad, medida")}{tip}</div>'
+            f'<div class="tval">{val}</div><div class="tsub">{sub}</div></div>')
+
+
 def station_tile(k):
     """v396 (Arturo's R10): the weather station behind every performance figure, checked daily
     - the last day's verdict, the failed days of the last 30 and why, and the plants sharing
@@ -1560,6 +1609,8 @@ def plant_parts(k):
         tiles.append(epi_tile(k))
     if k in station_d:
         tiles.append(station_tile(k))
+    if k in epi_days and k in soil_rows:
+        tiles.append(soiling_tile(k))
     if pr:
         base = p.get('prb') or 0
         prstc = prstc30.get(k)

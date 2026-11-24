@@ -409,6 +409,14 @@ varios días        = suma(solar consumida) / suma(consumo)
 - **Derrateo del fabricante** = minutos en que el propio inversor reportó un modo de derrateo por temperatura (donde el fabricante lo publica).
 - Una alerta de temperatura es CRÍTICA solo con evidencia de producción perdida; si no, es un aviso o una bandera informativa.
 
+## Suciedad, medida {#soiling}
+
+La suciedad se mide con los datos de la propia planta, no solo con el perfil de diseño: el PR corregido por temperatura (energía ÷ kWp × irradiancia, a celda de 25 °C) en días válidos - sol medido de al menos {{c:soilm.MIN_IRR}} kWh/m2, disponibilidad de al menos {{pct:soilm.MIN_AVAIL}}, cobertura de estación de al menos 90 % - se compara:
+
+- **Eventos de limpieza**: lavados de módulos registrados (mantenimiento, categoría *cleaning*) y días con al menos {{c:soilm.RAIN_MM}} mm de lluvia (Open-Meteo, obtenido con la verificación satelital nocturna).
+- **Ganancia de un evento** = mediana de los primeros {{c:soilm.N}} días válidos después ÷ mediana de los últimos {{c:soilm.N}} días válidos antes, menos 1.
+- **Suciedad actual** = 1 − mediana de los últimos {{c:soilm.N}} días válidos ÷ el nivel justo después del último evento, con la tasa por día. Es una cota inferior: una lluvia no lava todo.
+
 ## Pérdidas y su costo {#losses}
 
 ![Últimos 7 días: energía, esperado, kWh y MXN perdidos, y la causa principal](last7)

@@ -888,7 +888,7 @@ def edit_form(u):
 # (billable) energy at billing time; drafts and argia/force-majeure events
 # never invent income. ARGIA admins only.
 # ---------------------------------------------------------------------------
-MAINT_CATEGORIES = ('customer', 'argia', 'force_majeure')
+MAINT_CATEGORIES = ('customer', 'argia', 'force_majeure', 'cleaning')   # v397: cleaning log (R11), never billed
 MAINT_COST_TYPES = ('cleaning', 'repair', 'parts', 'inspection', 'other')
 _TS_RE = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}$')
 
@@ -973,8 +973,8 @@ def maintenance_card():
                  if trs else '<p class="note" data-en="No maintenance events yet." data-es="Sin eventos de mantenimiento.">No maintenance events yet.</p>')
     return f'''<div class="card"><h2 data-en="Maintenance events - the invoicing flag"
  data-es="Eventos de mantenimiento - la bandera de facturación">Maintenance events - the invoicing flag</h2>
-<p class="note" data-en="Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy (contract-anchored), like ARGIA_Solar Invoicing. 'argia' and 'force_majeure' are recorded but never billed. Leave End empty for an ongoing event and close it later."
- data-es="Categoría 'customer' = paro causado por el cliente: una vez APROBADO, esas horas se facturan como energía compensada (anclada al contrato). 'argia' y 'force_majeure' se registran pero nunca se facturan. Deje Fin vacío para un evento en curso.">
+<p class="note" data-en="Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy (contract-anchored), like ARGIA_Solar Invoicing. 'argia', 'force_majeure' and 'cleaning' (module washing - the soiling log measures its gain) are recorded but never billed. Leave End empty for an ongoing event and close it later."
+ data-es="Categoría 'customer' = paro causado por el cliente: una vez APROBADO, esas horas se facturan como energía compensada (anclada al contrato). 'argia', 'force_majeure' y 'cleaning' (lavado de módulos - el registro de suciedad mide su ganancia) se registran pero nunca se facturan. Deje Fin vacío para un evento en curso.">
 Category 'customer' = customer-caused shutdown: once APPROVED, those hours are billed as deemed energy.</p>
 <p><a class="btn" href="/setup/plants/calendar" data-en="Open the PPA calendar - one month per plant, past days included"
  data-es="Abrir el calendario PPA - un mes por planta, días pasados incluidos">Open the PPA calendar - one month per plant, past days included</a></p>

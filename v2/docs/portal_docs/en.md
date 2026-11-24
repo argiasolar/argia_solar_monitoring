@@ -411,6 +411,14 @@ several days      = sum(solar used on site) / sum(consumption)
 - **Vendor derating** = minutes the inverter itself reported a temperature derating mode (where the manufacturer publishes it).
 - An alert on temperature is CRITICAL only with evidence of lost production; otherwise it is a warning or an information flag.
 
+## Soiling, measured {#soiling}
+
+Soiling is measured from the plant's own data, not only from the design profile: the temperature-corrected PR (energy ÷ kWp × irradiance, at 25 °C cell) on valid days - measured sun of at least {{c:soilm.MIN_IRR}} kWh/m2, availability of at least {{pct:soilm.MIN_AVAIL}}, station coverage of at least 90 % - is compared:
+
+- **Clean events** are logged module cleanings (maintenance, category *cleaning*) and days with at least {{c:soilm.RAIN_MM}} mm of rain (Open-Meteo, fetched with the nightly satellite check).
+- **Gain of an event** = median of the first {{c:soilm.N}} valid days after it ÷ median of the last {{c:soilm.N}} valid days before it, minus 1.
+- **Soiling now** = 1 − median of the last {{c:soilm.N}} valid days ÷ the level right after the last clean event, with the rate per day. It is a lower bound: a rain does not wash everything.
+
 ## Losses and their cost {#losses}
 
 ![Last 7 days: energy, expected, lost kWh and MXN, and the main cause](last7)

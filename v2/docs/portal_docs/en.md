@@ -311,7 +311,7 @@ Strings with no output are left out of the median and the band (one dead string 
 
 ![Month view: daily EPI-600 per inverter over the target bands, insolation bars and the strings by day](epi_month)
 
-Daily EPI-600 of the plant and each inverter over the bands (green 97 % or more, amber 93 to 97 %, red below 93 %), the day's insolation as yellow bars (kWh/m², right axis), and a strings x days map. The week and 30-day figures are ratios of sums of the days shown. A whole column in red is the whole plant that day (clouds over the station, a sensor); a row that stays red is the string.
+Daily EPI-600 of the plant and each inverter over the bands (green 97 % or more, amber 93 to 97 %, red below 93 %), the day's insolation as yellow bars (kWh/m², right axis), and a strings x days map (day of the month over each column, the day's EPI-600 in % inside each cell, above 100 % shown as 100; the cells have the same size in the week and the month view). The week and 30-day figures are ratios of sums of the days shown. A whole column in red is the whole plant that day (clouds over the station, a sensor); a row that stays red is the string.
 
 ### Consumption
 

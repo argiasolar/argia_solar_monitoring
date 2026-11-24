@@ -309,7 +309,7 @@ Las cadenas sin salida se dejan fuera de la mediana y la banda (una cadena muert
 
 ![Vista de mes: EPI-600 diario por inversor sobre las bandas objetivo, barras de insolación y las cadenas por día](epi_month)
 
-EPI-600 diario de la planta y de cada inversor sobre las bandas (verde 97 % o más, ámbar 93 a 97 %, rojo bajo 93 %), la insolación del día como barras amarillas (kWh/m², eje derecho) y un mapa cadenas x días. Las cifras de la semana y de 30 días son cocientes de sumas de los días mostrados. Una columna completa en rojo es toda la planta ese día (nubes sobre la estación, un sensor); una fila que sigue en rojo es la cadena.
+EPI-600 diario de la planta y de cada inversor sobre las bandas (verde 97 % o más, ámbar 93 a 97 %, rojo bajo 93 %), la insolación del día como barras amarillas (kWh/m², eje derecho) y un mapa cadenas x días (el día del mes sobre cada columna, el EPI-600 del día en % dentro de cada celda, sobre 100 % se muestra 100; las celdas tienen el mismo tamaño en la vista de semana y de mes). Las cifras de la semana y de 30 días son cocientes de sumas de los días mostrados. Una columna completa en rojo es toda la planta ese día (nubes sobre la estación, un sensor); una fila que sigue en rojo es la cadena.
 
 ### Consumo
 

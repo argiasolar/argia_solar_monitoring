@@ -387,12 +387,17 @@ document.querySelectorAll('.evcard').forEach(function(card){
   panel.innerHTML='<table><tr><td>'+tx(['Plant EPI-600, ','EPI-600 de la planta, '])+(nd===7?tx(['last 7 days','últimos 7 días']):tx(['last 30 days','últimos 30 días']))+'</td><td><b>'+pct(pp.plant)+'</b></td></tr></table><div class="note">'+tx(['Days with a value: ','Días con valor: '])+got+' '+tx(['of','de'])+' '+m+'. '+tx(['A day without a value had no valid sample at 600 W/m² or more, or is still being computed.','Un día sin valor no tuvo muestra válida con 600 W/m² o más, o aún se está calculando.'])+'</div><div class="evinv">'+rows+'</div>';
   panel.querySelectorAll('[data-inv]').forEach(function(b){b.onclick=function(){hidden[b.dataset.inv]=!hidden[b.dataset.inv];draw();};});
   // strings x days map, every inverter
-  var cw=Math.max(10,Math.min(28,Math.floor(820/m))), s='<div class="note">'+tx(['Each string by day: daily EPI-600 (green 97 % or more, amber 93-97 %, red below 93 %, grey no value, dark red below 5 % = no output). A whole column in red is the whole plant that day (clouds over the station, a sensor) - a row that stays red is the string.','Cada cadena por día: EPI-600 diario (verde 97 % o más, ámbar 93-97 %, rojo bajo 93 %, gris sin valor, rojo oscuro bajo 5 % = sin salida). Una columna completa en rojo es toda la planta ese día (nubes sobre la estación, un sensor) - una fila que sigue en rojo es la cadena.'])+'</div>';
-  P.inverters.forEach(function(v){var S=P.strings[v.inv];if(!S)return;var Wm=110+m*cw,Hm=14+S.uids.length*13;
-   var g='<svg viewBox="0 0 '+Wm+' '+Hm+'" width="'+Wm+'" style="max-width:100%;height:auto;display:block;margin:6px 0 2px"><text x="0" y="10" font-size="11" font-weight="700" fill="#1c2733">'+v.name+'</text>';
-   S.uids.forEach(function(u,r){var arr=sl(Hh.str[u]||[]),y=14+r*13;g+='<text x="104" y="'+(y+10)+'" text-anchor="end" font-size="9.5" fill="#5f6368">'+S.labels[r].split(':').pop()+'</text>';
-    arr.forEach(function(e,i){var c=e==null?'#e8eaed':e<0.05?'#5b0f1e':e>=0.97?'#34a853':e>=0.93?'#f4b400':'#ea4335';
-     g+='<rect x="'+(110+i*cw)+'" y="'+y+'" width="'+(cw-1.5)+'" height="11.5" rx="2" fill="'+c+'"><title>'+S.labels[r]+' '+D[i]+': '+(e==null?'n/a':(e*100).toFixed(1)+' %')+'</title></rect>';});});
+  // v400 (Tomasz: the week map was "super large"): the cells always have the month's size - the
+  // drawing is laid out for 30 columns, so 7 days take the left quarter at the same scale; day numbers
+  // head the columns, the value is written in each cell (and in its hover title)
+  var CM=30,cw=Math.max(10,Math.min(28,Math.floor(820/CM))),ch=15,top0=26, s='<div class="note">'+tx(['Each string by day: daily EPI-600 in % (green 97 % or more, amber 93-97 %, red below 93 %, grey no value, dark red below 5 % = no output; above 100 % shown as 100). A whole column in red is the whole plant that day (clouds over the station, a sensor) - a row that stays red is the string.','Cada cadena por día: EPI-600 diario en % (verde 97 % o más, ámbar 93-97 %, rojo bajo 93 %, gris sin valor, rojo oscuro bajo 5 % = sin salida; sobre 100 % se muestra 100). Una columna completa en rojo es toda la planta ese día (nubes sobre la estación, un sensor) - una fila que sigue en rojo es la cadena.'])+'</div>';
+  P.inverters.forEach(function(v){var S=P.strings[v.inv];if(!S)return;var Wm=110+CM*cw,Hm=top0+S.uids.length*(ch+1.5)+2;
+   var g='<svg viewBox="0 0 '+Wm+' '+Hm.toFixed(1)+'" class="evmap" preserveAspectRatio="xMinYMin meet" style="width:100%;max-width:'+Wm+'px;height:auto;display:block;margin:6px 0 2px"><text x="0" y="10" font-size="11" font-weight="700" fill="#1c2733">'+v.name+'</text>';
+   D.forEach(function(d,i){g+='<text x="'+(110+i*cw+(cw-1.5)/2).toFixed(1)+'" y="'+(top0-4)+'" text-anchor="middle" font-size="9" fill="#5f6368">'+d.slice(8)+'</text>';});
+   S.uids.forEach(function(u,r){var arr=sl(Hh.str[u]||[]),y=top0+r*(ch+1.5);g+='<text x="104" y="'+(y+11).toFixed(1)+'" text-anchor="end" font-size="9.5" fill="#5f6368">'+S.labels[r].split(':').pop()+'</text>';
+    arr.forEach(function(e,i){var c=e==null?'#e8eaed':e<0.05?'#5b0f1e':e>=0.97?'#34a853':e>=0.93?'#f4b400':'#ea4335',x=110+i*cw;
+     g+='<rect x="'+x+'" y="'+y.toFixed(1)+'" width="'+(cw-1.5)+'" height="'+ch+'" rx="2" fill="'+c+'"><title>'+S.labels[r]+' '+D[i]+': '+(e==null?'n/a':(e*100).toFixed(1)+' %')+'</title></rect>';
+     if(e!=null)g+='<text x="'+(x+(cw-1.5)/2).toFixed(1)+'" y="'+(y+10.8).toFixed(1)+'" text-anchor="middle" font-size="8" fill="'+(e>=0.93&&e<0.97?'#3c2a00':'#ffffff')+'" pointer-events="none">'+Math.round(e*100)+'</text>';});});
    s+=g+'</svg>';});
   sum.innerHTML=s;
  }

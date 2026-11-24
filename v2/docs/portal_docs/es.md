@@ -327,6 +327,10 @@ disponibilidad de planta = promedio de los inversores ponderado por kWp
 
 **Mes a la fecha** = se suman los registros (Wh reales, Wh esperados, muestras) de cada día del mes y se divide una sola vez. Un día cerrado se calcula una vez, {{c:live.SETTLE_H}} horas después de terminar (en ese tiempo llegan las cargas tardías), y se guarda; cambiar la configuración o las reglas lo recalcula.
 
+### En el reporte de planta: el titular
+
+El titular de desempeño del reporte de planta es el **EPI-600 contra el diseño congelado, mes a la fecha** (cociente de sumas sobre los días cerrados del mes; verde ≥ 97 %, ámbar 93 a 97 %, rojo debajo). Junto a él: los **últimos 7 días** y el **último día**, para distinguir una pérdida en curso (suciedad) de una ya terminada, y el mes **sin días con eventos** - días con mantenimiento registrado o disponibilidad de planta debajo de 98 % (un paro) - nombrados por fecha. La tarjeta de PR se marca como cruda y su brecha dice que compara el PR normalizado por temperatura con la línea base limpia configurada.
+
 ### Huecos de comunicación
 
 La energía nunca se inventa. En un hueco, el contador del día del inversor da la energía exacta, E = C(después) - C(antes); esa energía se reparte en los pasos de 5 minutos del hueco en proporción a la potencia esperada para la irradiancia medida (o a una forma de cielo despejado donde la estación es inválida). Cada paso queda marcado como medido, reconstruido o desconocido. Después de la última muestra del día no se sabe nada, salvo que exista el total diario del fabricante.

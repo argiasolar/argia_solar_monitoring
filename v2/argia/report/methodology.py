@@ -135,3 +135,60 @@ def index_since(daily: Mapping[str, Mapping[str, float]], denom: Mapping[str, Op
     n = len(peers)
     med = peers[n // 2] if n % 2 else (peers[n // 2 - 1] + peers[n // 2]) / 2
     return mine / med if med else None
+
+
+# ------------------------------------------- R6 + R9: EPI-600 headline, current state
+EPI_GREEN, EPI_AMBER = 0.97, 0.93          # Arturo's R6 bands: green >= 97 %, amber 93-97 %, red below
+
+
+def _epi(tallies: Iterable[Optional[dict]]) -> Tuple[Optional[float], int]:
+    """(EPI-600 as a ratio of sums, valid samples) over day tallies (EPI engine, plant key)."""
+    real = exp = n = 0.0
+    for t in tallies:
+        p = (t or {}).get('epi600', {}).get('plant') if t else None
+        if p:
+            real, exp, n = real + p[0], exp + p[1], n + p[2]
+    return (round(real / exp, 4) if exp > 0 else None), int(n)
+
+
+def epi_summary(day_tallies: Mapping[str, Optional[dict]], asof: str,
+                event_days: Mapping[str, str]) -> dict:
+    """R6/R9 figures of one plant from the EPI engine's day tallies ({iso day: tallies or None
+    when not computed}): month to date, the last 7 days, the last day, and the month to date
+    without the days with known events (``event_days``: {iso day: reason}). Ratios of sums,
+    never averages of daily ratios."""
+    month = sorted(d for d in day_tallies if d[:7] == asof[:7] and d <= asof)
+    last7 = sorted(d for d in day_tallies if d <= asof)[-7:]
+    mtd, n = _epi(day_tallies[d] for d in month)
+    wo, n_wo = _epi(day_tallies[d] for d in month if d not in event_days)
+    d7, _n7 = _epi(day_tallies[d] for d in last7)
+    last = asof if day_tallies.get(asof) else max((d for d in month if day_tallies.get(d)), default=None)
+    day1, _n1 = _epi([day_tallies.get(last)] if last else [])
+    excluded = [d for d in month if d in event_days]
+    return {'mtd': mtd, 'n': n, 'mtd_wo_events': wo if excluded else None, 'excluded': excluded,
+            'reasons': {d: event_days[d] for d in excluded}, 'd7': d7, 'day': day1, 'day_date': last,
+            'computed': sum(1 for d in month if day_tallies.get(d)), 'days': len(month),
+            'band': epi_band(mtd)}
+
+
+def epi_band(v: Optional[float]) -> str:
+    if v is None:
+        return ''
+    return 'good' if v >= EPI_GREEN else 'warn' if v >= EPI_AMBER else 'bad'
+
+
+def event_days(avail_by_day: Mapping[str, Optional[float]], maint: Iterable[Tuple[str, str, str]],
+               threshold: float = 0.98) -> Dict[str, str]:
+    """{iso day: reason} - the days R9 marks: a logged maintenance event (``maint``: (first day,
+    last day, category)) or plant availability below ``threshold`` (an outage)."""
+    import datetime as _dt
+    out: Dict[str, str] = {}
+    for d, a in avail_by_day.items():
+        if a is not None and a < threshold:
+            out[d] = f"availability {a * 100:.0f}%"
+    for d0, d1, cat in maint:
+        d = _dt.date.fromisoformat(d0)
+        while d.isoformat() <= d1:
+            out[d.isoformat()] = f"maintenance ({cat})"
+            d += _dt.timedelta(days=1)
+    return out

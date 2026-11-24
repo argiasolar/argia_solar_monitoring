@@ -13,7 +13,8 @@ in the repo (public): they live in a server-only JSON file, a list of checks suc
 Types: inverter_availability / plant_availability (the capacity-weighted inverters, which must
 also equal the plant's own daily values over the window) / month_vs_contract (the partial month,
 prorated) / closed_months_vs_contract (sum of closed months) / thermal_dt_peer_max (worst peer
-deviation in the window must stay at or below ``max``). Read-only. Prints PASS/FAIL per check;
+deviation in the window must stay at or below ``max``) / epi600_window (v395: EPI-600 of the
+window from the EPI engine's day cache, every day computed). Read-only. Prints PASS/FAIL per check;
 exit 1 when any check fails, 2 when the file is missing.
 """
 from __future__ import annotations
@@ -82,6 +83,21 @@ def measure(c: dict, fetch: Fetch) -> Tuple[Optional[float], str]:
             act += a
             con += k
         return (act / con * 100 if con else None), f"actual {act:,.0f} kWh vs contract {con:,.0f} kWh"
+    if t == "epi600_window":
+        import datetime as dt
+        from argia.epi import config as EPC
+        from argia.epi import live as EPL
+        d0, d1 = dt.date.fromisoformat(c["from"]), dt.date.fromisoformat(c["to"])
+        fp = EPL.fingerprint(EPC.EPI_DIR, EPC.LAYOUT_DIR, c["plant"])
+        days, d = {}, d0
+        while d <= d1:
+            p = EPL.read_cached(EPL.CACHE_DIR, c["plant"], d, fp)
+            days[d.isoformat()] = p["tallies"] if p else None
+            d += dt.timedelta(days=1)
+        v, n = MC._epi(days.values())
+        done = sum(1 for x in days.values() if x)
+        return (None if v is None else 100 * v), f"{done}/{len(days)} days computed, {n} samples >= 600 W/m2" + (
+            " - MISMATCH (days missing)" if done < len(days) else "")
     if t == "thermal_dt_peer_max":
         r = fetch("SELECT max(dt_peer_peak_c) FROM thermal_daily"
                   f" WHERE plant_key = '{pk}' AND prod_date BETWEEN DATE '{c['from']}' AND DATE '{c['to']}';")

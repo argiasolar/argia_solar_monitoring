@@ -329,6 +329,10 @@ plant availability = kWp-weighted mean of the inverters
 
 **Month to date** = the tallies (real Wh, expected Wh, samples) of every day of the month added, then divided once. A closed day is computed once, {{c:live.SETTLE_H}} hours after it ends (late uploads land in that time), and kept; changing the configuration or the rules recomputes it.
 
+### On the plant report: the headline
+
+The plant report's performance headline is **EPI-600 against the frozen design, month to date** (ratio of sums over the month's closed days, green ≥ 97 %, amber 93 to 97 %, red below). Next to it: the **last 7 days** and the **last day**, so a loss that is still running (soiling) shows apart from one that is over, and the month **without event days** - days with logged maintenance or plant availability below 98 % (an outage) - named by date. The PR tile is labelled raw, and its gap says it compares the temperature-normalized PR with the configured clean baseline.
+
 ### Communication gaps
 
 Energy is never invented. Over a gap the inverter's day counter gives the exact energy, E = C(after) - C(before); that energy is spread over the gap's 5-minute slots in proportion to the expected power for the measured irradiance (or a clear-sky shape where the station is invalid). Every slot is flagged measured, reconstructed or unknown. After the last sample of a day nothing is known unless the vendor's daily total is given.

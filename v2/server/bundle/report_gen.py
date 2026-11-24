@@ -283,9 +283,35 @@ except RuntimeError:
 inv_dc = {}
 try:
     from argia.epi import config as _EPC   # noqa: E402
-    inv_dc = MC.dc_kwp_by_serial(_EPC.load(_EPC.EPI_DIR, _EPC.LAYOUT_DIR))
+    _EPI_CFG = _EPC.load(_EPC.EPI_DIR, _EPC.LAYOUT_DIR)
+    inv_dc = MC.dc_kwp_by_serial(_EPI_CFG)
 except Exception:   # noqa: BLE001 - no register on this host: AC basis, said in the column
-    inv_dc = {}
+    inv_dc, _EPI_CFG = {}, {}
+
+# v395 (Arturo's R6/R9): the EPI-600 headline from the EPI engine's day tallies (closed days,
+# cached by the monitoring run in /var/lib/argia/epi) and the days with known events
+# (logged maintenance, or plant availability below 98 %) - month to date, last 7 days,
+# last day, and the month without the event days.
+epi_days = {}     # key -> {iso day: tallies or None (not computed yet)}
+maint_days = {}   # key -> [(first day, last day, category)]
+try:
+    from argia.epi import live as _EPL   # noqa: E402
+    _d_hi = dt.date.fromisoformat(asof)
+    _d_lo = min(_d_hi.replace(day=1), _d_hi - dt.timedelta(days=6))
+    for _k in _EPI_CFG:
+        _fp = _EPL.fingerprint(_EPC.EPI_DIR, _EPC.LAYOUT_DIR, _k)
+        _dd, epi_days[_k] = _d_lo, {}
+        while _dd <= _d_hi:
+            _p = _EPL.read_cached(_EPL.CACHE_DIR, _k, _dd, _fp)
+            epi_days[_k][_dd.isoformat()] = _p['tallies'] if _p else None
+            _dd += dt.timedelta(days=1)
+    for r in q("SELECT plant_key, (start_ts AT TIME ZONE 'America/Mexico_City')::date::text,"
+               " coalesce((end_ts AT TIME ZONE 'America/Mexico_City')::date, CURRENT_DATE)::text, category"
+               f" FROM maintenance_event WHERE coalesce(end_ts, now()) >= DATE '{asof}' - 40;"):
+        if len(r) >= 4:
+            maint_days.setdefault(r[0], []).append((r[1], r[2], r[3]))
+except Exception:   # noqa: BLE001 - no EPI cache on this host: no EPI tile
+    epi_days = {}
 
 # v394 (R4): the day each inverter's set of live string inputs last changed (string repaired
 # or lost), from the noon medians kpi_eod keeps in string_noon_daily - the index is then shown
@@ -1367,6 +1393,27 @@ def inverter_card(k):
 
 
 # ================= page: plant performance (PPA + CAPEX) =================
+def epi_tile(k):
+    """v395 (Arturo's R6 + R9): the performance headline - EPI-600 against the frozen design,
+    month to date, with the last 7 days, the last day, and the month without the days with
+    known events next to it."""
+    ev = MC.event_days({d: v for (kk, d), v in avail_d.items() if kk == k}, maint_days.get(k, []))
+    sm = MC.epi_summary(epi_days[k], asof, ev)
+    pc = lambda v: ' - ' if v is None else f'{v * 100:,.1f}%'
+    sub = (f'{t("last 7 days","últimos 7 días")} {pc(sm["d7"])} · '
+           f'{t("last day","último día")} {pc(sm["day"])}' + (f' ({sm["day_date"][5:]})' if sm['day_date'] else ''))
+    if sm['mtd_wo_events'] is not None:
+        sub += (f'<br>{t("without event days","sin días con eventos")} ({", ".join(d[5:] for d in sm["excluded"])}): '
+                f'{pc(sm["mtd_wo_events"])}')
+    if sm['computed'] < sm['days']:
+        sub += f'<br>{sm["computed"]}/{sm["days"]} {t("days computed","días calculados")}'
+    tip = ti("EPI-600 = energy the inverters delivered ÷ energy the frozen design (HelioScope base v1: monthly design PR, soiling profile, string by string) expects for the measured irradiance and module temperature, over the 5-minute samples with plane-of-array irradiance of 600 W/m2 or more. Ratio of sums, never an average of daily ratios. Green ≥ 97%, amber 93-97%, red below 93%. Month to date is the headline; the last 7 days and the last day show whether a loss is current; 'without event days' leaves out days with logged maintenance or plant availability below 98% (outages), so a one-off event and a running loss (soiling) can be told apart.",
+             "EPI-600 = energía entregada por los inversores ÷ energía que el diseño congelado (HelioScope base v1: PR de diseño mensual, perfil de suciedad, cadena por cadena) espera para la irradiancia y la temperatura de módulo medidas, en las muestras de 5 minutos con irradiancia en el plano de 600 W/m2 o más. Cociente de sumas, nunca promedio de cocientes diarios. Verde ≥ 97%, ámbar 93-97%, rojo debajo de 93%. El mes a la fecha es el titular; los últimos 7 días y el último día muestran si una pérdida es actual; 'sin días con eventos' deja fuera días con mantenimiento registrado o disponibilidad de planta debajo de 98% (paros), para distinguir un evento puntual de una pérdida en curso (suciedad).")
+    return (f'<div class="tile {sm["band"]}" id="t_epi"><div class="tlabel">'
+            f'{t("EPI-600 vs design, month to date","EPI-600 vs diseño, mes a la fecha")}{tip}</div>'
+            f'<div class="tval">{pc(sm["mtd"])}</div><div class="tsub">{sub}</div></div>')
+
+
 def plant_parts(k):
     """Everything on a plant page, as parts (v209): the old page and the
     portal assemble them with their own chrome. Data and wording are
@@ -1472,6 +1519,8 @@ def plant_parts(k):
                       "Fracción de días del rango con telemetría completa (todos los inversores reportaron todo el día). Un valor bajo significa huecos de monitoreo - NO ingreso perdido: la facturación mensual se concilia con los contadores de vida del fabricante al cierre y es exacta. La cobertura indica cuánta confianza dar al PR y a la disponibilidad en días parciales. Los días sin telemetría cuentan como cero. Informativo - en rojo solo cuando el rango no tiene ningún dato.")
                  + f'</div><div class="tval" id="r_dq"> - </div>'
                  f'<div class="tsub">{t("full-coverage days","días con cobertura completa")}</div></div>')
+    if k in epi_days:
+        tiles.append(epi_tile(k))
     if pr:
         base = p.get('prb') or 0
         prstc = prstc30.get(k)
@@ -1486,7 +1535,8 @@ def plant_parts(k):
             pr_sub = (t("at/above clean baseline", "en/sobre línea base limpia")
                       if drift <= 0 else
                       f'−{drift:,.1f} pts {t("vs clean baseline (soiling + other losses)","vs línea base limpia (suciedad + otras pérdidas)")}')
-            pr_sub = f'{t("baseline","línea base")} {base*100:,.0f}% · {pr_sub}'
+            pr_sub = (f'{t("gap on temp-normalized PR vs configured clean baseline","brecha del PR norm. por temperatura vs línea base limpia configurada")}'
+                      f' {base*100:,.0f}% · {pr_sub}')    # v395 R6: say which basis the gap uses
         else:
             pr_sub = t("no baseline configured", "sin línea base configurada")
         if prstc:
@@ -1515,7 +1565,7 @@ def plant_parts(k):
                       f'<div class="twhy">⚠ {why}</div></div>')
         tiles.append(f'<div class="tile flip {prc}{" haswhy" if pr_why else ""}" id="t_pr">'
                      f'<div class="flipin"><div class="face front">'
-                     f'<div class="tlabel">{t("Performance ratio, 30d","Performance ratio, 30d")}'
+                     f'<div class="tlabel">{t("Performance ratio, 30d (raw)","Performance ratio, 30d (crudo)")}'
                      + ti("PR = metered energy ÷ (kWp DC × plane-of-array irradiance): how well the plant converts the sun it actually received. Averaged over the last 30 days, so the number moves a little every day as the window rolls. Hot cells depress PR (about −0.7 pts per °C), so the temp-normalized figure (PR at 25 °C cell) is also shown, and the color and drift are judged on it - a hot month is not a fault. Baseline is this plant's clean-state PR from the Plant configuration (editable by admins in Setup → Finance); the gap to it approximates soiling plus other recoverable losses. Green ≥ baseline, amber within 5 pts, red below.",
                           "PR = energía medida ÷ (kWp DC × irradiancia en el plano): qué tan bien la planta convierte el sol que realmente recibió. Promedio de los últimos 30 días: el número se mueve un poco cada día al rodar la ventana. Las celdas calientes deprimen el PR (≈ −0.7 pts por °C), así que también se muestra la cifra normalizada por temperatura (PR a celda de 25 °C), y el color y la deriva se juzgan con ella - un mes caluroso no es una falla. La línea base es el PR en estado limpio de la configuración de planta (editable por administradores en Setup → Finanzas); la brecha contra ella aproxima suciedad más otras pérdidas recuperables. Verde ≥ línea base, ámbar hasta 5 pts, rojo debajo.")
                      + f'</div><div class="tval">{pr*100:,.1f}%</div>'

@@ -39,10 +39,12 @@ STEP_WHY = {
                  "Energía no producida los días que el cliente paró la planta; se compensa en la factura."),
     "availability": ("Energy lost while equipment was down (loss engine, from July 2026).",
                      "Energía perdida con equipo fuera de servicio (motor de pérdidas, desde julio 2026)."),
-    "performance": ("Everything else the plant did better or worse than its design for the measured sun: soiling, "
-                    "heat, strings, inverters.",
-                    "Todo lo demás que la planta hizo mejor o peor que su diseño para el sol medido: suciedad, "
-                    "calor, cadenas, inversores."),
+    "performance": ("Everything else the plant did better or worse than its HelioScope design for the day's measured "
+                    "sun: soiling, heat, strings, inverters. The kWh view of the whole day; EPI-600 checks the strings "
+                    "at 600 W/m2 or more.",
+                    "Todo lo demás que la planta hizo mejor o peor que su diseño HelioScope para el sol medido del "
+                    "día: suciedad, calor, cadenas, inversores. La vista en kWh del día completo; EPI-600 revisa las "
+                    "cadenas con 600 W/m2 o más."),
     "unsplit": ("Plants without a HelioScope design yet: weather and plant are one step.",
                 "Plantas sin diseño HelioScope todavía: clima y planta son un solo paso."),
 }
@@ -111,6 +113,24 @@ def pct(x: Optional[float], d: int = 0, signed: bool = False) -> str:
 def delta(x: Optional[float]) -> str:
     """0.85 -> '-15%' (a ratio as a difference to 1)."""
     return "-" if x is None else f"{(x - 1) * 100:+.0f}%"
+
+
+def eng(x: Dict) -> Tuple[Optional[float], Optional[str]]:
+    """(engineering figure, basis 'epi600' | 'design' | None) of a plant, portfolio or trend row; a frozen report
+    from before v401 has only 'epi' (the HelioScope ratio)."""
+    if "engineering" in x:
+        return x["engineering"], x.get("engineering_basis")
+    return x.get("epi"), ("design" if x.get("epi") is not None else None)
+
+
+def epct(x: Optional[float]) -> str:
+    """An EPI as shown: capped at 100 % (Arturo, 24 Nov 2026), whole percent."""
+    return pct(PM.cap(x), 0)
+
+
+def ecls(x: Optional[float]) -> str:
+    b = PM.band(x, PM.ENGINEERING_BANDS)
+    return {"good": "pos", "bad": "neg"}.get(b or "", "")
 
 
 def esc(s) -> str:
@@ -226,8 +246,8 @@ def trend_svg(trend: Sequence[Dict], L: Lang, width: int = 980, height: int = 26
                    f'height="{y(0) - y(t["actual_kwh"] or 0):.1f}" rx="2" fill="{COL["actual"]}"/>')
         out.append(f'<text x="{x + cw / 2:.1f}" y="{height - 10}" text-anchor="middle" fill="{COL["muted"]}">'
                    f'{L.month_svg(t["month"])}</text>')
-        if t.get("epi") is not None:
-            pts_e.append(f"{x + cw / 2:.1f},{yr(t['epi']):.1f}")
+        if eng(t)[0] is not None:
+            pts_e.append(f"{x + cw / 2:.1f},{yr(PM.cap(eng(t)[0])):.1f}")
         if t.get("sun_index") is not None:
             pts_s.append(f"{x + cw / 2:.1f},{yr(t['sun_index']):.1f}")
     for pts, col, dash in ((pts_s, COL["weather"], "5 3"), (pts_e, COL["design"], "")):
@@ -362,8 +382,8 @@ def tiles(rep: Dict, L: Lang) -> str:
          L.t(f'budget {mxn(P["budget_mxn"])}', f'presupuesto {mxn(P["budget_mxn"])}')),
         ("", L.t("Sun vs typical", "Sol vs típico"), delta(P["sun_index"]),
          L.t("measured irradiance vs design year", "irradiancia medida vs año de diseño")),
-        (PM.band(P["epi"], PM.ENGINEERING_BANDS) or "", L.t("Performance vs design", "Desempeño vs diseño"),
-         delta(P["epi"]), L.t(f'for the measured sun · {P["epi_plants"]} plants', f'para el sol medido · {P["epi_plants"]} plantas')),
+        (PM.band(eng(P)[0], PM.ENGINEERING_BANDS) or "", L.t("Performance vs design", "Desempeño vs diseño"),
+         epct(eng(P)[0]), _eng_sub(P, L)),
         (PM.band(P["availability"], PM.AVAILABILITY_BANDS) or "", L.t("Availability", "Disponibilidad"),
          pct(P["availability"], 1), L.t("customer stops excused", "paros del cliente excluidos")),
         ("bad" if (loss.get("lost_mxn") or 0) > 0.03 * (P["revenue_earned_mxn"] or 1) else "",
@@ -375,13 +395,20 @@ def tiles(rep: Dict, L: Lang) -> str:
         for tone, lab, val, sub in cells) + "</div>"
 
 
+def _eng_sub(P: Dict, L: Lang) -> str:
+    n = P.get("engineering_plants", P.get("epi_plants"))
+    if eng(P)[1] == "epi600":
+        return L.t(f"EPI-600, strings at 600 W/m2+ · {n} plants", f"EPI-600, cadenas con 600 W/m2+ · {n} plantas")
+    return L.t(f"HelioScope, measured sun · {n} plants", f"HelioScope, sol medido · {n} plantas")
+
+
 def ratio_or(a, b):
     return a / b if a is not None and b else None
 
 
 def plants_table(rep: Dict, L: Lang) -> str:
     head = [L.t("Plant", "Planta"), "MWh", L.t("vs contract", "vs contrato"), L.t("Sun", "Sol"),
-            L.t("vs design", "vs diseño"), L.t("Availability", "Disponib."), L.t("Lost MXN", "Pérdida MXN"),
+            L.t("Performance", "Desempeño"), L.t("Availability", "Disponib."), L.t("Lost MXN", "Pérdida MXN"),
             L.t("Revenue MXN", "Ingreso MXN"), "CO2 t", L.t("Promise · design · avail.", "Promesa · diseño · disp.")]
     rows = []
     for p in rep["plants"]:
@@ -390,7 +417,7 @@ def plants_table(rep: Dict, L: Lang) -> str:
         rows.append("<tr>" + "".join([
             f'<td><span class="pmplant">{esc(p["name"])}</span> <span class="pmnote">{p["kwp_dc"] or 0:,.0f} kWp</span></td>',
             f'<td>{mwh(p["actual_kwh"])}</td>', f'<td class="{_cls(p["promise"])}">{delta(p["promise"])}</td>',
-            f'<td>{delta(p["sun_index"])}</td>', f'<td class="{_cls(p["epi"])}">{delta(p["epi"])}</td>',
+            f'<td>{delta(p["sun_index"])}</td>', f'<td class="{ecls(eng(p)[0])}">{epct(eng(p)[0])}{_basis_mark(eng(p)[1])}</td>',
             f'<td>{pct(p["availability"], 1)}</td>', f'<td>{mxn((p["loss"] or {}).get("lost_mxn")) if p["loss"] else "-"}</td>',
             f'<td>{mxn(rev)}</td>', f'<td>{p["co2_t"]:,.1f}</td>',
             f'<td>{dot(v["promise"])}{dot(v["engineering"])}{dot(v["availability"])}</td>']) + "</tr>")
@@ -399,11 +426,16 @@ def plants_table(rep: Dict, L: Lang) -> str:
     rows.append('<tr class="tot">' + "".join([
         f'<td>{L.t("Portfolio", "Portafolio")} <span class="pmnote">{P["kwp_dc"] or 0:,.0f} kWp</span></td>',
         f'<td>{mwh(P["actual_kwh"])}</td>', f'<td class="{_cls(P["promise"])}">{delta(P["promise"])}</td>',
-        f'<td>{delta(P["sun_index"])}</td>', f'<td class="{_cls(P["epi"])}">{delta(P["epi"])}</td>',
+        f'<td>{delta(P["sun_index"])}</td>', f'<td class="{ecls(eng(P)[0])}">{epct(eng(P)[0])}{_basis_mark(eng(P)[1])}</td>',
         f'<td>{pct(P["availability"], 1)}</td>', f'<td>{mxn((P["loss"] or {}).get("lost_mxn")) if P["loss"] else "-"}</td>',
         f'<td>{mxn(rev)}</td>', f'<td>{P["co2_t"] or 0:,.1f}</td>', "<td></td>"]) + "</tr>")
     return ('<table class="pmt"><thead><tr>' + "".join(f"<th>{h}</th>" for h in head) + "</tr></thead><tbody>"
             + "".join(rows) + "</tbody></table>")
+
+
+def _basis_mark(basis: Optional[str]) -> str:
+    """A small mark on figures from the HelioScope day-energy ratio when the table also holds EPI-600 ones."""
+    return '<sup class="pmnote">H</sup>' if basis == "design" else ""
 
 
 def _cls(r: Optional[float]) -> str:
@@ -479,13 +511,16 @@ def quality_section(rep: Dict, L: Lang) -> str:
         rows.append(
             f'<tr><td class="pmplant">{esc(p["name"])}</td><td>{p["data_days"]} / {p["days"]}</td><td>{p["sun_days"]}</td>'
             f'<td class="wrap">{esc(p["design_source"]) if p["design_source"] else L.t("none yet", "aún no")}</td>'
+            f'<td>{pct(p.get("availability_coverage"), 1) if p.get("availability_coverage") is not None else "-"}</td>'
+            f'<td>{p.get("epi600_days", 0)} / {p["data_days"]}</td>'
             f'<td>{_sensor(sc)}</td>'
             f'<td class="wrap"><ul class="pmlist">{notes}</ul></td></tr>')
     return f"""<div class="pmcard"><h2>{L.t("Data quality and caveats", "Calidad de datos y salvedades")}</h2>
- <p class="sub">{L.t("Days with production data, days with a sun reading, the design used, the pyranometer check against satellite, and what to keep in mind.",
-                    "Días con datos de producción, días con lectura de sol, el diseño usado, la revisión del piranómetro contra satélite y qué tener en cuenta.")}</p>
+ <p class="sub">{L.t("Days with production data, days with a measured sun reading, the design used, how much of the time availability could be judged, days with EPI-600, the pyranometer check against satellite, and what to keep in mind.",
+                    "Días con datos de producción, días con lectura de sol medida, el diseño usado, qué parte del tiempo se pudo juzgar la disponibilidad, días con EPI-600, la revisión del piranómetro contra satélite y qué tener en cuenta.")}</p>
  <table class="pmt"><thead><tr><th>{L.t("Plant", "Planta")}</th><th>{L.t("Data days", "Días con datos")}</th><th>{L.t("Sun days", "Días con sol")}</th>
- <th>{L.t("Design", "Diseño")}</th><th>{L.t("Sensor check", "Revisión sensor")}</th><th>{L.t("Notes", "Notas")}</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>"""
+ <th>{L.t("Design", "Diseño")}</th><th>{L.t("Availability coverage", "Cobertura disponib.")}</th>
+ <th>{L.t("EPI-600 days", "Días EPI-600")}</th><th>{L.t("Sensor check", "Revisión sensor")}</th><th>{L.t("Notes", "Notas")}</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>"""
 
 
 def _sensor(sc: Optional[Dict]) -> str:
@@ -511,14 +546,30 @@ def method_section(L: Lang) -> str:
          "interconexión. 'Para el sol medido' escala cada día con la irradiancia que midió el sensor de la planta."),
         ("Sun vs typical: measured irradiance against the design year's irradiance on the same plane for the same days.",
          "Sol vs típico: irradiancia medida contra la del año de diseño en el mismo plano y los mismos días."),
-        ("Performance vs design (EPI): actual over design for the measured sun, on days with both readings. Within "
-         "3% is in line.",
-         "Desempeño vs diseño (EPI): real sobre diseño para el sol medido, en días con ambas lecturas. Dentro de 3% "
-         "está en línea."),
-        ("Availability and losses: the monitoring's daily availability and loss engine (from July 2026). Lost MXN "
-         "is lost energy at the PPA tariff.",
-         "Disponibilidad y pérdidas: la disponibilidad diaria y el motor de pérdidas del monitoreo (desde julio 2026). "
-         "Las pérdidas MXN son energía perdida a la tarifa PPA."),
+        ("Performance vs design: EPI-600 (Arturo's method) when every day of the month was computed: each string's "
+         "output at 600 W/m2 or more against the design for the same sun and module temperature, a ratio of sums. "
+         "Otherwise (before Oct 2026, marked H) the HelioScope day-energy ratio: actual over design for the measured "
+         "sun. Green from 97%, amber 93-97%, red below. Above 100% is shown as 100%; the figures behind it are not "
+         "altered.",
+         "Desempeño vs diseño: EPI-600 (método de Arturo) cuando se calculó cada día del mes: la salida de cada "
+         "cadena con 600 W/m2 o más contra el diseño para el mismo sol y temperatura de módulo, un cociente de sumas. "
+         "Si no (antes de oct 2026, marcado H) la razón de energía diaria vs HelioScope: real sobre diseño para el sol "
+         "medido. Verde desde 97%, ámbar 93-97%, rojo abajo. Sobre 100% se muestra 100%; las cifras detrás no se "
+         "alteran."),
+        ("A sun counts only when it was measured: a day estimated from cloud cover, a station day under 90% coverage "
+         "or a day whose raw PR is above 105% (the sun was undercounted) counts its typical design day and stays out "
+         "of the sun index and the performance figure. If there is no data, nothing is calculated.",
+         "Un sol cuenta solo si se midió: un día estimado por nubosidad, un día de estación bajo 90% de cobertura o un "
+         "día con PR bruto arriba de 105% (sol subcontado) cuenta su día típico de diseño y queda fuera del índice de "
+         "sol y del desempeño. Sin datos no se calcula nada."),
+        ("Availability and losses: the monitoring's daily availability (a connection gap is unknown time, never an "
+         "outage; the month weighs each day by its coverage, shown under data quality) and loss engine (from July "
+         "2026). Lost MXN is lost energy at the PPA tariff.",
+         "Disponibilidad y pérdidas: la disponibilidad diaria del monitoreo (un corte de conexión es tiempo "
+         "desconocido, nunca una falla; el mes pondera cada día por su cobertura, mostrada en calidad de datos) y el "
+         "motor de pérdidas (desde julio 2026). Las pérdidas MXN son energía perdida a la tarifa PPA."),
+        ("Year to date and since the first month cover closed months only while a month is in progress.",
+         "En el año y desde el primer mes cubren solo meses cerrados mientras un mes está en curso."),
         ("A draft changes as data arrives. A published month is frozen: the page, the PDF and the Excel keep the "
          "numbers of the day it was published.",
          "Un borrador cambia al llegar datos. Un mes publicado queda congelado: la página, el PDF y el Excel "
@@ -555,7 +606,21 @@ def body(rep: Dict, L: Lang, today: str, links: Optional[Dict[str, str]] = None,
         f'<span class="pmnote">{L.t(*STEP_WHY[k])}</span></div>'
         for k in PM.STEPS[1:-1] if P["bridge_kwh"].get(k) is not None)
     sun_rows = [(esc(p["name"]), p["sun_index"], "weather") for p in rep["plants"]]
-    epi_rows = [(esc(p["name"]), p["epi"], p["verdict"]["engineering"] or "contract") for p in rep["plants"]]
+    epi_rows = [(esc(p["name"]), PM.cap(eng(p)[0]), p["verdict"]["engineering"] or "contract") for p in rep["plants"]]
+    if eng(P)[1] == "epi600":
+        eng_h = L.t("Engineering: EPI-600 vs design", "Ingeniería: EPI-600 vs diseño")
+        eng_s = L.t("Weather removed. Each string at 600 W/m2 or more against its design for the same sun and module "
+                    "temperature (Arturo's method). H: HelioScope day-energy ratio where EPI-600 is missing. Above 100% "
+                    "is shown as 100%.",
+                    "Sin el clima. Cada cadena con 600 W/m2 o más contra su diseño para el mismo sol y temperatura de "
+                    "módulo (método de Arturo). H: razón de energía diaria vs HelioScope donde falta EPI-600. Sobre 100% "
+                    "se muestra 100%.")
+    else:
+        eng_h = L.t("Engineering: actual vs design for the measured sun", "Ingeniería: real vs diseño para el sol medido")
+        eng_s = L.t("Weather removed. 100% means the plant produced what its HelioScope design predicts for the sun it "
+                    "got; above 100% is shown as 100%.",
+                    "Sin el clima. 100% significa que la planta produjo lo que su diseño HelioScope predice para el sol "
+                    "que tuvo; sobre 100% se muestra 100%.")
     return f"""<div class="pm">
 <div class="pmhero">
  <div>
@@ -575,8 +640,8 @@ def body(rep: Dict, L: Lang, today: str, links: Optional[Dict[str, str]] = None,
  <div class="pmsteps">{steps}</div>
 </div>
 <div class="pmcard pb"><h2>{L.t("Plant by plant", "Planta por planta")}</h2>
- <p class="sub">{L.t("Dots: the promise (actual vs contract), the engineering (vs design for the measured sun), availability. Green on target, amber watch, red act.",
-                    "Puntos: la promesa (real vs contrato), la ingeniería (vs diseño para el sol medido), disponibilidad. Verde en meta, ámbar vigilar, rojo actuar.")}</p>
+ <p class="sub">{L.t("Dots: the promise (actual vs contract), the engineering (EPI-600, or H: HelioScope for the measured sun), availability. Green on target, amber watch, red act.",
+                    "Puntos: la promesa (real vs contrato), la ingeniería (EPI-600, o H: HelioScope para el sol medido), disponibilidad. Verde en meta, ámbar vigilar, rojo actuar.")}</p>
  {plants_table(rep, L)}
 </div>
 <div class="pmgrid2">
@@ -584,9 +649,8 @@ def body(rep: Dict, L: Lang, today: str, links: Optional[Dict[str, str]] = None,
   <p class="sub">{L.t("Below 100% the sun was weaker than the design year. This is the part of the result nobody controls.",
                      "Bajo 100% el sol fue más débil que el año de diseño. Es la parte del resultado que nadie controla.")}</p>
   {hbars_svg(sun_rows)}</div>
- <div class="pmcard"><h2>{L.t("Engineering: actual vs design for the measured sun", "Ingeniería: real vs diseño para el sol medido")}</h2>
-  <p class="sub">{L.t("Weather removed. 100% means the plant produced exactly what its HelioScope design predicts for the sun it got.",
-                     "Sin el clima. 100% significa que la planta produjo exactamente lo que su diseño HelioScope predice para el sol que tuvo.")}</p>
+ <div class="pmcard"><h2>{eng_h}</h2>
+  <p class="sub">{eng_s}</p>
   {hbars_svg(epi_rows)}</div>
 </div>
 <div class="pmcard pb"><h2>{L.t("Money", "Dinero")}</h2>
@@ -596,8 +660,8 @@ def body(rep: Dict, L: Lang, today: str, links: Optional[Dict[str, str]] = None,
 </div>
 {ops_section(rep, L)}
 <div class="pmcard"><h2>{L.t("The last 13 months", "Los últimos 13 meses")}</h2>
- <p class="sub">{L.t("Bars: contract curve and actual energy (MWh). Lines: performance vs design (solid) and sun vs typical (dashed), right axis.",
-                    "Barras: curva de contrato y energía real (MWh). Líneas: desempeño vs diseño (continua) y sol vs típico (punteada), eje derecho.")}</p>
+ <p class="sub">{L.t("Bars: contract curve and actual energy (MWh). Lines: performance vs design (solid; EPI-600 where computed, else HelioScope) and sun vs typical (dashed), right axis.",
+                    "Barras: curva de contrato y energía real (MWh). Líneas: desempeño vs diseño (continua; EPI-600 donde se calculó, si no HelioScope) y sol vs típico (punteada), eje derecho.")}</p>
  {trend_svg(rep["trend"], L)}
  <div class="pmlegend"><span><i style="background:{COL["contract"]}"></i>{L.t("Contract curve", "Curva de contrato")}</span>
  <span><i style="background:{COL["actual"]}"></i>{L.t("Actual", "Real")}</span>
@@ -626,7 +690,7 @@ def _period_table(p: Dict, L: Lang) -> str:
     rows = [(L.t("Energy delivered", "Energía entregada"), f'{mwh(p["actual_kwh"])} MWh'),
             (L.t("Contract curve", "Curva de contrato"), f'{mwh(p["contract_kwh"])} MWh'),
             (L.t("Actual vs contract", "Real vs contrato"), delta(p["promise"])),
-            (L.t("Performance vs design", "Desempeño vs diseño"), delta(p["epi"])),
+            (L.t("Performance vs HelioScope (measured sun)", "Desempeño vs HelioScope (sol medido)"), epct(p["epi"])),
             (L.t("Revenue earned", "Ingreso devengado"), mxn(p["revenue_earned_mxn"])),
             (L.t("Budget", "Presupuesto"), mxn(p["budget_mxn"])),
             (L.t("Weather effect", "Efecto clima"), mxn((p.get("bridge_mxn") or {}).get("weather"), True)),
@@ -661,13 +725,13 @@ def index_body(cards: Sequence[Dict], L: Lang, today: str) -> str:
             f'<tr><td><a href="{esc(c["href"])}" class="pmplant">{L.month(c["month"])}</a></td>'
             f'<td><span class="pmstat {lab[c["status"]][2]}">{L.t(lab[c["status"]][0], lab[c["status"]][1])}</span></td>'
             f'<td>{mwh(c["actual_kwh"])}</td><td class="{_cls(c["promise"])}">{delta(c["promise"])}</td>'
-            f'<td>{delta(c["sun_index"])}</td><td class="{_cls(c["epi"])}">{delta(c["epi"])}</td>'
+            f'<td>{delta(c["sun_index"])}</td><td class="{ecls(c["epi"])}">{epct(c["epi"])}{_basis_mark(c.get("basis"))}</td>'
             f'<td>{mxn(c["lost_mxn"]) if c["lost_mxn"] is not None else "-"}</td>'
             f'<td><a href="{esc(c["href"])}report-en.pdf">PDF</a> · <a href="{esc(c["href"])}report-es.pdf">PDF ES</a> · '
             f'<a href="{esc(c["href"])}report.xlsx">Excel</a></td></tr>' for c in cs)
         out.append(f'<div class="pmcard"><h2>{esc(y)}</h2><table class="pmt"><thead><tr><th>{L.t("Month", "Mes")}</th>'
                    f'<th>{L.t("Status", "Estado")}</th><th>MWh</th><th>{L.t("vs contract", "vs contrato")}</th>'
-                   f'<th>{L.t("Sun", "Sol")}</th><th>{L.t("vs design", "vs diseño")}</th>'
+                   f'<th>{L.t("Sun", "Sol")}</th><th>{L.t("Performance", "Desempeño")}</th>'
                    f'<th>{L.t("Lost MXN", "Pérdida MXN")}</th><th>{L.t("Download", "Descargar")}</th></tr></thead>'
                    f"<tbody>{rows}</tbody></table></div>")
     return f"""<div class="pm">

@@ -45,20 +45,21 @@ PPA = "(SELECT plant_key FROM plant WHERE portfolio = 'PPA' AND active)"
 SQL = {
     "plants": "SELECT plant_key, customer, kwp_dc, tariff_mxn_per_kwh, sla_target FROM plant "
               "WHERE portfolio = 'PPA' AND active ORDER BY plant_key",
-    "daily": f"SELECT plant_key, prod_date, energy_kwh, irradiance_kwh_m2, expected_kwh, billable_kwh, cloud_cover_pct, "
+    "daily": f"SELECT plant_key, prod_date, energy_kwh, irradiance_kwh_m2, irradiance_source, expected_kwh, billable_kwh, cloud_cover_pct, "
              f"availability, avail_coverage FROM daily_production WHERE plant_key IN {PPA} ORDER BY 1, 2",
     "contract": f"SELECT plant_key, year, month, contract_kwh, tariff_mxn FROM contract_monthly WHERE plant_key IN {PPA}",
     "invoices": f"SELECT plant_key, ref_month, amount_mxn, produced_kwh, billable_kwh, penalty_kwh, check_status "
                 f"FROM invoicing WHERE plant_key IN {PPA}",
     "losses": f"SELECT plant_key, prod_date, lost_kwh, unavailability_kwh, overheating_kwh, underperformance_kwh, "
-              f"excused_kwh, lost_mxn FROM loss_daily WHERE plant_key IN {PPA}",
+              f"excused_kwh, lost_mxn, expected_basis, peers, tariff_mxn FROM loss_daily WHERE plant_key IN {PPA}",
     "events": f"SELECT plant_key, start_ts, end_ts, category, cost_mxn, deemed_kwh, note FROM maintenance_event "
               f"WHERE plant_key IN {PPA}",
     "tickets": f"SELECT number, plant_key, category, priority, status, created_at, started_at, resolved_at, closed_at, "
                f"title FROM ticket WHERE plant_key IN {PPA}",
     "sat": f"SELECT plant_key, check_date, status, drift_pct FROM satellite_check WHERE plant_key IN {PPA}",
+    "station": f"SELECT plant_key, prod_date, coverage, status, reasons FROM station_check_daily WHERE plant_key IN {PPA}",
 }
-OPTIONAL = {"invoices", "losses", "events", "tickets", "sat"}    # a missing table must not stop the report
+OPTIONAL = {"invoices", "losses", "events", "tickets", "sat", "station"}    # a missing table must not stop the report
 
 
 def fetch() -> Dict[str, List[Dict]]:
@@ -75,11 +76,42 @@ def fetch() -> Dict[str, List[Dict]]:
     return out
 
 
-def context(rows: Dict[str, List[Dict]], designs=None) -> PM.Context:
+def epi600_days(plant_keys, days_by_plant: Dict[str, List[str]]) -> Dict[str, Dict[str, Optional[list]]]:
+    """{plant: {iso day: [real, expected, samples] | None}} from the EPI engine's settled day cache (v401). Only
+    days whose cache matches the plant's current register and layout (the engine's fingerprint); a plant without
+    an EPI register is left out. Read-only."""
+    from argia.epi import config as EPC
+    from argia.epi import live as EPL
+    out: Dict[str, Dict[str, Optional[list]]] = {}
+    for pk in plant_keys:
+        try:
+            fp = EPL.fingerprint(EPC.EPI_DIR, EPC.LAYOUT_DIR, pk)
+        except OSError:
+            continue
+        got = {}
+        for d in days_by_plant.get(pk, ()):
+            p = EPL.read_cached(EPL.CACHE_DIR, pk, dt.date.fromisoformat(d), fp)
+            if p is not None:
+                got[d] = ((p.get("tallies") or {}).get("epi600") or {}).get("plant") or None
+        out[pk] = got
+    return out
+
+
+def context(rows: Dict[str, List[Dict]], designs=None, epi600=None) -> PM.Context:
     import portal_chrome as C
     plants = [dict(p, name=C.display_name(p["customer"])) for p in rows["plants"]]
+    if epi600 is None:
+        days: Dict[str, List[str]] = {}
+        for r in rows["daily"]:
+            days.setdefault(r["plant_key"], []).append(str(r["prod_date"])[:10])
+        try:
+            epi600 = epi600_days([p["plant_key"] for p in rows["plants"]], days)
+        except Exception as exc:                     # noqa: BLE001 - the report goes on with the HelioScope ratio
+            LOG.warning("EPI-600 day cache unavailable (%s): HelioScope ratio only", str(exc)[:120])
+            epi600 = {}
     return PM.Context(plants, rows["daily"], rows["contract"], rows["invoices"], rows["losses"], rows["events"],
-                      rows["tickets"], rows["sat"], designs if designs is not None else DM.load())
+                      rows["tickets"], rows["sat"], designs if designs is not None else DM.load(),
+                      rows.get("station") or [], epi600)
 
 
 # ------------------------------------------------------------------ files
@@ -173,7 +205,8 @@ def card(rep: Dict, today: str) -> Dict:
     status = ("published" if rep.get("published") else "mtd" if not rep["complete"]
               else "late" if PM.deadline_applies(rep["month"]) and today > rep["deadline"] else "draft")
     return {"month": rep["month"], "href": f"/{SECTION}/{rep['month']}/", "status": status,
-            "actual_kwh": P["actual_kwh"], "promise": P["promise"], "epi": P["epi"], "sun_index": P["sun_index"],
+            "actual_kwh": P["actual_kwh"], "promise": P["promise"], "epi": V.eng(P)[0], "basis": V.eng(P)[1],
+            "sun_index": P["sun_index"],
             "lost_mxn": (P.get("loss") or {}).get("lost_mxn")}
 
 

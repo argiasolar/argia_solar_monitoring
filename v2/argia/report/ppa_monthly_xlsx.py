@@ -61,8 +61,12 @@ def workbook(rep: Dict, daily: Sequence[Dict] = ()) -> bytes:
     kpis = [("Plants", P["plants"], "0"), ("kWp DC", P["kwp_dc"], F_KWH),
             ("Actual kWh", P["actual_kwh"], F_KWH), ("Contract kWh (prorated)", P["contract_kwh"], F_KWH),
             ("Actual / contract", P["promise"], F_PCT), ("Sun vs typical (index)", P["sun_index"], F_PCT),
-            ("Actual / design for the measured sun (EPI)", P["epi"], F_PCT),
-            ("Plants with a design in the EPI", P["epi_plants"], "0"),
+            ("Performance vs design (shown, max 100%)", PM.cap(V.eng(P)[0]), F_PCT),
+            ("Performance basis", {"epi600": "EPI-600", "design": "HelioScope, measured sun"}.get(V.eng(P)[1] or "", "-"), None),
+            ("EPI-600 (shown, max 100%)", PM.cap(P.get("epi600")), F_PCT),
+            ("Plants with EPI-600 for every day", P.get("epi600_plants"), "0"),
+            ("HelioScope, measured sun (shown, max 100%)", PM.cap(P["epi"]), F_PCT),
+            ("Plants with a design in the HelioScope ratio", P["epi_plants"], "0"),
             ("Availability", P["availability"], F_PCT),
             ("Revenue earned MXN", P["revenue_earned_mxn"], F_MXN),
             ("Revenue invoiced MXN", P["revenue_invoiced_mxn"], F_MXN),
@@ -76,7 +80,8 @@ def workbook(rep: Dict, daily: Sequence[Dict] = ()) -> bytes:
     for i, (k, v, f) in enumerate(kpis, start=7):
         s.cell(i, 1, k)
         c = s.cell(i, 2, v)
-        c.number_format = f
+        if f:
+            c.number_format = f
     r0 = 7 + len(kpis) + 1
     s.cell(r0, 1, "Bridge step").font = BOLD
     s.cell(r0, 2, "kWh").font = BOLD
@@ -100,20 +105,28 @@ def workbook(rep: Dict, daily: Sequence[Dict] = ()) -> bytes:
     _sheet(wb, "Plants",
            ["Plant", "Code", "kWp DC", "Days", "Data days", "Sun days", "Actual kWh", "Contract kWh (full month)",
             "Contract kWh (prorated)", "Actual / contract", "Design typical kWh", "Design for measured sun kWh",
-            "Irradiance kWh/m2", "Sun vs typical", "EPI (sun days)", "Availability", "Tariff MXN/kWh",
+            "Irradiance kWh/m2", "Sun vs typical", "HelioScope ratio, measured sun (shown, max 100%)",
+            "Actual kWh on measured-sun days", "Design kWh on measured-sun days", "Sun days not used",
+            "EPI-600 (shown, max 100%)", "EPI-600 days computed", "EPI-600 actual kWh", "EPI-600 design kWh",
+            "Performance basis", "Availability", "Availability coverage", "Tariff MXN/kWh",
             "Budget MXN", "Revenue earned MXN", "Revenue invoiced MXN", "Compensated kWh", "Lost kWh",
             "Unavailability kWh", "Overheating kWh", "Under-performance kWh", "Lost MXN", "CO2 t", "Yield kWh/kWp",
             "Design source"],
            [[p["name"], p["plant_key"], p["kwp_dc"], p["days"], p["data_days"], p["sun_days"], p["actual_kwh"],
              p["contract_full_kwh"], p["contract_kwh"], p["promise"], p["design_typ_kwh"], p["design_sun_kwh"],
-             p["irradiance_kwh_m2"], p["sun_index"], p["epi"], p["availability"], p["tariff"], p["budget_mxn"],
+             p["irradiance_kwh_m2"], p["sun_index"], PM.cap(p["epi"]), p["actual_sun_days_kwh"], p["design_sun_days_kwh"],
+             sum((p.get("sun_gated") or {}).values()), PM.cap(p.get("epi600")), p.get("epi600_days"),
+             p.get("epi600_real") or None, p.get("epi600_expected") or None,
+             {"epi600": "EPI-600", "design": "HelioScope"}.get(V.eng(p)[1] or "", ""),
+             p["availability"], p.get("availability_coverage"), p["tariff"], p["budget_mxn"],
              p["revenue_earned_mxn"], p["revenue_invoiced_mxn"], p["compensated_kwh"],
              *[(p["loss"] or {}).get(k) for k in ("lost_kwh", "unavailability_kwh", "overheating_kwh",
                                                   "underperformance_kwh", "lost_mxn")],
              p["co2_t"], p["yield_kwh_kwp"], p["design_source"] or ""] for p in pl],
-           [None, None, F_KWH, "0", "0", "0", F_KWH, F_KWH, F_KWH, F_PCT, F_KWH, F_KWH, "0.00", F_PCT, F_PCT, F_PCT,
+           [None, None, F_KWH, "0", "0", "0", F_KWH, F_KWH, F_KWH, F_PCT, F_KWH, F_KWH, "0.00", F_PCT, F_PCT,
+            F_KWH, F_KWH, "0", F_PCT, "0", F_KWH, F_KWH, None, F_PCT, F_PCT,
             F_TAR, F_MXN, F_MXN, F_MXN, F_KWH, F_KWH, F_KWH, F_KWH, F_KWH, F_MXN, "#,##0.0", "0.0", None],
-           [22, 7] + [13] * 26 + [40])
+           [22, 7] + [13] * 35 + [40])
     steps = [k for k in PM.STEPS[1:-1]]
     _sheet(wb, "Bridge",
            ["Plant", "Tariff", "Contract kWh"] + [V.STEP_LABEL[k][0] + " kWh" for k in steps] + ["Actual kWh"]
@@ -133,11 +146,12 @@ def workbook(rep: Dict, daily: Sequence[Dict] = ()) -> bytes:
            [None, None, None, "#,##0.0", "#,##0.0", "0.000", "#,##0.0", "#,##0.0", "#,##0.0", F_PCT, "0.0",
             "#,##0.0", "#,##0.0", "#,##0.0", "#,##0.0", F_MXN], [22, 7, 11] + [13] * 13)
     _sheet(wb, "Trend",
-           ["Month", "Actual kWh", "Contract kWh", "Actual / contract", "EPI", "Sun vs typical", "Availability",
-            "Revenue earned MXN", "Lost MXN"],
-           [[t["month"], t["actual_kwh"], t["contract_kwh"], t["promise"], t["epi"], t["sun_index"],
+           ["Month", "Actual kWh", "Contract kWh", "Actual / contract", "Performance (shown, max 100%)", "Basis",
+            "Sun vs typical", "Availability", "Revenue earned MXN", "Lost MXN"],
+           [[t["month"], t["actual_kwh"], t["contract_kwh"], t["promise"], PM.cap(V.eng(t)[0]),
+             {"epi600": "EPI-600", "design": "HelioScope"}.get(V.eng(t)[1] or "", ""), t["sun_index"],
              t["availability"], t["revenue_earned_mxn"], t["lost_mxn"]] for t in rep["trend"]],
-           [None, F_KWH, F_KWH, F_PCT, F_PCT, F_PCT, F_PCT, F_MXN, F_MXN], [10] + [16] * 8)
+           [None, F_KWH, F_KWH, F_PCT, F_PCT, None, F_PCT, F_PCT, F_MXN, F_MXN], [10] + [16] * 9)
     ev: List[List] = [[p["name"], "event", e["start"], e["end"] or "", e["category"], e["deemed_kwh"], e["note"]]
                       for p in pl for e in p["events"]]
     ev += [[p["name"], "below availability target", e["start"], e["end"], f'{e["days"]} days, lowest {e["min"]:.1%}',

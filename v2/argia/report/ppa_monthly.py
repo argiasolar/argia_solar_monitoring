@@ -20,7 +20,22 @@ The figures of a plant-month (only days with production data count; a partial mo
                       irradiance); a day without a sun reading counts its typical design day
 * sun index         = measured irradiance / the design year's irradiance for the same days (1.00 = typical)
 * EPI               = actual / design (sun) over the days with both readings (energy performance index)
-* availability      = mean daily availability (argia/kpi/availability.py) over the days that have it
+* availability      = the plant's daily availability (argia/kpi/availability.py) over the month, weighted by each
+                      day's coverage (availability.window), with the coverage shown beside it (v401, R1/R2)
+
+v401 (Tomasz, 24 Nov 2026: "make sure we applied all our rules"):
+
+* a day's sun counts only when it was measured: not the cloud-cover estimate (v389), not a day of our stored station
+  samples under 90 % coverage (station_check_daily, R10/R2; a day taken whole from the logger's own history is
+  not judged by our telemetry gaps), not a sun the plant could not have used (raw PR above design_model.PR_MAX,
+  v370). Such a day counts its typical design day in the bridge and stays out of the sun index and the EPI.
+* the engineering verdict is EPI-600 (Arturo's method, the EPI engine's settled day tallies) when every data day of
+  the plant-month was computed; before the engine (or with a gap) it is the HelioScope day-energy ratio above.
+  "If there is no data, nothing is calculated": a month with a missing day shows no EPI-600.
+* an EPI above 100 % is DISPLAYED as 100 % (``cap``, Arturo 24 Nov); the stored figures and the bridge are exact.
+* the multi-month totals (year to date, lifetime) of a month in progress cover the closed months only (R7).
+* under-performance booked on a cloud-model sun without peers (loss rows from before v389, telemetry no longer
+  kept to recompute them) is left out of the losses, as v389 does for new rows.
 
 The bridge from the promise to the result, in kWh and in MXN at each plant's PPA tariff (the steps add up exactly):
 
@@ -51,6 +66,12 @@ ABOVE_CONTRACT_NOTE = 1.20            # actual this far above the promise: check
 # kg CO2e per kWh avoided, as report_gen (a drift-guard test keeps the two equal)
 CO2_BY_YEAR = {2020: 0.494, 2021: 0.423, 2022: 0.435, 2023: 0.438, 2024: 0.444}
 CO2_PLANT_OVERRIDE = {"MEX1": 0.202}
+EPI_DISPLAY_MAX = 1.0                 # Arturo, 24 Nov 2026: an EPI above 100 % is shown as 100 % (epi_views_html)
+STATION_COV_MIN = 0.90                # station_check.COV_MIN: a station day under 90 % coverage is not a sun reading
+ESTIMATED_SUN = ("cloud_cover_model",)  # kpi_eod's model fallback: an estimate, not a measurement (v389)
+# the logger's own dense history (kpi_eod --dense-irradiance): its day is whole even when OUR telemetry has a gap
+# (station_check_daily counts our stored samples - 3 Nov 2026, the server outage, read 63 % for every plant)
+OWN_HISTORY_SUN = ("shinemaster_history",)
 STEPS = ("contract", "design", "weather", "customer", "availability", "performance", "unsplit", "actual")
 MX_OFFSET = dt.timedelta(hours=-6)    # Mexico City, no daylight saving since 2022: event times are stored in UTC
 
@@ -102,6 +123,11 @@ def co2_factor(year: int, plant_key: str) -> float:
     return CO2_BY_YEAR[min(max(int(year), lo), hi)]
 
 
+def cap(x: Optional[float]) -> Optional[float]:
+    """The display value of an EPI (Arturo, 24 Nov 2026): above 100 % shows as 100 %. Never used in a sum."""
+    return None if x is None else min(x, EPI_DISPLAY_MAX)
+
+
 def band(x: Optional[float], bands: Tuple[float, float]) -> Optional[str]:
     if x is None:
         return None
@@ -136,9 +162,13 @@ class Context:
     tickets:   number, plant_key, category, priority, status, created_at, started_at, resolved_at, closed_at, title
     sat:       plant_key, check_date, status, drift_pct
     designs:   {plant_key: argia.kpi.design_model.Design}
+    station:   plant_key, prod_date, coverage, status, reasons (station_check_daily, v396)
+    epi600:    {plant_key: {iso day: [real, expected, samples] | None}} - the EPI engine's settled days; a day
+               present with None was computed and had no valid sample at 600 W/m2
     """
 
-    def __init__(self, plants, daily, contract, invoices=(), losses=(), events=(), tickets=(), sat=(), designs=None):
+    def __init__(self, plants, daily, contract, invoices=(), losses=(), events=(), tickets=(), sat=(), designs=None,
+                 station=(), epi600=None):
         self.plants = {p["plant_key"]: dict(p) for p in plants}
         self.designs = dict(designs or {})
         self.days: Dict[str, Dict[str, Dict]] = {}
@@ -152,6 +182,8 @@ class Context:
         self.events = list(events)
         self.tickets = list(tickets)
         self.sat = list(sat)
+        self.station = {(r["plant_key"], str(r["prod_date"])[:10]): r for r in station}
+        self.epi600 = {k: dict(v) for k, v in (epi600 or {}).items()}
 
     def first_month(self) -> Optional[str]:
         firsts = [min(d) for d in self.days.values() if d]
@@ -182,8 +214,14 @@ def plant_month(ctx: Context, pk: str, ym: str, today: Optional[str] = None) -> 
     c_full = num(c.get("contract_kwh"))
     tariff = num(c.get("tariff_mxn")) or num(p.get("tariff_mxn_per_kwh"))
     contract = c_full * share if c_full is not None else None
-    sun_days = [(dt.date.fromisoformat(str(r["prod_date"])[:10]), num(r["energy_kwh"]), num(r.get("irradiance_kwh_m2")))
-                for r in data]
+    kwp_sun = (des.kwp_dc if des is not None else None) or num(p.get("kwp_dc"))
+    gated: Dict[str, int] = {}
+    sun_days = []
+    for r in data:
+        i, why = sun_reading(ctx, pk, r, kwp_sun)
+        if why:
+            gated[why] = gated.get(why, 0) + 1
+        sun_days.append((dt.date.fromisoformat(str(r["prod_date"])[:10]), num(r["energy_kwh"]), i))
     sun_ok = [(d, e, i) for d, e, i in sun_days if i is not None and i > 0]
     irr = sum(i for _, _, i in sun_ok) if sun_ok else None
     design_typ = design_sun_full = epi = sun_index = design_sun = actual_sun = None
@@ -196,8 +234,12 @@ def plant_month(ctx: Context, pk: str, ym: str, today: Optional[str] = None) -> 
             actual_sun = sum(e for _, e, _ in sun_ok)
             epi = ratio(actual_sun, design_sun)
             sun_index = des.resource(y, m, irr, len(sun_ok))
+    from argia.kpi.availability import window as _avail_window
     av = [num(r.get("availability")) for r in data if num(r.get("availability")) is not None]
-    availability = statistics.fmean(av) if av else None
+    availability, avail_cov = _avail_window([(num(r.get("availability")), num(r.get("avail_coverage"))) for r in data],
+                                            len(data))
+    e600, e600_days, e600_real, e600_exp = epi600_month(ctx, pk, [str(r["prod_date"])[:10] for r in data])
+    engineering, eng_basis = (e600, "epi600") if e600 is not None else (epi, "design" if epi is not None else None)
     sla = num(p.get("sla_target")) or SLA_DEFAULT
     cloud = [num(r.get("cloud_cover_pct")) for r in data if num(r.get("cloud_cover_pct")) is not None]
     # losses (loss_daily, from July 2026)
@@ -207,6 +249,16 @@ def plant_month(ctx: Context, pk: str, ym: str, today: Optional[str] = None) -> 
         loss = {k: sum(num(x.get(k)) or 0.0 for x in lrows) for k in
                 ("lost_kwh", "unavailability_kwh", "overheating_kwh", "underperformance_kwh", "excused_kwh", "lost_mxn")}
         loss["days"] = len(lrows)
+        # v389 for the rows booked before it: no under-performance on a cloud-model sun without peers
+        old = [x for x in lrows if x.get("expected_basis") == "weather-model" and not (x.get("peers") or "").strip()
+               and (num(x.get("underperformance_kwh")) or 0) > 0]
+        if old:
+            drop = sum(num(x.get("underperformance_kwh")) or 0.0 for x in old)
+            loss["underperformance_kwh"] -= drop
+            loss["lost_kwh"] -= drop
+            loss["lost_mxn"] -= sum((num(x.get("underperformance_kwh")) or 0.0) * (num(x.get("tariff_mxn")) or tariff or 0.0)
+                                    for x in old)
+            loss["estimated_sun_dropped_kwh"] = drop
     unavail = loss["unavailability_kwh"] if loss and loss["days"] == len(data) else None
     ev = month_events(ctx, pk, ym)
     cust_days = {d for e in ev if e["category"] == "customer" for d in e["days"]}
@@ -256,6 +308,29 @@ def plant_month(ctx: Context, pk: str, ym: str, today: Optional[str] = None) -> 
                       "plant as built (expansions).",
                       f"Lo real está {actual / contract - 1:.0%} arriba de la curva de contrato: revisar que la curva "
                       "cubra la planta como está construida (ampliaciones)."))
+    if gated and des is not None:
+        parts_en = [f"{n} {SUN_WHY[k][0]}" for k, n in sorted(gated.items())]
+        parts_es = [f"{n} {SUN_WHY[k][1]}" for k, n in sorted(gated.items())]
+        notes.append((f"Sun not used on {sum(gated.values())} day(s): {', '.join(parts_en)}. Those days count the typical "
+                      "design day and stay out of the sun index and the performance figure.",
+                      f"Sol no usado en {sum(gated.values())} día(s): {', '.join(parts_es)}. Esos días cuentan el día "
+                      "típico de diseño y quedan fuera del índice de sol y del desempeño."))
+    drift = sorted(d for (k, d), s in ctx.station.items() if k == pk and d[:7] == ym and "module-ambient" in (s.get("reasons") or ""))
+    if drift:
+        notes.append((f"Weather station check: the module temperature sensor runs warmer than at its start and than the "
+                      f"fleet on {len(drift)} day(s). Figures are not adjusted until the infrared check on site.",
+                      f"Revisión de la estación: el sensor de temperatura de módulo marca más caliente que al inicio y que "
+                      f"la flota en {len(drift)} día(s). Las cifras no se ajustan hasta la revisión infrarroja en sitio."))
+    if e600 is None and 0 < e600_days < len(data):
+        notes.append((f"EPI-600 computed on {e600_days} of {len(data)} days: not shown (no data, no figure); the "
+                      "performance figure is the HelioScope day-energy ratio.",
+                      f"EPI-600 calculado en {e600_days} de {len(data)} días: no se muestra (sin datos no hay cifra); el "
+                      "desempeño es la razón de energía diaria vs HelioScope."))
+    if loss and loss.get("estimated_sun_dropped_kwh"):
+        notes.append((f"{loss['estimated_sun_dropped_kwh']:,.0f} kWh of under-performance booked on an estimated sun "
+                      "without peers is left out of the losses (rule of 23 Nov 2026).",
+                      f"{loss['estimated_sun_dropped_kwh']:,.0f} kWh de bajo desempeño registrados con un sol estimado sin "
+                      "pares quedan fuera de las pérdidas (regla del 23 nov 2026)."))
     if len(data) < dim and (today is None or ym < today[:7]):
         notes.append((f"Production data on {len(data)} of {dim} days: the yardsticks are prorated to those days.",
                       f"Datos de producción en {len(data)} de {dim} días: las referencias se prorratean a esos días."))
@@ -266,7 +341,9 @@ def plant_month(ctx: Context, pk: str, ym: str, today: Optional[str] = None) -> 
         "design_typ_kwh": design_typ, "design_sun_kwh": design_sun_full, "has_design": des is not None,
         "actual_sun_days_kwh": actual_sun, "design_sun_days_kwh": design_sun,
         "design_source": des.source if des is not None else None,
-        "irradiance_kwh_m2": irr, "sun_index": sun_index, "epi": epi,
+        "irradiance_kwh_m2": irr, "sun_index": sun_index, "epi": epi, "sun_gated": gated,
+        "epi600": e600, "epi600_days": e600_days, "epi600_real": e600_real, "epi600_expected": e600_exp, "engineering": engineering, "engineering_basis": eng_basis,
+        "availability_coverage": avail_cov,
         "promise": ratio(actual, contract),
         "yield_kwh_kwp": ratio(actual, num(p.get("kwp_dc"))),
         "availability": availability, "availability_days": len(av), "sla": sla,
@@ -282,10 +359,52 @@ def plant_month(ctx: Context, pk: str, ym: str, today: Optional[str] = None) -> 
         "sensor_check": ({"status": worst_sat.get("status"), "drift_pct": num(worst_sat.get("drift_pct"))}
                          if worst_sat else None),
         "verdict": {"promise": band(ratio(actual, contract), PROMISE_BANDS),
-                    "engineering": band(epi, ENGINEERING_BANDS),
+                    "engineering": band(engineering, ENGINEERING_BANDS),
                     "availability": band(availability, (sla, sla - 0.03))},
         "notes": notes,
     }
+
+
+SUN_WHY = {"coverage": ("station day under 90 % coverage", "día de estación bajo 90 % de cobertura"),
+           "estimated": ("estimated from cloud cover (no station reading)", "estimado por nubosidad (sin lectura de estación)"),
+           "undercounted": ("sun undercounted (raw PR above 105 %)", "sol subcontado (PR bruto arriba de 105 %)")}
+
+
+def sun_reading(ctx: Context, pk: str, r: Mapping, kwp: Optional[float]) -> Tuple[Optional[float], Optional[str]]:
+    """(irradiance kWh/m2 or None, why it is not used). A sun counts only when it was measured (v401): not the
+    cloud-cover estimate, not a day of our stored station samples under 90 % coverage (a day from the logger's own
+    history, or a proxy reading, has its own completeness), not a day
+    whose raw PR is above design_model.PR_MAX (the sun was undercounted). Pure."""
+    from argia.kpi.design_model import PR_MAX
+    i = num(r.get("irradiance_kwh_m2"))
+    if i is None or i <= 0:
+        return None, None
+    src = str(r.get("irradiance_source") or "")
+    if src in ESTIMATED_SUN:
+        return None, "estimated"
+    st = ctx.station.get((pk, str(r["prod_date"])[:10]))
+    if (st is not None and src not in OWN_HISTORY_SUN and not src.startswith("proxy:")
+            and (num(st.get("coverage")) or 0.0) < STATION_COV_MIN):
+        return None, "coverage"
+    e = num(r.get("energy_kwh"))
+    if kwp and e is not None and e / (kwp * i) > PR_MAX:
+        return None, "undercounted"
+    return i, None
+
+
+def epi600_month(ctx: Context, pk: str, days: Sequence[str]) -> Tuple[Optional[float], int, float, float]:
+    """(EPI-600 of the days, days computed, real kWh, expected kWh at >= 600 W/m2). A ratio of sums of the engine's settled day tallies, only when EVERY
+    day was computed (Arturo: if there is no data, nothing is calculated). Pure."""
+    cache = ctx.epi600.get(pk) or {}
+    got = [d for d in days if d in cache]
+    if not days or len(got) < len(days):
+        return None, len(got), 0.0, 0.0
+    real = exp = 0.0
+    for d in got:
+        t = cache[d]
+        if t:
+            real, exp = real + float(t[0]), exp + float(t[1])
+    return (real / exp if exp > 0 else None), len(got), real, exp
 
 
 def month_events(ctx: Context, pk: str, ym: str) -> List[Dict]:
@@ -383,6 +502,7 @@ def portfolio(pms: Sequence[Dict]) -> Dict:
     S = lambda k: _sum(p.get(k) for p in pms)                                            # noqa: E731
     with_c = [p for p in pms if p["contract_kwh"] is not None]
     dz = [p for p in pms if p["has_design"] and p["epi"] is not None]
+    e6 = [p for p in pms if p.get("epi600") is not None]
     a_sun = sum(p["actual_sun_days_kwh"] for p in dz)
     d_sun = sum(p["design_sun_days_kwh"] for p in dz)
     sun_w = [(p["design_typ_kwh"], p["sun_index"]) for p in pms if p["sun_index"] is not None and p["design_typ_kwh"]]
@@ -392,13 +512,18 @@ def portfolio(pms: Sequence[Dict]) -> Dict:
            for k in STEPS[1:-1]}
     loss_keys = ("lost_kwh", "unavailability_kwh", "overheating_kwh", "underperformance_kwh", "lost_mxn")
     lp = [p for p in pms if p["loss"]]
+    epi = ratio(a_sun, d_sun) if d_sun else None
+    e600 = ratio(sum(p["epi600_real"] for p in e6), sum(p["epi600_expected"] for p in e6)) if e6 else None
     return {
+        "engineering": e600 if e600 is not None else epi,
+        "engineering_basis": "epi600" if e600 is not None else ("design" if epi is not None else None),
+        "engineering_plants": len(e6) if e600 is not None else len(dz),
         "plants": len(pms), "kwp_dc": S("kwp_dc"),
         "actual_kwh": S("actual_kwh"),
         "contract_kwh": _sum(p["contract_kwh"] for p in with_c),
         "actual_with_contract_kwh": _sum(p["actual_kwh"] for p in with_c),
         "promise": ratio(_sum(p["actual_kwh"] for p in with_c), _sum(p["contract_kwh"] for p in with_c)),
-        "epi": ratio(a_sun, d_sun) if d_sun else None, "epi_plants": len(dz),
+        "epi": epi, "epi_plants": len(dz), "epi600": e600, "epi600_plants": len(e6),
         "sun_index": (sum(w * s for w, s in sun_w) / sum(w for w, _ in sun_w)) if sun_w else None,
         "availability": (sum(w * a for w, a in av_w) / sum(w for w, _ in av_w)) if av_w and sum(w for w, _ in av_w) else None,
         "revenue_earned_mxn": S("revenue_earned_mxn"), "revenue_invoiced_mxn": S("revenue_invoiced_mxn"),
@@ -427,11 +552,13 @@ def build(ctx: Context, ym: str, today: str, generated_utc: str = "") -> Dict:
             pt = portfolio(tp)
             trend.append({"month": m, "actual_kwh": pt["actual_kwh"], "contract_kwh": pt["contract_kwh"],
                           "promise": pt["promise"], "epi": pt["epi"], "sun_index": pt["sun_index"],
+                          "engineering": pt["engineering"], "engineering_basis": pt["engineering_basis"],
                           "availability": pt["availability"], "revenue_earned_mxn": pt["revenue_earned_mxn"],
                           "lost_mxn": (pt["loss"] or {}).get("lost_mxn")})
-    ytd = _period(ctx, plants, month_range(f"{ym[:4]}-01", ym), today)
-    life = _period(ctx, plants, month_range(first, ym), today)
     complete = ym < today[:7]
+    closed = ym if complete else ym_add(ym, -1)          # R7: a month in progress stays out of the totals
+    ytd = _period(ctx, plants, month_range(f"{ym[:4]}-01", closed), today)
+    life = _period(ctx, plants, month_range(first, closed), today)
     rep = {
         "schema": SCHEMA, "month": ym, "as_of": today, "generated_utc": generated_utc, "complete": complete,
         "deadline": deadline(ym), "plants": pms, "portfolio": port, "trend": trend, "ytd": ytd, "lifetime": life,
@@ -502,13 +629,18 @@ def headline(ym: str, port: Dict, pms: Sequence[Dict], complete: bool) -> Dict[s
     if s is not None:
         en.append(f"The sun was {_pct(s - 1)} {'stronger' if s >= 1 else 'weaker'} than in a typical {mon_en[:-5]}.")
         es.append(f"El sol fue {_pct(s - 1)} {'más fuerte' if s >= 1 else 'más débil'} que en un {MESES[int(ym[5:7]) - 1]} típico.")
-    e = port["epi"]
+    e, basis = port.get("engineering", port["epi"]), port.get("engineering_basis", "design")
     if e is not None:
-        n = port["epi_plants"]
-        en.append(f"For the sun that came, the {n} plants with a design produced {_pct(e - 1)} "
-                  f"{'more' if e >= 1 else 'less'} than their HelioScope design.")
-        es.append(f"Para el sol que hubo, las {n} plantas con diseño produjeron {_pct(e - 1)} "
-                  f"{'más' if e >= 1 else 'menos'} que su diseño HelioScope.")
+        n = port.get("engineering_plants", port["epi_plants"])
+        shown = f"{cap(e) * 100:.0f}%"
+        if basis == "epi600":
+            en.append(f"Measured string by string at 600 W/m2 or more (EPI-600), the {n} plants delivered {shown} "
+                      f"of what their design predicts.")
+            es.append(f"Medido cadena por cadena con 600 W/m2 o más (EPI-600), las {n} plantas entregaron {shown} "
+                      f"de lo que predice su diseño.")
+        else:
+            en.append(f"For the measured sun, the {n} plants with a design produced {shown} of their HelioScope design.")
+            es.append(f"Para el sol medido, las {n} plantas con diseño produjeron {shown} de su diseño HelioScope.")
     loss = port["loss"]
     if loss and loss.get("lost_mxn"):
         en.append(f"Recoverable losses: {loss['lost_kwh'] / 1000:,.1f} MWh, MXN {loss['lost_mxn']:,.0f}.")

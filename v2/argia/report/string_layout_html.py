@@ -236,7 +236,7 @@ CSS = '''
 .slcard .sltk{float:right;margin-left:8px;font-size:12px;padding:1px 8px;border-radius:6px;border:1px solid #c5221f;color:#c5221f;text-decoration:none;white-space:nowrap}
 .slcard .sltk:hover{background:#fce8e6}
 .slcard .sltk.open{border-color:#1e8e3e;color:#1e8e3e}
-.slcard .slpic{position:relative;width:100%;border-radius:8px;overflow:hidden;border:1px solid #e4e7ea;background:#f1f3f4}
+.slcard .slpic{position:relative;width:100%;box-sizing:border-box;margin:0 auto;border-radius:8px;overflow:hidden;border:1px solid #e4e7ea;background:#f1f3f4}
 .slcard .slpic img{display:block;width:100%;height:auto;filter:saturate(.18) contrast(.9) brightness(1.06)}
 .slcard .slsvg{position:absolute;inset:0;width:100%;height:100%}
 .slcard .slsvg .mk{cursor:pointer}
@@ -318,9 +318,15 @@ document.querySelectorAll('.slcard').forEach(function(card){
   row(l?'Cadenas':'Strings',c.strings,[['workbook','monitored','monitoreadas'],['drawing_labels','numbered on the drawing','numeradas en el plano'],['helioscope','Helioscope design','diseño Helioscope']]);
   card.querySelector('.slchk').innerHTML=o.join('');}
  // ---------------------------------------------------------------- picture
+ var PIC_MAX_RATIO=0.75;
  var svg=card.querySelector('.slsvg'), img=card.querySelector('.slpic img');
  function drawPic(){if(!svg)return;var D=P.d[dr];img.src=D.img;
   var bx=D.box,w=bx[2]-bx[0],h=bx[3]-bx[1];svg.setAttribute('viewBox',bx[0]+' '+bx[1]+' '+w+' '+h);
+  // v402 (Tomasz: "way too big, only Taigene and Plastic Omnium look ok"): a square or tall drawing at the card's
+  // full width was 1,100-1,300 px high. The picture is never taller than 75 % of the card's width - the
+  // height Taigene and Plastic Omnium (aspect 0.73-0.77) already had; it shrinks, centred, keeping its shape.
+  var pic=card.querySelector('.slpic'),ar=h/w;
+  if(pic&&ar>0)pic.style.maxWidth=Math.min(100,PIC_MAX_RATIO*100/ar).toFixed(1)+'%';
   while(svg.firstChild)svg.removeChild(svg.firstChild);
   var r=Math.max(w,h)/95;
   P.a.forEach(function(a){if(a.d!==D.id)return;var g=document.createElementNS(NS,'g');g.setAttribute('class','ar');g.dataset.sn=a.sn;

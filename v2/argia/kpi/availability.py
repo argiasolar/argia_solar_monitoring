@@ -40,6 +40,22 @@ The rule now (IEC 61724-3 idea: time without information is not downtime):
 * availability = UP / (UP + DOWN), weighted by rated kW; UNKNOWN steps that
   nothing proves are left out and reported as ``coverage`` = known share of
   the judged time. A dark plant is "no data", never 0 % and never 100 %.
+* v393 (Arturo's methodology R2): a reading that repeats the inverter's
+  previous one exactly - same power, day counter AND internal temperature -
+  is the vendor cloud re-serving its last known values, not a new sample
+  (Huawei, Vitalmex 7 Nov: 0 W, counter 8.000 kWh, 26.0 C all day, no string
+  data). It is not a reading: the step is judged from the real ones (an
+  inverter that stopped and then went quiet stays DOWN, one that went quiet
+  while producing is UNKNOWN - a frozen "producing" value can no longer keep
+  a dead inverter UP). ``fresh_steps`` counts, per inverter, the judged steps
+  with at least one real reading: the telemetry coverage of the device.
+  Rows without a temperature are never called repeats (nothing to tell them
+  from a real stopped inverter). The state an inverter carries into the
+  first judged step comes from its last real reading before it, and what a
+  silent stretch inherits from a step is that step's LAST real reading: a
+  0 W reading while a peer produced is a stop - unless the inverter's own
+  counter grew after it (a stale 0 W power value, Growatt GTO3 3 Nov) -
+  and a dawn 0 W is not.
 
 Pure: no I/O. Same inputs, same result.
 """
@@ -67,7 +83,8 @@ ENSURE_SQL = "ALTER TABLE daily_production ADD COLUMN IF NOT EXISTS avail_covera
 
 UP, DOWN, UNKNOWN = "UP", "DOWN", "UNKNOWN"
 
-# (ts_utc, inverter_sn, status, power_w, etoday_kwh)
+# (ts_utc, inverter_sn, status, power_w, etoday_kwh[, temperature_c]) - v393: the
+# optional sixth element lets a vendor's repeated last-known value be recognised
 Sample = Tuple[dt.datetime, str, Optional[int], Optional[float], Optional[float]]
 
 
@@ -81,6 +98,8 @@ class AvailabilityDay:
     proven: Tuple[str, ...] = ()         # inverters whose gaps their counter proved
     plant_proven_steps: int = 0          # v311: plant-wide silent steps the plant's day energy proved
     carried_down_steps: int = 0          # v311: silent steps after a stop, still down
+    fresh_steps: Dict[str, int] = field(default_factory=dict)     # v393: steps with a real reading
+    repeats: int = 0                     # v393: readings dropped as the vendor's repeated last value
 
 
 def sun_elevation(lat: float, lon: float, t_local: dt.datetime) -> float:
@@ -137,6 +156,64 @@ def _counter_grew(pts: List[Tuple[dt.datetime, float]], day: dt.date, i: int) ->
     return bool(before and after) and after[0] - before[-1] > COUNTER_STEP_KWH
 
 
+_REPEAT = object()
+PEER_WINDOW_MIN = 10        # v393: a 0 W reading is a stop when a peer produced within this many minutes...
+PEER_MIN_FRAC = 0.05        # ...at 5 % of its rated power or more (a dawn trickle is not production)
+
+
+def _peer_producing(power_w: float, rated_kw: float) -> bool:
+    return power_w >= PEER_MIN_FRAC * rated_kw * 1000.0
+
+
+def _grew_after(pts: List[Tuple[dt.datetime, float, Optional[float]]], r) -> bool:
+    """v393: did the inverter's day counter grow after reading ``r`` (a later real reading
+    above it by more than COUNTER_STEP_KWH)? Then a 0 W at ``r`` was a stale power value -
+    the inverter produced afterwards - and not a stop."""
+    if r[2] is None:
+        return False
+    return any(e is not None and e > r[2] + COUNTER_STEP_KWH for t, _p, e in pts if t > r[0])
+
+
+def _early_state(pts: List[Tuple[int, str, float]], sns: Sequence[str], first_min: int,
+                 rated: Dict[str, float]) -> Dict[str, str]:
+    """v393: the state each inverter carries into the first judged step, from its last real
+    reading before it (MX minute of day). UP when it produced; DOWN when it read 0 W while a
+    peer produced (>= PEER_MIN_FRAC of rated) within PEER_WINDOW_MIN minutes - a stop;
+    nothing otherwise (a dawn 0 W is not a stop, and a connection gap that follows it must
+    stay unknown)."""
+    out: Dict[str, str] = {}
+    before = [(m, sn, p) for m, sn, p in pts if m < first_min]
+    for sn in sns:
+        mine = [(m, p) for m, s, p in before if s == sn]
+        if not mine:
+            continue
+        m, p = max(mine)
+        if p > 0:
+            out[sn] = UP
+        elif any(s != sn and _peer_producing(q, rated.get(s, 1.0)) and abs(mm - m) <= PEER_WINDOW_MIN
+                 for mm, s, q in before):
+            out[sn] = DOWN
+    return out
+
+
+def _drop_repeats(samples: Iterable[tuple]):
+    """Yield (ts, sn, status, power, etoday, temp); a reading identical to the
+    same inverter's previous one in power, counter and temperature (the
+    temperature known) comes back with temp = _REPEAT. Time order per inverter."""
+    rows = sorted((s for s in samples if s[0] is not None), key=lambda s: (str(s[1]).strip(), s[0]))
+    prev: Dict[str, tuple] = {}
+    for s in rows:
+        ts, sn, st, p, e = s[0], s[1], s[2], s[3], s[4]
+        t = s[5] if len(s) > 5 else None
+        key = str(sn).strip()
+        sig = (p, e, t)
+        if t is not None and p is not None and prev.get(key) == sig:
+            yield ts, sn, st, p, e, _REPEAT
+            continue
+        prev[key] = sig
+        yield ts, sn, st, p, e, t
+
+
 def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[float]]],
             day: dt.date, lat: Optional[float], lon: Optional[float],
             expected_kwh: Optional[float] = None,
@@ -165,7 +242,13 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
     seen: Dict[Tuple[str, int], List[float]] = {}
     counter: Dict[str, float] = {}
     series: Dict[str, List[Tuple[dt.datetime, float]]] = {}
-    for ts, sn, _status, power, etoday in samples:
+    repeats = 0
+    early_pts: List[Tuple[int, str, float]] = []      # v393: real readings outside the judged steps
+    real: Dict[str, List[Tuple[dt.datetime, float, Optional[float]]]] = {}   # v393: every real reading
+    for ts, sn, _status, power, etoday, temp in _drop_repeats(samples):
+        if temp is _REPEAT:
+            repeats += 1
+            continue
         if ts is None:
             continue
         sn = str(sn).strip()
@@ -178,8 +261,12 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
             counter[sn] = max(counter.get(sn, 0.0), float(etoday))
             series.setdefault(sn, []).append((loc, float(etoday)))
         idx = (loc.hour * 60 + loc.minute) // STEP_MIN
+        if power is not None:
+            real.setdefault(sn, []).append((loc, float(power), float(etoday) if etoday is not None else None))
         if idx in judged and power is not None:
             seen.setdefault((sn, idx), []).append(float(power))
+        elif power is not None:
+            early_pts.append((loc.hour * 60 + loc.minute, sn, float(power)))
 
     state: Dict[Tuple[str, int], str] = {}
     for sn in sns:
@@ -236,8 +323,15 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
     # (Ryder's inverter 2) stays unknown; a plant-wide silence is never carried.
     carried = 0
     last_before = last_before or {}
+    early = _early_state(early_pts, sns, steps[0] * STEP_MIN if steps else 0, rated)
+    for sn, st0 in list(early.items()):
+        if st0 == DOWN:
+            first = dt.datetime.combine(day, dt.time()) + dt.timedelta(minutes=steps[0] * STEP_MIN)
+            pre = [r for r in real.get(sn, []) if r[0] < first]
+            if pre and _grew_after(real.get(sn, []), pre[-1]):
+                del early[sn]           # it produced later: that 0 W was a stale power value, not a stop
     for sn in sns:
-        last = last_before.get(sn)
+        last = early.get(sn) or last_before.get(sn)
         for i in steps:
             st = state[(sn, i)]
             if st == UNKNOWN:
@@ -245,8 +339,19 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
                     state[(sn, i)] = DOWN
                     carried += 1
             else:
-                last = st
+                # v393: what the silence after this step inherits is the LAST real reading:
+                # a step that produced and then read 0 W while a peer produced ended in a stop
+                t0 = dt.datetime.combine(day, dt.time()) + dt.timedelta(minutes=i * STEP_MIN)
+                inside = [r for r in real.get(sn, []) if t0 <= r[0] < t0 + dt.timedelta(minutes=STEP_MIN)]
+                lastr = inside[-1] if inside else None
+                if (st == UP and lastr is not None and lastr[1] == 0.0
+                        and any(_peer_producing(max(seen.get((o, i), [0.0])), rated[o]) for o in sns if o != sn)
+                        and not _grew_after(real.get(sn, []), lastr)):
+                    last = DOWN
+                else:
+                    last = st
 
+    fresh = {sn: n for sn in sns if (n := sum(1 for i in steps if (sn, i) in seen))}
     up = sum(rated[sn] for (sn, _i), s in state.items() if s == UP)
     down = sum(rated[sn] for (sn, _i), s in state.items() if s == DOWN)
     total = sum(rated[sn] for sn in sns) * len(steps)
@@ -260,6 +365,8 @@ def compute(samples: Iterable[Sample], inverters: Sequence[Tuple[str, Optional[f
         proven=tuple(proven),
         plant_proven_steps=plant_proven,
         carried_down_steps=carried,
+        fresh_steps=fresh,
+        repeats=repeats,
     )
 
 

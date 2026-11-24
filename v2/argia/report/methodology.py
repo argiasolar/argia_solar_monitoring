@@ -12,6 +12,8 @@ first, and only compare (not change) the self-calibrated expected line. What is 
   capacity-weighted result of the inverter values over the same steps. Before v392 the
   inverter column counted "status = online" rows, so an inverter online at 0 W for a day and a
   half (Vitalmex inverters 1 and 3, 7-8 Nov) showed 100 %.
+* R2 (v393) - the inverter's Coverage is its telemetry coverage: judged steps with a real
+  reading (a vendor's repeated last-known value is not a reading), never rounded up.
 * R4 - specific yield per inverter divides by its DC kWp from the string register (Annex A)
   when every inverter of the plant has one; otherwise by rated AC kW for all of them, and the
   column says which.
@@ -54,42 +56,51 @@ def yield_basis(plant: str, serials: Iterable[str], dc: Mapping[Tuple[str, str],
 
 
 # ------------------------------------------------------ R1: inverter availability
-def inverter_steps(res, serials: Sequence[str]) -> Dict[str, Tuple[int, int, int]]:
-    """{serial: (up, down, unknown)} judged steps of one plant-day from an
-    argia.kpi.availability.AvailabilityDay - the evidence behind its plant value."""
+def inverter_steps(res, serials: Sequence[str]) -> Dict[str, Tuple[int, int, int, int]]:
+    """{serial: (up, down, unknown, fresh)} judged steps of one plant-day from an
+    argia.kpi.availability.AvailabilityDay - the evidence behind its plant value. ``fresh``
+    (v393, R2) = steps with a real reading from the inverter (a vendor's repeated last value
+    does not count)."""
     out = {}
+    fresh = getattr(res, "fresh_steps", {}) or {}
     for sn in serials:
         down = int(res.down_steps.get(sn, 0))
         unknown = int(res.unknown_steps.get(sn, 0))
-        out[sn] = (max(0, int(res.steps) - down - unknown), down, unknown)
+        out[sn] = (max(0, int(res.steps) - down - unknown), down, unknown, int(fresh.get(sn, 0)))
     return out
 
 
-def availability_window(rows: Iterable[Tuple[str, int, int, int]], rated: Mapping[str, float]
+def availability_window(rows: Iterable[tuple], rated: Mapping[str, float]
                         ) -> Tuple[Dict[str, Tuple[Optional[float], Optional[float]]], Tuple[Optional[float], Optional[float]]]:
     """Per-inverter and plant availability over a window.
 
-    ``rows``: (serial, up, down, unknown) per inverter-day. Returns
+    ``rows``: (serial, up, down, unknown[, fresh]) per inverter-day. Returns
     ({serial: (availability, coverage)}, (plant availability, plant coverage)), where
-    availability = up / (up + down) and coverage = (up + down) / all judged steps; the plant
-    values weight each inverter by its rated kW, exactly as the daily plant value does.
-    None = nothing known (never 0 % and never 100 %)."""
+    availability = up / (up + down) and coverage = fresh / all judged steps (v393, R2: the
+    telemetry coverage of the device - steps with a real reading; rows without ``fresh``
+    fall back to the known share (up + down) / all). The plant values weight each inverter
+    by its rated kW, exactly as the daily plant value does. None = nothing known (never 0 %
+    and never 100 %)."""
     acc: Dict[str, list] = {}
-    for sn, up, down, unknown in rows:
-        a = acc.setdefault(sn, [0, 0, 0])
+    for r in rows:
+        sn, up, down, unknown = r[0], r[1], r[2], r[3]
+        fresh = r[4] if len(r) > 4 and r[4] is not None else int(up or 0) + int(down or 0)
+        a = acc.setdefault(sn, [0, 0, 0, 0])
         a[0] += int(up or 0)
         a[1] += int(down or 0)
         a[2] += int(unknown or 0)
+        a[3] += int(fresh or 0)
     per: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
-    w_up = w_known = w_all = 0.0
-    for sn, (up, down, unknown) in acc.items():
+    w_up = w_known = w_all = w_fresh = 0.0
+    for sn, (up, down, unknown, fresh) in acc.items():
         known, total = up + down, up + down + unknown
-        per[sn] = (up / known if known else None, known / total if total else None)
+        per[sn] = (up / known if known else None, min(1.0, fresh / total) if total else None)
         w = float(rated.get(sn) or 0) or 1.0
         w_up += w * up
         w_known += w * known
         w_all += w * total
-    plant = (w_up / w_known if w_known else None, w_known / w_all if w_all else None)
+        w_fresh += w * fresh
+    plant = (w_up / w_known if w_known else None, min(1.0, w_fresh / w_all) if w_all else None)
     return per, plant
 
 

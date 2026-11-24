@@ -60,13 +60,14 @@ def inverters(pk: str, day: dt.date) -> List[Tuple[str, Optional[float]]]:
 def samples(pk: str, day: dt.date) -> List[AV.Sample]:
     start = dt.datetime.combine(day, dt.time()) - AV.MX_OFFSET        # MX midnight in UTC
     rows = psql_rows(TIMEOUT + "SELECT to_char(ts_utc AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS'), inverter_sn,"
-                     " status, power_w, etoday_kwh FROM telemetry"
+                     " status, power_w, etoday_kwh, temperature_c FROM telemetry"
                      f" WHERE plant_key = '{pk}' AND ts_utc >= TIMESTAMPTZ '{start.isoformat()}+00'"
                      f" AND ts_utc < TIMESTAMPTZ '{(start + dt.timedelta(days=1)).isoformat()}+00' ORDER BY 1;")
     out = []
     for r in rows:
         st = int(r[2]) if r[2] not in ("", None) else None
-        out.append((dt.datetime.fromisoformat(r[0]).replace(tzinfo=dt.timezone.utc), r[1], st, f(r[3]), f(r[4])))
+        out.append((dt.datetime.fromisoformat(r[0]).replace(tzinfo=dt.timezone.utc), r[1], st, f(r[3]), f(r[4]),
+                    f(r[5]) if len(r) > 5 else None))      # v393: temperature tells a repeated value
     return out
 
 
@@ -96,16 +97,21 @@ def stored(first: dt.date, last: dt.date, only: Optional[str]):
 INV_TABLE_SQL = ("CREATE TABLE IF NOT EXISTS inverter_availability_daily (plant_key text NOT NULL,"
                  " inverter_sn text NOT NULL, prod_date date NOT NULL, up_steps integer NOT NULL,"
                  " down_steps integer NOT NULL, unknown_steps integer NOT NULL,"
-                 " PRIMARY KEY (plant_key, inverter_sn, prod_date));")
+                 " PRIMARY KEY (plant_key, inverter_sn, prod_date));\n"
+                 "ALTER TABLE inverter_availability_daily ADD COLUMN IF NOT EXISTS fresh_steps integer;")
 
 
 def inverter_sql(pk: str, day: str, steps) -> str:
-    """v392: replace the plant-day's per-inverter steps (``steps``: {serial: (up, down, unknown)})."""
+    """v392: replace the plant-day's per-inverter steps (``steps``: {serial: (up, down, unknown, fresh)});
+    v393 adds fresh_steps (steps with a real reading, R2)."""
     out = [f"DELETE FROM inverter_availability_daily WHERE plant_key = '{pk}' AND prod_date = DATE '{day}';"]
-    for sn, (up, down, unk) in sorted(steps.items()):
+    for sn, v in sorted(steps.items()):
+        up, down, unk = v[0], v[1], v[2]
+        fresh = v[3] if len(v) > 3 else up + down
         sn_q = sn.replace("'", "''")
         out.append("INSERT INTO inverter_availability_daily (plant_key, inverter_sn, prod_date, up_steps, down_steps,"
-                   f" unknown_steps) VALUES ('{pk}', '{sn_q}', DATE '{day}', {int(up)}, {int(down)}, {int(unk)});")
+                   f" unknown_steps, fresh_steps) VALUES ('{pk}', '{sn_q}', DATE '{day}', {int(up)}, {int(down)},"
+                   f" {int(unk)}, {int(fresh)});")
     return "\n".join(out)
 
 

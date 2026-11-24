@@ -176,6 +176,8 @@ cobertura      = (ARRIBA + ABAJO) / tiempo evaluado
 
 **Por inversor** (reporte de planta, tabla de inversores): los mismos pasos, guardados por inversor en el recálculo nocturno. Disponibilidad = sus ARRIBA / (ARRIBA + ABAJO), Cobertura = su parte conocida; la fila **Planta** pondera los inversores por kW nominales sobre los mismos pasos, así que coincide con la cifra de planta. Un inversor en línea a 0 W mientras sus pares producen está ABAJO; un hueco de conexión nunca es una falla.
 
+**Un valor que el proveedor repite no es una lectura.** Cuando un inversor deja de comunicarse, algunas nubes de fabricante siguen sirviendo sus últimos valores (Huawei, Vitalmex 7 de noviembre: 0 W, el mismo contador del día y la misma temperatura todo el día). Una lectura idéntica a la anterior del inversor en potencia, contador y temperatura se descarta: el paso se juzga con las lecturas reales. Un inversor cuya última lectura real fue 0 W mientras un par producía (y cuyo contador no creció después) sigue ABAJO durante el silencio; uno que calló mientras producía queda DESCONOCIDO. En la tabla de inversores, **Cobertura** es la fracción de pasos juzgados con una lectura real de ese inversor.
+
 ```formula
 disponibilidad_30d = suma(disponibilidad_d x cobertura_d) / suma(cobertura_d)
 cobertura_30d      = suma(cobertura_d) / días debidos

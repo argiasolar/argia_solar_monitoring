@@ -238,14 +238,15 @@ class TestHygiene:
         spec = importlib.util.spec_from_file_location("avr392", V2 / "scripts" / "availability_recompute.py")
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        sql = m.inverter_sql("MEX9", "2026-11-07", {"B": (0, 35, 0), "A": (35, 0, 0)})
+        sql = m.inverter_sql("MEX9", "2026-11-07", {"B": (0, 35, 0, 1), "A": (35, 0, 0)})
         assert sql.splitlines() == [
             "DELETE FROM inverter_availability_daily WHERE plant_key = 'MEX9' AND prod_date = DATE '2026-11-07';",
             "INSERT INTO inverter_availability_daily (plant_key, inverter_sn, prod_date, up_steps, down_steps,"
-            " unknown_steps) VALUES ('MEX9', 'A', DATE '2026-11-07', 35, 0, 0);",
+            " unknown_steps, fresh_steps) VALUES ('MEX9', 'A', DATE '2026-11-07', 35, 0, 0, 35);",
             "INSERT INTO inverter_availability_daily (plant_key, inverter_sn, prod_date, up_steps, down_steps,"
-            " unknown_steps) VALUES ('MEX9', 'B', DATE '2026-11-07', 0, 35, 0);"]
+            " unknown_steps, fresh_steps) VALUES ('MEX9', 'B', DATE '2026-11-07', 0, 35, 0, 1);"]
         assert "CREATE TABLE IF NOT EXISTS inverter_availability_daily" in m.INV_TABLE_SQL
+        assert "ADD COLUMN IF NOT EXISTS fresh_steps integer" in m.INV_TABLE_SQL      # v393
 
 
 class TestAcceptanceScript:

@@ -176,6 +176,8 @@ coverage     = (UP + DOWN) / judged time
 
 **Per inverter** (plant report, inverter table): the same steps, kept per inverter by the nightly recompute. Availability = its UP / (UP + DOWN), Coverage = its known share; the **Plant** row weights the inverters by rated kW over the same steps, so it equals the plant figure. An inverter online at 0 W while its peers produce is DOWN; a connection gap is never an outage.
 
+**A value the vendor repeats is not a reading.** When an inverter stops talking, some vendor clouds keep serving its last values (Huawei, Vitalmex 7 November: 0 W, the same day counter and the same temperature all day). A reading identical to the inverter's previous one in power, counter and temperature is therefore dropped: the step is judged from the real readings around it. An inverter whose last real reading was 0 W while a peer produced (and whose counter did not grow afterwards) stays DOWN through the silence; one that went quiet while producing stays UNKNOWN. In the inverter table, **Coverage** is the share of judged steps with a real reading from that inverter.
+
 ```formula
 availability_30d = sum(availability_d x coverage_d) / sum(coverage_d)
 coverage_30d     = sum(coverage_d) / days owed

@@ -425,6 +425,8 @@ _ISSUE_WHY = {
                     "mismatch / unbalance bits) raised a bit it never showed in the "
                     "last 14 days, and the day's data shows a loss - the alert names "
                     "the weak string and the inverter's share of its peers.",
+    "string_register": "A registered string at 0 A for 3 producing days (lost energy), "
+                       "or an input with current the string register does not name.",
     "energy_daily_pct": "The plant produced far less than the weather "
                         "allowed: outage, curtailment or a wrong expected.",
     "plant_offline": "Telemetry arrived but every inverter stayed at zero "

@@ -54,6 +54,7 @@ ENGINE_METRICS = frozenset({
     "energy_daily_pct",
     "plant_twin_yield",
     "inverter_silent",
+    "string_register",      # v394: register vs field (Arturo's R3)
 })
 
 # v92 - metrics a maintenance window EXPLAINS. When a plant is in a logged

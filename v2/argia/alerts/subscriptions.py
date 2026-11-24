@@ -56,7 +56,7 @@ _PLANT_PREFIXES = ("plant-dark", "plant-stale", "inverter-silent",
                    # v203: engine (ledger) metrics rendered as issues in the
                    # 19:00 mail - "<metric>:<plant>:<sn>"
                    "inverter_temp_high", "inverter_fault", "inverter_relative",
-                   "inverter_silent", "string_fault", "energy_daily_pct",
+                   "inverter_silent", "string_fault", "string_register", "energy_daily_pct",
                    "plant_offline", "plant_twin_yield", "data_stale",
                    "vendor_alarm")                           # v366
 

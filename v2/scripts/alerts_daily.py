@@ -495,6 +495,42 @@ def unconfirmed_energy(cands: List[Candidate], cut_off: Dict[str, Tuple[dt.datet
     return out
 
 
+def register_candidates(registered, noon_rows, asof: dt.date, labels=None) -> List[Candidate]:
+    """v394 (Arturo's methodology R3): the string register against the field - one candidate
+    per inverter with flags; WARNING when a registered string is dead (energy lost), INFO when
+    only an unregistered input carries current (portal only). Pure."""
+    from argia.analytics import register_check as RC
+    from argia.core.alerts_state import make_inverter_alert_key
+    by: Dict[Tuple[str, str], list] = {}
+    for f in RC.evaluate(registered, noon_rows, asof):
+        by.setdefault((f.plant_key, f.inverter_sn), []).append(f)
+    out = []
+    for (pk, sn), flags in sorted(by.items()):
+        sev, msg = RC.message(flags, f"{pk} {(labels or {}).get((pk, sn), sn)} ({sn})")
+        out.append(Candidate(alert_key=make_inverter_alert_key(pk, sn, "string_register"), plant_key=pk,
+                             inverter_sn=sn, metric="string_register", severity=sev,
+                             value=float(sum(1 for f in flags if f.kind == "dead")), threshold=None, message=msg))
+    return out
+
+
+def _read_register_inputs(date_iso: str):
+    """(registered inputs from the EPI config, noon medians of the last 7 days) - ({}, [])
+    when the register or the table is missing (no candidate, logged)."""
+    try:
+        from argia.analytics import register_check as RC
+        from argia.epi import config as EPC
+        from argia.store.pgq import psql_rows
+        reg = RC.registered_inputs(EPC.load(EPC.EPI_DIR, EPC.LAYOUT_DIR))
+        rows = psql_rows("SELECT plant_key, inverter_sn, prod_date::text, arr, idx, median_a FROM string_noon_daily"
+                         f" WHERE prod_date BETWEEN DATE '{date_iso}' - {RC.LOOKBACK_DAYS - 1} AND DATE '{date_iso}';")
+        rows = [(r[0], r[1], r[2], r[3], int(r[4]), float(r[5]) if r[5] not in ("", None) else None)
+                for r in rows if len(r) >= 6]
+        return reg, rows
+    except Exception as e:  # noqa: BLE001
+        log.warning("register check skipped (%s: %s)", type(e).__name__, e)
+        return {}, []
+
+
 def daily_silent_candidates(bundle, portfolio, date_iso: str) -> List[Candidate]:
     """Daily owner of inverter_silent (v203): every daylight gap of one
     inverter while its siblings produced, classified through the vendor
@@ -749,7 +785,9 @@ def main(argv=None) -> int:
         temp_candidates=daily_temp_candidates(bundle, portfolio, open_temp_keys,
                                               evidence=_read_thermal_evidence(date_iso)),
         offline_candidates=(daily_offline_candidates(readings)
-                            + daily_silent_candidates(bundle, portfolio, date_iso)),
+                            + daily_silent_candidates(bundle, portfolio, date_iso)
+                            + register_candidates(*_read_register_inputs(date_iso),
+                                                  dt.date.fromisoformat(date_iso))),
         string_rows=_read_string_evidence(date_iso),
         relative_skip=frozenset(early),
     )

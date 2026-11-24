@@ -355,6 +355,17 @@ day index  = sum of I_s over the judged steps / sum of the peer median over the 
 - A plane with fewer than {{c:layout.MIN_GROUP}} strings borrows the plant's strings of the same module.
 - A red or dark dot has a ticket button; if an open ticket already covers that input, the button shows the ticket number instead.
 
+### Register check (nightly)
+
+The string register (design Annex A, the layout and the channel overrides) must follow the field wiring. Every night the noon current (11:00 to 13:59, median) of every inverter input is compared with it, over the last {{c:register.DAYS}} days on which the inverter produced (at least half of its registered inputs at {{c:register.LIVE_A}} A or more):
+
+- **Dead string** - a registered input below {{c:register.DEAD_A}} A on each of those days: energy is being lost, WARNING (mailed).
+- **Unregistered input** - an input carrying {{c:register.LIVE_A}} A or more that no register line names: the register does not follow the field. INFO, portal only.
+
+Both say "confirm on site"; the flag closes by itself once register and field agree.
+
+**Index since the last change.** When an inverter's set of live inputs changes (strings repaired or lost) and the new set holds for {{c:register.STABLE_DAYS}} sunny noons, the inverter table shows its index from that day, against its peers over the same days, so a repaired fault does not keep penalizing it.
+
 ## Consumption and solar coverage {#consumption}
 
 Shown only for plants whose grid meter has been checked (what it measures, its sign, and the energy balance against the inverters).

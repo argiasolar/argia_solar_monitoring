@@ -353,6 +353,17 @@ cociente_s(t) = I_s(t) / corriente mediana de sus pares en t   (pares: mismo mó
 - Un plano con menos de {{c:layout.MIN_GROUP}} cadenas toma prestadas las cadenas de la planta del mismo módulo.
 - Un punto rojo u oscuro tiene un botón de ticket; si un ticket abierto ya cubre esa entrada, el botón muestra el número del ticket.
 
+### Verificación del registro (nocturna)
+
+El registro de cadenas (Anexo A del diseño, la distribución y los ajustes de canal) debe seguir el cableado real. Cada noche se compara con la corriente de mediodía (11:00 a 13:59, mediana) de cada entrada del inversor, en los últimos {{c:register.DAYS}} días en que el inversor produjo (al menos la mitad de sus entradas registradas a {{c:register.LIVE_A}} A o más):
+
+- **Cadena muerta** - una entrada registrada debajo de {{c:register.DEAD_A}} A en cada uno de esos días: se pierde energía, ADVERTENCIA (por correo).
+- **Entrada no registrada** - una entrada con {{c:register.LIVE_A}} A o más que ninguna línea del registro nombra: el registro no sigue el campo. INFO, solo en el portal.
+
+Ambas dicen "confirmar en sitio"; la bandera se cierra sola cuando registro y campo coinciden.
+
+**Índice desde el último cambio.** Cuando cambia el conjunto de entradas activas de un inversor (cadenas reparadas o perdidas) y el nuevo conjunto se mantiene {{c:register.STABLE_DAYS}} mediodías soleados, la tabla de inversores muestra su índice desde ese día, contra sus pares en los mismos días, para que una falla reparada no lo siga penalizando.
+
 ## Consumo y cobertura solar {#consumption}
 
 Se muestra solo para plantas cuyo medidor de red fue revisado (qué mide, su signo y el balance de energía contra los inversores).

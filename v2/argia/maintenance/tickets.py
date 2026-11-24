@@ -117,7 +117,7 @@ CATEGORY_LABEL = {c[0]: c[1] for c in CATEGORIES}
 CATEGORY_FOR_METRIC = {
     "inverter_temp_high": "inverter/derating", "inverter_fault": "inverter/fault",
     "inverter_silent": "inverter/comms", "inverter_relative": "inverter/offline",
-    "string_fault": "array/string", "plant_offline": "electrical/protection",
+    "string_fault": "array/string", "string_register": "array/string", "plant_offline": "electrical/protection",
     "data_stale": "comms/site", "energy_daily_pct": "other", "plant_twin_yield": "other",
     "vendor_alarm": "inverter/fault",
 }

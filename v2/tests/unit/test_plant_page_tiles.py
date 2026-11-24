@@ -252,7 +252,7 @@ class TestInverterChart:
         ns["inv_meta"] = {("NL1", "A"): ("Inverter 1", 124.0), ("NL1", "B"): ("Inverter 2", 124.0)}
         ns["TICKET_BY_INVERTER"] = {("NL1", "B"): ("TK-NL1-0002", "NEW", "P2")}
         from argia.report import methodology as MC
-        ns["MC"], ns["inv_dc"], ns["inv_avail_rows"] = MC, {}, {}
+        ns["MC"], ns["inv_dc"], ns["inv_avail_rows"], ns["inv_change"] = MC, {}, {}, {}
         card = ns["inverter_card"]("NL1")
         assert card.count('class="tkpill"') == 1            # the table row of Inverter 2 only (v233: legend stays clean)
         assert card.index("<svg") < card.index("<table")

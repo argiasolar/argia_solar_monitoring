@@ -287,6 +287,21 @@ try:
 except Exception:   # noqa: BLE001 - no register on this host: AC basis, said in the column
     inv_dc = {}
 
+# v394 (R4): the day each inverter's set of live string inputs last changed (string repaired
+# or lost), from the noon medians kpi_eod keeps in string_noon_daily - the index is then shown
+# since that day, against the peers over the same days.
+inv_change = {}
+try:
+    from argia.analytics import register_check as _RC   # noqa: E402
+    inv_change = _RC.changes_by_inverter(
+        (r[0], r[1], r[2], r[3], int(r[4]), f(r[5])) for r in q(
+            "SELECT plant_key, inverter_sn, prod_date::text, arr, idx, median_a FROM string_noon_daily"
+            f" WHERE arr = 'str' AND prod_date > DATE '{asof}' - 35 AND prod_date <= DATE '{asof}';") if len(r) >= 6)
+    _reg_plants = {pk for pk, _sn in inv_dc}          # scope: plants with a string register (PPA)
+    inv_change = {k_: d_ for k_, d_ in inv_change.items() if k_[0] in _reg_plants}
+except Exception:   # noqa: BLE001 - no table yet: the plain 30-day index
+    inv_change = {}
+
 # v216: thermal health, rolling 30 days (thermal_daily, the nightly
 # scripts/thermal_daily.py) - hours hot, events, peer deviation,
 # suspected derating and its lost kWh per inverter; empty before the
@@ -1299,6 +1314,14 @@ def inverter_card(k):
         label, rated = inv_meta.get((k, sn)) or (sn, 0)
         sy = yields.get(sn)
         idx = sy / med if (sy is not None and med) else None
+        since = inv_change.get((k, sn))
+        win0 = min((d for a_ in stats.values() for d in (a_.get('daily') or {})), default=None)
+        if since and win0 and since > win0:        # v394 R4: changed inside the window
+            idx_s = MC.index_since({s: (stats[s].get('daily') or {}) for s in stats}, denom, sn, since)
+            if idx_s is not None:
+                idx = idx_s
+        else:
+            since = None
         av, cov = avail.get(sn, (None, None))
         if idx is None:
             pill = ' - '
@@ -1306,6 +1329,8 @@ def inverter_card(k):
             cls = ('' if idx >= 0.96 else 'warn' if idx >= 0.90 else 'bad')
             pill = (f'<span class="pill {cls}">{idx*100:,.1f}%</span>' if cls
                     else f'<span class="pill">{idx*100:,.1f}%</span>')
+            if since:
+                pill += f'<br><span class="sub">{t("since","desde")} {since[5:]} ({t("inputs changed","entradas cambiaron")})</span>'
         name = html.escape(label or sn)
         dc = inv_dc.get((k, sn))
         sub = html.escape(sn) + (f' · {dc:,.1f} kWp DC' if dc else '') + (f' · {rated:,.0f} kW AC' if rated else '')
@@ -1323,8 +1348,8 @@ def inverter_card(k):
         rows.append(f'<tr class="total"><td><b>{t("Plant","Planta")}</b></td><td class="num"></td><td class="num"></td>'
                     f'<td class="num"></td><td class="num"><b>{plant_av[0]*100:,.1f}%</b></td>'
                     f'<td class="num"><b>{plant_av[1]*100:,.1f}%</b></td></tr>')
-    tip = ti("Rolling 30 days ending at the data edge (fixed window - the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ the inverter's DC kWp from the string register (kWh/kWp); a plant without a complete register falls back to rated AC kW for every inverter (kWh/kW AC, said in the column). Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) - same thresholds the solar director's monthly closes use. Availability = the same evidence rule as the plant value: daylight 15-minute steps (sun above 15°) in which the inverter produced, ÷ the steps whose state is known; a reading at 0 W while its peers report counts as down, a step without information is left out (a connection gap is not an outage). Coverage = the share of those daylight steps with a real reading from the inverter; a value the vendor keeps repeating unchanged (same power, counter and temperature) is not a reading. The Plant row weights each inverter by its rated kW over the same steps. Caveat: inverters with a different orientation mix than their peers still sit structurally lower or higher - judge such units by their own trend.",
-             "Ventana móvil de 30 días hasta el borde de datos (fija - el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kWp CC del inversor según el registro de strings (kWh/kWp); una planta sin registro completo usa kW CA nominales para todos sus inversores (kWh/kW CA, indicado en la columna). Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) - los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = la misma regla de evidencia que el valor de planta: pasos diurnos de 15 minutos (sol sobre 15°) en que el inversor produjo, ÷ los pasos con estado conocido; una lectura de 0 W mientras sus pares reportan cuenta como caído, un paso sin información queda fuera (un hueco de conexión no es una falla). Cobertura = la fracción de esos pasos diurnos con una lectura real del inversor; un valor que el proveedor repite sin cambio (misma potencia, contador y temperatura) no es una lectura. La fila Planta pondera cada inversor por sus kW nominales sobre los mismos pasos. Advertencia: inversores con orientación distinta a sus pares quedan estructuralmente más abajo o arriba - júzguelos por su propia tendencia.")
+    tip = ti("Rolling 30 days ending at the data edge (fixed window - the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ the inverter's DC kWp from the string register (kWh/kWp); a plant without a complete register falls back to rated AC kW for every inverter (kWh/kW AC, said in the column). Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) - same thresholds the solar director's monthly closes use. Availability = the same evidence rule as the plant value: daylight 15-minute steps (sun above 15°) in which the inverter produced, ÷ the steps whose state is known; a reading at 0 W while its peers report counts as down, a step without information is left out (a connection gap is not an outage). Coverage = the share of those daylight steps with a real reading from the inverter; a value the vendor keeps repeating unchanged (same power, counter and temperature) is not a reading. The Plant row weights each inverter by its rated kW over the same steps. When an inverter's set of live string inputs changed inside the window (strings repaired or lost), its index is shown since that day, against the peers over the same days, so a repaired fault does not keep penalizing it. Caveat: inverters with a different orientation mix than their peers still sit structurally lower or higher - judge such units by their own trend.",
+             "Ventana móvil de 30 días hasta el borde de datos (fija - el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kWp CC del inversor según el registro de strings (kWh/kWp); una planta sin registro completo usa kW CA nominales para todos sus inversores (kWh/kW CA, indicado en la columna). Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) - los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = la misma regla de evidencia que el valor de planta: pasos diurnos de 15 minutos (sol sobre 15°) en que el inversor produjo, ÷ los pasos con estado conocido; una lectura de 0 W mientras sus pares reportan cuenta como caído, un paso sin información queda fuera (un hueco de conexión no es una falla). Cobertura = la fracción de esos pasos diurnos con una lectura real del inversor; un valor que el proveedor repite sin cambio (misma potencia, contador y temperatura) no es una lectura. La fila Planta pondera cada inversor por sus kW nominales sobre los mismos pasos. Cuando el conjunto de entradas de string activas de un inversor cambió dentro de la ventana (strings reparados o perdidos), su índice se muestra desde ese día, contra sus pares en los mismos días, para que una falla ya reparada no lo siga penalizando. Advertencia: inversores con orientación distinta a sus pares quedan estructuralmente más abajo o arriba - júzguelos por su propia tendencia.")
     chart = inverter_chart_svg(stats, {sn: ((inv_meta.get((k, sn)) or (sn, 0))[0], denom.get(sn) or 0) for sn in stats},
                                unit=unit)
     if chart:

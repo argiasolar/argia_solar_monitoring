@@ -115,3 +115,23 @@ def month_vs_contract(ym: str, actual_kwh: float, contract_kwh: float, asof: str
     partial = asof[:7] == ym and int(asof[8:10]) < days
     basis = contract_kwh * int(asof[8:10]) / days if partial else contract_kwh
     return basis, (actual_kwh / basis * 100.0 if basis else None), partial
+
+
+# ------------------------------------------------- R4: index since the last change
+def index_since(daily: Mapping[str, Mapping[str, float]], denom: Mapping[str, Optional[float]],
+                sn: str, start: str) -> Optional[float]:
+    """v394 (R4): the inverter's index against the plant median over the days from ``start``
+    (its last known change, e.g. strings repaired) - the peers over the SAME days, so a
+    repaired fault stops penalizing it. ``daily``: {serial: {date: kWh}}; ``denom``: kWp per
+    serial (DC when known). None when it or the peers have no energy in the window."""
+    def sy(s):
+        d = denom.get(s)
+        e = sum(v for day, v in (daily.get(s) or {}).items() if day >= start)
+        return e / d if d and e > 0 else None
+    mine = sy(sn)
+    peers = sorted(y for y in (sy(s) for s in daily) if y is not None)
+    if mine is None or not peers:
+        return None
+    n = len(peers)
+    med = peers[n // 2] if n % 2 else (peers[n // 2 - 1] + peers[n // 2]) / 2
+    return mine / med if med else None

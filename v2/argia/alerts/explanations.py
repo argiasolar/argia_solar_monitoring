@@ -55,6 +55,17 @@ _CATALOG: Dict[str, Dict[str, str]] = {
             "week. A string at ~0 A in good sun confirms a physical problem "
             "worth a site visit."),
     },
+    "string_register": {
+        "meaning": (
+            "v394: every night the noon current of each inverter input is compared with the "
+            "string register (Annex A + layout). A registered string at ~0 A for 3 producing "
+            "days is a lost string (WARNING). An input carrying current that no register line "
+            "names means the register does not follow the field wiring (INFO, portal only)."),
+        "check": (
+            "Dead string: check fuse, connector and cable of that input on site. Register "
+            "mismatch: confirm the wiring on site, then correct the register (Annex A / channel "
+            "override) - the flag closes by itself once both agree."),
+    },
     "inverter_silent": {
         "meaning": (
             "This inverter stopped sending data while the other inverters "

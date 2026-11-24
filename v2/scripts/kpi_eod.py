@@ -186,6 +186,24 @@ def availability_for_recent_days(dry_run: bool, days: int = AVAIL_REFRESH_DAYS) 
                                                    type(e).__name__, e)
 
 
+def string_noon_for_recent_days(dry_run: bool, days: int = 35) -> None:
+    """v394 (Arturo's methodology R3/R4): refresh string_noon_daily - every input's noon
+    current per day - for the last ``days`` MX days (late string data reaches its day).
+    Feeds the register check (alerts_daily) and the inverter index window (report)."""
+    try:
+        from argia.store import pg_mirror
+        if not pg_mirror.enabled() or dry_run:
+            return
+        from argia.analytics.register_check import refresh_sql
+        from argia.store.pgq import psql_exec
+        d1 = now_mx().date()
+        psql_exec("SET statement_timeout = '300s';\n" + refresh_sql(d1 - dt.timedelta(days=days), d1), timeout=330)
+        logging.getLogger("argia.kpi_eod").info("string noon medians refreshed, last %d days", days)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("argia.kpi_eod").warning("string noon refresh failed (KPI run unaffected): %s: %s",
+                                                   type(e).__name__, e)
+
+
 def losses_for_recent_days(dry_run: bool, days: int = 3) -> None:
     """Recompute loss_daily for the last ``days`` MX days (a late counter or a
     thermal re-run is picked up the next morning)."""
@@ -629,6 +647,7 @@ def main(argv=None) -> int:
     # energy and expected_kwh stamped above, so it runs last. Never fails the KPI run.
     losses_for_recent_days(args.dry_run)
     availability_for_recent_days(args.dry_run)
+    string_noon_for_recent_days(args.dry_run)
 
     if plants_with_data == 0:
         return 2

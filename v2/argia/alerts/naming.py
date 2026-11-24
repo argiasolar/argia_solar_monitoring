@@ -31,6 +31,7 @@ METRIC_PHRASE: Dict[str, str] = {
     "inverter_relative": "inverter below its peers",
     "inverter_silent": "inverter silent while the plant produces",
     "string_fault": "new string diagnostic flag",
+    "string_register": "string register does not match the field",
     "energy_daily_pct": "production far below expected",
     "plant_offline": "plant produced nothing",
     "plant_twin_yield": "below its twin plant",

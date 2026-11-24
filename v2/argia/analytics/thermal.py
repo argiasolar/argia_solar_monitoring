@@ -17,7 +17,13 @@ exclusions for insufficient ventilation) but never says "65 °C internal
 * **Peer deviation** ΔT_peer = internal − median of the plant's other
   inverters: the strongest single signal of a cooling problem (dirty
   heat sink, blocked fan, bad clearance) because ambient, irradiance
-  and loading are shared.
+  and loading are shared. v392 (Arturo's methodology R8): only at
+  similar, steady load - the unit and the peers it is compared with
+  have all run at >= REF_MIN_SP of rated for WARM_BUCKETS consecutive
+  5-minute buckets. Before, a peer that was off (outage, night standby)
+  or had just restarted was cold and made a healthy unit "+23 K"
+  (Vitalmex 7-8 Nov, SAG every evening) while loaded temperatures
+  differed by 3 K or less.
 * **Suspected thermal derating** per 5-minute interval: the inverter is
   ≥ T_HOT, hotter than its cooler peers by ≥ DT_PEER_MIN, and produces
   below the cooler peers' specific power (kW per rated kW, corrected by
@@ -58,6 +64,7 @@ DT_PEER_MIN = 5.0      # hotter than the cooler peers by at least this
 DT_PEER_POOR = 10.0    # cooling health POOR from this peer deviation
 LOSS_MIN_PCT = 3.0     # a ratio below 1 - 3 % counts as derating
 REF_MIN_SP = 0.20      # peers must run >= 20 % of rated (no dawn/dusk noise)
+WARM_BUCKETS = 12      # v392: ...and have done so for 1 hour (a restarted unit is still cold)
 INTERVAL_MIN = 5       # telemetry cadence
 BIN_C = 2.5
 BIN_MIN, BIN_MAX = 40.0, 90.0
@@ -164,13 +171,22 @@ def evaluate_intervals(samples: Iterable[Sample], rated_kw: Dict[str, float],
         if sn not in cur or ts > cur[sn][3]:          # newest sample in the bucket
             cur[sn] = (float(p_w) / 1000.0, float(t_c), amb, ts, mode)
     out: List[IntervalEval] = []
+    warm: Dict[str, int] = {}          # v392: consecutive loaded buckets per unit, up to this one
+    prev_b = None
     for b in sorted(by_ts):
         rows = by_ts[b]
+        step = prev_b is not None and (b - prev_b) == dt.timedelta(minutes=INTERVAL_MIN)
+        warm = {sn: ((warm.get(sn, 0) if step else 0) + 1) if v[0] / rated_kw[sn] >= REF_MIN_SP else 0
+                for sn, v in rows.items()}
+        prev_b = b
         for sn, (kw, t_c, amb, _ts, mode) in rows.items():
             sp = kw / rated_kw[sn]
             peers = [(o, v) for o, v in rows.items() if o != sn]
-            peer_t = _median([v[1] for _, v in peers])
-            dt_peer = (t_c - peer_t) if peer_t is not None else None
+            # v392: compare with peers in steady operation only; report the
+            # deviation only when this unit is in steady operation too
+            peer_t = _median([v[1] for o, v in peers if warm[o] >= WARM_BUCKETS])
+            dt_ref = (t_c - peer_t) if peer_t is not None else None
+            dt_peer = dt_ref if warm[sn] >= WARM_BUCKETS else None
             cooler = [v[0] / rated_kw[o] for o, v in peers
                       if v[1] <= t_c - DT_PEER_MIN and v[0] / rated_kw[o] >= REF_MIN_SP]
             ref_sp = _median(cooler)
@@ -180,8 +196,8 @@ def evaluate_intervals(samples: Iterable[Sample], rated_kw: Dict[str, float],
                 ratio = kw / expected if expected > 0 else None
             ev = IntervalEval(b, sn, t_c, kw, sp, expected, ratio, dt_peer,
                               (t_c - float(amb)) if amb is not None else None, vendor_mode=mode)
-            if (ratio is not None and t_c >= T_HOT and dt_peer is not None
-                    and dt_peer >= DT_PEER_MIN and ratio < 1 - LOSS_MIN_PCT / 100.0):
+            if (ratio is not None and t_c >= T_HOT and dt_ref is not None
+                    and dt_ref >= DT_PEER_MIN and ratio < 1 - LOSS_MIN_PCT / 100.0):
                 ev.derating = True
                 ev.lost_kw = max(0.0, expected - kw)     # type: ignore[operator]
             out.append(ev)

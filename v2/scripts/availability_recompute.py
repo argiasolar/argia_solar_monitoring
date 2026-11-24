@@ -15,6 +15,10 @@ ratio from its well-covered days, the second judges plant-wide silences
 against that normal energy and the day energy the vendor counter finally
 reported. kpi_eod runs it every morning over the last 35 days, so data
 that arrives late (internet back after an outage) reaches its days.
+
+v392 (Arturo's methodology R1): the same pass stores each inverter's judged
+steps (up / down / unknown) in inverter_availability_daily, so the report's
+inverter column and the plant value come from one rule.
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from argia.kpi import availability as AV                      # noqa: E402
+from argia.report.methodology import inverter_steps           # noqa: E402
 from argia.store.pgq import psql_exec, psql_rows              # noqa: E402
 
 TIMEOUT = "SET statement_timeout = '120s';\n"
@@ -86,6 +91,22 @@ def stored(first: dt.date, last: dt.date, only: Optional[str]):
                      f" FROM daily_production WHERE prod_date BETWEEN DATE '{first}' AND DATE '{last}'"
                      + (f" AND plant_key = '{only}'" if only else "") + " ORDER BY 1, 2;")
     return rows
+
+
+INV_TABLE_SQL = ("CREATE TABLE IF NOT EXISTS inverter_availability_daily (plant_key text NOT NULL,"
+                 " inverter_sn text NOT NULL, prod_date date NOT NULL, up_steps integer NOT NULL,"
+                 " down_steps integer NOT NULL, unknown_steps integer NOT NULL,"
+                 " PRIMARY KEY (plant_key, inverter_sn, prod_date));")
+
+
+def inverter_sql(pk: str, day: str, steps) -> str:
+    """v392: replace the plant-day's per-inverter steps (``steps``: {serial: (up, down, unknown)})."""
+    out = [f"DELETE FROM inverter_availability_daily WHERE plant_key = '{pk}' AND prod_date = DATE '{day}';"]
+    for sn, (up, down, unk) in sorted(steps.items()):
+        sn_q = sn.replace("'", "''")
+        out.append("INSERT INTO inverter_availability_daily (plant_key, inverter_sn, prod_date, up_steps, down_steps,"
+                   f" unknown_steps) VALUES ('{pk}', '{sn_q}', DATE '{day}', {int(up)}, {int(down)}, {int(unk)});")
+    return "\n".join(out)
 
 
 def update_sql(pk: str, day: str, res: AV.AvailabilityDay) -> str:
@@ -197,6 +218,7 @@ def run(days: int = 31, only: Optional[str] = None, apply: bool = False, csv_pat
                         "unknown": ";".join(f"{sn}:{n}" for sn, n in sorted(res.unknown_steps.items())),
                         "proven": ";".join(res.proven), "plant_proven_steps": res.plant_proven_steps})
         sql.append(update_sql(pk, day, res))
+        sql.append(inverter_sql(pk, day, inverter_steps(res, [sn for sn, _kw in inv])))
     if not quiet:
         print("usual energy / weather expectation: " + ", ".join(f"{k} {v:.2f}" for k, v in sorted(ratio.items())))
         print(f"{'plant':6} {'date':10} {'old':>7} {'new':>7} {'cover':>6}  down / unknown (15-min steps) / plant-proven")
@@ -213,12 +235,12 @@ def run(days: int = 31, only: Optional[str] = None, apply: bool = False, csv_pat
             w.writeheader()
             w.writerows(changes)
     if apply and sql:
-        psql_exec(TIMEOUT + AV.ENSURE_SQL + "\nBEGIN;\n" + "\n".join(sql) + "\nCOMMIT;\n")
+        psql_exec(TIMEOUT + AV.ENSURE_SQL + "\n" + INV_TABLE_SQL + "\nBEGIN;\n" + "\n".join(sql) + "\nCOMMIT;\n")
         if not quiet:
-            print(f"applied: {len(sql)} plant-day(s) - availability and avail_coverage only")
+            print(f"applied: {len(changes)} plant-day(s) - availability, avail_coverage and the per-inverter steps only")
     elif not quiet:
-        print(f"dry run: {len(sql)} plant-day(s) computed, nothing written (--apply to write)")
-    return len(sql)
+        print(f"dry run: {len(changes)} plant-day(s) computed, nothing written (--apply to write)")
+    return len(changes)
 
 
 def main(argv=None) -> int:

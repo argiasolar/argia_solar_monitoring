@@ -259,6 +259,32 @@ def _inverter_30d(rows):
 
 inv30 = _inverter_30d(_inv_rows)
 
+# v392 (Arturo's methodology R1): the inverter availability column comes from
+# the plant availability's own evidence rule (argia/kpi/availability.py) -
+# availability_recompute stores each inverter's judged daylight steps per day.
+# Online at 0 W while the peers produce is DOWN; a step nobody knows is left out
+# (coverage). Before the first nightly run the column shows " - ", never 100 %.
+from argia.report import methodology as MC   # noqa: E402
+inv_avail_rows = {}   # key -> [(sn, up, down, unknown)]
+try:
+    for r in q("SELECT plant_key, inverter_sn, sum(up_steps), sum(down_steps), sum(unknown_steps)"
+               " FROM inverter_availability_daily"
+               f" WHERE prod_date > DATE '{asof}' - 30 AND prod_date <= DATE '{asof}' GROUP BY 1, 2;"):
+        if len(r) >= 5:
+            inv_avail_rows.setdefault(r[0], []).append((r[1], int(f(r[2]) or 0), int(f(r[3]) or 0), int(f(r[4]) or 0)))
+except RuntimeError:
+    inv_avail_rows = {}
+
+# v392 (R4): DC kWp per inverter from the string register (Annex A, server-only
+# /opt/argia/epi) - the specific yield divides by DC when a plant has it for
+# every inverter, else by rated AC kW for all of them.
+inv_dc = {}
+try:
+    from argia.epi import config as _EPC   # noqa: E402
+    inv_dc = MC.dc_kwp_by_serial(_EPC.load(_EPC.EPI_DIR, _EPC.LAYOUT_DIR))
+except Exception:   # noqa: BLE001 - no register on this host: AC basis, said in the column
+    inv_dc = {}
+
 # v216: thermal health, rolling 30 days (thermal_daily, the nightly
 # scripts/thermal_daily.py) - hours hot, events, peer deviation,
 # suspected derating and its lost kWh per inverter; empty before the
@@ -290,10 +316,8 @@ def thermal_card(k):
         a = stats[sn]
         label, _rated = inv_meta.get((k, sn)) or (sn, 0)
         vendor_min = a.get('vendor_min', 0)
-        cls = ('bad' if (a['poor_days'] >= 3 or a['lost'] >= 50 or vendor_min >= 60)
-               else 'warn' if (a['poor_days'] or a['min65'] >= 300 or vendor_min) else '')
-        health = (t('POOR', 'MALA') if cls == 'bad' else t('WATCH', 'VIGILAR') if cls == 'warn' else t('GOOD', 'BUENA'))
-        pill = f'<span class="pill {cls}">{health}</span>' if cls else f'<span class="pill">{health}</span>'
+        # v392 (Arturo's methodology R8): no cooling grade until the grading is
+        # validated against raw temperatures - the evidence columns stay
         t_lost += a['lost']; t_min65 += a['min65']; t_der += a['derating_min']; t_vendor += vendor_min
         rows.append(f'<tr><td>{_naming.inverter_html(label, sn)}</td>'
                     f'<td class="num">{a["peak"]:,.1f}</td>'
@@ -303,21 +327,19 @@ def thermal_card(k):
                     f'<td class="num">{a["derating_min"] / 60:,.1f}</td>'
                     f'<td class="num">{a["lost"]:,.1f}</td>'
                     f'<td class="num">{(a["lost"] * tariff):,.0f}</td>'
-                    f'<td class="num">{("%.1f" % (vendor_min / 60)) if vendor_min else " - "}</td>'
-                    f'<td class="num">{pill}</td></tr>')
+                    f'<td class="num">{("%.1f" % (vendor_min / 60)) if vendor_min else " - "}</td></tr>')
     rows.append(f'<tr class="total"><td><b>TOTAL</b></td><td class="num"></td><td class="num"><b>{t_min65 / 60:,.1f}</b></td>'
                 f'<td class="num"></td><td class="num"></td><td class="num"><b>{t_der / 60:,.1f}</b></td>'
                 f'<td class="num"><b>{t_lost:,.1f}</b></td><td class="num"><b>{(t_lost * tariff):,.0f}</b></td>'
-                f'<td class="num"><b>{("%.1f" % (t_vendor / 60)) if t_vendor else " - "}</b></td><td></td></tr>')
-    tip = ti("Rolling 30 days from the nightly thermal evaluation of the 5-minute telemetry. Peak = highest internal inverter temperature in the window. h ≥65 °C = hours at or above the ARGIA 'high' band. Events = separate hot episodes. ΔT peers = the unit's worst deviation from the median of the plant's other inverters - the strongest sign of a cooling problem (dirty heat sink, fan, clearance). Derating h = hours ≥65 °C in which the unit, ≥5 °C hotter than its cooler peers, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed (corrected for each unit's usual standing, so a smaller DC field is not counted as loss); MXN = lost kWh × the month's PPA tariff (0 for CAPEX). Vendor h = hours the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) - the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Bands are ARGIA operational thresholds, not manufacturer warranty limits: manuals require ventilation and derate on heat but do not quantify it - this table does, from ARGIA's own data.",
-             "30 días móviles de la evaluación térmica nocturna de la telemetría de 5 minutos. Pico = temperatura interna máxima en la ventana. h ≥65 °C = horas en o sobre la banda 'alta' de ARGIA. Eventos = episodios calientes separados. ΔT pares = la peor desviación de la unidad respecto a la mediana de los demás inversores - la señal más fuerte de un problema de enfriamiento. Derrateo h = horas ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal; kWh perdidos = esa diferencia sumada (corregida por la posición habitual de cada unidad); MXN = kWh perdidos × tarifa PPA del mes (0 en CAPEX). Fabricante h = horas en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) - la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Las bandas son umbrales operativos de ARGIA, no límites de garantía.")
+                f'<td class="num"><b>{("%.1f" % (t_vendor / 60)) if t_vendor else " - "}</b></td></tr>')
+    tip = ti("Rolling 30 days from the nightly thermal evaluation of the 5-minute telemetry. Peak = highest internal inverter temperature in the window. h ≥65 °C = hours at or above the ARGIA 'high' band. Events = separate hot episodes. ΔT peers = the unit's worst 5-minute deviation from the median of the plant's other inverters, counted only while the unit and those peers all run at 20% of rated or more (similar load) - the strongest sign of a cooling problem (dirty heat sink, fan, clearance). No cooling grade is shown until the grading is validated against raw temperatures. Derating h = hours ≥65 °C in which the unit, ≥5 °C hotter than its cooler peers, produced ≥3% less per rated kW than they did; Lost kWh = that shortfall summed (corrected for each unit's usual standing, so a smaller DC field is not counted as loss); MXN = lost kWh × the month's PPA tariff (0 for CAPEX). Vendor h = hours the inverter ITSELF reported a temperature derating mode (Growatt DeratingMode Tinv/Tboost) - the device's own confirmation, independent of the peer comparison; Huawei and SolarEdge publish no such register. Bands are ARGIA operational thresholds, not manufacturer warranty limits: manuals require ventilation and derate on heat but do not quantify it - this table does, from ARGIA's own data.",
+             "30 días móviles de la evaluación térmica nocturna de la telemetría de 5 minutos. Pico = temperatura interna máxima en la ventana. h ≥65 °C = horas en o sobre la banda 'alta' de ARGIA. Eventos = episodios calientes separados. ΔT pares = la peor desviación de 5 minutos de la unidad respecto a la mediana de los demás inversores, contada solo mientras la unidad y esos pares operan al 20% de su potencia nominal o más (carga similar) - la señal más fuerte de un problema de enfriamiento. No se muestra calificación de enfriamiento hasta validarla contra las temperaturas crudas. Derrateo h = horas ≥65 °C en que la unidad, ≥5 °C más caliente que sus pares fríos, produjo ≥3% menos por kW nominal; kWh perdidos = esa diferencia sumada (corregida por la posición habitual de cada unidad); MXN = kWh perdidos × tarifa PPA del mes (0 en CAPEX). Fabricante h = horas en que el propio inversor reportó un modo de derrateo por temperatura (Growatt DeratingMode Tinv/Tboost) - la confirmación del equipo, independiente de la comparación con pares; Huawei y SolarEdge no publican ese registro. Las bandas son umbrales operativos de ARGIA, no límites de garantía.")
     return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Thermal health - last 30 days","Salud térmica - últimos 30 días")}{tip}</h2>'
             f'<table><tr><th>{t("Inverter","Inversor")}</th><th class="num">{t("Peak °C","Pico °C")}</th>'
             f'<th class="num">h ≥65 °C</th><th class="num">{t("Events","Eventos")}</th>'
             f'<th class="num">ΔT {t("peers","pares")}</th><th class="num">{t("Derating h","Derrateo h")}</th>'
             f'<th class="num">{t("Lost kWh","kWh perdidos")}</th><th class="num">MXN</th>'
-            f'<th class="num">{t("Vendor h","Fabricante h")}</th>'
-            f'<th class="num">{t("Cooling","Enfriamiento")}</th></tr>' + ''.join(rows) + '</table></div>')
+            f'<th class="num">{t("Vendor h","Fabricante h")}</th></tr>' + ''.join(rows) + '</table></div>')
 
 
 def expected_month_kwh(k, ym):
@@ -1185,12 +1207,12 @@ def ticket_pill(tk):
             f'{html.escape(number)} · {t(lab[0], lab[1])}</a>')
 
 
-def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
+def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None, unit='kWh/kW'):
     """v231 (Tomasz: 'a graph like the Growatt server shows - inverter
     production over time'): one line per inverter, daily kWh from its
     own counter over the rolling 30 days. ``stats`` = inv30[plant]
     ({sn: {..., 'daily': {date: kwh}}}), ``meta`` = {sn: (label,
-    rated_kw)}. v233: hovering a day shows every inverter's kWh for
+    yield denominator)} - v392: DC kWp when known, ``unit`` names it. v233: hovering a day shows every inverter's kWh for
     that day in one box (portal_chrome.argiaChartHover reads the series from
     data-chart; without JS the point titles still answer); a checkbox per inverter
     in the legend includes or excludes its line; tickets stay in the
@@ -1230,7 +1252,7 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
         out.append(f'<g class="ser" data-sn="{sid}"><path class="line" style="stroke:{color}" d="{d_attr}"><title>{who}</title></path>')
         for i, v in pts:
             x, y = pt(i, v)
-            per_kw = f' · {v / rated:,.2f} kWh/kW' if rated else ''
+            per_kw = f' · {v / rated:,.2f} {unit}' if rated else ''
             out.append(f'<circle class="pt" cx="{x:.1f}" cy="{y:.1f}" r="2.6" style="fill:{color}">'
                        f'<title>{days[i]} · {who} ({sid}): {v:,.0f} kWh{per_kw}</title></circle>')
         out.append('</g>')
@@ -1238,7 +1260,7 @@ def inverter_chart_svg(stats, meta, width=900, height=230, tickets=None):
                       f'<span class="sw" style="background:{color}"></span>{who} <span class="sn">{sid}</span></label>')
         series.append({'sn': sn, 'label': label or sn, 'color': color, 'unit': 'kWh', 'dec': 0,
                        'vals': [round(daily[d], 1) if d in daily else None for d in days],
-                       'extra': [f'{daily[d] / rated:,.2f} kWh/kW' if (d in daily and rated) else '' for d in days]})
+                       'extra': [f'{daily[d] / rated:,.2f} {unit}' if (d in daily and rated) else '' for d in days]})
     ev = max(1, n // 8)
     for i, d in enumerate(days):
         if i % ev == 0:
@@ -1260,11 +1282,14 @@ def inverter_card(k):
     if not stats:
         return (f'<div class="card"><h2>{t("Inverters - last 30 days","Inversores - últimos 30 días")}</h2>'
                 f'<p class="note">{t("No inverter telemetry in the window.","Sin telemetría de inversores en la ventana.")}</p></div>')
+    ac = {sn: (inv_meta.get((k, sn)) or ('', 0))[1] for sn in stats}
+    denom, unit = MC.yield_basis(k, stats, inv_dc, ac)          # v392 R4: DC kWp when known
     yields = {}
     for sn, a in stats.items():
-        rated = (inv_meta.get((k, sn)) or ('', 0))[1]
-        yields[sn] = a['kwh'] / rated if rated > 0 and a['kwh'] > 0 else None
+        dn = denom.get(sn)
+        yields[sn] = a['kwh'] / dn if dn and a['kwh'] > 0 else None
     med = _median([y for y in yields.values() if y is not None])
+    avail, plant_av = MC.availability_window(inv_avail_rows.get(k, []), ac)   # v392 R1
     tickets = {sn: TICKET_BY_INVERTER.get((k, sn)) for sn in stats}       # v232: open ticket per unit
     rows = []
     for sn in sorted(stats, key=lambda s: -(yields.get(s) or 0)):
@@ -1272,7 +1297,7 @@ def inverter_card(k):
         label, rated = inv_meta.get((k, sn)) or (sn, 0)
         sy = yields.get(sn)
         idx = sy / med if (sy is not None and med) else None
-        av = a['on'] / a['plant_slots'] if a['plant_slots'] else None
+        av, cov = avail.get(sn, (None, None))
         if idx is None:
             pill = ' - '
         else:
@@ -1280,28 +1305,37 @@ def inverter_card(k):
             pill = (f'<span class="pill {cls}">{idx*100:,.1f}%</span>' if cls
                     else f'<span class="pill">{idx*100:,.1f}%</span>')
         name = html.escape(label or sn)
-        sub = html.escape(sn) + (f' · {rated:,.0f} kW' if rated else '')
+        dc = inv_dc.get((k, sn))
+        sub = html.escape(sn) + (f' · {dc:,.1f} kWp DC' if dc else '') + (f' · {rated:,.0f} kW AC' if rated else '')
         sy_txt = f'{sy:,.1f}' if sy is not None else ' - '
         av_txt = f'{av*100:,.1f}%' if av is not None else ' - '
+        cov_txt = f'{cov*100:,.1f}%' if cov is not None else ' - '
         tkp = ticket_pill(tickets.get(sn))
         rows.append(f'<tr><td>{name}<br><span class="sub">{sub}</span>' + (f'<br>{tkp}' if tkp else '') + '</td>'
                     f'<td class="num">{a["kwh"]:,.0f}</td>'
                     f'<td class="num">{sy_txt}</td>'
                     f'<td class="num">{pill}</td>'
-                    f'<td class="num">{av_txt}</td></tr>')
-    tip = ti("Rolling 30 days ending at the data edge (fixed window - the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ rated AC kW, the size-fair comparison. Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) - same thresholds the solar director's monthly closes use. Availability = share of the plant's polling slots this inverter reported online; silence counts against it, so a comms gap shows here too. Caveat: the index divides by rated AC kW, so an inverter carrying a different DC-to-AC loading or orientation mix than its peers (e.g. one smaller unit among large ones) sits structurally lower or higher - judge such units by their own trend, not by rank. String-level analysis (coming) removes this bias.",
-             "Ventana móvil de 30 días hasta el borde de datos (fija - el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kW CA nominales, la comparación justa por tamaño. Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) - los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = fracción de intervalos de sondeo en que este inversor reportó en línea; el silencio cuenta en contra, así que un hueco de comunicación también aparece aquí. Advertencia: el índice divide entre kW CA nominales, así que un inversor con carga CC/CA u orientación distinta a sus pares (p.ej. una unidad pequeña entre grandes) queda estructuralmente más abajo o arriba - júzguelo por su propia tendencia, no por el ranking. El análisis por string (en camino) elimina este sesgo.")
-    chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})
+                    f'<td class="num">{av_txt}</td>'
+                    f'<td class="num">{cov_txt}</td></tr>')
+    if plant_av[0] is not None:     # v392 R1: the plant = capacity-weighted inverters, same steps
+        rows.append(f'<tr class="total"><td><b>{t("Plant","Planta")}</b></td><td class="num"></td><td class="num"></td>'
+                    f'<td class="num"></td><td class="num"><b>{plant_av[0]*100:,.1f}%</b></td>'
+                    f'<td class="num"><b>{plant_av[1]*100:,.1f}%</b></td></tr>')
+    tip = ti("Rolling 30 days ending at the data edge (fixed window - the date picker above does not move it). Energy = the inverter's own daily counters summed. Specific yield = energy ÷ the inverter's DC kWp from the string register (kWh/kWp); a plant without a complete register falls back to rated AC kW for every inverter (kWh/kW AC, said in the column). Index = specific yield ÷ the plant median inverter (1.000 = typical peer): below 0.90 needs review (red), 0.90–0.96 monitor (amber) - same thresholds the solar director's monthly closes use. Availability = the same evidence rule as the plant value: daylight 15-minute steps (sun above 15°) in which the inverter produced, ÷ the steps whose state is known; a reading at 0 W while its peers report counts as down, a step without information is left out and shown as Coverage (a connection gap is not an outage). The Plant row weights each inverter by its rated kW over the same steps. Caveat: inverters with a different orientation mix than their peers still sit structurally lower or higher - judge such units by their own trend.",
+             "Ventana móvil de 30 días hasta el borde de datos (fija - el selector de fechas de arriba no la mueve). Energía = contadores diarios propios del inversor sumados. Rendimiento específico = energía ÷ kWp CC del inversor según el registro de strings (kWh/kWp); una planta sin registro completo usa kW CA nominales para todos sus inversores (kWh/kW CA, indicado en la columna). Índice = rendimiento específico ÷ la mediana de la planta (1.000 = par típico): bajo 0.90 requiere revisión (rojo), 0.90–0.96 vigilar (ámbar) - los mismos umbrales de los cierres mensuales del director solar. Disponibilidad = la misma regla de evidencia que el valor de planta: pasos diurnos de 15 minutos (sol sobre 15°) en que el inversor produjo, ÷ los pasos con estado conocido; una lectura de 0 W mientras sus pares reportan cuenta como caído, un paso sin información queda fuera y se muestra como Cobertura (un hueco de conexión no es una falla). La fila Planta pondera cada inversor por sus kW nominales sobre los mismos pasos. Advertencia: inversores con orientación distinta a sus pares quedan estructuralmente más abajo o arriba - júzguelos por su propia tendencia.")
+    chart = inverter_chart_svg(stats, {sn: ((inv_meta.get((k, sn)) or (sn, 0))[0], denom.get(sn) or 0) for sn in stats},
+                               unit=unit)
     if chart:
-        chart = (f'<p class="note" style="margin:0 20px 4px">{t("Daily kWh per inverter, each from its own counter - hover a point for the day and its kWh/kW.", "kWh diarios por inversor, cada uno de su propio contador - pase el cursor por un punto para ver el día y sus kWh/kW.")}</p>'
+        chart = (f'<p class="note" style="margin:0 20px 4px">{t("Daily kWh per inverter, each from its own counter - hover a point for the day and its " + unit + ".", "kWh diarios por inversor, cada uno de su propio contador - pase el cursor por un punto para ver el día y sus " + unit + ".")}</p>'
                  + chart)
     return (f'<div class="card"><h2 style="display:flex;align-items:center">{t("Inverters - last 30 days","Inversores - últimos 30 días")}{tip}</h2>'
             + chart +
             f'<table><tr><th>{t("Inverter","Inversor")}</th>'
             f'<th class="num">kWh</th>'
-            f'<th class="num">{t("kWh/kW","kWh/kW")}</th>'
+            f'<th class="num">{unit}</th>'
             f'<th class="num">{t("Index vs median","Índice vs mediana")}</th>'
-            f'<th class="num">{t("Availability","Disponibilidad")}</th></tr>'
+            f'<th class="num">{t("Availability","Disponibilidad")}</th>'
+            f'<th class="num">{t("Coverage","Cobertura")}</th></tr>'
             + ''.join(rows) + '</table></div>')
 
 
@@ -1570,22 +1604,35 @@ def plant_parts(k):
         rows = []
         ta = tc = trv = 0.0
         av_ms = []
+        part_note = ''
         for m in ms[-6:]:
             a, cc = avals.get(m, 0), cvals.get(m, 0)
-            pct = a / cc * 100 if cc else 0
+            # v392 (Arturo's methodology R7): the month at the data edge is
+            # compared with its contract prorated to the days with data - the
+            # header tile's rule - marked partial, and kept out of the total
+            cb, pct, partial = MC.month_vs_contract(m, a, cc, asof)
             tr = tariff_for(k, m)
             avs = [v for (kk, d), v in avail_d.items() if kk == k and d[:7] == m]
             mav = sum(avs) / len(avs) if avs else None
+            av_cell = f'{mav*100:,.1f}%' if mav is not None else ' - '
+            pct_cell = f'{pct:,.0f}%' if pct is not None else ' - '
+            if partial:
+                part_note = t(f"{m} is partial: data to {asof}, contract prorated to {int(asof[8:10])} days; left out of the total until the month closes.",
+                              f"{m} es parcial: datos al {asof}, contrato prorrateado a {int(asof[8:10])} días; fuera del total hasta el cierre del mes.")
+                rows.append(f'<tr class="partial"><td>{m} <span class="sub">{t("partial, to","parcial, al")} {asof[8:10]}</span></td>'
+                            f'<td class="num">{a:,.0f}</td><td class="num">{cb:,.0f}</td>'
+                            f'<td class="num">{pct_cell}</td><td class="num">{av_cell}</td>'
+                            f'<td class="num">{a*tr:,.0f}</td></tr>')
+                continue
             if mav is not None:
                 av_ms.append(mav)
-            av_cell = f'{mav*100:,.1f}%' if mav is not None else ' - '
             ta += a; tc += cc; trv += a * tr
             rows.append(f'<tr><td>{m}</td><td class="num">{a:,.0f}</td><td class="num">{cc:,.0f}</td>'
-                        f'<td class="num">{pct:,.0f}%</td><td class="num">{av_cell}</td>'
+                        f'<td class="num">{pct_cell}</td><td class="num">{av_cell}</td>'
                         f'<td class="num">{a*tr:,.0f}</td></tr>')
         tav = (f'{sum(av_ms)/len(av_ms)*100:,.1f}%' if av_ms else ' - ')
         tpct = f'{ta/tc*100:,.0f}%' if tc else ' - '
-        rows.append(f'<tr><td><b>TOTAL</b></td><td class="num"><b>{ta:,.0f}</b></td>'
+        rows.append(f'<tr><td><b>{t("TOTAL closed months","TOTAL meses cerrados") if part_note else "TOTAL"}</b></td><td class="num"><b>{ta:,.0f}</b></td>'
                     f'<td class="num"><b>{tc:,.0f}</b></td><td class="num"><b>{tpct}</b></td>'
                     f'<td class="num"><b>{tav}</b></td><td class="num"><b>{trv:,.0f}</b></td></tr>')
         ctr_h = t("Contract kWh", "kWh contrato") if is_ppa else t("Expected kWh", "kWh esperado")
@@ -1595,7 +1642,8 @@ def plant_parts(k):
                            f'<th class="num">{ctr_h}</th><th class="num">%</th>'
                            f'<th class="num">{t("Availability","Disponibilidad")}</th>'
                            f'<th class="num">{mon_h}</th></tr>'
-                           + ''.join(rows) + '</table></div>')
+                           + ''.join(rows) + '</table>'
+                           + (f'<p class="note">{part_note}</p>' if part_note else '') + '</div>')
         body.append(parts['months'])
 
     parts['footer'] = f'<footer>{t("Source: PostgreSQL argia_mont (v1 history + v2 KPI). Revenue is an estimate (energy × tariff), not invoiced amounts.","Fuente: PostgreSQL argia_mont (historia v1 + KPI v2). El ingreso es estimado (energía × tarifa), no facturado.")}</footer>'

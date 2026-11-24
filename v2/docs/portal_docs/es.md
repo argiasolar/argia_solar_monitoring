@@ -174,6 +174,8 @@ cobertura      = (ARRIBA + ABAJO) / tiempo evaluado
 
 **30 días:** las disponibilidades diarias ponderadas por su cobertura; un día sin registro suma tiempo debido sin tiempo conocido.
 
+**Por inversor** (reporte de planta, tabla de inversores): los mismos pasos, guardados por inversor en el recálculo nocturno. Disponibilidad = sus ARRIBA / (ARRIBA + ABAJO), Cobertura = su parte conocida; la fila **Planta** pondera los inversores por kW nominales sobre los mismos pasos, así que coincide con la cifra de planta. Un inversor en línea a 0 W mientras sus pares producen está ABAJO; un hueco de conexión nunca es una falla.
+
 ```formula
 disponibilidad_30d = suma(disponibilidad_d x cobertura_d) / suma(cobertura_d)
 cobertura_30d      = suma(cobertura_d) / días debidos
@@ -373,7 +375,8 @@ varios días        = suma(solar consumida) / suma(consumo)
 ![Salud térmica: temperatura pico, tiempo caliente, desviación frente a pares y ambiente, derrateo y su costo](thermal)
 
 - **Bandas** sobre la temperatura interna (umbrales operativos de ARGIA, no límites de garantía): normal < 50, vigilancia 50 a 60, aviso 60 a 65, alta 65 a 70, crítica ≥ 70 °C (inspección inmediata ≥ 75 °C).
-- **ΔT pares** = este inversor menos la mediana de los demás inversores de la planta: la señal más fuerte de un problema de enfriamiento (disipador, ventilador, espacio libre), porque el ambiente, la irradiancia y la carga son compartidos.
+- **ΔT pares** = este inversor menos la mediana de los demás inversores de la planta: la señal más fuerte de un problema de enfriamiento (disipador, ventilador, espacio libre), porque el ambiente, la irradiancia y la carga son compartidos. Se cuenta solo con carga similar y estable: el inversor y los pares con que se compara han trabajado a {{pct:thermal.REF_MIN_SP}} de su nominal o más durante {{c:thermal.WARM_BUCKETS}} intervalos seguidos de 5 minutos (un inversor detenido o recién arrancado está frío y no es una referencia justa).
+- **No se muestra calificación de enfriamiento** (buena / vigilar / mala) hasta validarla contra las temperaturas crudas; las columnas de evidencia se mantienen.
 - **ΔT ambiente** = interna menos ambiente del sitio.
 - **Derrateo sospechado** en un intervalo de 5 minutos: el inversor está a {{c:thermal.T_HOT}} °C o más, al menos {{c:thermal.DT_PEER_MIN}} °C más caliente que sus pares frescos, y produce al menos {{c:thermal.LOSS_MIN_PCT}} % menos por kW nominal que ellos (corregido por su propia relación en clima fresco); los pares deben trabajar a {{pct:thermal.REF_MIN_SP}} de su nominal o más. **kWh perdidos** = esa diferencia sumada.
 - **Derrateo del fabricante** = minutos en que el propio inversor reportó un modo de derrateo por temperatura (donde el fabricante lo publica).

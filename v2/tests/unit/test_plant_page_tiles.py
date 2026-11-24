@@ -251,14 +251,27 @@ class TestInverterChart:
         ns["inv30"] = ns["_inverter_30d"](rows)
         ns["inv_meta"] = {("NL1", "A"): ("Inverter 1", 124.0), ("NL1", "B"): ("Inverter 2", 124.0)}
         ns["TICKET_BY_INVERTER"] = {("NL1", "B"): ("TK-NL1-0002", "NEW", "P2")}
+        from argia.report import methodology as MC
+        ns["MC"], ns["inv_dc"], ns["inv_avail_rows"] = MC, {}, {}
         card = ns["inverter_card"]("NL1")
         assert card.count('class="tkpill"') == 1            # the table row of Inverter 2 only (v233: legend stays clean)
         assert card.index("<svg") < card.index("<table")
         assert "Inverter 1<br>" in card and 'TK-NL1-0002 · New</a></td>' in card
         assert ns["inverter_card"]("ZZZ").count("No inverter telemetry") == 1
+        # v392: no register -> AC basis said in the column; no availability evidence -> " - ", never 100 %
+        assert '<th class="num">kWh/kW AC</th>' in card and "100.0%" not in card and 'class="total"' not in card
+        # v392 R4 + R1: DC kWp from the register, availability and coverage from the judged steps, plant row
+        ns["inv_dc"] = {("NL1", "A"): 160.0, ("NL1", "B"): 160.0}
+        ns["inv_avail_rows"] = {"NL1": [("A", 90, 10, 0), ("B", 100, 0, 20)]}
+        card = ns["inverter_card"]("NL1")
+        assert '<th class="num">kWh/kWp</th>' in card and "160.0 kWp DC · 124 kW AC" in card
+        assert '<td class="num">7.8</td>' in card                       # 1,250 kWh / 160 kWp
+        assert "<td class=\"num\">90.0%</td><td class=\"num\">100.0%</td>" in card     # A: 90 up of 100 known
+        assert "<td class=\"num\">100.0%</td><td class=\"num\">83.3%</td>" in card     # B: unknown is coverage
+        assert "<b>95.0%</b>" in card and "<b>90.9%</b>" in card          # plant: 190/200, 200/220
 
     def test_card_embeds_the_chart_above_the_table(self):
-        assert "chart = inverter_chart_svg(stats, {sn: inv_meta.get((k, sn)) or (sn, 0) for sn in stats})" in SRC
+        assert "chart = inverter_chart_svg(stats, {sn: ((inv_meta.get((k, sn)) or (sn, 0))[0], denom.get(sn) or 0) for sn in stats}," in SRC
         # the chart's CSS lives in the portal chrome - report_gen's own stylesheet never reaches the portal pages
         chrome = (V2 / "server" / "bundle" / "portal_chrome.py").read_text(encoding="utf-8")
         for rule in (".invchart,.hchart{position:relative", ".invlegs{", ".invleg{", ".chtip{", ".chguide{", ".tkpill{", ".sw{",

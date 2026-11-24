@@ -174,6 +174,8 @@ coverage     = (UP + DOWN) / judged time
 
 **30 days:** the daily availabilities weighted by their coverage; a day with no row adds owed time without known time.
 
+**Per inverter** (plant report, inverter table): the same steps, kept per inverter by the nightly recompute. Availability = its UP / (UP + DOWN), Coverage = its known share; the **Plant** row weights the inverters by rated kW over the same steps, so it equals the plant figure. An inverter online at 0 W while its peers produce is DOWN; a connection gap is never an outage.
+
 ```formula
 availability_30d = sum(availability_d x coverage_d) / sum(coverage_d)
 coverage_30d     = sum(coverage_d) / days owed
@@ -375,7 +377,8 @@ several days      = sum(solar used on site) / sum(consumption)
 ![Thermal health: peak temperature, time hot, deviation from the peers and ambient, derating and its cost](thermal)
 
 - **Bands** on the internal temperature (ARGIA operational thresholds, not warranty limits): normal < 50, watch 50 to 60, warning 60 to 65, high 65 to 70, critical ≥ 70 °C (immediate inspection ≥ 75 °C).
-- **ΔT peers** = this inverter minus the median of the plant's other inverters: the strongest sign of a cooling problem (heat sink, fan, clearance), because ambient, irradiance and load are shared.
+- **ΔT peers** = this inverter minus the median of the plant's other inverters: the strongest sign of a cooling problem (heat sink, fan, clearance), because ambient, irradiance and load are shared. Counted only at similar, steady load: the inverter and the peers it is compared with have all run at {{pct:thermal.REF_MIN_SP}} of rated or more for {{c:thermal.WARM_BUCKETS}} consecutive 5-minute intervals (a stopped or just restarted inverter is cold and is not a fair reference).
+- **No cooling grade** (good / watch / poor) is shown until the grading is validated against raw temperatures; the evidence columns stay.
 - **ΔT ambient** = internal minus site ambient.
 - **Suspected derating** in a 5-minute interval: the inverter is at least {{c:thermal.T_HOT}} °C, hotter than its cooler peers by at least {{c:thermal.DT_PEER_MIN}} °C, and produces at least {{c:thermal.LOSS_MIN_PCT}} % less per rated kW than they do (corrected by its own cool-weather ratio); the peers must run at {{pct:thermal.REF_MIN_SP}} of rated or more. **Lost kWh** = that shortfall summed.
 - **Vendor derating** = minutes the inverter itself reported a temperature derating mode (where the manufacturer publishes it).

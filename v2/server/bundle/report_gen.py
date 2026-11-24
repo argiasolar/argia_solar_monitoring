@@ -1430,18 +1430,16 @@ def epi_tile(k):
     """v395 (Arturo's R6 + R9): the performance headline - EPI-600 against the frozen design,
     month to date, with the last 7 days, the last day, and the month without the days with
     known events next to it."""
-    ev = MC.event_days({d: v for (kk, d), v in avail_d.items() if kk == k}, maint_days.get(k, []))
-    sm = MC.epi_summary(epi_days[k], asof, ev)
-    pc = lambda v: ' - ' if v is None else f'{v * 100:,.1f}%'
+    # v399 (Arturo, 24 Nov 2026): no variant without the event days - EPI-600 already keeps
+    # unavailable time out, Availability-150 covers the outage; an EPI above 100 % shows as 100 %
+    sm = MC.epi_summary(epi_days[k], asof, {})
+    pc = lambda v: ' - ' if v is None else f'{min(v, 1.0) * 100:,.1f}%'
     sub = (f'{t("last 7 days","últimos 7 días")} {pc(sm["d7"])} · '
            f'{t("last day","último día")} {pc(sm["day"])}' + (f' ({sm["day_date"][5:]})' if sm['day_date'] else ''))
-    if sm['mtd_wo_events'] is not None:
-        sub += (f'<br>{t("without event days","sin días con eventos")} ({", ".join(d[5:] for d in sm["excluded"])}): '
-                f'{pc(sm["mtd_wo_events"])}')
     if sm['computed'] < sm['days']:
         sub += f'<br>{sm["computed"]}/{sm["days"]} {t("days computed","días calculados")}'
-    tip = ti("EPI-600 = energy the inverters delivered ÷ energy the frozen design (HelioScope base v1: monthly design PR, soiling profile, string by string) expects for the measured irradiance and module temperature, over the 5-minute samples with plane-of-array irradiance of 600 W/m2 or more. Ratio of sums, never an average of daily ratios. Green ≥ 97%, amber 93-97%, red below 93%. Month to date is the headline; the last 7 days and the last day show whether a loss is current; 'without event days' leaves out days with logged maintenance or plant availability below 98% (outages), so a one-off event and a running loss (soiling) can be told apart.",
-             "EPI-600 = energía entregada por los inversores ÷ energía que el diseño congelado (HelioScope base v1: PR de diseño mensual, perfil de suciedad, cadena por cadena) espera para la irradiancia y la temperatura de módulo medidas, en las muestras de 5 minutos con irradiancia en el plano de 600 W/m2 o más. Cociente de sumas, nunca promedio de cocientes diarios. Verde ≥ 97%, ámbar 93-97%, rojo debajo de 93%. El mes a la fecha es el titular; los últimos 7 días y el último día muestran si una pérdida es actual; 'sin días con eventos' deja fuera días con mantenimiento registrado o disponibilidad de planta debajo de 98% (paros), para distinguir un evento puntual de una pérdida en curso (suciedad).")
+    tip = ti("EPI-600 = energy the inverters delivered ÷ energy the frozen design (HelioScope base v1: monthly design PR, soiling profile, string by string) expects for the measured irradiance and module temperature, over the 5-minute samples with plane-of-array irradiance of 600 W/m2 or more. Ratio of sums, never an average of daily ratios. Green ≥ 97%, amber 93-97%, red below 93%; a value above 100% is shown as 100%. Unavailable time is not part of EPI-600 (Availability-150 covers outages). Month to date is the headline; the last 7 days and the last day show whether a loss is current.",
+             "EPI-600 = energía entregada por los inversores ÷ energía que el diseño congelado (HelioScope base v1: PR de diseño mensual, perfil de suciedad, cadena por cadena) espera para la irradiancia y la temperatura de módulo medidas, en las muestras de 5 minutos con irradiancia en el plano de 600 W/m2 o más. Cociente de sumas, nunca promedio de cocientes diarios. Verde ≥ 97%, ámbar 93-97%, rojo debajo de 93%; un valor sobre 100% se muestra como 100%. El tiempo no disponible no entra al EPI-600 (Availability-150 cubre los paros). El mes a la fecha es el titular; los últimos 7 días y el último día muestran si una pérdida es actual.")
     return (f'<div class="tile {sm["band"]}" id="t_epi"><div class="tlabel">'
             f'{t("EPI-600 vs design, month to date","EPI-600 vs diseño, mes a la fecha")}{tip}</div>'
             f'<div class="tval">{pc(sm["mtd"])}</div><div class="tsub">{sub}</div></div>')

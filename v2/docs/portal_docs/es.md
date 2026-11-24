@@ -333,13 +333,13 @@ disponibilidad de planta = promedio de los inversores ponderado por kWp
 
 **Muestra válida** = irradiancia, temperatura de panel y ambiente de la estación presentes y aprobadas por los controles de calidad ([Datos](#data)); corriente y voltaje de la cadena presentes; la cadena energizada (las cadenas antes de su fecha de energización no existen); el inversor produciendo, es decir su CD al menos {{pct:model.PRODUCING_SHARE}} de su CD esperada. Un inversor que no produce sale del EPI y cuenta ABAJO para disponibilidad. Sin datos del inversor en un paso = FALTANTE: ni ARRIBA ni ABAJO.
 
-**Bandas:** verde ≥ {{pct:model.GREEN}}, ámbar ≥ {{pct:model.AMBER}}, rojo debajo; arriba de {{pct:model.SUSPECT}} = sospechoso (el sensor o el modelo, no la planta); menos de {{c:model.MIN_VALID_SAMPLES}} muestras válidas = datos insuficientes.
+**Bandas:** verde ≥ {{pct:model.GREEN}}, ámbar ≥ {{pct:model.AMBER}}, rojo debajo; un valor sobre 100 % se muestra como 100 % (sin marca de "dato dudoso"; el cálculo no se altera); menos de {{c:model.MIN_VALID_SAMPLES}} muestras válidas = datos insuficientes.
 
 **Mes a la fecha** = se suman los registros (Wh reales, Wh esperados, muestras) de cada día del mes y se divide una sola vez. Un día cerrado se calcula una vez, {{c:live.SETTLE_H}} horas después de terminar (en ese tiempo llegan las cargas tardías), y se guarda; cambiar la configuración o las reglas lo recalcula.
 
 ### En el reporte de planta: el titular
 
-El titular de desempeño del reporte de planta es el **EPI-600 contra el diseño congelado, mes a la fecha** (cociente de sumas sobre los días cerrados del mes; verde ≥ 97 %, ámbar 93 a 97 %, rojo debajo). Junto a él: los **últimos 7 días** y el **último día**, para distinguir una pérdida en curso (suciedad) de una ya terminada, y el mes **sin días con eventos** - días con mantenimiento registrado o disponibilidad de planta debajo de 98 % (un paro) - nombrados por fecha. La tarjeta de PR se marca como cruda y su brecha dice que compara el PR normalizado por temperatura con la línea base limpia configurada.
+El titular de desempeño del reporte de planta es el **EPI-600 contra el diseño congelado, mes a la fecha** (cociente de sumas sobre los días cerrados del mes; verde ≥ 97 %, ámbar 93 a 97 %, rojo debajo). Junto a él: los **últimos 7 días** y el **último día**, para distinguir una pérdida en curso (suciedad) de una ya terminada. El tiempo no disponible no entra al EPI-600 - Availability-150 cubre los paros - así que no hay variante "sin eventos". La tarjeta de PR se marca como cruda y su brecha dice que compara el PR normalizado por temperatura con la línea base limpia configurada.
 
 ### Huecos de comunicación
 

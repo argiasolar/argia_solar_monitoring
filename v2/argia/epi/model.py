@@ -21,7 +21,7 @@ EPI_600 = 600.0
 EPI_150 = 150.0
 PRODUCING_SHARE = 0.05           # spec 3.2: inverter DC >= 5 % of its expected
 MIN_VALID_SAMPLES = 200          # spec: fewer -> "insufficient data"
-GREEN, AMBER, SUSPECT = 0.97, 0.93, 1.03
+GREEN, AMBER, SUSPECT = 0.97, 0.93, 1.03   # SUSPECT: no longer a band (v399), kept for older readers
 
 # Module degradation, % (year-1 loss, each later year). Spec v0.7 table, plus
 # RS5J-655NBG-E1 from the ReneSola datasheet RS5J-001-B-EN (99 % at year 1,
@@ -124,8 +124,8 @@ class Tally:
 def band(epi: Optional[float], n: int) -> str:
     if epi is None or n < MIN_VALID_SAMPLES:
         return "insufficient"
-    if epi > SUSPECT:
-        return "suspect"
+    # v399 (Arturo, 24 Nov 2026): an EPI above 100 % is shown as 100 % with no "doubtful data"
+    # flag - it is green; the calculation itself is not altered
     if epi >= GREEN:
         return "green"
     return "amber" if epi >= AMBER else "red"

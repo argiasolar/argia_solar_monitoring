@@ -335,13 +335,13 @@ plant availability = kWp-weighted mean of the inverters
 
 **Valid sample** = station irradiance, panel and ambient temperature present and passing the quality checks ([Data](#data)); the string's current and voltage present; the string energized (strings before their energization date do not exist); the inverter producing, i.e. its DC at least {{pct:model.PRODUCING_SHARE}} of its expected DC. A non-producing inverter is excluded from EPI and counts DOWN for availability. No inverter data in a step = MISSING: neither UP nor DOWN.
 
-**Bands:** green ≥ {{pct:model.GREEN}}, amber ≥ {{pct:model.AMBER}}, red below; above {{pct:model.SUSPECT}} = suspect (the sensor or the model, not the plant); fewer than {{c:model.MIN_VALID_SAMPLES}} valid samples = insufficient data.
+**Bands:** green ≥ {{pct:model.GREEN}}, amber ≥ {{pct:model.AMBER}}, red below; a value above 100 % is shown as 100 % (no "doubtful data" flag; the calculation is not altered); fewer than {{c:model.MIN_VALID_SAMPLES}} valid samples = insufficient data.
 
 **Month to date** = the tallies (real Wh, expected Wh, samples) of every day of the month added, then divided once. A closed day is computed once, {{c:live.SETTLE_H}} hours after it ends (late uploads land in that time), and kept; changing the configuration or the rules recomputes it.
 
 ### On the plant report: the headline
 
-The plant report's performance headline is **EPI-600 against the frozen design, month to date** (ratio of sums over the month's closed days, green ≥ 97 %, amber 93 to 97 %, red below). Next to it: the **last 7 days** and the **last day**, so a loss that is still running (soiling) shows apart from one that is over, and the month **without event days** - days with logged maintenance or plant availability below 98 % (an outage) - named by date. The PR tile is labelled raw, and its gap says it compares the temperature-normalized PR with the configured clean baseline.
+The plant report's performance headline is **EPI-600 against the frozen design, month to date** (ratio of sums over the month's closed days, green ≥ 97 %, amber 93 to 97 %, red below). Next to it: the **last 7 days** and the **last day**, so a loss that is still running (soiling) shows apart from one that is over. Unavailable time is not part of EPI-600 - Availability-150 covers outages - so there is no "without events" variant. The PR tile is labelled raw, and its gap says it compares the temperature-normalized PR with the configured clean baseline.
 
 ### Communication gaps
 

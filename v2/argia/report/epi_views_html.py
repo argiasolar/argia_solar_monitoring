@@ -35,6 +35,41 @@ def _days(pl: dict) -> str:
                     f'{n} de {m} días por ahora, el resto se está calculando', 'span')
 
 
+EPI_DISPLAY_MAX = 1.0
+
+
+def cap(x):
+    """v399 (Arturo, 24 Nov 2026): an EPI above 100 % is displayed as 100 %. Display only - the
+    engine, the cache and every ratio keep the computed value."""
+    return None if x is None else min(x, EPI_DISPLAY_MAX)
+
+
+def capped(p: dict) -> dict:
+    """A display copy of a card payload with every EPI-600 figure capped at 100 % (plant, inverters,
+    strings, week / month history). Power series (W/kWp) are untouched. Pure."""
+    import copy
+    q = copy.deepcopy(p)
+    pl = q.get('plant') or {}
+    for k in ('epi600_day', 'epi600_mtd'):
+        if k in pl:
+            pl[k] = cap(pl[k])
+    for i in q.get('inverters') or []:
+        for k in ('epi600_day', 'epi600_mtd', 'epi600_mtd_producing'):
+            if k in i:
+                i[k] = cap(i[k])
+    for sv in (q.get('strings') or {}).values():
+        if isinstance(sv.get('epi600_mtd'), dict):
+            sv['epi600_mtd'] = {u: cap(v) for u, v in sv['epi600_mtd'].items()}
+    h = q.get('hist')
+    if h:
+        h['plant'] = [cap(v) for v in h.get('plant') or []]
+        for part in ('inv', 'str'):
+            h[part] = {k: [cap(v) for v in vals] for k, vals in (h.get(part) or {}).items()}
+        for name in ('sum', 'sum7'):
+            h[name] = {k: cap(v) for k, v in (h.get(name) or {}).items()}
+    return q
+
+
 def _pct(x):
     return 'n/a' if x is None else f'{x * 100:.1f} %'
 
@@ -64,6 +99,7 @@ def day_nav(pk: str, nav: dict) -> str:
 
 
 def render(pk: str, p: dict, live: bool, nav: dict = None) -> str:
+    p = capped(p)                          # v399: EPI above 100 % shown as 100 %
     pl = p['plant']
     band = pl.get('band_mtd') or 'insufficient'
     be, bs = BAND_TEXT.get(band, BAND_TEXT['insufficient'])

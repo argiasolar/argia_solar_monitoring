@@ -75,7 +75,8 @@ class TestReport:
         exec(compile(seg, "rg", "exec"), ns)
         out = ns["epi_tile"]("P")
         assert 'class="tile bad" id="t_epi"' in out and "82.5%" in out
-        assert "without event days (11-07): 90.0%" in out and "last day 90.0% (11-08)" in out
+        assert "last day 90.0% (11-08)" in out
+        assert "without event days" not in out          # v399: removed (Arturo, 24 Nov)
 
 
 def test_acceptance_knows_the_epi_window():

@@ -65,7 +65,7 @@ def test_ratio_of_sums_not_mean_of_ratios():
 
 def test_bands():
     assert M.band(0.98, 500) == "green" and M.band(0.95, 500) == "amber" and M.band(0.90, 500) == "red"
-    assert M.band(1.05, 500) == "suspect" and M.band(0.99, 199) == "insufficient" and M.band(None, 999) == "insufficient"
+    assert M.band(1.05, 500) == "green" and M.band(0.99, 199) == "insufficient" and M.band(None, 999) == "insufficient"
     assert M.band(0.97, 500) == "green" and M.band(0.93, 500) == "amber" and M.band(1.03, 500) == "green"
 
 

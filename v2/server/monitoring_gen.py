@@ -1547,7 +1547,7 @@ def epi_inv_cols(pk, d, sn):
     inv = next((i for i in (p or {}).get('inverters', []) if i.get('sn') == sn), None)
     if inv is None:
         return '<td> - </td><td> - </td><td> - </td>'
-    pct = lambda x: ' - ' if x is None else f'{100 * x:.1f}%'
+    pct = lambda x: ' - ' if x is None else f'{100 * min(x, 1.0):.1f}%'     # v399: EPI above 100 % shown as 100 %
     ek = next((r['etoday'] for r in LATEST.get(d, {}).get(pk, []) if r['sn'] == sn), None)
     yld = ' - ' if (ek is None or not inv.get('kwp')) else f"{ek / inv['kwp']:.2f}"
     strs = f"{inv['producing']} / {inv['n_strings']}"

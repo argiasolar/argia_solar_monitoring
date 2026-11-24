@@ -105,6 +105,16 @@ H [kWh/m²] = trapezoid integral of the irradiance samples over the day / 1000
 
 The trapezoid rule averages each pair of neighbouring samples (a rectangle sum overestimates). The site sensor is used when it gives at least 10 valid samples spread over the day; otherwise the day's irradiation comes from the cloud-cover model and the day is marked as such. Sun that was not measured is never borrowed from other days or other plants.
 
+### Weather station check (daily)
+
+Every performance figure is judged against the station's sun and module temperature, so each station is checked every day:
+
+- **Coverage** - irradiance, module and ambient temperature on at least {{pct:station.COV_MIN}} of the 08:00 to 17:00 five-minute steps. Below that, **the day's PR is not used** (it would be judged against a sun that was not measured).
+- **Module sensor coupled** - string voltage falls about 0.25 to 0.35 % per K as the modules heat up, so the slope of the normalized MPPT voltage against the module temperature must stay below {{c:station.COUPLE_MAX_SLOPE}} %/K (median of the last {{c:station.COUPLE_WINDOW}} days, at least {{c:station.COUPLE_MIN_DAYS}} judged days).
+- **Module minus ambient** at 700 to 950 W/m2 against the station's own first {{c:station.REF_DAYS}} days and against the other stations: more than {{c:station.DRIFT_MAX_K}} K warmer than the fleet's change fails (SAG's sensor: about +8 K since July).
+- Plants that share a station (identical daily irradiance) are named, and use one reference.
+- The satellite cross-check is shown but does not fail a day. Wind and humidity are not stored, so those tests cannot run.
+
 ## Live status {#status}
 
 ### Plant tile and plant page status

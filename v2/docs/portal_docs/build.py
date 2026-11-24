@@ -44,6 +44,7 @@ SOURCES = {                       # placeholder module -> source file (parsed, n
     "losses": "argia/analytics/losses.py",
     "layout": "argia/analytics/string_layout.py",
     "register": "argia/analytics/register_check.py",
+    "station": "argia/analytics/station_check.py",
     "health": "argia/analytics/inverter_health.py",
     "recon": "argia/recon/engine.py",
     "design": "argia/kpi/design_model.py",

@@ -204,6 +204,23 @@ def string_noon_for_recent_days(dry_run: bool, days: int = 35) -> None:
                                                    type(e).__name__, e)
 
 
+def station_check_for_recent_days(dry_run: bool, days: int = 35) -> None:
+    """v396 (Arturo's methodology R10 / R2): judge every weather station day of the last
+    ``days`` MX days (coverage, module-sensor coupling, satellite drift, module-ambient drift)
+    into station_check_daily. The plant report uses it to leave days with a failed station
+    coverage out of PR and to mark the failed days."""
+    try:
+        from argia.store import pg_mirror
+        if not pg_mirror.enabled() or dry_run:
+            return
+        import station_check
+        n = station_check.run(days, apply=True, quiet=True)
+        logging.getLogger("argia.kpi_eod").info("station check: %d station-day(s), last %d days", n, days)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("argia.kpi_eod").warning("station check failed (KPI run unaffected): %s: %s",
+                                                   type(e).__name__, e)
+
+
 def losses_for_recent_days(dry_run: bool, days: int = 3) -> None:
     """Recompute loss_daily for the last ``days`` MX days (a late counter or a
     thermal re-run is picked up the next morning)."""
@@ -648,6 +665,7 @@ def main(argv=None) -> int:
     losses_for_recent_days(args.dry_run)
     availability_for_recent_days(args.dry_run)
     string_noon_for_recent_days(args.dry_run)
+    station_check_for_recent_days(args.dry_run)
 
     if plants_with_data == 0:
         return 2

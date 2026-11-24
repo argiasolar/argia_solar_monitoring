@@ -105,6 +105,16 @@ H [kWh/m²] = integral trapezoidal de las muestras de irradiancia del día / 100
 
 La regla trapezoidal promedia cada par de muestras vecinas (una suma de rectángulos sobrestima). Se usa el sensor del sitio cuando da al menos 10 muestras válidas repartidas en el día; si no, la irradiación del día viene del modelo de nubosidad y el día queda marcado así. El sol que no se midió nunca se toma prestado de otros días ni de otras plantas.
 
+### Verificación diaria de la estación meteorológica
+
+Cada cifra de desempeño se juzga contra el sol y la temperatura de módulo de la estación, así que cada estación se verifica a diario:
+
+- **Cobertura** - irradiancia, temperatura de módulo y ambiente en al menos {{pct:station.COV_MIN}} de los pasos de 5 minutos de 08:00 a 17:00. Debajo de eso **el PR del día no se usa**.
+- **Sensor de módulo montado** - el voltaje de las cadenas baja cerca de 0.25 a 0.35 % por K al calentarse los módulos, así que la pendiente del voltaje MPPT normalizado contra la temperatura de módulo debe quedar debajo de {{c:station.COUPLE_MAX_SLOPE}} %/K (mediana de los últimos {{c:station.COUPLE_WINDOW}} días, al menos {{c:station.COUPLE_MIN_DAYS}} días juzgados).
+- **Módulo menos ambiente** a 700 a 950 W/m2 contra los primeros {{c:station.REF_DAYS}} días de la propia estación y contra las demás: más de {{c:station.DRIFT_MAX_K}} K por encima del cambio de la flota falla (el sensor de SAG: cerca de +8 K desde julio).
+- Las plantas que comparten estación (irradiancia diaria idéntica) se nombran y usan una sola referencia.
+- La verificación satelital se muestra pero no hace fallar el día. El viento y la humedad no se guardan, así que esas pruebas no pueden correr.
+
 ## Estado en vivo {#status}
 
 ### Estado del mosaico y de la página de la planta

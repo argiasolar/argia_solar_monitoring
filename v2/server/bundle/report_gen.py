@@ -198,13 +198,26 @@ for r in q("SELECT plant_key, prod_date, data_class FROM daily_production "
     if len(r) > 2:
         dq_d[(r[0], r[1])] = 1 if r[2].strip() == 'full' else 0
 
+# v396 (Arturo's R2): a day whose weather station covered under 90 % of the daylight steps
+# gives no PR (station_check_daily, refreshed by kpi_eod) - it would be judged against a
+# sun that was not measured
+_ST_OK = ''
+if q("SELECT count(*) FROM information_schema.tables WHERE table_name = 'station_check_daily';")[0][0] not in ('0', ''):
+    _ST_OK = (" AND NOT EXISTS (SELECT 1 FROM station_check_daily s WHERE s.plant_key = daily_production.plant_key"
+              " AND s.prod_date = daily_production.prod_date AND s.coverage < 0.9)")
 pr30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr) FROM daily_production WHERE source='v2' AND pr IS NOT NULL AND pr <= {PR_MAX} "
-    f"AND prod_date > date '{asof}' - 30 GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}
+    f"AND prod_date > date '{asof}' - 30{_ST_OK} GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}
 prstc30 = {r[0]: f(r[1]) for r in q(
     f"SELECT plant_key, avg(pr_stc) FROM daily_production WHERE source='v2'"
-    f" AND pr_stc IS NOT NULL AND pr_stc <= {PR_MAX} AND prod_date > date '{asof}' - 30"
+    f" AND pr_stc IS NOT NULL AND pr_stc <= {PR_MAX} AND prod_date > date '{asof}' - 30{_ST_OK}"
     f" GROUP BY plant_key HAVING count(*) >= {MIN_PR_DAYS};")}   # temperature-normalized PR (25 degC cell)
+station_d = {}   # v396 (R10): key -> [(day, status, reasons, coverage, shared_with)] last 30 days
+if _ST_OK:
+    for r in q("SELECT plant_key, prod_date::text, status, coalesce(reasons,''), coverage, coalesce(shared_with,'')"
+               f" FROM station_check_daily WHERE prod_date > date '{asof}' - 30 ORDER BY 1, 2;"):
+        if len(r) >= 6:
+            station_d.setdefault(r[0], []).append((r[1], r[2], r[3], f(r[4]), r[5]))
 last_seen = {r[0]: r[1] for r in q(
     "SELECT plant_key, max(prod_date) FROM daily_production GROUP BY plant_key;")}
 
@@ -1414,6 +1427,30 @@ def epi_tile(k):
             f'<div class="tval">{pc(sm["mtd"])}</div><div class="tsub">{sub}</div></div>')
 
 
+def station_tile(k):
+    """v396 (Arturo's R10): the weather station behind every performance figure, checked daily
+    - the last day's verdict, the failed days of the last 30 and why, and the plants sharing
+    the station."""
+    rows = station_d.get(k) or []
+    if not rows:
+        return ''
+    last = rows[-1]
+    failed = [r for r in rows if r[1] == 'fail']
+    names = lambda csv_: ', '.join(plants[x]['customer'].split(' PPA')[0].split(',')[-1].strip().title()
+                                   if x in plants else x for x in csv_.split(',') if x)
+    cls = 'bad' if last[1] == 'fail' else ('' if last[1] == 'ok' else 'warn')
+    verdict = {'ok': t('OK', 'OK'), 'fail': t('CHECK FAILED', 'VERIFICACIÓN FALLIDA'),
+               'no_data': t('NO DATA', 'SIN DATOS')}.get(last[1], last[1])
+    sub = f'{last[0][5:]}: ' + (html.escape(last[2]) if last[2] else t('all checks passed', 'todas las verificaciones pasaron'))
+    sub += f'<br>{len(failed)}/{len(rows)} {t("days failed in 30","días fallidos en 30")}'
+    if last[4]:
+        sub += f'<br>{t("shared with","compartida con")} {html.escape(names(last[4]))}'
+    tip = ti("Every day the plant's weather station is checked: coverage (irradiance, module and ambient temperature on 90% or more of the 08:00-17:00 five-minute steps - below that the day's PR is left out), the module sensor sitting on the modules (string voltage must fall as the module temperature rises, 7-day median), and the module-minus-ambient temperature at 700-950 W/m2 against the station's own start and the other stations (a sensor drifting warmer fails above 5 K). The satellite cross-check is shown elsewhere and does not fail the day. Wind and humidity are not stored, so those tests cannot run.",
+             "Cada día se verifica la estación meteorológica de la planta: cobertura (irradiancia, temperatura de módulo y ambiente en 90% o más de los pasos de 5 minutos de 08:00 a 17:00 - debajo de eso el PR del día se deja fuera), el sensor de módulo montado en los módulos (el voltaje de las cadenas debe bajar al subir la temperatura del módulo, mediana de 7 días) y la temperatura módulo menos ambiente a 700-950 W/m2 contra el inicio de la propia estación y las demás estaciones (un sensor que se calienta de más falla arriba de 5 K). La verificación satelital se muestra en otra parte y no hace fallar el día. El viento y la humedad no se guardan, así que esas pruebas no pueden correr.")
+    return (f'<div class="tile {cls}" id="t_station"><div class="tlabel">{t("Weather station check","Verificación de estación")}{tip}</div>'
+            f'<div class="tval">{verdict}</div><div class="tsub">{sub}</div></div>')
+
+
 def plant_parts(k):
     """Everything on a plant page, as parts (v209): the old page and the
     portal assemble them with their own chrome. Data and wording are
@@ -1521,6 +1558,8 @@ def plant_parts(k):
                  f'<div class="tsub">{t("full-coverage days","días con cobertura completa")}</div></div>')
     if k in epi_days:
         tiles.append(epi_tile(k))
+    if k in station_d:
+        tiles.append(station_tile(k))
     if pr:
         base = p.get('prb') or 0
         prstc = prstc30.get(k)
